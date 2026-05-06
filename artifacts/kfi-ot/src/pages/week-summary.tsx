@@ -433,11 +433,18 @@ export default function WeekSummary() {
                       className="overflow-hidden border-border/60 shadow-sm"
                     >
                       <div className="bg-muted/40 px-4 py-3 border-b border-border">
-                        <h3 className="font-display font-semibold text-lg flex items-center gap-2">
+                        <h3 className="font-display font-semibold text-lg flex items-center gap-2 flex-wrap">
                           {group.customer}
                           <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
                             {group.drivers.length} drivers
                           </span>
+                          <ReviewedPill
+                            reviewed={
+                              group.drivers.filter((d) => d.reviewed).length
+                            }
+                            total={group.drivers.length}
+                            testId={`pill-customer-reviewed-${group.customer}`}
+                          />
                         </h3>
                       </div>
                       <div className="overflow-x-auto">
