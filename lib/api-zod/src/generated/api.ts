@@ -888,6 +888,13 @@ export const DownloadAiExtractSampleParams = zod.object({
 });
 
 /**
+ * @summary Permanently delete a stashed AI extract sample (admin). Recorded in user_audit_log as `delete-ai-extract-sample`.
+ */
+export const DeleteAiExtractSampleParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
  * @summary List every saved (customer, nameOnDoc) → driver mapping (admin-only).
  */
 export const ListCustomerNameAliasesResponse = zod.object({

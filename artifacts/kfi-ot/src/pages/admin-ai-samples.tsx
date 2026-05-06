@@ -1,11 +1,14 @@
 import { useMemo } from "react";
 import { Link, Redirect, useSearch, useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetMe,
   useListAiExtractSamples,
+  useDeleteAiExtractSample,
   getListAiExtractSamplesQueryKey,
   getDownloadAiExtractSampleUrl,
 } from "@workspace/api-client-react";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +32,7 @@ import {
   Download,
   Loader2,
   Sparkles,
+  Trash2,
   Users,
 } from "lucide-react";
 
@@ -42,6 +46,23 @@ export default function AdminAiSamples() {
   const { data: me, isLoading: meLoading } = useGetMe();
   const search = useSearch();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const deleteSample = useDeleteAiExtractSample({
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "Sample deleted" });
+        qc.invalidateQueries({ queryKey: getListAiExtractSamplesQueryKey() });
+      },
+      onError: (err: unknown) => {
+        toast({
+          title: "Could not delete sample",
+          description: err instanceof Error ? err.message : "Unknown error",
+          variant: "destructive",
+        });
+      },
+    },
+  });
 
   const customerFilter = useMemo(() => {
     const params = new URLSearchParams(search);
@@ -203,8 +224,8 @@ export default function AdminAiSamples() {
                           <TableHead className="w-[180px]">Uploaded</TableHead>
                           <TableHead className="w-[180px]">By</TableHead>
                           <TableHead className="w-[110px]">Status</TableHead>
-                          <TableHead className="w-[110px] text-right">
-                            Action
+                          <TableHead className="w-[200px] text-right">
+                            Actions
                           </TableHead>
                         </TableRow>
                       </TableHeader>
@@ -252,19 +273,48 @@ export default function AdminAiSamples() {
                                 )}
                               </TableCell>
                               <TableCell className="text-right">
-                                <a
-                                  href={downloadUrl}
-                                  download={s.fileName}
-                                >
+                                <div className="flex justify-end gap-2">
+                                  <a
+                                    href={downloadUrl}
+                                    download={s.fileName}
+                                  >
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      type="button"
+                                    >
+                                      <Download className="h-3.5 w-3.5 mr-1.5" />
+                                      Download
+                                    </Button>
+                                  </a>
                                   <Button
                                     variant="outline"
                                     size="sm"
                                     type="button"
+                                    className="text-destructive hover:text-destructive"
+                                    disabled={
+                                      deleteSample.isPending &&
+                                      deleteSample.variables?.id === s.id
+                                    }
+                                    onClick={() => {
+                                      if (
+                                        !confirm(
+                                          `Delete this stashed AI sample?\n\n${s.fileName}\n(${s.customer}, week ${s.weekStart})\n\nThis cannot be undone.`,
+                                        )
+                                      )
+                                        return;
+                                      deleteSample.mutate({ id: s.id });
+                                    }}
                                   >
-                                    <Download className="h-3.5 w-3.5 mr-1.5" />
-                                    Download
+                                    {deleteSample.isPending &&
+                                    deleteSample.variables?.id === s.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                                    )}
+                                    Delete
                                   </Button>
-                                </a>
+                                </div>
                               </TableCell>
                             </TableRow>
                           );

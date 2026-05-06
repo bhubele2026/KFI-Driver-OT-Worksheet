@@ -1222,6 +1222,43 @@ weeksRouter.patch(
   },
 );
 
+weeksRouter.delete(
+  "/admin/ai-extract-samples/:id",
+  requireAdmin,
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const actorUserId = req.session.userId ?? null;
+    const deleted = await db.transaction(async (tx) => {
+      const removed = await tx
+        .delete(schema.aiExtractSamplesTable)
+        .where(eq(schema.aiExtractSamplesTable.id, id))
+        .returning({
+          id: schema.aiExtractSamplesTable.id,
+          customer: schema.aiExtractSamplesTable.customer,
+          fileName: schema.aiExtractSamplesTable.fileName,
+        });
+      const row = removed[0];
+      if (!row) return null;
+      await tx.insert(schema.userAuditLogTable).values({
+        actorUserId,
+        targetUserId: null,
+        targetEmail: `ai-sample:${row.id} ${row.customer} ${row.fileName}`,
+        action: "delete-ai-extract-sample",
+      });
+      return row;
+    });
+    if (!deleted) {
+      res.status(404).json({ error: "Sample not found" });
+      return;
+    }
+    res.status(204).end();
+  },
+);
+
 weeksRouter.get(
   "/admin/ai-extract-samples/:id/download",
   requireAdmin,

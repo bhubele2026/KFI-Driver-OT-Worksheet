@@ -65,7 +65,8 @@ export const passwordResetsTable = pgTable(
 export type PasswordReset = typeof passwordResetsTable.$inferSelect;
 
 // Append-only audit of admin actions on user accounts (deactivate, reactivate,
-// promote, demote, create-reset-link, create-invite, revoke-invite, accept-invite).
+// promote, demote, create-reset-link, create-invite, revoke-invite, accept-invite,
+// delete-ai-extract-sample).
 // actorUserId is nullable so we can record self-service actions like accept-invite
 // where there is no admin actor. targetUserId is nullable + we keep targetEmail
 // so invite-related events (which exist before any user row) stay attributable.

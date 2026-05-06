@@ -694,6 +694,21 @@ paths:
         "403": { description: Admin only }
         "404": { description: Sample not found or expired }
 
+  /admin/ai-extract-samples/{id}:
+    delete:
+      operationId: deleteAiExtractSample
+      tags: [ingest]
+      summary: Permanently delete a stashed AI extract sample (admin). Recorded in user_audit_log as `delete-ai-extract-sample`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Deleted }
+        "403": { description: Admin only }
+        "404": { description: Sample not found }
+
   /customer-aliases:
     get:
       operationId: listCustomerNameAliases

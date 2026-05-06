@@ -3425,6 +3425,90 @@ export function useDownloadAiExtractSample<
 }
 
 /**
+ * @summary Permanently delete a stashed AI extract sample (admin). Recorded in user_audit_log as `delete-ai-extract-sample`.
+ */
+export const getDeleteAiExtractSampleUrl = (id: number) => {
+  return `/api/admin/ai-extract-samples/${id}`;
+};
+
+export const deleteAiExtractSample = async (
+  id: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteAiExtractSampleUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteAiExtractSampleMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteAiExtractSample>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteAiExtractSample>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteAiExtractSample"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteAiExtractSample>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteAiExtractSample(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteAiExtractSampleMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteAiExtractSample>>
+>;
+
+export type DeleteAiExtractSampleMutationError = ErrorType<void>;
+
+/**
+ * @summary Permanently delete a stashed AI extract sample (admin). Recorded in user_audit_log as `delete-ai-extract-sample`.
+ */
+export const useDeleteAiExtractSample = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteAiExtractSample>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteAiExtractSample>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteAiExtractSampleMutationOptions(options));
+};
+
+/**
  * @summary List every saved (customer, nameOnDoc) → driver mapping (admin-only).
  */
 export const getListCustomerNameAliasesUrl = () => {
