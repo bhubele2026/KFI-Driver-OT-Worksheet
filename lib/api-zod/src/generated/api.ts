@@ -655,6 +655,12 @@ export const ExtractNewCustomerFileResponse = zod.object({
     zod.object({
       driverNameOnDoc: zod.string(),
       badgeOrId: zod.string().nullish(),
+      savedKfiId: zod
+        .string()
+        .nullish()
+        .describe(
+          "A previously-saved alias for this (customer, name) pair, if any. The frontend uses it to pre-select the dropdown.",
+        ),
       matches: zod.array(
         zod.object({
           kfiId: zod.string(),
@@ -746,6 +752,14 @@ export const ListAiExtractSamplesResponse = zod.array(
  */
 export const DownloadAiExtractSampleParams = zod.object({
   id: zod.coerce.number(),
+});
+
+/**
+ * @summary Forget a previously-saved (customer, nameOnDoc) → kfiId mapping so the dispatcher can re-decide next time.
+ */
+export const ForgetCustomerNameAliasQueryParams = zod.object({
+  customer: zod.coerce.string(),
+  nameOnDoc: zod.coerce.string(),
 });
 
 /**

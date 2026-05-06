@@ -392,6 +392,11 @@ export interface DriverNameSuggestion {
   driverNameOnDoc: string;
   /** @nullable */
   badgeOrId?: string | null;
+  /**
+   * A previously-saved alias for this (customer, name) pair, if any. The frontend uses it to pre-select the dropdown.
+   * @nullable
+   */
+  savedKfiId?: string | null;
   matches: DriverMatch[];
 }
 
@@ -462,6 +467,11 @@ export type ListUserAuditLogParams = {
 
 export type ListAiExtractSamplesParams = {
   customer?: string;
+};
+
+export type ForgetCustomerNameAliasParams = {
+  customer: string;
+  nameOnDoc: string;
 };
 
 export type SetReviewedBody = {

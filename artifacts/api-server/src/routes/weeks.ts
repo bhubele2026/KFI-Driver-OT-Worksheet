@@ -838,11 +838,44 @@ weeksRouter.post(
       const key = r.driverNameOnDoc.trim();
       if (!seen.has(key)) seen.set(key, r.badgeOrId ?? null);
     }
-    const suggestions = [...seen.entries()].map(([driverNameOnDoc, badgeOrId]) => ({
-      driverNameOnDoc,
-      badgeOrId,
-      matches: topMatches(driverNameOnDoc, drivers, 5),
-    }));
+    // Pull every saved alias for this customer so we can pre-fill the
+    // dispatcher's dropdown for names they've decided on before. We match
+    // case-insensitively to forgive minor casing drift in the source doc.
+    const savedAliases = await db
+      .select({
+        nameOnDoc: schema.customerNameAliasesTable.nameOnDoc,
+        kfiId: schema.customerNameAliasesTable.kfiId,
+      })
+      .from(schema.customerNameAliasesTable)
+      .where(
+        sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+      );
+    const validKfi = new Set(drivers.map((d) => d.kfiId));
+    const aliasByLowerName = new Map<string, string>();
+    for (const a of savedAliases) {
+      if (validKfi.has(a.kfiId)) {
+        aliasByLowerName.set(a.nameOnDoc.toLowerCase(), a.kfiId);
+      }
+    }
+    const suggestions = [...seen.entries()].map(([driverNameOnDoc, badgeOrId]) => {
+      const matches = topMatches(driverNameOnDoc, drivers, 5);
+      const savedKfiId =
+        aliasByLowerName.get(driverNameOnDoc.toLowerCase()) ?? null;
+      // If the saved driver isn't already in the top-N matches, surface them
+      // at the top so the dropdown can render that option.
+      if (savedKfiId && !matches.some((m) => m.kfiId === savedKfiId)) {
+        const driver = drivers.find((d) => d.kfiId === savedKfiId);
+        if (driver) {
+          matches.unshift({
+            kfiId: driver.kfiId,
+            name: driver.name,
+            customer: driver.customer,
+            confidence: 1,
+          });
+        }
+      }
+      return { driverNameOnDoc, badgeOrId, savedKfiId, matches };
+    });
     res.json({
       customer,
       weekStart: startDate,
@@ -915,6 +948,17 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
     });
   }
 
+  // Distinct (nameOnDoc → kfiId) pairs we want to remember for next week.
+  // We only persist non-null mappings; "Skip" leaves any prior alias intact
+  // so a single accidental skip doesn't erase a learned decision. The
+  // dispatcher uses the explicit "forget" link to undo a saved alias.
+  const aliasUpserts = new Map<string, { nameOnDoc: string; kfiId: string }>();
+  for (const [rawName, kfiId] of Object.entries(parsed.data.mapping)) {
+    const nameOnDoc = rawName.trim();
+    if (!nameOnDoc || !kfiId) continue;
+    aliasUpserts.set(nameOnDoc.toLowerCase(), { nameOnDoc, kfiId });
+  }
+
   await db.transaction(async (tx) => {
     await tx
       .delete(schema.punchesTable)
@@ -945,6 +989,25 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
           createdBy: req.session.userId ?? null,
         })),
       );
+    }
+    for (const { nameOnDoc, kfiId } of aliasUpserts.values()) {
+      // Replace any existing alias for this case-insensitive (customer, name)
+      // before inserting; Drizzle's onConflict needs an explicit unique target
+      // and our index is on `lower(...)` so we can't reference it directly.
+      await tx
+        .delete(schema.customerNameAliasesTable)
+        .where(
+          and(
+            sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+            sql`lower(${schema.customerNameAliasesTable.nameOnDoc}) = lower(${nameOnDoc})`,
+          ),
+        );
+      await tx.insert(schema.customerNameAliasesTable).values({
+        customer,
+        nameOnDoc,
+        kfiId,
+        updatedBy: req.session.userId ?? null,
+      });
     }
   });
 
@@ -1084,6 +1147,24 @@ weeksRouter.get(
     res.send(row.fileBytes);
   },
 );
+
+weeksRouter.delete("/customer-aliases", async (req, res) => {
+  const customer = String(req.query.customer ?? "").trim();
+  const nameOnDoc = String(req.query.nameOnDoc ?? "").trim();
+  if (!customer || !nameOnDoc) {
+    res.status(400).json({ error: "customer and nameOnDoc are required" });
+    return;
+  }
+  await db
+    .delete(schema.customerNameAliasesTable)
+    .where(
+      and(
+        sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+        sql`lower(${schema.customerNameAliasesTable.nameOnDoc}) = lower(${nameOnDoc})`,
+      ),
+    );
+  res.status(204).end();
+});
 
 weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
   const weekStart = req.params.weekStart;

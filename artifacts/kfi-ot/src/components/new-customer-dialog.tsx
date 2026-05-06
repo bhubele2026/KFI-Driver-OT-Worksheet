@@ -54,6 +54,7 @@ interface DriverMatch {
 interface Suggestion {
   driverNameOnDoc: string;
   badgeOrId?: string | null;
+  savedKfiId?: string | null;
   matches: DriverMatch[];
 }
 interface ExtractPreview {
@@ -92,6 +93,10 @@ export function NewCustomerDialog({
   const [preview, setPreview] = useState<ExtractPreview | null>(null);
   const [editedRows, setEditedRows] = useState<ExtractedRow[]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [forgottenAliases, setForgottenAliases] = useState<Set<string>>(
+    new Set(),
+  );
+  const [forgettingName, setForgettingName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -102,8 +107,39 @@ export function NewCustomerDialog({
       setPreview(null);
       setEditedRows([]);
       setMapping({});
+      setForgottenAliases(new Set());
+      setForgettingName(null);
     }
   }, [open]);
+
+  const forgetAlias = async (nameOnDoc: string) => {
+    if (!preview) return;
+    setForgettingName(nameOnDoc);
+    try {
+      const url = `${import.meta.env.BASE_URL}api/customer-aliases?customer=${encodeURIComponent(preview.customer)}&nameOnDoc=${encodeURIComponent(nameOnDoc)}`;
+      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      if (!res.ok && res.status !== 204) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      setForgottenAliases((s) => {
+        const next = new Set(s);
+        next.add(nameOnDoc);
+        return next;
+      });
+      toast({
+        title: "Mapping forgotten",
+        description: `Will ask again next time "${nameOnDoc}" appears on a ${preview.customer} file.`,
+      });
+    } catch (err) {
+      toast({
+        title: "Could not forget mapping",
+        description: errMessage(err, "Network error"),
+        variant: "destructive",
+      });
+    } finally {
+      setForgettingName(null);
+    }
+  };
 
   const runExtract = async () => {
     if (!file || !customer.trim()) return;
@@ -127,6 +163,11 @@ export function NewCustomerDialog({
       setEditedRows(body.rows);
       const initialMap: Record<string, string> = {};
       for (const s of body.suggestions) {
+        // Prefer a previously-saved alias; fall back to the top fuzzy match.
+        if (s.savedKfiId) {
+          initialMap[s.driverNameOnDoc] = s.savedKfiId;
+          continue;
+        }
         const top = s.matches[0];
         initialMap[s.driverNameOnDoc] =
           top && top.confidence >= 0.6 ? top.kfiId : UNMAPPED;
@@ -279,7 +320,27 @@ export function NewCustomerDialog({
                       {preview.suggestions.map((s) => (
                         <TableRow key={s.driverNameOnDoc}>
                           <TableCell className="font-medium">
-                            {s.driverNameOnDoc}
+                            <div className="flex flex-col">
+                              <span>{s.driverNameOnDoc}</span>
+                              {forgottenAliases.has(s.driverNameOnDoc) ? (
+                                <span className="text-[10px] text-muted-foreground">
+                                  Saved mapping forgotten
+                                </span>
+                              ) : s.savedKfiId ? (
+                                <button
+                                  type="button"
+                                  className="self-start text-[10px] text-primary hover:underline disabled:opacity-50"
+                                  onClick={() =>
+                                    forgetAlias(s.driverNameOnDoc)
+                                  }
+                                  disabled={forgettingName === s.driverNameOnDoc}
+                                >
+                                  {forgettingName === s.driverNameOnDoc
+                                    ? "Forgetting…"
+                                    : "Forget saved mapping"}
+                                </button>
+                              ) : null}
+                            </div>
                           </TableCell>
                           <TableCell className="font-mono text-xs text-muted-foreground">
                             {s.badgeOrId ?? "—"}
@@ -308,12 +369,19 @@ export function NewCustomerDialog({
                                       <span className="text-muted-foreground font-mono text-[10px]">
                                         {m.kfiId}
                                       </span>
-                                      <Badge
-                                        variant="outline"
-                                        className="text-[10px]"
-                                      >
-                                        {Math.round(m.confidence * 100)}%
-                                      </Badge>
+                                      {s.savedKfiId === m.kfiId &&
+                                      !forgottenAliases.has(s.driverNameOnDoc) ? (
+                                        <Badge className="text-[10px]">
+                                          saved
+                                        </Badge>
+                                      ) : (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px]"
+                                        >
+                                          {Math.round(m.confidence * 100)}%
+                                        </Badge>
+                                      )}
                                     </span>
                                   </SelectItem>
                                 ))}

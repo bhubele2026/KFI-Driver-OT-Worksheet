@@ -29,6 +29,7 @@ import type {
   DriverWeek,
   EditPunchInput,
   EmailDeliveryResult,
+  ForgetCustomerNameAliasParams,
   HealthStatus,
   Invite,
   InviteWithLink,
@@ -2892,6 +2893,104 @@ export function useDownloadAiExtractSample<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Forget a previously-saved (customer, nameOnDoc) → kfiId mapping so the dispatcher can re-decide next time.
+ */
+export const getForgetCustomerNameAliasUrl = (
+  params: ForgetCustomerNameAliasParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/customer-aliases?${stringifiedParams}`
+    : `/api/customer-aliases`;
+};
+
+export const forgetCustomerNameAlias = async (
+  params: ForgetCustomerNameAliasParams,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getForgetCustomerNameAliasUrl(params), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getForgetCustomerNameAliasMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof forgetCustomerNameAlias>>,
+    TError,
+    { params: ForgetCustomerNameAliasParams },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof forgetCustomerNameAlias>>,
+  TError,
+  { params: ForgetCustomerNameAliasParams },
+  TContext
+> => {
+  const mutationKey = ["forgetCustomerNameAlias"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof forgetCustomerNameAlias>>,
+    { params: ForgetCustomerNameAliasParams }
+  > = (props) => {
+    const { params } = props ?? {};
+
+    return forgetCustomerNameAlias(params, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ForgetCustomerNameAliasMutationResult = NonNullable<
+  Awaited<ReturnType<typeof forgetCustomerNameAlias>>
+>;
+
+export type ForgetCustomerNameAliasMutationError = ErrorType<void>;
+
+/**
+ * @summary Forget a previously-saved (customer, nameOnDoc) → kfiId mapping so the dispatcher can re-decide next time.
+ */
+export const useForgetCustomerNameAlias = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof forgetCustomerNameAlias>>,
+    TError,
+    { params: ForgetCustomerNameAliasParams },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof forgetCustomerNameAlias>>,
+  TError,
+  { params: ForgetCustomerNameAliasParams },
+  TContext
+> => {
+  return useMutation(getForgetCustomerNameAliasMutationOptions(options));
+};
 
 /**
  * @summary Add a manual driver or customer punch

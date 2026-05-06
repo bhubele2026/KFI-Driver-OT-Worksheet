@@ -583,6 +583,24 @@ paths:
         "403": { description: Admin only }
         "404": { description: Sample not found or expired }
 
+  /customer-aliases:
+    delete:
+      operationId: forgetCustomerNameAlias
+      tags: [ingest]
+      summary: Forget a previously-saved (customer, nameOnDoc) → kfiId mapping so the dispatcher can re-decide next time.
+      parameters:
+        - name: customer
+          in: query
+          required: true
+          schema: { type: string }
+        - name: nameOnDoc
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Forgotten (or no alias existed) }
+        "400": { description: Invalid input }
+
   /weeks/{weekStart}/manual-punches:
     post:
       operationId: createManualPunch
@@ -1212,6 +1230,9 @@ components:
         driverNameOnDoc: { type: string }
         badgeOrId:
           type: ["string", "null"]
+        savedKfiId:
+          type: ["string", "null"]
+          description: A previously-saved alias for this (customer, name) pair, if any. The frontend uses it to pre-select the dropdown.
         matches:
           type: array
           items: { $ref: "#/components/schemas/DriverMatch" }
