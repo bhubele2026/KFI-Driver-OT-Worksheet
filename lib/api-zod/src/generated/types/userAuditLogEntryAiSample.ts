@@ -7,7 +7,7 @@
  */
 
 /**
- * Populated when `action` is `delete-ai-extract-sample`. Parsed from `targetEmail` so the UI can render a friendly label without re-parsing the synthetic string.
+ * Populated when `action` is `delete-ai-extract-sample`, `pin-ai-extract-sample`, or `unpin-ai-extract-sample`. Parsed from `targetEmail` so the UI can render a friendly label without re-parsing the synthetic string.
  * @nullable
  */
 export type UserAuditLogEntryAiSample = {

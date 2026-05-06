@@ -1148,7 +1148,13 @@ function parseAiSampleTarget(
   action: string,
   targetEmail: string | null,
 ): { id: number; customer: string; fileName: string; weekStart: string } | null {
-  if (action !== "delete-ai-extract-sample" || !targetEmail) return null;
+  if (
+    action !== "delete-ai-extract-sample" &&
+    action !== "pin-ai-extract-sample" &&
+    action !== "unpin-ai-extract-sample"
+  )
+    return null;
+  if (!targetEmail) return null;
   if (!targetEmail.startsWith("ai-sample:")) return null;
   const rest = targetEmail.slice("ai-sample:".length);
   // Newer rows use `id|weekStart|customer|fileName`; legacy rows used `id customer fileName`.

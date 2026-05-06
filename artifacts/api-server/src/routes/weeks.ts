@@ -1354,24 +1354,35 @@ weeksRouter.patch(
       res.status(400).json({ error: "pinned must be a boolean" });
       return;
     }
-    const updated = await db
-      .update(schema.aiExtractSamplesTable)
-      .set({ pinned })
-      .where(eq(schema.aiExtractSamplesTable.id, id))
-      .returning({
-        id: schema.aiExtractSamplesTable.id,
-        weekStart: schema.aiExtractSamplesTable.weekStart,
-        customer: schema.aiExtractSamplesTable.customer,
-        fileName: schema.aiExtractSamplesTable.fileName,
-        mimeType: schema.aiExtractSamplesTable.mimeType,
-        sizeBytes: schema.aiExtractSamplesTable.sizeBytes,
-        uploadedBy: schema.aiExtractSamplesTable.uploadedBy,
-        uploadedAt: schema.aiExtractSamplesTable.uploadedAt,
-        confirmedAt: schema.aiExtractSamplesTable.confirmedAt,
-        expiresAt: schema.aiExtractSamplesTable.expiresAt,
-        pinned: schema.aiExtractSamplesTable.pinned,
+    const actorUserId = req.session.userId ?? null;
+    const row = await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(schema.aiExtractSamplesTable)
+        .set({ pinned })
+        .where(eq(schema.aiExtractSamplesTable.id, id))
+        .returning({
+          id: schema.aiExtractSamplesTable.id,
+          weekStart: schema.aiExtractSamplesTable.weekStart,
+          customer: schema.aiExtractSamplesTable.customer,
+          fileName: schema.aiExtractSamplesTable.fileName,
+          mimeType: schema.aiExtractSamplesTable.mimeType,
+          sizeBytes: schema.aiExtractSamplesTable.sizeBytes,
+          uploadedBy: schema.aiExtractSamplesTable.uploadedBy,
+          uploadedAt: schema.aiExtractSamplesTable.uploadedAt,
+          confirmedAt: schema.aiExtractSamplesTable.confirmedAt,
+          expiresAt: schema.aiExtractSamplesTable.expiresAt,
+          pinned: schema.aiExtractSamplesTable.pinned,
+        });
+      const r = updated[0];
+      if (!r) return null;
+      await tx.insert(schema.userAuditLogTable).values({
+        actorUserId,
+        targetUserId: null,
+        targetEmail: `ai-sample:${r.id}|${r.weekStart}|${r.customer}|${r.fileName}`,
+        action: pinned ? "pin-ai-extract-sample" : "unpin-ai-extract-sample",
       });
-    const row = updated[0];
+      return r;
+    });
     if (!row) {
       res.status(404).json({ error: "Sample not found" });
       return;

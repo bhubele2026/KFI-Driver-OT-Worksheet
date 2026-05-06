@@ -496,7 +496,7 @@ export const ListUserAuditLogResponseItem = zod.object({
     })
     .nullish()
     .describe(
-      "Populated when `action` is `delete-ai-extract-sample`. Parsed from `targetEmail` so the UI can render a friendly label without re-parsing the synthetic string.",
+      "Populated when `action` is `delete-ai-extract-sample`, `pin-ai-extract-sample`, or `unpin-ai-extract-sample`. Parsed from `targetEmail` so the UI can render a friendly label without re-parsing the synthetic string.",
     ),
 });
 export const ListUserAuditLogResponse = zod.array(ListUserAuditLogResponseItem);

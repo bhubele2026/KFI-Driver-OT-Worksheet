@@ -1833,7 +1833,11 @@ export default function AdminUsers() {
                       <TableCell className="text-xs">
                         {entry.aiSample ? (
                           <span>
-                            Deleted AI sample{" "}
+                            {entry.action === "pin-ai-extract-sample"
+                              ? "Pinned AI sample "
+                              : entry.action === "unpin-ai-extract-sample"
+                                ? "Unpinned AI sample "
+                                : "Deleted AI sample "}
                             <span className="font-mono">{entry.aiSample.fileName}</span>{" "}
                             <span className="text-muted-foreground">
                               ({entry.aiSample.customer}
