@@ -560,6 +560,11 @@ export const UploadCustomerFileResponse = zod.object({
   customer: zod.string(),
   fileName: zod.string(),
   punchesUpserted: zod.number(),
+  unmappedIds: zod
+    .array(zod.string())
+    .describe(
+      "Badge \/ employee IDs that appeared in the uploaded file but could\nnot be mapped to a known KFI driver. Surfaced as a non-blocking\nwarning so dispatchers know punches were dropped (e.g. a new hire\nwho hasn't been added to the mapping yet).\n",
+    ),
 });
 
 /**

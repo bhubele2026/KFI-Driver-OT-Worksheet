@@ -26,6 +26,7 @@ export function parsePendaTrienda(
   wb: XLSX.WorkBook,
   customer: "Penda" | "Trienda",
   kfiSet: Set<string>,
+  unmappedIds: Set<string>,
 ): ParsedPunch[] {
   const rows = sheetRows(wb);
   const hdr = rows[0];
@@ -43,9 +44,12 @@ export function parsePendaTrienda(
     const r = rows[i];
     if (r[empNumIdx] == null) continue;
     const empId = String(Math.round(Number(r[empNumIdx])));
-    const kfiId =
-      EMBEDDED_MAPPING[empId] ?? (kfiSet.has(empId) ? empId : "");
-    if (!kfiId) continue;
+    const mapped = EMBEDDED_MAPPING[empId] ?? (kfiSet.has(empId) ? empId : "");
+    const kfiId = mapped && kfiSet.has(mapped) ? mapped : "";
+    if (!kfiId) {
+      if (/^\d+$/.test(empId)) unmappedIds.add(empId);
+      continue;
+    }
     if (r[startIdx] == null || r[endIdx] == null) continue;
     const hours = parseFloat(String(r[hoursIdx] ?? "0")) || 0;
     const payType = String(r[payIdx] ?? "Reg");
@@ -76,6 +80,7 @@ export function parsePendaTrienda(
 export function parseGreystone(
   wb: XLSX.WorkBook,
   kfiSet: Set<string>,
+  unmappedIds: Set<string>,
 ): ParsedPunch[] {
   const rows = sheetRows(wb);
   const hdr = rows[0];
@@ -104,7 +109,10 @@ export function parseGreystone(
     const r = rows[i];
     if (r[fnIdx] == null) continue;
     const kfiId = String(Math.round(Number(r[fnIdx])));
-    if (!kfiSet.has(kfiId)) continue;
+    if (!kfiSet.has(kfiId)) {
+      if (/^\d+$/.test(kfiId)) unmappedIds.add(kfiId);
+      continue;
+    }
     if (r[inIdx] == null || r[outIdx] == null) continue;
     const date = r[dtIdx] != null ? fmtDate(r[dtIdx]) : "";
     out.push({
@@ -134,6 +142,7 @@ export function parseGreystone(
 export function parseAdientXLSX(
   wb: XLSX.WorkBook,
   kfiSet: Set<string>,
+  unmappedIds: Set<string>,
 ): ParsedPunch[] {
   const rows = sheetRows(wb);
   const out: ParsedPunch[] = [];
@@ -159,6 +168,7 @@ export function parseAdientXLSX(
         const m = String(cell).match(/\((TELD\d+)\)/);
         if (m) {
           kfiId = EMBEDDED_MAPPING[m[1]] ?? null;
+          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(m[1]);
           break;
         }
       }
@@ -209,7 +219,8 @@ export function parseAdientXLSX(
 
 export function parseLSI(
   wb: XLSX.WorkBook,
-  _kfiSet: Set<string>,
+  kfiSet: Set<string>,
+  unmappedIds: Set<string>,
 ): ParsedPunch[] {
   const rows = sheetRows(wb);
   const hdr = rows[0];
@@ -226,9 +237,13 @@ export function parseLSI(
     if (r[posIdx] == null) continue;
     const posId = String(r[posIdx]).trim();
     if (posId.includes("Total")) continue;
-    const kfiId =
+    const mapped =
       EMBEDDED_MAPPING[posId] ?? EMBEDDED_MAPPING[posId + "N"] ?? "";
-    if (!kfiId) continue;
+    const kfiId = mapped && kfiSet.has(mapped) ? mapped : "";
+    if (!kfiId) {
+      if (posId) unmappedIds.add(posId);
+      continue;
+    }
     if (r[inIdx] == null || r[outIdx] == null) continue;
     const hours = parseFloat(String(r[hrIdx] ?? "0")) || 0;
     if (hours === 0) continue;
@@ -248,6 +263,7 @@ export function parseLSI(
 export function parseZenople(
   wb: XLSX.WorkBook,
   kfiSet: Set<string>,
+  unmappedIds: Set<string>,
 ): ParsedPunch[] {
   const rows = sheetRows(wb);
   const hdr = rows[0];
@@ -263,7 +279,10 @@ export function parseZenople(
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
     const kfiId = r[pidIdx] != null ? String(r[pidIdx]).trim() : "";
-    if (!kfiSet.has(kfiId)) continue;
+    if (!kfiSet.has(kfiId)) {
+      if (kfiId) unmappedIds.add(kfiId);
+      continue;
+    }
     if (r[inIdx] == null || r[outIdx] == null) continue;
     const date = r[dtIdx] != null ? fmtDate(r[dtIdx]) : "";
     const brk = parseFloat(String(r[brkIdx] ?? "0")) || 0;
@@ -292,6 +311,7 @@ export function parseZenople(
 export function parseBurnett(
   wb: XLSX.WorkBook,
   kfiSet: Set<string>,
+  unmappedIds: Set<string>,
 ): ParsedPunch[] {
   const rows = sheetRows(wb);
   const hdr = rows[0];
@@ -314,9 +334,12 @@ export function parseBurnett(
     const r = rows[i];
     if (r[empIdx] == null) continue;
     const empId = String(Math.round(Number(r[empIdx])));
-    const kfiId =
-      EMBEDDED_MAPPING[empId] ?? (kfiSet.has(empId) ? empId : "");
-    if (!kfiId) continue;
+    const mapped = EMBEDDED_MAPPING[empId] ?? (kfiSet.has(empId) ? empId : "");
+    const kfiId = mapped && kfiSet.has(mapped) ? mapped : "";
+    if (!kfiId) {
+      if (/^\d+$/.test(empId)) unmappedIds.add(empId);
+      continue;
+    }
     if (r[inIdx] == null || r[outIdx] == null) continue;
     const reg = parseFloat(String(r[regIdx] ?? "0")) || 0;
     const ot1 = parseFloat(String(r[ot1Idx] ?? "0")) || 0;

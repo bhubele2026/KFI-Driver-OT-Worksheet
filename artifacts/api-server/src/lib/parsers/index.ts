@@ -44,27 +44,31 @@ export async function detectAndParseFile(
   if (!customer) return null;
 
   let punches: ParsedPunch[] = [];
+  const unmappedIds = new Set<string>();
   if (isPdf) {
     if (customer === "Adient") {
       // Legacy digital PDF path; current Adient export is XLSX.
-      punches = await parseAdientPDF(buffer, kfiSet, year);
+      punches = await parseAdientPDF(buffer, kfiSet, year, unmappedIds);
     } else if (customer === "International Wire Group") {
-      punches = await parseIWGPDF(buffer, kfiSet);
+      punches = await parseIWGPDF(buffer, kfiSet, unmappedIds);
     } else if (customer === "DeLallo") {
-      punches = await parseDelalloPDF(buffer, kfiSet, year);
+      punches = await parseDelalloPDF(buffer, kfiSet, year, unmappedIds);
     }
   } else {
     const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
-    if (customer === "Adient") punches = parseAdientXLSX(wb, kfiSet);
+    if (customer === "Adient") punches = parseAdientXLSX(wb, kfiSet, unmappedIds);
     else if (customer === "Trienda")
-      punches = parsePendaTrienda(wb, "Trienda", kfiSet);
+      punches = parsePendaTrienda(wb, "Trienda", kfiSet, unmappedIds);
     else if (customer === "Penda")
-      punches = parsePendaTrienda(wb, "Penda", kfiSet);
-    else if (customer === "Greystone") punches = parseGreystone(wb, kfiSet);
-    else if (customer === "Landscape Structures") punches = parseLSI(wb, kfiSet);
+      punches = parsePendaTrienda(wb, "Penda", kfiSet, unmappedIds);
+    else if (customer === "Greystone")
+      punches = parseGreystone(wb, kfiSet, unmappedIds);
+    else if (customer === "Landscape Structures")
+      punches = parseLSI(wb, kfiSet, unmappedIds);
     else if (customer === "Burnett Dairy - Grantsburg")
-      punches = parseBurnett(wb, kfiSet);
-    else if (customer === "Zenople") punches = parseZenople(wb, kfiSet);
+      punches = parseBurnett(wb, kfiSet, unmappedIds);
+    else if (customer === "Zenople")
+      punches = parseZenople(wb, kfiSet, unmappedIds);
   }
-  return { customer, punches };
+  return { customer, punches, unmappedIds: [...unmappedIds].sort() };
 }

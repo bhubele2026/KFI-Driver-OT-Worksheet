@@ -57,6 +57,7 @@ export async function parseAdientPDF(
   buffer: Buffer,
   kfiSet: Set<string>,
   year: number,
+  unmappedIds: Set<string>,
 ): Promise<ParsedPunch[]> {
   const punches: ParsedPunch[] = [];
   const months: Record<string, string> = {
@@ -73,6 +74,7 @@ export async function parseAdientPDF(
         const empMatch = line.match(/\((TELD\d+)\)/);
         if (empMatch) {
           kfiId = EMBEDDED_MAPPING[empMatch[1]] ?? null;
+          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(empMatch[1]);
           continue;
         }
         if (!kfiId || !kfiSet.has(kfiId)) continue;
@@ -133,6 +135,7 @@ function assertExtractable(label: string, totalLines: number) {
 export async function parseIWGPDF(
   buffer: Buffer,
   kfiSet: Set<string>,
+  unmappedIds: Set<string>,
 ): Promise<ParsedPunch[]> {
   const punches: ParsedPunch[] = [];
   let kfiId: string | null = null;
@@ -144,6 +147,7 @@ export async function parseIWGPDF(
         const empMatch = line.match(/Employee:\s+.+?\s+ID:\s+(\d+)/);
         if (empMatch) {
           kfiId = EMBEDDED_MAPPING[empMatch[1]] ?? null;
+          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(empMatch[1]);
           continue;
         }
         if (!kfiId || !kfiSet.has(kfiId)) continue;
@@ -175,6 +179,7 @@ export async function parseDelalloPDF(
   buffer: Buffer,
   kfiSet: Set<string>,
   year: number,
+  unmappedIds: Set<string>,
 ): Promise<ParsedPunch[]> {
   const punches: ParsedPunch[] = [];
   let kfiId: string | null = null;
@@ -187,6 +192,7 @@ export async function parseDelalloPDF(
         const badge = line.match(/Badge\s*[#:]+\s*(\d+)/i);
         if (badge) {
           kfiId = EMBEDDED_MAPPING[badge[1]] ?? null;
+          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(badge[1]);
           continue;
         }
         if (!kfiId || !kfiSet.has(kfiId)) continue;
@@ -235,7 +241,7 @@ export async function parseDelalloPDF(
   });
   if (totalLines === 0) {
     // Scanned image PDF (no text layer). Fall back to OCR via Gemini vision.
-    return ocrDelalloPDF(buffer, kfiSet, year);
+    return ocrDelalloPDF(buffer, kfiSet, year, unmappedIds);
   }
   return punches;
 }

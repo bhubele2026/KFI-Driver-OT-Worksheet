@@ -61,6 +61,7 @@ export async function ocrDelalloPDF(
   buffer: Buffer,
   kfiSet: Set<string>,
   year: number,
+  unmappedIds: Set<string>,
 ): Promise<ParsedPunch[]> {
   const ai = getGeminiClient();
   const start = Date.now();
@@ -109,8 +110,12 @@ export async function ocrDelalloPDF(
 
   const out: ParsedPunch[] = [];
   for (const row of parsed.punches ?? []) {
-    const kfiId = EMBEDDED_MAPPING[String(row.badge).trim()];
-    if (!kfiId || !kfiSet.has(kfiId)) continue;
+    const badge = String(row.badge ?? "").trim();
+    const kfiId = EMBEDDED_MAPPING[badge];
+    if (!kfiId || !kfiSet.has(kfiId)) {
+      if (/^\d+$/.test(badge)) unmappedIds.add(badge);
+      continue;
+    }
     const date = normalizeDate(String(row.date).trim(), year);
     if (!date) continue;
     const hours = Number(row.hours);

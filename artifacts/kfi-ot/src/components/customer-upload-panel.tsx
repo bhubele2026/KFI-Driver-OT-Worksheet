@@ -69,7 +69,12 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         { method: "POST", credentials: "include", body: formData },
       );
       const body = (await res.json().catch(() => null)) as
-        | { customer?: string; punchesUpserted?: number; error?: string }
+        | {
+            customer?: string;
+            punchesUpserted?: number;
+            unmappedIds?: string[];
+            error?: string;
+          }
         | null;
       if (!res.ok) {
         throw new Error(body?.error ?? "Upload failed");
@@ -80,10 +85,21 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         );
       }
       setRow(customer, { uploading: false, error: null });
-      toast({
-        title: `${customer} uploaded`,
-        description: `Imported ${body?.punchesUpserted ?? 0} punches.`,
-      });
+      const unmapped = body?.unmappedIds ?? [];
+      if (unmapped.length > 0) {
+        toast({
+          title: `${customer} uploaded with ${unmapped.length} unknown ${
+            unmapped.length === 1 ? "badge" : "badges"
+          }`,
+          description: `Imported ${body?.punchesUpserted ?? 0} punches. These IDs aren't in the KFI roster, so their rows were skipped: ${unmapped.join(", ")}. Add them to the driver mapping if they're new hires.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: `${customer} uploaded`,
+          description: `Imported ${body?.punchesUpserted ?? 0} punches.`,
+        });
+      }
       invalidateAll();
     } catch (err) {
       const msg = errMessage(err, "Upload failed");

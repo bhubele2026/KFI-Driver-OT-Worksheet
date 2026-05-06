@@ -629,10 +629,21 @@ weeksRouter.post(
       }
     });
     await recordAttempt(startDate, result.customer, fileName, null, "parser");
+    if (result.unmappedIds.length > 0) {
+      req.log.warn(
+        {
+          fileName,
+          customer: result.customer,
+          unmappedIds: result.unmappedIds,
+        },
+        "Customer file contained badge IDs not in the KFI roster",
+      );
+    }
     res.json({
       customer: result.customer,
       fileName,
       punchesUpserted: result.punches.length,
+      unmappedIds: result.unmappedIds,
     });
   },
 );
