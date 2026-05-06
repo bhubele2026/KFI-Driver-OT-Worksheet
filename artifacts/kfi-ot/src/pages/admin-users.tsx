@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { Link, Redirect } from "wouter";
 import {
   useListUsers,
@@ -247,6 +247,9 @@ export default function AdminUsers() {
   const sendReset = useSendPasswordResetForUser();
 
   const [inviteEmail, setInviteEmail] = useState("");
+  const [manualBlockIp, setManualBlockIp] = useState("");
+  const [manualBlockReason, setManualBlockReason] = useState("");
+  const [manualBlockError, setManualBlockError] = useState<string | null>(null);
   const [latestInvite, setLatestInvite] = useState<string | null>(null);
   const [latestReset, setLatestReset] = useState<{
     email: string;
@@ -323,6 +326,74 @@ export default function AdminUsers() {
     qc.invalidateQueries({
       queryKey: getListUserAuditLogQueryKey({ targetUserId, limit: 100 }),
     });
+
+  // Lenient IPv4 / IPv6 / CIDR client-side syntax check. The server is the
+  // source of truth; this is only to catch obvious typos before the round
+  // trip. Accepts: dotted-quad IPv4, colon-separated IPv6 (incl. `::`
+  // shorthand), and either with an optional `/N` CIDR suffix.
+  const looksLikeIpOrCidr = (raw: string): boolean => {
+    const value = raw.trim();
+    if (!value) return false;
+    const [addr, mask, ...rest] = value.split("/");
+    if (rest.length > 0) return false;
+    if (mask !== undefined) {
+      if (!/^\d+$/.test(mask)) return false;
+      const n = Number(mask);
+      if (!Number.isFinite(n) || n < 0) return false;
+    }
+    const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+    const m = ipv4.exec(addr);
+    if (m) {
+      if (mask !== undefined && Number(mask) > 32) return false;
+      return m.slice(1).every((p) => {
+        const n = Number(p);
+        return n >= 0 && n <= 255 && String(n) === p;
+      });
+    }
+    // IPv6: at least one colon, only hex digits / colons, allow `::`.
+    if (addr.includes(":") && /^[0-9a-fA-F:]+$/.test(addr)) {
+      if (mask !== undefined && Number(mask) > 128) return false;
+      return true;
+    }
+    return false;
+  };
+
+  const handleManualBlockSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    const ip = manualBlockIp.trim();
+    if (!ip) {
+      setManualBlockError("Enter an IP address or CIDR range.");
+      return;
+    }
+    if (!looksLikeIpOrCidr(ip)) {
+      setManualBlockError(
+        "That doesn't look like a valid IP (e.g. 203.0.113.7) or CIDR range (e.g. 203.0.113.0/24).",
+      );
+      return;
+    }
+    setManualBlockError(null);
+    const reason = manualBlockReason.trim() || null;
+    addBlocklist.mutate(
+      { data: { ip, reason } },
+      {
+        onSuccess: () => {
+          refetchBlocklist();
+          refetchSuggestions();
+          setManualBlockIp("");
+          setManualBlockReason("");
+          toast({ title: "Blocked", description: ip });
+        },
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Unknown error";
+          toast({
+            title: "Couldn't block IP",
+            description: msg,
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
 
   const handleBlockIp = (ip: string, reasonHint: string) => {
     const target = window.prompt(
@@ -1261,9 +1332,68 @@ export default function AdminUsers() {
                 the rate limiter. Entries can be a single IP (e.g.{" "}
                 <code className="font-mono">203.0.113.7</code>) or a CIDR range
                 (e.g. <code className="font-mono">203.0.113.0/24</code>) to
-                cover a whole subnet. Use the Block button on a row above to
-                add an entry, or remove one here when the heat dies down.
+                cover a whole subnet. Use the Block button on a row above, or
+                add one directly below — useful when an alert from another
+                tool flags an IP before it hits our own lockouts.
               </p>
+              <form
+                onSubmit={handleManualBlockSubmit}
+                className="mb-4 rounded-md border border-border/60 bg-muted/20 p-3"
+              >
+                <div className="flex flex-wrap items-start gap-2">
+                  <div className="flex-1 min-w-[180px]">
+                    <label
+                      htmlFor="manual-block-ip"
+                      className="block text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1"
+                    >
+                      IP or CIDR
+                    </label>
+                    <Input
+                      id="manual-block-ip"
+                      value={manualBlockIp}
+                      onChange={(e) => {
+                        setManualBlockIp(e.target.value);
+                        if (manualBlockError) setManualBlockError(null);
+                      }}
+                      placeholder="203.0.113.7 or 203.0.113.0/24"
+                      className="font-mono text-sm"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <div className="flex-[2] min-w-[200px]">
+                    <label
+                      htmlFor="manual-block-reason"
+                      className="block text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1"
+                    >
+                      Reason (optional)
+                    </label>
+                    <Input
+                      id="manual-block-reason"
+                      value={manualBlockReason}
+                      onChange={(e) => setManualBlockReason(e.target.value)}
+                      placeholder="e.g. Cloudflare flagged scraping"
+                      className="text-sm"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="self-end">
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={addBlocklist.isPending || !manualBlockIp.trim()}
+                    >
+                      <ShieldX className="h-3 w-3 mr-1" />
+                      Add to blocklist
+                    </Button>
+                  </div>
+                </div>
+                {manualBlockError && (
+                  <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">
+                    {manualBlockError}
+                  </p>
+                )}
+              </form>
               {blocklistLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
               ) : ipBlocklist && ipBlocklist.length > 0 ? (
