@@ -3,34 +3,525 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: KFI Driver OT Worksheet API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: auth
+  - name: weeks
+  - name: drivers
+  - name: punches
+  - name: ingest
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
           content:
             application/json:
+              schema: { $ref: "#/components/schemas/HealthStatus" }
+
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Create a new account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AuthCredentials" }
+      responses:
+        "200":
+          description: Registered and signed in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { description: Invalid input }
+        "409": { description: Email already taken }
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Sign in with email & password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AuthCredentials" }
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { description: Invalid credentials }
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Sign out
+      responses:
+        "204": { description: Logged out }
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Currently signed-in user (or null)
+      responses:
+        "200":
+          description: Current user, or null if anonymous
+          content:
+            application/json:
               schema:
-                $ref: "#/components/schemas/HealthStatus"
+                oneOf:
+                  - $ref: "#/components/schemas/User"
+                  - type: "null"
+
+  /weeks:
+    get:
+      operationId: listWeeks
+      tags: [weeks]
+      summary: List weeks that have ingested data
+      responses:
+        "200":
+          description: List of weeks
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Week" }
+
+  /weeks/{weekStart}/summary:
+    get:
+      operationId: getWeekSummary
+      tags: [weeks]
+      summary: Aggregated totals + per-driver rows for a week
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+      responses:
+        "200":
+          description: Week summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WeekSummary" }
+
+  /weeks/{weekStart}/drivers/{kfiId}:
+    get:
+      operationId: getDriverWeek
+      tags: [drivers]
+      summary: Per-driver punches and totals for a week
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - $ref: "#/components/parameters/KfiId"
+      responses:
+        "200":
+          description: Driver week detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DriverWeek" }
+        "404": { description: Driver not found for week }
+
+  /weeks/{weekStart}/refresh-connecteam:
+    post:
+      operationId: refreshConnecteam
+      tags: [ingest]
+      summary: Pull driver punches for the week from Connecteam
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+      responses:
+        "200":
+          description: Refresh result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RefreshResult" }
+        "502": { description: Upstream Connecteam error }
+
+  /weeks/{weekStart}/upload-customer-file:
+    post:
+      operationId: uploadCustomerFile
+      tags: [ingest]
+      summary: Upload a customer time export (xlsx/pdf) for the week. Body is `multipart/form-data` with a single `file` field; the frontend builds the FormData manually.
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+      responses:
+        "200":
+          description: Ingest result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadResult" }
+        "400": { description: Could not detect or parse file }
+
+  /weeks/{weekStart}/manual-punches:
+    post:
+      operationId: createManualPunch
+      tags: [punches]
+      summary: Add a manual driver or customer punch
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ManualPunchInput" }
+      responses:
+        "200":
+          description: Created punch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Punch" }
+        "400": { description: Invalid input }
+
+  /punches/{id}:
+    patch:
+      operationId: editPunch
+      tags: [punches]
+      summary: Edit clock-in / clock-out / hours of an existing punch
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EditPunchInput" }
+      responses:
+        "200":
+          description: Updated punch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Punch" }
+        "404": { description: Not found }
+    delete:
+      operationId: deletePunch
+      tags: [punches]
+      summary: Delete a punch (manual or imported)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Deleted }
+
+  /weeks/{weekStart}/reviewed/{kfiId}:
+    put:
+      operationId: setReviewed
+      tags: [drivers]
+      summary: Toggle the "reviewed" state for a driver in a week
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - $ref: "#/components/parameters/KfiId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reviewed]
+              properties:
+                reviewed: { type: boolean }
+      responses:
+        "200":
+          description: New reviewed state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reviewed]
+                properties:
+                  reviewed: { type: boolean }
+
 components:
+  parameters:
+    WeekStart:
+      name: weekStart
+      in: path
+      required: true
+      description: Week start date (Monday) in YYYY-MM-DD
+      schema: { type: string, pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
+    KfiId:
+      name: kfiId
+      in: path
+      required: true
+      schema: { type: string }
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
-        status:
-          type: string
-      required:
-        - status
+        status: { type: string }
 
+    AuthCredentials:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 6 }
+
+    User:
+      type: object
+      required: [id, email, createdAt]
+      properties:
+        id: { type: integer }
+        email: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    Week:
+      type: object
+      required: [startDate, endDate]
+      properties:
+        startDate: { type: string }
+        endDate: { type: string }
+        lastRefreshedAt:
+          type: ["string", "null"]
+          format: date-time
+        driverCount: { type: integer }
+
+    DriverInfo:
+      type: object
+      required: [kfiId, name, customer, isDriver]
+      properties:
+        kfiId: { type: string }
+        name: { type: string }
+        customer: { type: string }
+        ctUserId:
+          type: ["integer", "null"]
+        isDriver: { type: boolean }
+
+    DriverSummaryRow:
+      type: object
+      required:
+        [
+          kfiId,
+          name,
+          customer,
+          driverHours,
+          customerHours,
+          totalHours,
+          regularHours,
+          overtimeHours,
+          reviewed,
+          hasOvertime,
+        ]
+      properties:
+        kfiId: { type: string }
+        name: { type: string }
+        customer: { type: string }
+        driverHours: { type: number }
+        customerHours: { type: number }
+        totalHours: { type: number }
+        regularHours: { type: number }
+        overtimeHours: { type: number }
+        reviewed: { type: boolean }
+        hasOvertime: { type: boolean }
+
+    WeekSummary:
+      type: object
+      required:
+        [
+          startDate,
+          endDate,
+          totals,
+          rows,
+          customers,
+          lastRefreshedAt,
+        ]
+      properties:
+        startDate: { type: string }
+        endDate: { type: string }
+        lastRefreshedAt:
+          type: ["string", "null"]
+          format: date-time
+        totals:
+          type: object
+          required:
+            [
+              activeDrivers,
+              driverHours,
+              customerHours,
+              totalHours,
+              regularHours,
+              overtimeHours,
+            ]
+          properties:
+            activeDrivers: { type: integer }
+            driverHours: { type: number }
+            customerHours: { type: number }
+            totalHours: { type: number }
+            regularHours: { type: number }
+            overtimeHours: { type: number }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/DriverSummaryRow" }
+        customers:
+          type: array
+          items:
+            type: object
+            required: [customer, drivers]
+            properties:
+              customer: { type: string }
+              drivers:
+                type: array
+                items: { $ref: "#/components/schemas/DriverSummaryRow" }
+
+    Punch:
+      type: object
+      required:
+        [
+          id,
+          weekStart,
+          kfiId,
+          source,
+          date,
+          clockIn,
+          clockOut,
+          hours,
+          dispTz,
+          isManual,
+        ]
+      properties:
+        id: { type: integer }
+        weekStart: { type: string }
+        kfiId: { type: string }
+        customer:
+          type: ["string", "null"]
+        source:
+          type: string
+          enum: [Driver, Customer]
+        date: { type: string }
+        clockIn: { type: string }
+        clockOut: { type: string }
+        hours: { type: number }
+        payType:
+          type: ["string", "null"]
+        dispTz: { type: string }
+        isManual: { type: boolean }
+        edited: { type: boolean }
+
+    DailyTotals:
+      type: object
+      required:
+        [
+          date,
+          driverHours,
+          customerHours,
+          totalHours,
+          regularHours,
+          overtimeHours,
+        ]
+      properties:
+        date: { type: string }
+        driverHours: { type: number }
+        customerHours: { type: number }
+        totalHours: { type: number }
+        regularHours: { type: number }
+        overtimeHours: { type: number }
+
+    Check:
+      type: object
+      required: [level, message]
+      properties:
+        level:
+          type: string
+          enum: [info, warn, error]
+        message: { type: string }
+        date:
+          type: ["string", "null"]
+
+    DriverWeek:
+      type: object
+      required:
+        [
+          driver,
+          weekStart,
+          endDate,
+          punches,
+          dailyTotals,
+          totals,
+          checks,
+          reviewed,
+        ]
+      properties:
+        driver: { $ref: "#/components/schemas/DriverInfo" }
+        weekStart: { type: string }
+        endDate: { type: string }
+        punches:
+          type: array
+          items: { $ref: "#/components/schemas/Punch" }
+        dailyTotals:
+          type: array
+          items: { $ref: "#/components/schemas/DailyTotals" }
+        totals:
+          type: object
+          required:
+            [
+              driverHours,
+              customerHours,
+              totalHours,
+              regularHours,
+              overtimeHours,
+            ]
+          properties:
+            driverHours: { type: number }
+            customerHours: { type: number }
+            totalHours: { type: number }
+            regularHours: { type: number }
+            overtimeHours: { type: number }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/Check" }
+        reviewed: { type: boolean }
+
+    ManualPunchInput:
+      type: object
+      required: [kfiId, source, date, clockIn, clockOut]
+      properties:
+        kfiId: { type: string }
+        source:
+          type: string
+          enum: [Driver, Customer]
+        customer:
+          type: ["string", "null"]
+        date: { type: string, pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
+        clockIn: { type: string }
+        clockOut: { type: string }
+        payType:
+          type: ["string", "null"]
+        dispTz:
+          type: ["string", "null"]
+
+    EditPunchInput:
+      type: object
+      properties:
+        clockIn:
+          type: ["string", "null"]
+        clockOut:
+          type: ["string", "null"]
+
+    RefreshResult:
+      type: object
+      required: [driversFound, punchesUpserted, refreshedAt]
+      properties:
+        driversFound: { type: integer }
+        punchesUpserted: { type: integer }
+        refreshedAt: { type: string, format: date-time }
+
+    UploadResult:
+      type: object
+      required: [customer, punchesUpserted, fileName]
+      properties:
+        customer: { type: string }
+        fileName: { type: string }
+        punchesUpserted: { type: integer }

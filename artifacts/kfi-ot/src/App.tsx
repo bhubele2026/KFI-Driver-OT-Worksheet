@@ -1,28 +1,57 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useGetMe } from "@workspace/api-client-react";
+import { Loader2 } from "lucide-react";
 import NotFound from "@/pages/not-found";
+import Login from "@/pages/login";
+import Register from "@/pages/register";
+
+// We'll import these in a moment
+import WeekSummary from "@/pages/week-summary";
+import DriverDetail from "@/pages/driver-detail";
 
 const queryClient = new QueryClient();
 
-function Home() {
-  return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-gray-900">Replit Agent is building...</h1>
-        <p className="mt-2 text-sm text-gray-600">Your app will appear here once it's ready.</p>
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { data: user, isLoading } = useGetMe();
+  const [location] = useLocation();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+        <p className="text-sm text-muted-foreground font-mono">INITIALIZING_SESSION...</p>
       </div>
-    </div>
-  );
+    );
+  }
+
+  const isAuthRoute = location === "/login" || location === "/register";
+
+  if (!user && !isAuthRoute) {
+    return <Redirect to="/login" />;
+  }
+
+  if (user && isAuthRoute) {
+    return <Redirect to="/" />;
+  }
+
+  return <>{children}</>;
 }
 
 function Router() {
   return (
-    <Switch>
-      <Route path="/" component={Home} />
-      <Route component={NotFound} />
-    </Switch>
+    <AuthGate>
+      <Switch>
+        <Route path="/login" component={Login} />
+        <Route path="/register" component={Register} />
+        <Route path="/" component={WeekSummary} />
+        <Route path="/weeks/:weekStart" component={WeekSummary} />
+        <Route path="/weeks/:weekStart/drivers/:kfiId" component={DriverDetail} />
+        <Route component={NotFound} />
+      </Switch>
+    </AuthGate>
   );
 }
 
