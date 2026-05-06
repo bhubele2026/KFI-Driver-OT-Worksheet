@@ -592,6 +592,13 @@ export interface CustomerNameAlias {
   updatedAt: string;
   /** @nullable */
   updatedByEmail?: string | null;
+  /**
+   * Most recent week_start (YYYY-MM-DD) of a Customer-source punch where (customer, kfiId) matches this alias, or null if never seen.
+   * @nullable
+   */
+  lastUsedWeek?: string | null;
+  /** Distinct count of week_start values where this alias's (customer, kfiId) appeared in Customer-source punches. */
+  weeksUsedCount: number;
 }
 
 export interface CustomerNameAliasList {

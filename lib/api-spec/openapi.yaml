@@ -1780,7 +1780,7 @@ components:
 
     CustomerNameAlias:
       type: object
-      required: [customer, nameOnDoc, kfiId, updatedAt]
+      required: [customer, nameOnDoc, kfiId, updatedAt, weeksUsedCount]
       properties:
         customer: { type: string }
         nameOnDoc: { type: string }
@@ -1795,6 +1795,12 @@ components:
         updatedAt: { type: string, format: date-time }
         updatedByEmail:
           type: ["string", "null"]
+        lastUsedWeek:
+          type: ["string", "null"]
+          description: Most recent week_start (YYYY-MM-DD) of a Customer-source punch where (customer, kfiId) matches this alias, or null if never seen.
+        weeksUsedCount:
+          type: integer
+          description: Distinct count of week_start values where this alias's (customer, kfiId) appeared in Customer-source punches.
 
     CustomerNameAliasList:
       type: object

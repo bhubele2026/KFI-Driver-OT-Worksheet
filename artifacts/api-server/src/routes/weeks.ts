@@ -1509,17 +1509,59 @@ weeksRouter.get("/customer-aliases", requireAdmin, async (_req, res) => {
     .from(schema.driversTable)
     .where(eq(schema.driversTable.isArchived, false))
     .orderBy(asc(sql`lower(${schema.driversTable.name})`));
+  const usageRows = await db
+    .select({
+      customerLower: sql<string>`lower(${schema.punchesTable.customer})`.as(
+        "customer_lower",
+      ),
+      kfiId: schema.punchesTable.kfiId,
+      lastWeek: sql<string>`max(${schema.punchesTable.weekStart})`.as(
+        "last_week",
+      ),
+      weekCount: sql<number>`count(distinct ${schema.punchesTable.weekStart})::int`.as(
+        "week_count",
+      ),
+    })
+    .from(schema.punchesTable)
+    .where(
+      and(
+        eq(schema.punchesTable.source, "Customer"),
+        eq(schema.punchesTable.isManual, false),
+        sql`${schema.punchesTable.customer} is not null`,
+      ),
+    )
+    .groupBy(
+      sql`lower(${schema.punchesTable.customer})`,
+      schema.punchesTable.kfiId,
+    );
+  const usageMap = new Map<
+    string,
+    { lastUsedWeek: string | null; weeksUsedCount: number }
+  >();
+  for (const u of usageRows) {
+    usageMap.set(`${u.customerLower}::${u.kfiId}`, {
+      lastUsedWeek: u.lastWeek ?? null,
+      weeksUsedCount: Number(u.weekCount ?? 0),
+    });
+  }
   res.json({
-    aliases: rows.map((r) => ({
-      customer: r.customer,
-      nameOnDoc: r.nameOnDoc,
-      kfiId: r.kfiId,
-      driverName: r.driverName ?? null,
-      driverCustomer: r.driverCustomer ?? null,
-      driverIsArchived: r.driverIsArchived ?? null,
-      updatedAt: new Date(r.updatedAt).toISOString(),
-      updatedByEmail: r.updatedBy ? actorEmailById.get(r.updatedBy) ?? null : null,
-    })),
+    aliases: rows.map((r) => {
+      const usage = usageMap.get(`${r.customer.toLowerCase()}::${r.kfiId}`);
+      return {
+        customer: r.customer,
+        nameOnDoc: r.nameOnDoc,
+        kfiId: r.kfiId,
+        driverName: r.driverName ?? null,
+        driverCustomer: r.driverCustomer ?? null,
+        driverIsArchived: r.driverIsArchived ?? null,
+        updatedAt: new Date(r.updatedAt).toISOString(),
+        updatedByEmail: r.updatedBy
+          ? actorEmailById.get(r.updatedBy) ?? null
+          : null,
+        lastUsedWeek: usage?.lastUsedWeek ?? null,
+        weeksUsedCount: usage?.weeksUsedCount ?? 0,
+      };
+    }),
     drivers: driverRows.map((d) => ({
       kfiId: d.kfiId,
       name: d.name,
@@ -1580,6 +1622,20 @@ weeksRouter.patch("/customer-aliases", requireAdmin, async (req, res) => {
     });
     updatedByEmail = actor?.email ?? null;
   }
+  const [usage] = await db
+    .select({
+      lastWeek: sql<string>`max(${schema.punchesTable.weekStart})`,
+      weekCount: sql<number>`count(distinct ${schema.punchesTable.weekStart})::int`,
+    })
+    .from(schema.punchesTable)
+    .where(
+      and(
+        eq(schema.punchesTable.source, "Customer"),
+        eq(schema.punchesTable.isManual, false),
+        eq(schema.punchesTable.kfiId, updated.kfiId),
+        sql`lower(${schema.punchesTable.customer}) = lower(${updated.customer})`,
+      ),
+    );
   res.json({
     customer: updated.customer,
     nameOnDoc: updated.nameOnDoc,
@@ -1589,6 +1645,8 @@ weeksRouter.patch("/customer-aliases", requireAdmin, async (req, res) => {
     driverIsArchived: driver.isArchived,
     updatedAt: new Date(updated.updatedAt).toISOString(),
     updatedByEmail,
+    lastUsedWeek: usage?.lastWeek ?? null,
+    weeksUsedCount: Number(usage?.weekCount ?? 0),
   });
 });
 

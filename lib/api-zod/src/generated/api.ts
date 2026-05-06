@@ -1068,6 +1068,17 @@ export const ListCustomerNameAliasesResponse = zod.object({
       driverIsArchived: zod.boolean().nullish(),
       updatedAt: zod.coerce.date(),
       updatedByEmail: zod.string().nullish(),
+      lastUsedWeek: zod
+        .string()
+        .nullish()
+        .describe(
+          "Most recent week_start (YYYY-MM-DD) of a Customer-source punch where (customer, kfiId) matches this alias, or null if never seen.",
+        ),
+      weeksUsedCount: zod
+        .number()
+        .describe(
+          "Distinct count of week_start values where this alias's (customer, kfiId) appeared in Customer-source punches.",
+        ),
     }),
   ),
   drivers: zod.array(
@@ -1107,6 +1118,17 @@ export const UpdateCustomerNameAliasResponse = zod.object({
   driverIsArchived: zod.boolean().nullish(),
   updatedAt: zod.coerce.date(),
   updatedByEmail: zod.string().nullish(),
+  lastUsedWeek: zod
+    .string()
+    .nullish()
+    .describe(
+      "Most recent week_start (YYYY-MM-DD) of a Customer-source punch where (customer, kfiId) matches this alias, or null if never seen.",
+    ),
+  weeksUsedCount: zod
+    .number()
+    .describe(
+      "Distinct count of week_start values where this alias's (customer, kfiId) appeared in Customer-source punches.",
+    ),
 });
 
 /**

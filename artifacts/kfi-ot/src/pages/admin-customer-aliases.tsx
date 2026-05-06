@@ -37,8 +37,10 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { format } from "date-fns";
+import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import { Logo } from "@/components/logo";
+
+const STALE_AFTER_DAYS = 28;
 
 type EditState = {
   customer: string;
@@ -134,6 +136,15 @@ export default function AdminCustomerAliases() {
     data?.aliases.filter((a) => a.driverName == null).length ?? 0;
   const archived =
     data?.aliases.filter((a) => a.driverIsArchived === true).length ?? 0;
+  const today = new Date();
+  const isStale = (lastUsedWeek: string | null | undefined) => {
+    if (!lastUsedWeek) return true;
+    const d = parseISO(lastUsedWeek);
+    if (Number.isNaN(d.getTime())) return true;
+    return differenceInCalendarDays(today, d) >= STALE_AFTER_DAYS;
+  };
+  const staleCount =
+    data?.aliases.filter((a) => isStale(a.lastUsedWeek)).length ?? 0;
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
@@ -190,6 +201,14 @@ export default function AdminCustomerAliases() {
                   {archived} pointing at archived driver
                 </Badge>
               )}
+              {staleCount > 0 && (
+                <Badge
+                  variant="outline"
+                  className="font-mono border-amber-500/50 text-amber-700 dark:text-amber-400"
+                >
+                  {staleCount} unused in {STALE_AFTER_DAYS}+ days
+                </Badge>
+              )}
             </div>
 
             {isLoading ? (
@@ -215,6 +234,7 @@ export default function AdminCustomerAliases() {
                           <TableHead>Name on doc</TableHead>
                           <TableHead>Mapped to</TableHead>
                           <TableHead>Last updated</TableHead>
+                          <TableHead>Last used</TableHead>
                           <TableHead className="w-[1%]" />
                         </TableRow>
                       </TableHeader>
@@ -273,6 +293,36 @@ export default function AdminCustomerAliases() {
                                     </div>
                                   )}
                                 </TableCell>
+                                <TableCell className="text-xs align-top whitespace-nowrap">
+                                  {a.lastUsedWeek ? (
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="font-mono text-muted-foreground">
+                                        week of {a.lastUsedWeek}
+                                      </span>
+                                      <span className="font-mono text-[10px] text-muted-foreground">
+                                        {a.weeksUsedCount}{" "}
+                                        {a.weeksUsedCount === 1
+                                          ? "week"
+                                          : "weeks"}{" "}
+                                        applied
+                                      </span>
+                                      {isStale(a.lastUsedWeek) && (
+                                        <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono">
+                                          Stale
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="font-mono text-[10px] text-muted-foreground italic">
+                                        never seen in punches
+                                      </span>
+                                      <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono">
+                                        Stale
+                                      </span>
+                                    </div>
+                                  )}
+                                </TableCell>
                                 <TableCell className="align-top">
                                   <div className="flex justify-end gap-1">
                                     <Button
@@ -310,7 +360,7 @@ export default function AdminCustomerAliases() {
                               {isEditing && edit && (
                                 <TableRow className="bg-muted/30 hover:bg-muted/30">
                                   <TableCell />
-                                  <TableCell colSpan={3} className="py-3">
+                                  <TableCell colSpan={4} className="py-3">
                                     <EditDriverRow
                                       drivers={drivers}
                                       currentKfiId={edit.kfiId}
