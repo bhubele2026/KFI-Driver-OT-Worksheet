@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import {
   useGetWeekSummary,
@@ -13,23 +13,39 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+
+type FilterChip = "unreviewed" | "ot" | "mismatch";
+
+const CHIP_LABELS: Record<FilterChip, string> = {
+  unreviewed: "Un-reviewed",
+  ot: "Has OT",
+  mismatch: "Mismatch",
+};
+
+function driverHasMismatch(driver: {
+  driverHours: number;
+  customerHours: number;
+}): boolean {
+  return (
+    driver.driverHours > 0 &&
+    driver.customerHours > 0 &&
+    Math.abs(driver.driverHours - driver.customerHours) > 0.05
+  );
+}
 
 interface SidebarProps {
   weekStart: string;
   selectedKfiId?: string;
   collapsed: boolean;
   onToggle: () => void;
-}
-
-interface ListProps {
-  weekStart: string;
-  selectedKfiId?: string;
-  onNavigate?: () => void;
 }
 
 function useToggleReviewed(weekStart: string) {
@@ -61,10 +77,46 @@ function useToggleReviewed(weekStart: string) {
   };
 }
 
-function DriversList({ weekStart, selectedKfiId, onNavigate }: ListProps) {
+interface ListProps {
+  weekStart: string;
+  selectedKfiId?: string;
+  onNavigate?: () => void;
+  search: string;
+  chips: Set<FilterChip>;
+}
+
+function DriversList({
+  weekStart,
+  selectedKfiId,
+  onNavigate,
+  search,
+  chips,
+}: ListProps) {
   const [, setLocation] = useLocation();
   const { data: summary } = useGetWeekSummary(weekStart);
   const toggleReviewed = useToggleReviewed(weekStart);
+
+  const needle = search.trim().toLowerCase();
+  const filterActive = needle.length > 0 || chips.size > 0;
+
+  const filteredGroups = useMemo(() => {
+    if (!summary?.customers) return [];
+    return summary.customers
+      .map((group) => ({
+        customer: group.customer,
+        drivers: group.drivers.filter((driver) => {
+          if (needle) {
+            const hay = `${driver.name} ${driver.kfiId}`.toLowerCase();
+            if (!hay.includes(needle)) return false;
+          }
+          if (chips.has("unreviewed") && driver.reviewed) return false;
+          if (chips.has("ot") && !driver.hasOvertime) return false;
+          if (chips.has("mismatch") && !driverHasMismatch(driver)) return false;
+          return true;
+        }),
+      }))
+      .filter((group) => group.drivers.length > 0);
+  }, [summary?.customers, needle, chips]);
 
   if (!summary?.customers || summary.customers.length === 0) {
     return (
@@ -74,9 +126,22 @@ function DriversList({ weekStart, selectedKfiId, onNavigate }: ListProps) {
     );
   }
 
+  if (filteredGroups.length === 0) {
+    return (
+      <p
+        className="px-4 py-3 text-xs text-muted-foreground"
+        data-testid="sidebar-empty-filtered"
+      >
+        {filterActive
+          ? "No drivers match the current filters."
+          : "No drivers loaded."}
+      </p>
+    );
+  }
+
   return (
     <ul className="py-2">
-      {summary.customers.map((group) => (
+      {filteredGroups.map((group) => (
         <li key={group.customer} className="mb-2">
           <div className="px-4 py-1.5 text-xs font-display font-semibold uppercase tracking-wider text-foreground/80 bg-muted/30">
             {group.customer}
@@ -130,6 +195,85 @@ function DriversList({ weekStart, selectedKfiId, onNavigate }: ListProps) {
   );
 }
 
+interface FilterControlsProps {
+  search: string;
+  onSearchChange: (value: string) => void;
+  chips: Set<FilterChip>;
+  onToggleChip: (chip: FilterChip) => void;
+}
+
+function FilterControls({
+  search,
+  onSearchChange,
+  chips,
+  onToggleChip,
+}: FilterControlsProps) {
+  const chipKeys: FilterChip[] = ["unreviewed", "ot", "mismatch"];
+  return (
+    <div className="px-3 py-2 border-b border-border bg-muted/20 space-y-2">
+      <div className="relative">
+        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+        <Input
+          type="search"
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Search name or KFI ID"
+          aria-label="Search drivers"
+          data-testid="input-sidebar-search"
+          className="h-8 pl-7 pr-7 text-xs"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => onSearchChange("")}
+            aria-label="Clear search"
+            data-testid="button-sidebar-search-clear"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {chipKeys.map((key) => {
+          const active = chips.has(key);
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onToggleChip(key)}
+              aria-pressed={active}
+              data-testid={`chip-filter-${key}`}
+              className={cn(
+                "text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border transition-colors",
+                active
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-foreground/40",
+              )}
+            >
+              {CHIP_LABELS[key]}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function useDriverFilters() {
+  const [search, setSearch] = useState("");
+  const [chips, setChips] = useState<Set<FilterChip>>(() => new Set());
+  const toggleChip = (chip: FilterChip) => {
+    setChips((prev) => {
+      const next = new Set(prev);
+      if (next.has(chip)) next.delete(chip);
+      else next.add(chip);
+      return next;
+    });
+  };
+  return { search, setSearch, chips, toggleChip };
+}
+
 function SidebarHeader({ onCollapse }: { onCollapse?: () => void }) {
   return (
     <div className="px-4 py-3 border-b border-border bg-muted/40 flex items-start justify-between gap-2">
@@ -161,6 +305,8 @@ function SidebarHeader({ onCollapse }: { onCollapse?: () => void }) {
 }
 
 export function DriversSidebar({ weekStart, selectedKfiId, collapsed, onToggle }: SidebarProps) {
+  const { search, setSearch, chips, toggleChip } = useDriverFilters();
+
   if (collapsed) {
     return (
       <aside
@@ -187,7 +333,18 @@ export function DriversSidebar({ weekStart, selectedKfiId, collapsed, onToggle }
       data-testid="drivers-sidebar"
     >
       <SidebarHeader onCollapse={onToggle} />
-      <DriversList weekStart={weekStart} selectedKfiId={selectedKfiId} />
+      <FilterControls
+        search={search}
+        onSearchChange={setSearch}
+        chips={chips}
+        onToggleChip={toggleChip}
+      />
+      <DriversList
+        weekStart={weekStart}
+        selectedKfiId={selectedKfiId}
+        search={search}
+        chips={chips}
+      />
     </aside>
   );
 }
@@ -204,6 +361,7 @@ export function DriversSidebarMobileTrigger({
   className,
 }: MobileTriggerProps) {
   const [open, setOpen] = useState(false);
+  const { search, setSearch, chips, toggleChip } = useDriverFilters();
   return (
     <>
       <Button
@@ -222,10 +380,18 @@ export function DriversSidebarMobileTrigger({
           className="p-0 w-80 max-w-[85vw] bg-muted/20 overflow-y-auto"
         >
           <SidebarHeader />
+          <FilterControls
+            search={search}
+            onSearchChange={setSearch}
+            chips={chips}
+            onToggleChip={toggleChip}
+          />
           <DriversList
             weekStart={weekStart}
             selectedKfiId={selectedKfiId}
             onNavigate={() => setOpen(false)}
+            search={search}
+            chips={chips}
           />
         </SheetContent>
       </Sheet>
