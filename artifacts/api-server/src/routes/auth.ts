@@ -130,28 +130,28 @@ authRouter.post("/auth/register", async (req, res) => {
 });
 
 authRouter.post("/auth/login", async (req, res) => {
-  if (!checkLoginLimits(req, res, null)) return;
+  if (!(await checkLoginLimits(req, res, null))) return;
   const parsed = LoginBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
   const email = parsed.data.email.trim().toLowerCase();
-  if (!checkLoginLimits(req, res, email)) return;
+  if (!(await checkLoginLimits(req, res, email))) return;
   const user = await db.query.usersTable.findFirst({
     where: eq(schema.usersTable.email, email),
   });
   if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
-    recordLoginFailure(req, email);
+    await recordLoginFailure(req, email);
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
   if (!user.isActive) {
-    recordLoginFailure(req, email);
+    await recordLoginFailure(req, email);
     res.status(401).json({ error: "Account is deactivated. Contact an admin." });
     return;
   }
-  recordLoginSuccess(req, email);
+  await recordLoginSuccess(req, email);
   const now = new Date();
   const [updated] = await db
     .update(schema.usersTable)

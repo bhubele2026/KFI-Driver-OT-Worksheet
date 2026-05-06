@@ -25,7 +25,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 ## Where things live
 
 - API contract: `lib/api-spec/openapi.yaml` (source of truth for hooks + Zod).
-- DB schema: `lib/db/src/schema/{users,sessions,drivers,weeks,punches,reviewed,customerUploadAttempts}.ts`.
+- DB schema: `lib/db/src/schema/{users,sessions,drivers,weeks,punches,reviewed,customerUploadAttempts,rateLimitBuckets}.ts`.
 - Server modules: `artifacts/api-server/src/lib/{time,mappings,db,auth,connecteam,hoursEngine}.ts` and `lib/parsers/{xlsx,pdf,index,types,customers,gemini,ocr,aiExtract,fuzzy}.ts`.
 - Routes: `artifacts/api-server/src/routes/{auth,weeks,punches,index}.ts`.
 - Frontend: `artifacts/kfi-ot/src/{App.tsx,pages/,components/}`. Theme + fonts in `src/index.css`.
@@ -58,6 +58,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - Customer file upload is multipart and intentionally not in the OpenAPI body schema; the frontend posts FormData directly to `/api/weeks/:weekStart/upload-customer-file`. The "New customer file…" flow follows the same pattern (`/extract-new-customer`, multipart) but persists nothing until the dispatcher confirms via `/confirm-new-customer` (JSON).
 - The week dashboard's customer-files panel is driven by `KNOWN_CUSTOMERS` (in `lib/parsers/customers.ts`) joined with per-week aggregates from `GET /weeks/:weekStart/customer-uploads`. Re-upload posts to the existing parser route; new/unknown customers go through Gemini extraction + fuzzy driver-name matching (`lib/parsers/{aiExtract,fuzzy}.ts`).
 - All Connecteam API calls happen server-side (token never leaves the server); the legacy proxy URL is gone.
+- Rate limiter (`lib/rateLimit.ts`) is backed by a `rate_limit_buckets` Postgres table so counters survive restarts and are shared across API instances. The module ships an in-memory backend (used by tests); `index.ts` swaps in `createPostgresBackend(pool)` at startup and starts a periodic cleanup of expired rows.
 - DeLallo PDFs that come from a scanner (no text layer) automatically fall back to OCR via Gemini (`@google/genai`, `gemini-2.5-flash`) using the Replit AI Integrations proxy. The fallback only fires when pdfjs extracts zero text, so digital PDFs stay on the fast path. Env vars `AI_INTEGRATIONS_GEMINI_BASE_URL` + `AI_INTEGRATIONS_GEMINI_API_KEY` are auto-provisioned.
 
 ## Product

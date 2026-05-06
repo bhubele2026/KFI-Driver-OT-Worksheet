@@ -2,12 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { Request, Response } from "express";
 import {
+  __testing,
   checkLoginLimits,
   loginEmailLimiter,
   loginIpLimiter,
   recordLoginFailure,
   recordLoginSuccess,
 } from "../rateLimit.js";
+
+// Force a fresh in-memory backend for the test suite so buckets don't bleed
+// between tests and so we don't depend on a real Postgres connection here.
+__testing.setRateLimitBackend(__testing.createMemoryBackend());
 
 function fakeReq(ip: string): Request {
   return {
@@ -50,73 +55,73 @@ function fakeRes() {
   };
 }
 
-function resetIp(ip: string) {
-  loginIpLimiter.reset(`ip:${ip}`);
+async function resetIp(ip: string) {
+  await loginIpLimiter.reset(`ip:${ip}`);
 }
-function resetEmail(email: string) {
-  loginEmailLimiter.reset(`email:${email}`);
+async function resetEmail(email: string) {
+  await loginEmailLimiter.reset(`email:${email}`);
 }
 
-test("per-email limiter blocks after 5 failures and 429s on the 6th", () => {
+test("per-email limiter blocks after 5 failures and 429s on the 6th", async () => {
   const ip = "10.0.0.1";
   const email = "alice@example.com";
-  resetIp(ip);
-  resetEmail(email);
+  await resetIp(ip);
+  await resetEmail(email);
 
   for (let i = 0; i < 5; i++) {
     const res = fakeRes();
-    assert.equal(checkLoginLimits(fakeReq(ip), res, email), true);
-    recordLoginFailure(fakeReq(ip), email);
+    assert.equal(await checkLoginLimits(fakeReq(ip), res, email), true);
+    await recordLoginFailure(fakeReq(ip), email);
   }
   const res = fakeRes();
-  const ok = checkLoginLimits(fakeReq(ip), res, email);
+  const ok = await checkLoginLimits(fakeReq(ip), res, email);
   assert.equal(ok, false);
   assert.equal(res.statusCode, 429);
   assert.ok(res.headers["Retry-After"]);
 });
 
-test("successful login does NOT clear prior IP failures", () => {
+test("successful login does NOT clear prior IP failures", async () => {
   const ip = "10.0.0.2";
   const attacker = "victim@example.com";
   const valid = "attacker-owned@example.com";
-  resetIp(ip);
-  resetEmail(attacker);
-  resetEmail(valid);
+  await resetIp(ip);
+  await resetEmail(attacker);
+  await resetEmail(valid);
 
   // Burn most of the per-IP budget (20/15min) attacking the victim email,
   // staying under the per-email cap (5) by spreading across multiple emails.
   for (let i = 0; i < 19; i++) {
-    recordLoginFailure(fakeReq(ip), `decoy${i}@example.com`);
+    await recordLoginFailure(fakeReq(ip), `decoy${i}@example.com`);
   }
 
   // Attacker successfully logs into a valid account they own.
-  recordLoginSuccess(fakeReq(ip), valid);
+  await recordLoginSuccess(fakeReq(ip), valid);
 
   // Per-email reset for the successful email is fine, but the IP bucket
   // must still reflect prior failures. The 20th IP failure should be the
   // last allowed attempt; the 21st must be 429.
   const r1 = fakeRes();
-  assert.equal(checkLoginLimits(fakeReq(ip), r1, attacker), true);
-  recordLoginFailure(fakeReq(ip), attacker);
+  assert.equal(await checkLoginLimits(fakeReq(ip), r1, attacker), true);
+  await recordLoginFailure(fakeReq(ip), attacker);
 
   const r2 = fakeRes();
-  const ok = checkLoginLimits(fakeReq(ip), r2, attacker);
+  const ok = await checkLoginLimits(fakeReq(ip), r2, attacker);
   assert.equal(ok, false, "IP bucket should still be exhausted after success");
   assert.equal(r2.statusCode, 429);
 });
 
-test("successful login clears the per-email bucket for that email", () => {
+test("successful login clears the per-email bucket for that email", async () => {
   const ip = "10.0.0.3";
   const email = "bob@example.com";
-  resetIp(ip);
-  resetEmail(email);
+  await resetIp(ip);
+  await resetEmail(email);
 
   for (let i = 0; i < 4; i++) {
-    recordLoginFailure(fakeReq(ip), email);
+    await recordLoginFailure(fakeReq(ip), email);
   }
-  recordLoginSuccess(fakeReq(ip), email);
+  await recordLoginSuccess(fakeReq(ip), email);
 
   // Email bucket cleared: should be allowed again immediately.
   const res = fakeRes();
-  assert.equal(checkLoginLimits(fakeReq(ip), res, email), true);
+  assert.equal(await checkLoginLimits(fakeReq(ip), res, email), true);
 });

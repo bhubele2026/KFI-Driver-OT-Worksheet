@@ -2,6 +2,12 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { isMailerConfigured } from "./lib/mailer";
 import { ensureAtLeastOneAdmin } from "./lib/adminBootstrap";
+import { pool } from "./lib/db";
+import {
+  createPostgresBackend,
+  setRateLimitBackend,
+  startPostgresBackendCleanup,
+} from "./lib/rateLimit";
 
 if (process.env.NODE_ENV === "production") {
   if (!process.env.APP_BASE_URL && !process.env.REPLIT_DOMAINS) {
@@ -35,6 +41,11 @@ async function main() {
     logger.error({ err }, "ensureAtLeastOneAdmin failed");
     process.exit(1);
   }
+
+  setRateLimitBackend(createPostgresBackend(pool));
+  startPostgresBackendCleanup(pool, {
+    onError: (err) => logger.warn({ err }, "rate limit cleanup failed"),
+  });
 
   app.listen(port, (err) => {
     if (err) {
