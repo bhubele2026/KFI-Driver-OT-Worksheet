@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
+import { useAutoAdvancePref } from "@/hooks/use-auto-advance";
 
 const OT_THRESHOLD = 40;
 
@@ -99,6 +100,7 @@ export default function DriverDetail() {
   const { data, isLoading, isError } = useGetDriverWeek(weekStart, kfiId);
   const { data: weekSummary } = useGetWeekSummary(weekStart);
   const [sidebarCollapsed, , toggleSidebar] = useSidebarCollapsed();
+  const [autoAdvance, setAutoAdvance] = useAutoAdvancePref();
 
   // Flat driver order matches the sidebar's grouping (customer -> drivers).
   const flatDriverIds = useMemo(() => {
@@ -228,12 +230,14 @@ export default function DriverDetail() {
       if (key === "r" || key === "R") {
         if (!data) return;
         e.preventDefault();
+        const newVal = !data.reviewed;
         setReviewed.mutate(
-          { weekStart, kfiId, data: { reviewed: !data.reviewed } },
+          { weekStart, kfiId, data: { reviewed: newVal } },
           {
             onSuccess: () => {
               queryClient.invalidateQueries({ queryKey: getGetDriverWeekQueryKey(weekStart, kfiId) });
               queryClient.invalidateQueries({ queryKey: getGetWeekSummaryQueryKey(weekStart) });
+              if (newVal && autoAdvance) advanceToNextUnreviewed();
             },
           },
         );
@@ -253,15 +257,47 @@ export default function DriverDetail() {
     setReviewed,
     queryClient,
     toast,
+    autoAdvance,
   ]);
+
+  // Find the next unreviewed driver after the current one in sidebar order,
+  // skipping the current driver (which we've just toggled to reviewed). The
+  // weekSummary cache may still report the current driver as un-reviewed
+  // because the invalidation hasn't refetched yet, so we exclude it
+  // explicitly. Returns null if every other driver is already reviewed.
+  const findNextUnreviewedAfter = (currentId: string): string | null => {
+    if (flatDrivers.length === 0) return null;
+    const len = flatDrivers.length;
+    const startIdx = flatDrivers.findIndex((d) => d.kfiId === currentId);
+    const base = startIdx === -1 ? -1 : startIdx;
+    for (let step = 1; step <= len; step++) {
+      const probe = (((base + step) % len) + len) % len;
+      const d = flatDrivers[probe];
+      if (d.kfiId === currentId) continue;
+      if (!d.reviewed) return d.kfiId;
+    }
+    return null;
+  };
+
+  const advanceToNextUnreviewed = () => {
+    const next = findNextUnreviewedAfter(kfiId);
+    if (next) {
+      setLocation(`/weeks/${weekStart}/drivers/${next}`);
+    } else {
+      toast({ title: "All drivers reviewed for this week" });
+    }
+  };
 
   const toggleReviewed = () => {
     if (!data) return;
+    const newVal = !data.reviewed;
     setReviewed.mutate(
-      { weekStart, kfiId, data: { reviewed: !data.reviewed } },
+      { weekStart, kfiId, data: { reviewed: newVal } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getGetDriverWeekQueryKey(weekStart, kfiId) });
+          queryClient.invalidateQueries({ queryKey: getGetWeekSummaryQueryKey(weekStart) });
+          if (newVal && autoAdvance) advanceToNextUnreviewed();
         },
       },
     );
@@ -753,6 +789,20 @@ export default function DriverDetail() {
             <ShortcutRow keys={["p"]} label="Previous unreviewed driver" />
             <ShortcutRow keys={["r"]} label="Toggle reviewed" />
             <ShortcutRow keys={["?"]} label="Show this help" />
+            <div className="flex items-center justify-between gap-4 pt-3 mt-2 border-t border-border">
+              <label
+                htmlFor="auto-advance-pref"
+                className="text-foreground cursor-pointer"
+              >
+                Jump to next unreviewed after marking reviewed
+              </label>
+              <Checkbox
+                id="auto-advance-pref"
+                checked={autoAdvance}
+                onCheckedChange={(v) => setAutoAdvance(v === true)}
+                data-testid="checkbox-auto-advance"
+              />
+            </div>
             <p className="text-xs text-muted-foreground pt-2">
               Shortcuts are ignored while typing in a field or while a dialog is open.
             </p>

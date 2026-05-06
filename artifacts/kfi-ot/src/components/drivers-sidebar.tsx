@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
+import { readAutoAdvancePref } from "@/hooks/use-auto-advance";
 import { cn } from "@/lib/utils";
 
 type FilterChip = "unreviewed" | "ot" | "mismatch";
@@ -49,14 +50,18 @@ interface SidebarProps {
   onToggle: () => void;
 }
 
-function useToggleReviewed(weekStart: string) {
+function useToggleReviewed(
+  weekStart: string,
+  onAfterToggle?: (kfiId: string, newVal: boolean) => void,
+) {
   const setReviewed = useSetReviewed();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   return (kfiId: string, currentVal: boolean) => {
+    const newVal = !currentVal;
     setReviewed.mutate(
-      { weekStart, kfiId, data: { reviewed: !currentVal } },
+      { weekStart, kfiId, data: { reviewed: newVal } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({
@@ -65,6 +70,7 @@ function useToggleReviewed(weekStart: string) {
           queryClient.invalidateQueries({
             queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
           });
+          onAfterToggle?.(kfiId, newVal);
         },
         onError: () => {
           toast({
@@ -95,7 +101,42 @@ function DriversList({
 }: ListProps) {
   const [, setLocation] = useLocation();
   const { data: summary } = useGetWeekSummary(weekStart);
-  const toggleReviewed = useToggleReviewed(weekStart);
+  const { toast } = useToast();
+
+  // When the dispatcher double-clicks the row for the driver they're currently
+  // viewing to mark it reviewed, jump to the next unreviewed driver in
+  // sidebar order — same behavior as the header checkbox / `r` shortcut.
+  // For double-clicks on *other* rows we stay put, since they're using the
+  // sidebar as a quick toggle, not advancing through their queue.
+  const toggleReviewed = useToggleReviewed(weekStart, (toggledId, newVal) => {
+    if (!newVal) return;
+    if (toggledId !== selectedKfiId) return;
+    if (!readAutoAdvancePref()) return;
+    if (!summary?.customers) return;
+    const flat = summary.customers.flatMap((g) =>
+      g.drivers.map((d) => ({ kfiId: d.kfiId, reviewed: d.reviewed })),
+    );
+    const len = flat.length;
+    if (len === 0) return;
+    const startIdx = flat.findIndex((d) => d.kfiId === toggledId);
+    const base = startIdx === -1 ? -1 : startIdx;
+    let nextId: string | null = null;
+    for (let step = 1; step <= len; step++) {
+      const probe = (((base + step) % len) + len) % len;
+      const d = flat[probe];
+      if (d.kfiId === toggledId) continue;
+      if (!d.reviewed) {
+        nextId = d.kfiId;
+        break;
+      }
+    }
+    if (nextId) {
+      setLocation(`/weeks/${weekStart}/drivers/${nextId}`);
+      onNavigate?.();
+    } else {
+      toast({ title: "All drivers reviewed for this week" });
+    }
+  });
 
   const needle = search.trim().toLowerCase();
   const filterActive = needle.length > 0 || chips.size > 0;
