@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "KFI Driver OT Worksheet"
+version = "1.0.0"
+id = "artifacts/kfi-ot"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20201
+
+[services.development]
+run = "pnpm --filter @workspace/kfi-ot run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/kfi-ot", "run", "build" ]
+publicDir = "artifacts/kfi-ot/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20201"
+BASE_PATH = "/"
