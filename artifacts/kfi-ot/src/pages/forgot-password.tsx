@@ -18,16 +18,14 @@ export default function ForgotPassword() {
   const request = useRequestPasswordReset();
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const [devLink, setDevLink] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     request.mutate(
       { data: { email } },
       {
-        onSuccess: (data) => {
+        onSuccess: () => {
           setSubmitted(true);
-          setDevLink(data?.resetUrl ?? null);
         },
       },
     );
@@ -53,19 +51,6 @@ export default function ForgotPassword() {
                 you&apos;ll receive a reset link shortly. The link expires in 1
                 hour.
               </p>
-              {devLink && (
-                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
-                  <div className="font-semibold text-amber-700 dark:text-amber-400 mb-1">
-                    Dev mode link (no email transport configured):
-                  </div>
-                  <a
-                    href={devLink}
-                    className="font-mono break-all text-primary hover:underline"
-                  >
-                    {devLink}
-                  </a>
-                </div>
-              )}
             </CardContent>
             <CardFooter>
               <Link
