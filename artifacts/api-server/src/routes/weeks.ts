@@ -691,6 +691,21 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
   const aiWeekCountByCustomer = new Map(
     aiWeekRows.map((r) => [r.customer, r.weekCount ?? 0]),
   );
+  // Count saved driver-name aliases per customer. A growing alias count is a
+  // strong signal that the customer is a recurring weekly run, not a one-off,
+  // and that it's worth promoting them to a deterministic parser.
+  const aliasRows = await db
+    .select({
+      customer: schema.customerNameAliasesTable.customer,
+      aliasCount: sql<number>`count(*)::int`,
+    })
+    .from(schema.customerNameAliasesTable)
+    .groupBy(schema.customerNameAliasesTable.customer);
+  const aliasCountByCustomer = new Map(
+    aliasRows.map((r) => [r.customer, r.aliasCount ?? 0]),
+  );
+  const isPromotionCandidate = (aiWeeks: number, aliases: number) =>
+    aiWeeks >= 3 || aliases >= 5;
   const knownNames = new Set(KNOWN_CUSTOMERS.map((c) => c.displayName));
   const byName = new Map<string, (typeof rows)[number]>();
   for (const r of rows) {
@@ -718,6 +733,8 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       lastSource: a?.lastSource ?? null,
       isAiImported: false,
       aiImportWeekCount: aiWeekCountByCustomer.get(c.displayName) ?? 0,
+      aliasCount: aliasCountByCustomer.get(c.displayName) ?? 0,
+      promotionCandidate: false,
     };
   });
   // Append any AI-only customers that aren't in KNOWN_CUSTOMERS so the
@@ -753,6 +770,11 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       lastSource: a?.lastSource ?? "ai",
       isAiImported: true,
       aiImportWeekCount: aiWeekCountByCustomer.get(name) ?? 0,
+      aliasCount: aliasCountByCustomer.get(name) ?? 0,
+      promotionCandidate: isPromotionCandidate(
+        aiWeekCountByCustomer.get(name) ?? 0,
+        aliasCountByCustomer.get(name) ?? 0,
+      ),
     };
   });
   res.json([...out, ...aiOnly]);

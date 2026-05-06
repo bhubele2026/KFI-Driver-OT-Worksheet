@@ -613,6 +613,16 @@ export const GetCustomerUploadStatusResponseItem = zod.object({
     .describe(
       "Number of distinct weeks this customer has been imported via the AI extract flow (counted across all time). Used to surface promotion candidates.",
     ),
+  aliasCount: zod
+    .number()
+    .describe(
+      "Number of saved driver-name aliases for this customer in `customer_name_aliases`. A growing count is a strong signal that the customer is a recurring weekly run rather than a one-off, and is a good prompt to promote the AI flow to a deterministic parser.",
+    ),
+  promotionCandidate: zod
+    .boolean()
+    .describe(
+      "True when this customer crosses the heuristic threshold for being promoted to a deterministic parser — currently `aiImportWeekCount >= 3` or `aliasCount >= 5`. Surfaced as a banner on the dashboard with a link to `docs\/promote-ai-customer-to-parser.md`.",
+    ),
   lastUploadAt: zod.coerce.date().nullish(),
   lastFileName: zod.string().nullish(),
   lastAttemptAt: zod.coerce

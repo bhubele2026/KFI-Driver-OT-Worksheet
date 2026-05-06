@@ -17,6 +17,7 @@ import {
   Sparkles,
   AlertCircle,
   Wand2,
+  Lightbulb,
 } from "lucide-react";
 import { NewCustomerDialog } from "@/components/new-customer-dialog";
 
@@ -112,6 +113,10 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     }
   };
 
+  const promotionCandidates = (statuses ?? []).filter(
+    (s) => s.promotionCandidate,
+  );
+
   return (
     <Card className="overflow-hidden border-border/60">
       <div className="bg-muted/40 px-4 py-3 border-b border-border flex items-center justify-between gap-3">
@@ -133,6 +138,37 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           New customer file…
         </Button>
       </div>
+      {promotionCandidates.length > 0 && (
+        <div className="border-b border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-4 py-3">
+          <div className="flex items-start gap-2">
+            <Lightbulb className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <div className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
+              <span className="font-semibold">
+                {promotionCandidates.length === 1
+                  ? "Parser candidate:"
+                  : "Parser candidates:"}
+              </span>{" "}
+              {promotionCandidates
+                .map(
+                  (s) =>
+                    `${s.customer} (${s.aiImportWeekCount} ${
+                      s.aiImportWeekCount === 1 ? "week" : "weeks"
+                    } AI · ${s.aliasCount} ${
+                      s.aliasCount === 1 ? "alias" : "aliases"
+                    })`,
+                )
+                .join(", ")}
+              {". "}
+              These customers have come through the AI flow enough to justify a
+              real parser. See{" "}
+              <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-amber-500/10">
+                docs/promote-ai-customer-to-parser.md
+              </code>{" "}
+              for the promotion checklist.
+            </div>
+          </div>
+        </div>
+      )}
       <ul className="divide-y divide-border">
         {(statuses ?? []).map((s) => {
           const st = rowState[s.customer] ?? { uploading: false, error: null };
@@ -187,9 +223,9 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       variant="outline"
                       className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1"
                       title={
-                        s.aiImportWeekCount >= 3
-                          ? "This customer has been AI-imported multiple weeks in a row. Consider writing a deterministic parser — see docs/promote-ai-customer-to-parser.md."
-                          : "AI-imported (no deterministic parser yet)."
+                        s.promotionCandidate
+                          ? `This customer has accumulated ${s.aiImportWeekCount} AI-imported week(s) and ${s.aliasCount} saved driver alias(es). Consider writing a deterministic parser — see docs/promote-ai-customer-to-parser.md.`
+                          : `AI-imported (no deterministic parser yet). ${s.aliasCount} saved driver alias(es).`
                       }
                     >
                       <Wand2 className="h-3 w-3" />
