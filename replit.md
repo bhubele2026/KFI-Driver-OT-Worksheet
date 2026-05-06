@@ -83,6 +83,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - Customer-file routing depends on the uploaded filename containing a known customer keyword.
 - PDF parsers (`Adient`, `IWG`, `DeLallo`) throw a clear "scanned image" error if pdfjs extracts zero text — DeLallo in particular has been seen as a scanner-produced PDF with no text layer.
 - The upload route distinguishes "could not detect customer from filename" from "detected but parsed 0 punches" — the latter signals format drift or a missing roster entry, not a bad filename.
+- Customer-file parsers return `{ punches, unmappedIds }`. `unmappedIds` (id, count, sampleName) is surfaced in the upload response and rendered as an inline amber warning per row in the customer-files panel; rows referencing those ids were dropped, fix `EMBEDDED_MAPPING` and re-upload to clear it.
 - Don't `console.log` in server code — use `req.log` / `logger`.
 
 ## Pointers
