@@ -12,6 +12,7 @@ import {
 } from "@workspace/api-client-react";
 import { CustomerUploadPanel } from "@/components/customer-upload-panel";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
+import { ReviewedPill } from "@/components/reviewed-pill";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -83,6 +84,9 @@ export default function WeekSummary() {
   const { data: weeksList } = useListWeeks();
   const { data: summary, isLoading, isError, error } =
     useGetWeekSummary(weekStart);
+
+  const allDrivers = summary?.customers.flatMap((c) => c.drivers) ?? [];
+  const reviewedCount = allDrivers.filter((d) => d.reviewed).length;
 
   const refreshCt = useRefreshConnecteam();
   const setReviewed = useSetReviewed();
@@ -255,9 +259,18 @@ export default function WeekSummary() {
         <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden relative">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-1">
-              <h2 className="text-2xl font-bold font-display tracking-tight text-foreground">
-                Week of {weekStart}
-              </h2>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-2xl font-bold font-display tracking-tight text-foreground">
+                  Week of {weekStart}
+                </h2>
+                {summary ? (
+                  <ReviewedPill
+                    reviewed={reviewedCount}
+                    total={allDrivers.length}
+                    testId="pill-week-reviewed-progress"
+                  />
+                ) : null}
+              </div>
               {summary?.lastRefreshedAt ? (
                 <p className="text-sm text-muted-foreground">
                   Last CT Refresh:{" "}

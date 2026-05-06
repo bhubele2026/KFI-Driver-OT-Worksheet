@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
+import { ReviewedPill } from "@/components/reviewed-pill";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useAutoAdvancePref } from "@/hooks/use-auto-advance";
 
@@ -468,6 +469,11 @@ export default function DriverDetail() {
           </Link>
         </div>
         <div className="flex items-center gap-3">
+          <ReviewedPill
+            reviewed={flatDrivers.filter((d) => d.reviewed).length}
+            total={flatDrivers.length}
+            testId="pill-reviewed-progress"
+          />
           <div className="flex items-center space-x-2 bg-sidebar-accent/40 px-3 py-1.5 rounded-md">
             <Checkbox id="reviewed" checked={data.reviewed} onCheckedChange={toggleReviewed} />
             <label htmlFor="reviewed" className="text-sm font-medium leading-none cursor-pointer">
