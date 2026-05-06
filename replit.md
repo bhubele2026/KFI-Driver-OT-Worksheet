@@ -5,7 +5,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — API server (port wired by workflow). Routes mounted under `/api`.
-- `pnpm run test` — run cross-package tests (currently the parser drift suite in `artifacts/api-server/src/lib/parsers/__tests__/`).
+- `pnpm run test` — run cross-package tests: parser drift suite in `artifacts/api-server/src/lib/parsers/__tests__/` plus the kfi-ot Playwright e2e in `artifacts/kfi-ot/e2e/` (config: `artifacts/kfi-ot/playwright.config.ts`; honors `KFI_E2E_BASE_URL`, defaults to `http://localhost:80`; needs `DATABASE_URL`).
 - `pnpm --filter @workspace/kfi-ot run dev` — frontend (Vite).
 - `pnpm run typecheck` — full typecheck across all packages.
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate hooks + Zod from `lib/api-spec/openapi.yaml`.
