@@ -36,6 +36,8 @@ import {
   ArrowLeft,
   Copy,
   Loader2,
+  Lock,
+  LockOpen,
   Mail,
   Power,
   PowerOff,
@@ -264,6 +266,25 @@ export default function AdminUsers() {
         onError: (err) =>
           toast({
             title: "Update failed",
+            description:
+              err instanceof Error ? err.message : "Unknown error",
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  const handleUnlock = (id: number) => {
+    updateUser.mutate(
+      { id, data: { locked: false } },
+      {
+        onSuccess: () => {
+          refetchUsers();
+          toast({ title: "Account unlocked" });
+        },
+        onError: (err) =>
+          toast({
+            title: "Couldn't unlock account",
             description:
               err instanceof Error ? err.message : "Unknown error",
             variant: "destructive",
@@ -608,6 +629,7 @@ export default function AdminUsers() {
                 <TableBody>
                   {users?.map((u) => {
                     const isMe = me?.id === u.id;
+                    const isLocked = !!u.lockedAt;
                     return (
                       <TableRow key={u.id}>
                         <TableCell className="font-mono">
@@ -626,11 +648,26 @@ export default function AdminUsers() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <span
-                            className={`text-xs font-mono ${u.isActive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
-                          >
-                            {u.isActive ? "ACTIVE" : "DEACTIVATED"}
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <span
+                              className={`text-xs font-mono ${u.isActive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
+                            >
+                              {u.isActive ? "ACTIVE" : "DEACTIVATED"}
+                            </span>
+                            {isLocked && (
+                              <span
+                                className="text-[10px] font-mono text-amber-600 dark:text-amber-400"
+                                title={`Locked at ${format(new Date(u.lockedAt!), "yyyy-MM-dd HH:mm")}`}
+                              >
+                                LOCKED · {u.failedLoginCount} fails
+                              </span>
+                            )}
+                            {!isLocked && u.failedLoginCount > 0 && (
+                              <span className="text-[10px] font-mono text-muted-foreground">
+                                {u.failedLoginCount} recent fails
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">
                           {u.lastLoginAt
@@ -638,6 +675,26 @@ export default function AdminUsers() {
                             : "—"}
                         </TableCell>
                         <TableCell className="flex gap-1 justify-end">
+                          {isLocked && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleUnlock(u.id)}
+                              disabled={updateUser.isPending}
+                              title="Unlock account"
+                            >
+                              <LockOpen className="h-3 w-3" />
+                            </Button>
+                          )}
+                          {!isLocked && u.failedLoginCount > 0 && (
+                            <span
+                              className="inline-flex items-center text-muted-foreground"
+                              title={`${u.failedLoginCount} consecutive failed sign-ins`}
+                            >
+                              <Lock className="h-3 w-3 opacity-30" />
+                            </span>
+                          )}
                           <Button
                             type="button"
                             size="sm"

@@ -624,13 +624,17 @@ components:
 
     User:
       type: object
-      required: [id, email, createdAt, isAdmin, isActive]
+      required: [id, email, createdAt, isAdmin, isActive, failedLoginCount]
       properties:
         id: { type: integer }
         email: { type: string }
         createdAt: { type: string, format: date-time }
         isAdmin: { type: boolean }
         isActive: { type: boolean }
+        failedLoginCount: { type: integer }
+        lockedAt:
+          type: ["string", "null"]
+          format: date-time
         lastLoginAt:
           type: ["string", "null"]
           format: date-time
@@ -748,6 +752,9 @@ components:
       properties:
         isActive: { type: boolean }
         isAdmin: { type: boolean }
+        locked:
+          type: boolean
+          description: Set false to clear an account lockout (admin unlock).
 
     Week:
       type: object

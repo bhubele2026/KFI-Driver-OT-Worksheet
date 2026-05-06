@@ -27,6 +27,9 @@ export interface User {
   createdAt: string;
   isAdmin: boolean;
   isActive: boolean;
+  failedLoginCount: number;
+  /** @nullable */
+  lockedAt?: string | null;
   /** @nullable */
   lastLoginAt?: string | null;
 }
@@ -115,6 +118,8 @@ export interface RateLimitBucket {
 export interface UpdateUserBody {
   isActive?: boolean;
   isAdmin?: boolean;
+  /** Set false to clear an account lockout (admin unlock). */
+  locked?: boolean;
 }
 
 export interface Week {

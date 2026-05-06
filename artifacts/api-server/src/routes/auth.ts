@@ -54,12 +54,20 @@ const tokenLookupLimiter = ipRateLimit({
 const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 const RESET_TTL_MS = 1000 * 60 * 60; // 1 hour
 
+// After this many *consecutive* failed sign-ins for one account, the account
+// is locked until an admin clears it or the user completes a password reset.
+// This sits on top of the in-memory per-email rate limit (5/15min) so the lock
+// persists across windows and IP rotations.
+const ACCOUNT_LOCK_THRESHOLD = 10;
+
 function publicUser(user: {
   id: number;
   email: string;
   createdAt: Date | string;
   isAdmin: boolean;
   isActive: boolean;
+  failedLoginCount: number;
+  lockedAt: Date | string | null;
   lastLoginAt?: Date | string | null;
 }) {
   return {
@@ -68,6 +76,8 @@ function publicUser(user: {
     createdAt: user.createdAt,
     isAdmin: user.isAdmin,
     isActive: user.isActive,
+    failedLoginCount: user.failedLoginCount,
+    lockedAt: user.lockedAt,
     lastLoginAt: user.lastLoginAt ?? null,
   };
 }
@@ -144,8 +154,39 @@ authRouter.post("/auth/login", async (req, res) => {
   const user = await db.query.usersTable.findFirst({
     where: eq(schema.usersTable.email, email),
   });
+  if (user && user.lockedAt) {
+    recordLoginFailure(req, email);
+    req.log?.warn({ userId: user.id }, "login attempt on locked account");
+    res.status(423).json({
+      error:
+        "Account is locked due to repeated failed sign-ins. Reset your password or contact an admin.",
+    });
+    return;
+  }
   if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
     await recordLoginFailure(req, email);
+    if (user) {
+      const nextCount = user.failedLoginCount + 1;
+      const shouldLock = nextCount >= ACCOUNT_LOCK_THRESHOLD;
+      await db
+        .update(schema.usersTable)
+        .set({
+          failedLoginCount: nextCount,
+          ...(shouldLock ? { lockedAt: new Date() } : {}),
+        })
+        .where(eq(schema.usersTable.id, user.id));
+      if (shouldLock) {
+        req.log?.warn(
+          { userId: user.id, failedLoginCount: nextCount },
+          "account locked after repeated failed sign-ins",
+        );
+        res.status(423).json({
+          error:
+            "Account is locked due to repeated failed sign-ins. Reset your password or contact an admin.",
+        });
+        return;
+      }
+    }
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
@@ -158,11 +199,11 @@ authRouter.post("/auth/login", async (req, res) => {
   const now = new Date();
   const [updated] = await db
     .update(schema.usersTable)
-    .set({ lastLoginAt: now })
+    .set({ lastLoginAt: now, failedLoginCount: 0, lockedAt: null })
     .where(eq(schema.usersTable.id, user.id))
     .returning();
   req.session.userId = user.id;
-  res.json(publicUser(updated ?? { ...user, lastLoginAt: now }));
+  res.json(publicUser(updated ?? { ...user, lastLoginAt: now, failedLoginCount: 0, lockedAt: null }));
 });
 
 authRouter.post("/auth/logout", (req, res) => {
@@ -474,7 +515,7 @@ authRouter.post("/auth/reset-password", tokenSubmitLimiter, async (req, res) => 
     if (!user || !user.isActive) return { kind: "invalid" as const };
     const [updated] = await tx
       .update(schema.usersTable)
-      .set({ passwordHash })
+      .set({ passwordHash, failedLoginCount: 0, lockedAt: null })
       .where(eq(schema.usersTable.id, user.id))
       .returning();
     await tx
@@ -562,11 +603,30 @@ authRouter.patch("/auth/users/:id", requireAdmin, async (req, res) => {
     return;
   }
   const me = (req as { user?: { id: number } }).user!;
-  const patch: { isActive?: boolean; isAdmin?: boolean } = {};
+  const patch: {
+    isActive?: boolean;
+    isAdmin?: boolean;
+    lockedAt?: Date | null;
+    failedLoginCount?: number;
+  } = {};
   if (typeof parsed.data.isActive === "boolean") patch.isActive = parsed.data.isActive;
   if (typeof parsed.data.isAdmin === "boolean") patch.isAdmin = parsed.data.isAdmin;
+  if (parsed.data.locked === false) {
+    patch.lockedAt = null;
+    patch.failedLoginCount = 0;
+  } else if (parsed.data.locked === true) {
+    res.status(400).json({
+      error: "Admins can only clear lockouts (locked: false), not impose them.",
+    });
+    return;
+  }
+  // Reactivating an account also clears any prior lockout so the user can sign in again.
+  if (patch.isActive === true && target.lockedAt) {
+    patch.lockedAt = null;
+    patch.failedLoginCount = 0;
+  }
   if (Object.keys(patch).length === 0) {
-    res.status(400).json({ error: "No updatable fields provided (isActive, isAdmin)." });
+    res.status(400).json({ error: "No updatable fields provided (isActive, isAdmin, locked)." });
     return;
   }
 

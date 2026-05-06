@@ -30,6 +30,8 @@ export const RegisterResponse = zod.object({
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  failedLoginCount: zod.number(),
+  lockedAt: zod.coerce.date().nullish(),
   lastLoginAt: zod.coerce.date().nullish(),
 });
 
@@ -123,6 +125,8 @@ export const AcceptInviteResponse = zod.object({
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  failedLoginCount: zod.number(),
+  lockedAt: zod.coerce.date().nullish(),
   lastLoginAt: zod.coerce.date().nullish(),
 });
 
@@ -171,6 +175,8 @@ export const ResetPasswordResponse = zod.object({
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  failedLoginCount: zod.number(),
+  lockedAt: zod.coerce.date().nullish(),
   lastLoginAt: zod.coerce.date().nullish(),
 });
 
@@ -190,6 +196,8 @@ export const ListUsersResponseItem = zod.object({
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  failedLoginCount: zod.number(),
+  lockedAt: zod.coerce.date().nullish(),
   lastLoginAt: zod.coerce.date().nullish(),
 });
 export const ListUsersResponse = zod.array(ListUsersResponseItem);
@@ -204,6 +212,10 @@ export const UpdateUserParams = zod.object({
 export const UpdateUserBody = zod.object({
   isActive: zod.boolean().optional(),
   isAdmin: zod.boolean().optional(),
+  locked: zod
+    .boolean()
+    .optional()
+    .describe("Set false to clear an account lockout (admin unlock)."),
 });
 
 export const UpdateUserResponse = zod.object({
@@ -212,6 +224,8 @@ export const UpdateUserResponse = zod.object({
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  failedLoginCount: zod.number(),
+  lockedAt: zod.coerce.date().nullish(),
   lastLoginAt: zod.coerce.date().nullish(),
 });
 
@@ -277,6 +291,8 @@ export const LoginResponse = zod.object({
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  failedLoginCount: zod.number(),
+  lockedAt: zod.coerce.date().nullish(),
   lastLoginAt: zod.coerce.date().nullish(),
 });
 
@@ -290,6 +306,8 @@ export const GetMeResponse = zod.union([
     createdAt: zod.coerce.date(),
     isAdmin: zod.boolean(),
     isActive: zod.boolean(),
+    failedLoginCount: zod.number(),
+    lockedAt: zod.coerce.date().nullish(),
     lastLoginAt: zod.coerce.date().nullish(),
   }),
   zod.null(),

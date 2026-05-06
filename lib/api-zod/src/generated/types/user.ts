@@ -12,6 +12,9 @@ export interface User {
   createdAt: Date;
   isAdmin: boolean;
   isActive: boolean;
+  failedLoginCount: number;
+  /** @nullable */
+  lockedAt?: Date | null;
   /** @nullable */
   lastLoginAt?: Date | null;
 }
