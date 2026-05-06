@@ -16,15 +16,20 @@ Promote when **any** of these are true:
 
 ## Step-by-step checklist
 
-1. **Grab a fixture.** Sign in as an admin and hit:
+1. **Grab a fixture.** Sign in as an admin and open **Admin → AI samples**
+   (`/admin/ai-samples`). The customer-files panel's amber `AI · N weeks`
+   badge deep-links straight to that customer's stashed files. Pick a row
+   marked **Confirmed** and click **Download** — prefer a confirmed sample
+   over an unconfirmed one because confirmed files are the ones the
+   dispatcher actually used.
+
+   Save the file to `artifacts/api-server/src/lib/parsers/__tests__/fixtures/<customer>-<weekStart>.{xlsx,pdf}`.
+
+   If you'd rather hit the API directly:
    ```
    GET /api/admin/ai-extract-samples?customer=<Customer Display Name>
-   ```
-   Pick a confirmed sample (`confirmed: true`) and download it:
-   ```
    GET /api/admin/ai-extract-samples/<id>/download
    ```
-   Save the file to `artifacts/api-server/src/lib/parsers/__tests__/fixtures/<customer>-<weekStart>.{xlsx,pdf}`.
    - Confirmed AI samples are retained for 90 days; unconfirmed for 24h. Don't
      wait — pull the fixture as soon as you decide to promote.
    - If the file contains real PII you don't want in the repo, redact it

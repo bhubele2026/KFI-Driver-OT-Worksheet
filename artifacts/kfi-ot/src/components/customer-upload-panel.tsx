@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
+import { Link } from "wouter";
 import {
   useGetCustomerUploadStatus,
+  useGetMe,
   getGetCustomerUploadStatusQueryKey,
   getGetWeekSummaryQueryKey,
 } from "@workspace/api-client-react";
@@ -34,6 +36,7 @@ interface RowState {
 
 export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const { data: statuses } = useGetCustomerUploadStatus(weekStart);
+  const { data: me } = useGetMe();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -218,21 +221,40 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       Not uploaded
                     </Badge>
                   )}
-                  {s.isAiImported && (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1"
-                      title={
-                        s.promotionCandidate
-                          ? `This customer has accumulated ${s.aiImportWeekCount} AI-imported week(s) and ${s.aliasCount} saved driver alias(es). Consider writing a deterministic parser — see docs/promote-ai-customer-to-parser.md.`
-                          : `AI-imported (no deterministic parser yet). ${s.aliasCount} saved driver alias(es).`
-                      }
-                    >
-                      <Wand2 className="h-3 w-3" />
-                      AI · {s.aiImportWeekCount}{" "}
-                      {s.aiImportWeekCount === 1 ? "week" : "weeks"}
-                    </Badge>
-                  )}
+                  {s.isAiImported &&
+                    (me?.isAdmin ? (
+                      <Link
+                        href={`/admin/ai-samples?customer=${encodeURIComponent(s.customer)}`}
+                      >
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1 cursor-pointer hover:bg-amber-500/10"
+                          title={
+                            s.promotionCandidate
+                              ? `This customer has accumulated ${s.aiImportWeekCount} AI-imported week(s) and ${s.aliasCount} saved driver alias(es). Click to view stashed samples — and consider writing a deterministic parser.`
+                              : `AI-imported (no deterministic parser yet). ${s.aliasCount} saved driver alias(es). Click to view stashed samples.`
+                          }
+                        >
+                          <Wand2 className="h-3 w-3" />
+                          AI · {s.aiImportWeekCount}{" "}
+                          {s.aiImportWeekCount === 1 ? "week" : "weeks"}
+                        </Badge>
+                      </Link>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1"
+                        title={
+                          s.promotionCandidate
+                            ? `This customer has accumulated ${s.aiImportWeekCount} AI-imported week(s) and ${s.aliasCount} saved driver alias(es). Consider writing a deterministic parser — see docs/promote-ai-customer-to-parser.md.`
+                            : `AI-imported (no deterministic parser yet). ${s.aliasCount} saved driver alias(es).`
+                        }
+                      >
+                        <Wand2 className="h-3 w-3" />
+                        AI · {s.aiImportWeekCount}{" "}
+                        {s.aiImportWeekCount === 1 ? "week" : "weeks"}
+                      </Badge>
+                    ))}
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                     {s.extensions.join(" / ")}
                   </span>

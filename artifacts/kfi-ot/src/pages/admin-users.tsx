@@ -56,6 +56,7 @@ import {
   ShieldOff,
   KeyRound,
   Send,
+  Sparkles,
   Trash2,
   Unlock,
 } from "lucide-react";
@@ -420,6 +421,16 @@ export default function AdminUsers() {
             Admin · Users
           </h1>
         </div>
+        <Link href="/admin/ai-samples">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
+          >
+            <Sparkles className="h-4 w-4 mr-2" />
+            AI samples
+          </Button>
+        </Link>
       </header>
 
       <main className="flex-1 px-4 py-6 max-w-5xl w-full mx-auto space-y-6">
