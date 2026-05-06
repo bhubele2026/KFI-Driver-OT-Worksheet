@@ -41,7 +41,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - Admin-only `/auth/users` page (`/admin/users`) lists accounts and supports deactivate / reactivate / promote / demote / generate-reset-link / send-reset-email. Guards prevent self-deactivation and removing the last active admin. Each row also shows `lastLoginAt` (stamped on `/auth/login`). The invites list also has a per-row "Resend" action that re-emails the existing accept link. Email-sending actions return 503 with a clear toast when SMTP is not configured.
 - Admins see a dismissible warning banner on `/admin/users` when SMTP is not configured, driven by `GET /auth/mailer-status` (admin-only, returns `{ configured: boolean }`).
 - `requireAuth` re-loads the session user on every request and rejects if `isActive=false`.
-- Persistent account lockout: after 10 consecutive failed sign-ins (`failed_login_count` on `users`), `locked_at` is stamped and `/auth/login` returns 423. A successful sign-in, a successful `/auth/reset-password`, or admin reactivation/`PATCH /auth/users/:id { locked: false }` clears both counter and lock. The admin users page shows the locked badge and an unlock action.
+- Persistent account lockout: after 10 consecutive failed sign-ins (`failed_login_count` on `users`), `locked_at` is stamped and `/auth/login` returns 423. A successful sign-in, a successful `/auth/reset-password`, or admin reactivation/`PATCH /auth/users/:id { locked: false }` clears both counter and lock. The admin users page shows the locked badge and an unlock action. When the lock fires, the user is emailed (subject "Your KFI Dispatch account was locked") with a fresh 1-hour password-reset link; silent no-op when SMTP isn't configured.
 
 ## Activity attribution
 

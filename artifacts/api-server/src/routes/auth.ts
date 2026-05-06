@@ -130,6 +130,46 @@ async function writeAudit(
   await tx.insert(schema.userAuditLogTable).values(entry);
 }
 
+// Sent after /auth/login transitions an account from unlocked to locked.
+// Mirrors /auth/request-password-reset's behavior: silently no-ops when
+// SMTP isn't configured or APP_BASE_URL isn't set, and never logs tokens.
+async function sendAccountLockedEmail(
+  req: import("express").Request,
+  user: { id: number; email: string },
+  lockedAt: Date,
+): Promise<void> {
+  if (!isMailerConfigured()) return;
+  const base = appBaseUrl();
+  if (!base) {
+    req.log?.error(
+      { userId: user.id },
+      "account locked but APP_BASE_URL is not configured; cannot email reset link",
+    );
+    return;
+  }
+  const token = generateToken();
+  const expiresAt = new Date(Date.now() + RESET_TTL_MS);
+  await db.insert(schema.passwordResetsTable).values({
+    userId: user.id,
+    token,
+    expiresAt,
+  });
+  const resetUrl = `${base}/reset-password/${token}`;
+  const lockedAtIso = lockedAt.toISOString();
+  await sendMail({
+    to: user.email,
+    subject: "Your KFI Dispatch account was locked",
+    text:
+      `Your KFI Dispatch account was locked at ${lockedAtIso} after ` +
+      `${ACCOUNT_LOCK_THRESHOLD} consecutive failed sign-in attempts.\n\n` +
+      `If this was you, reset your password to unlock the account:\n` +
+      `${resetUrl}\n\n` +
+      `The reset link expires in 1 hour. If you didn't try to sign in, ` +
+      `someone may be attempting to access your account — reset your password ` +
+      `now and contact a KFI Dispatch admin.\n`,
+  });
+}
+
 async function userCount(): Promise<number> {
   const [row] = await db.select({ n: count() }).from(schema.usersTable);
   return Number(row?.n ?? 0);
@@ -205,6 +245,9 @@ authRouter.post("/auth/login", async (req, res) => {
           { userId: user.id, failedLoginCount: nextCount },
           "account locked after repeated failed sign-ins",
         );
+        await sendAccountLockedEmail(req, user, new Date()).catch((err) => {
+          req.log?.error({ err, userId: user.id }, "account-locked email failed");
+        });
         res.status(423).json({
           error:
             "Account is locked due to repeated failed sign-ins. Reset your password or contact an admin.",
