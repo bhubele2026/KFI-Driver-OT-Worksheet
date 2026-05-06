@@ -603,6 +603,15 @@ export default function AdminUsers() {
               Customer-driver mappings
             </Button>
           </Link>
+          <Link href="/admin/parser-snoozes">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
+            >
+              Parser snoozes
+            </Button>
+          </Link>
         </div>
       </header>
 

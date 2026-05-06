@@ -1017,6 +1017,62 @@ export const ForgetCustomerNameAliasQueryParams = zod.object({
 });
 
 /**
+ * @summary List every active or expired parser-promotion snooze (admin-only).
+ */
+export const ListParserPromotionSnoozesResponseItem = zod.object({
+  customer: zod.string(),
+  snoozedAt: zod.coerce.date(),
+  snoozedUntil: zod.coerce
+    .date()
+    .nullish()
+    .describe("When the snooze auto-expires. Null means snoozed indefinitely."),
+  snoozedByEmail: zod.string().nullish(),
+  reason: zod.string().nullish(),
+});
+export const ListParserPromotionSnoozesResponse = zod.array(
+  ListParserPromotionSnoozesResponseItem,
+);
+
+/**
+ * @summary Snooze the "promote to parser" suggestion for a customer (admin-only). Upserts the existing row when one is present.
+ */
+
+export const createParserPromotionSnoozeBodySnoozeWeeksMax = 520;
+
+export const createParserPromotionSnoozeBodyReasonMax = 500;
+
+export const CreateParserPromotionSnoozeBody = zod.object({
+  customer: zod.string().min(1),
+  snoozeWeeks: zod
+    .number()
+    .min(1)
+    .max(createParserPromotionSnoozeBodySnoozeWeeksMax)
+    .nullish()
+    .describe(
+      "Number of weeks to snooze the suggestion for. Null or omitted = snooze indefinitely (until manually un-snoozed).",
+    ),
+  reason: zod.string().max(createParserPromotionSnoozeBodyReasonMax).nullish(),
+});
+
+export const CreateParserPromotionSnoozeResponse = zod.object({
+  customer: zod.string(),
+  snoozedAt: zod.coerce.date(),
+  snoozedUntil: zod.coerce
+    .date()
+    .nullish()
+    .describe("When the snooze auto-expires. Null means snoozed indefinitely."),
+  snoozedByEmail: zod.string().nullish(),
+  reason: zod.string().nullish(),
+});
+
+/**
+ * @summary Lift a snooze so the "promote to parser" suggestion can surface again (admin-only).
+ */
+export const RemoveParserPromotionSnoozeQueryParams = zod.object({
+  customer: zod.coerce.string(),
+});
+
+/**
  * @summary Add a manual driver or customer punch
  */
 export const createManualPunchPathWeekStartRegExp = new RegExp(

@@ -3,13 +3,23 @@ import { Link } from "wouter";
 import {
   useGetCustomerUploadStatus,
   useGetMe,
+  useCreateParserPromotionSnooze,
   getGetCustomerUploadStatusQueryKey,
   getGetWeekSummaryQueryKey,
+  getListParserPromotionSnoozesQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import {
   Loader2,
@@ -20,6 +30,7 @@ import {
   AlertCircle,
   Wand2,
   Lightbulb,
+  BellOff,
 } from "lucide-react";
 import { NewCustomerDialog } from "@/components/new-customer-dialog";
 
@@ -42,6 +53,36 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
   const [rowState, setRowState] = useState<Record<string, RowState>>({});
   const [newOpen, setNewOpen] = useState(false);
+  const snoozeMutation = useCreateParserPromotionSnooze();
+
+  const snooze = (customer: string, snoozeWeeks: number | null) => {
+    snoozeMutation.mutate(
+      { data: { customer, snoozeWeeks } },
+      {
+        onSuccess: () => {
+          toast({
+            title: `Snoozed "${customer}"`,
+            description:
+              snoozeWeeks == null
+                ? "The promotion suggestion is hidden until you lift the snooze in Admin."
+                : `The promotion suggestion is hidden for ${snoozeWeeks} ${snoozeWeeks === 1 ? "week" : "weeks"}.`,
+          });
+          queryClient.invalidateQueries({
+            queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
+          });
+          queryClient.invalidateQueries({
+            queryKey: getListParserPromotionSnoozesQueryKey(),
+          });
+        },
+        onError: (err) =>
+          toast({
+            title: "Couldn't snooze suggestion",
+            description: errMessage(err, "Snooze failed"),
+            variant: "destructive",
+          }),
+      },
+    );
+  };
 
   const setRow = (customer: string, patch: Partial<RowState>) => {
     setRowState((prev) => ({
@@ -142,7 +183,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         </Button>
       </div>
       {promotionCandidates.length > 0 && (
-        <div className="border-b border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-4 py-3">
+        <div className="border-b border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-4 py-3 space-y-2">
           <div className="flex items-start gap-2">
             <Lightbulb className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
             <div className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
@@ -151,25 +192,86 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   ? "Parser candidate:"
                   : "Parser candidates:"}
               </span>{" "}
-              {promotionCandidates
-                .map(
-                  (s) =>
-                    `${s.customer} (${s.aiImportWeekCount} ${
-                      s.aiImportWeekCount === 1 ? "week" : "weeks"
-                    } AI · ${s.aliasCount} ${
-                      s.aliasCount === 1 ? "alias" : "aliases"
-                    })`,
-                )
-                .join(", ")}
-              {". "}
               These customers have come through the AI flow enough to justify a
               real parser. See{" "}
               <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-amber-500/10">
                 docs/promote-ai-customer-to-parser.md
               </code>{" "}
               for the promotion checklist.
+              {me?.isAdmin && (
+                <>
+                  {" "}
+                  Manage hidden suggestions on{" "}
+                  <Link
+                    href="/admin/parser-snoozes"
+                    className="underline underline-offset-2"
+                  >
+                    Admin · Parser snoozes
+                  </Link>
+                  .
+                </>
+              )}
             </div>
           </div>
+          <ul className="ml-6 space-y-1">
+            {promotionCandidates.map((s) => (
+              <li
+                key={s.customer}
+                className="flex items-center gap-2 text-xs text-amber-900 dark:text-amber-200"
+              >
+                <span className="font-medium">{s.customer}</span>
+                <span className="font-mono text-[10px] text-amber-800/80 dark:text-amber-300/80">
+                  {s.aiImportWeekCount}{" "}
+                  {s.aiImportWeekCount === 1 ? "week" : "weeks"} AI ·{" "}
+                  {s.aliasCount}{" "}
+                  {s.aliasCount === 1 ? "alias" : "aliases"}
+                </span>
+                {me?.isAdmin && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[11px] text-amber-900 dark:text-amber-200 hover:bg-amber-500/10"
+                        disabled={snoozeMutation.isPending}
+                      >
+                        {snoozeMutation.isPending &&
+                        snoozeMutation.variables?.data.customer ===
+                          s.customer ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <BellOff className="h-3 w-3 mr-1" />
+                        )}
+                        Don't suggest
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuLabel className="text-xs">
+                        Snooze "{s.customer}" for…
+                      </DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => snooze(s.customer, 4)}>
+                        4 weeks
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => snooze(s.customer, 12)}>
+                        12 weeks
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => snooze(s.customer, 26)}>
+                        26 weeks
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => snooze(s.customer, null)}
+                      >
+                        Forever (until lifted)
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       <ul className="divide-y divide-border">

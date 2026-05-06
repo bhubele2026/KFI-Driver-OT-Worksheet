@@ -765,6 +765,51 @@ paths:
         "204": { description: Forgotten (or no alias existed) }
         "400": { description: Invalid input }
 
+  /parser-promotion-snoozes:
+    get:
+      operationId: listParserPromotionSnoozes
+      tags: [ingest]
+      summary: List every active or expired parser-promotion snooze (admin-only).
+      responses:
+        "200":
+          description: Snoozes ordered by `snoozedAt` desc, joined with the actor email.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ParserPromotionSnooze" }
+        "403": { description: Admin only }
+    post:
+      operationId: createParserPromotionSnooze
+      tags: [ingest]
+      summary: Snooze the "promote to parser" suggestion for a customer (admin-only). Upserts the existing row when one is present.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateParserPromotionSnoozeBody" }
+      responses:
+        "200":
+          description: Created or updated snooze.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ParserPromotionSnooze" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+    delete:
+      operationId: removeParserPromotionSnooze
+      tags: [ingest]
+      summary: Lift a snooze so the "promote to parser" suggestion can surface again (admin-only).
+      parameters:
+        - name: customer
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Removed (or no snooze existed) }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+
   /weeks/{weekStart}/manual-punches:
     post:
       operationId: createManualPunch
@@ -1605,3 +1650,32 @@ components:
       required: [kfiId]
       properties:
         kfiId: { type: string, minLength: 1 }
+
+    ParserPromotionSnooze:
+      type: object
+      required: [customer, snoozedAt]
+      properties:
+        customer: { type: string }
+        snoozedAt: { type: string, format: date-time }
+        snoozedUntil:
+          type: ["string", "null"]
+          format: date-time
+          description: When the snooze auto-expires. Null means snoozed indefinitely.
+        snoozedByEmail:
+          type: ["string", "null"]
+        reason:
+          type: ["string", "null"]
+
+    CreateParserPromotionSnoozeBody:
+      type: object
+      required: [customer]
+      properties:
+        customer: { type: string, minLength: 1 }
+        snoozeWeeks:
+          type: ["integer", "null"]
+          minimum: 1
+          maximum: 520
+          description: Number of weeks to snooze the suggestion for. Null or omitted = snooze indefinitely (until manually un-snoozed).
+        reason:
+          type: ["string", "null"]
+          maxLength: 500

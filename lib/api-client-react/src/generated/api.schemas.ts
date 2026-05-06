@@ -553,6 +553,37 @@ export interface UpdateCustomerNameAliasBody {
   kfiId: string;
 }
 
+export interface ParserPromotionSnooze {
+  customer: string;
+  snoozedAt: string;
+  /**
+   * When the snooze auto-expires. Null means snoozed indefinitely.
+   * @nullable
+   */
+  snoozedUntil?: string | null;
+  /** @nullable */
+  snoozedByEmail?: string | null;
+  /** @nullable */
+  reason?: string | null;
+}
+
+export interface CreateParserPromotionSnoozeBody {
+  /** @minLength 1 */
+  customer: string;
+  /**
+   * Number of weeks to snooze the suggestion for. Null or omitted = snooze indefinitely (until manually un-snoozed).
+   * @minimum 1
+   * @maximum 520
+   * @nullable
+   */
+  snoozeWeeks?: number | null;
+  /**
+   * @maxLength 500
+   * @nullable
+   */
+  reason?: string | null;
+}
+
 export type ListRateLimitEventTimeseriesParams = {
   /**
    * @minimum 1
@@ -586,6 +617,10 @@ export type UpdateCustomerNameAliasParams = {
 export type ForgetCustomerNameAliasParams = {
   customer: string;
   nameOnDoc: string;
+};
+
+export type RemoveParserPromotionSnoozeParams = {
+  customer: string;
 };
 
 export type SetReviewedBody = {
