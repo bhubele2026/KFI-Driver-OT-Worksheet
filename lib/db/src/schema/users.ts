@@ -12,6 +12,12 @@ export const usersTable = pgTable("users", {
     .notNull()
     .defaultNow(),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  // Last time an admin (or self-serve flow) sent this user a password-reset
+  // email. Used by /auth/users/:id/send-password-reset as an atomic per-user
+  // cooldown to stop duplicate sends from a double-clicked button.
+  passwordResetLastSentAt: timestamp("password_reset_last_sent_at", {
+    withTimezone: true,
+  }),
 });
 
 export type User = typeof usersTable.$inferSelect;
@@ -30,6 +36,9 @@ export const invitesTable = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Last time we (re-)sent this invite by email. Drives a short server-side
+    // cooldown so a double-clicked Resend doesn't spam the recipient.
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
   },
   (t) => [index("idx_invites_email").on(t.email)],
 );

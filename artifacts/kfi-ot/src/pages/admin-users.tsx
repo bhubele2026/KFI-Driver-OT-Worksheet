@@ -260,14 +260,19 @@ export default function AdminUsers() {
         },
         onError: (err) => {
           const msg = err instanceof Error ? err.message : "Unknown error";
+          const tooSoon = /already sent recently/i.test(msg);
           toast({
-            title: /not configured/i.test(msg)
-              ? "Email is not configured"
-              : "Couldn't resend invite",
-            description: /not configured/i.test(msg)
-              ? "Ask the admin to set SMTP_HOST/SMTP_PORT. Copy the link instead."
-              : msg,
-            variant: "destructive",
+            title: tooSoon
+              ? "Already sent recently"
+              : /not configured/i.test(msg)
+                ? "Email is not configured"
+                : "Couldn't resend invite",
+            description: tooSoon
+              ? msg
+              : /not configured/i.test(msg)
+                ? "Ask the admin to set SMTP_HOST/SMTP_PORT. Copy the link instead."
+                : msg,
+            variant: tooSoon ? "default" : "destructive",
           });
         },
       },
@@ -286,14 +291,19 @@ export default function AdminUsers() {
         },
         onError: (err) => {
           const msg = err instanceof Error ? err.message : "Unknown error";
+          const tooSoon = /already sent recently/i.test(msg);
           toast({
-            title: /not configured/i.test(msg)
-              ? "Email is not configured"
-              : "Couldn't send reset email",
-            description: /not configured/i.test(msg)
-              ? "Ask the admin to set SMTP_HOST/SMTP_PORT, or use Generate link instead."
-              : msg,
-            variant: "destructive",
+            title: tooSoon
+              ? "Already sent recently"
+              : /not configured/i.test(msg)
+                ? "Email is not configured"
+                : "Couldn't send reset email",
+            description: tooSoon
+              ? msg
+              : /not configured/i.test(msg)
+                ? "Ask the admin to set SMTP_HOST/SMTP_PORT, or use Generate link instead."
+                : msg,
+            variant: tooSoon ? "default" : "destructive",
           });
         },
       },

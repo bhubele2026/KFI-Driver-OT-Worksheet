@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, count, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   AcceptInviteBody,
@@ -55,6 +55,22 @@ const tokenLookupLimiter = ipRateLimit({
 
 const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 const RESET_TTL_MS = 1000 * 60 * 60; // 1 hour
+
+// Per-target cooldown for admin-triggered "resend invite" / "send reset email"
+// actions. Prevents an impatient double-click from emailing the recipient
+// (and, for resets, minting a fresh token) multiple times in a row.
+const RESEND_COOLDOWN_MS = 60 * 1000;
+
+function cooldownRemainingMs(lastSentAt: Date | null | undefined): number {
+  if (!lastSentAt) return 0;
+  const elapsed = Date.now() - lastSentAt.getTime();
+  return elapsed >= RESEND_COOLDOWN_MS ? 0 : RESEND_COOLDOWN_MS - elapsed;
+}
+
+function tooSoonMessage(remainingMs: number): string {
+  const secs = Math.max(1, Math.ceil(remainingMs / 1000));
+  return `Already sent recently — try again in ${secs} second${secs === 1 ? "" : "s"}.`;
+}
 
 // After this many *consecutive* failed sign-ins for one account, the account
 // is locked until an admin clears it or the user completes a password reset.
@@ -396,23 +412,63 @@ authRouter.post("/auth/invites/:token/resend", requireAdmin, async (req, res) =>
     return;
   }
   const token = String(req.params.token);
-  const invite = await db.query.invitesTable.findFirst({
-    where: eq(schema.invitesTable.token, token),
-  });
-  if (!invite || invite.usedAt || invite.expiresAt.getTime() < Date.now()) {
-    res.status(404).json({ error: "Invite not found, expired, or already used" });
-    return;
-  }
   const base = requireAppBaseUrl(res);
   if (!base) return;
-  const acceptUrl = `${base}/accept-invite/${invite.token}`;
+  const now = new Date();
+  const cooldownStart = new Date(now.getTime() - RESEND_COOLDOWN_MS);
+  // Atomic gate: a single conditional UPDATE claims the cooldown slot. Two
+  // concurrent double-click requests race here in Postgres; only one row is
+  // returned, the loser falls through to the 429 path. We stamp lastSentAt
+  // *before* sending the email so a flapping SMTP server can't reopen the
+  // window — the worst case is a 60s wait after a transient failure, which
+  // matches typical rate-limit semantics.
+  const [claimed] = await db
+    .update(schema.invitesTable)
+    .set({ lastSentAt: now })
+    .where(
+      and(
+        eq(schema.invitesTable.token, token),
+        isNull(schema.invitesTable.usedAt),
+        gt(schema.invitesTable.expiresAt, now),
+        or(
+          isNull(schema.invitesTable.lastSentAt),
+          lt(schema.invitesTable.lastSentAt, cooldownStart),
+        ),
+      ),
+    )
+    .returning();
+  if (!claimed) {
+    // Distinguish "no eligible invite" from "cooldown still active" by
+    // re-reading. This is read-only and only runs on the rejection path,
+    // so it can't race the gate above.
+    const existing = await db.query.invitesTable.findFirst({
+      where: eq(schema.invitesTable.token, token),
+    });
+    if (
+      !existing ||
+      existing.usedAt ||
+      existing.expiresAt.getTime() < now.getTime()
+    ) {
+      res
+        .status(404)
+        .json({ error: "Invite not found, expired, or already used" });
+      return;
+    }
+    const remaining = cooldownRemainingMs(existing.lastSentAt);
+    res
+      .status(429)
+      .set("Retry-After", String(Math.max(1, Math.ceil(remaining / 1000))))
+      .json({ error: tooSoonMessage(remaining) });
+    return;
+  }
+  const acceptUrl = `${base}/accept-invite/${claimed.token}`;
   try {
     const r = await sendMail({
-      to: invite.email,
+      to: claimed.email,
       subject: "You're invited to KFI Dispatch",
       text:
         `You've been invited to KFI Dispatch.\n\n` +
-        `Click the link below to set your password and sign in. The link expires on ${invite.expiresAt.toISOString()}.\n\n` +
+        `Click the link below to set your password and sign in. The link expires on ${claimed.expiresAt.toISOString()}.\n\n` +
         `${acceptUrl}\n`,
     });
     res.json({ delivered: r.delivered });
@@ -839,35 +895,65 @@ authRouter.post(
       res.status(400).json({ error: "Invalid id" });
       return;
     }
-    const target = await db.query.usersTable.findFirst({
-      where: eq(schema.usersTable.id, id),
-    });
-    if (!target || !target.isActive) {
-      res.status(404).json({ error: "User not found" });
-      return;
-    }
     const base = requireAppBaseUrl(res);
     if (!base) return;
     const me = (req as { user?: { id: number } }).user!;
+    const now = new Date();
+    const cooldownStart = new Date(now.getTime() - RESEND_COOLDOWN_MS);
+    // Atomic gate on usersTable: a single conditional UPDATE claims the
+    // cooldown slot per-user. Concurrent double-click requests race in
+    // Postgres; only one wins and proceeds to mint+email. The losers fall
+    // through to the 429 path. Stamping before the email send makes a
+    // flapping SMTP server fail closed (60s wait) instead of opening the
+    // floodgates on retry.
+    const [claimed] = await db
+      .update(schema.usersTable)
+      .set({ passwordResetLastSentAt: now })
+      .where(
+        and(
+          eq(schema.usersTable.id, id),
+          eq(schema.usersTable.isActive, true),
+          or(
+            isNull(schema.usersTable.passwordResetLastSentAt),
+            lt(schema.usersTable.passwordResetLastSentAt, cooldownStart),
+          ),
+        ),
+      )
+      .returning();
+    if (!claimed) {
+      const existing = await db.query.usersTable.findFirst({
+        where: eq(schema.usersTable.id, id),
+      });
+      if (!existing || !existing.isActive) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+      const remaining = cooldownRemainingMs(existing.passwordResetLastSentAt);
+      res
+        .status(429)
+        .set("Retry-After", String(Math.max(1, Math.ceil(remaining / 1000))))
+        .json({ error: tooSoonMessage(remaining) });
+      return;
+    }
     const token = generateToken();
-    const expiresAt = new Date(Date.now() + RESET_TTL_MS);
+    const expiresAt = new Date(now.getTime() + RESET_TTL_MS);
     await db.transaction(async (tx) => {
       await tx.insert(schema.passwordResetsTable).values({
-        userId: target.id,
+        userId: claimed.id,
         token,
         expiresAt,
       });
       await writeAudit(tx, {
         actorUserId: me.id,
-        targetUserId: target.id,
-        targetEmail: target.email,
+        targetUserId: claimed.id,
+        targetEmail: claimed.email,
         action: "create-reset-link",
       });
     });
     const resetUrl = `${base}/reset-password/${token}`;
     try {
       const r = await sendMail({
-        to: target.email,
+        to: claimed.email,
         subject: "Reset your KFI Dispatch password",
         text:
           `An admin started a password reset for your KFI Dispatch account.\n\n` +
@@ -876,7 +962,7 @@ authRouter.post(
       });
       res.json({ delivered: r.delivered });
     } catch (err) {
-      req.log?.error({ err, userId: target.id }, "admin password reset email failed");
+      req.log?.error({ err, userId: claimed.id }, "admin password reset email failed");
       res.status(502).json({ error: "Failed to send email." });
     }
   },
