@@ -1,6 +1,8 @@
 import { EMBEDDED_MAPPING } from "../mappings.js";
 import { ocrDelalloPDF } from "./ocr.js";
-import type { ParsedPunch } from "./types.js";
+import type { ParsedPunch, UnmappedIdAccumulator } from "./types.js";
+
+type IdMap = Record<string, string>;
 
 // pdfjs-dist is huge and tries to dynamically load workers; we always use the
 // legacy build in Node and disable workers explicitly.
@@ -57,7 +59,8 @@ export async function parseAdientPDF(
   buffer: Buffer,
   kfiSet: Set<string>,
   year: number,
-  unmappedIds: Set<string>,
+  unmappedIds: UnmappedIdAccumulator,
+  idMap: IdMap = EMBEDDED_MAPPING,
 ): Promise<ParsedPunch[]> {
   const punches: ParsedPunch[] = [];
   const months: Record<string, string> = {
@@ -71,10 +74,11 @@ export async function parseAdientPDF(
       totalLines += lines.length;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        const empMatch = line.match(/\((TELD\d+)\)/);
+        const empMatch = line.match(/(.*?)\((TELD\d+)\)/);
         if (empMatch) {
-          kfiId = EMBEDDED_MAPPING[empMatch[1]] ?? null;
-          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(empMatch[1]);
+          const sampleName = empMatch[1].trim() || null;
+          kfiId = idMap[empMatch[2]] ?? null;
+          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(empMatch[2], sampleName);
           continue;
         }
         if (!kfiId || !kfiSet.has(kfiId)) continue;
@@ -135,7 +139,8 @@ function assertExtractable(label: string, totalLines: number) {
 export async function parseIWGPDF(
   buffer: Buffer,
   kfiSet: Set<string>,
-  unmappedIds: Set<string>,
+  unmappedIds: UnmappedIdAccumulator,
+  idMap: IdMap = EMBEDDED_MAPPING,
 ): Promise<ParsedPunch[]> {
   const punches: ParsedPunch[] = [];
   let kfiId: string | null = null;
@@ -144,10 +149,11 @@ export async function parseIWGPDF(
     for await (const lines of pages()) {
       totalLines += lines.length;
       for (const line of lines) {
-        const empMatch = line.match(/Employee:\s+.+?\s+ID:\s+(\d+)/);
+        const empMatch = line.match(/Employee:\s+(.+?)\s+ID:\s+(\d+)/);
         if (empMatch) {
-          kfiId = EMBEDDED_MAPPING[empMatch[1]] ?? null;
-          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(empMatch[1]);
+          const sampleName = empMatch[1].trim() || null;
+          kfiId = idMap[empMatch[2]] ?? null;
+          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(empMatch[2], sampleName);
           continue;
         }
         if (!kfiId || !kfiSet.has(kfiId)) continue;
@@ -179,7 +185,8 @@ export async function parseDelalloPDF(
   buffer: Buffer,
   kfiSet: Set<string>,
   year: number,
-  unmappedIds: Set<string>,
+  unmappedIds: UnmappedIdAccumulator,
+  idMap: IdMap = EMBEDDED_MAPPING,
 ): Promise<ParsedPunch[]> {
   const punches: ParsedPunch[] = [];
   let kfiId: string | null = null;
@@ -189,10 +196,11 @@ export async function parseDelalloPDF(
       totalLines += lines.length;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        const badge = line.match(/Badge\s*[#:]+\s*(\d+)/i);
+        const badge = line.match(/(?:Name:\s*(.+?)\s+)?Badge\s*[#:]+\s*(\d+)/i);
         if (badge) {
-          kfiId = EMBEDDED_MAPPING[badge[1]] ?? null;
-          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(badge[1]);
+          const sampleName = badge[1]?.trim() || null;
+          kfiId = idMap[badge[2]] ?? null;
+          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(badge[2], sampleName);
           continue;
         }
         if (!kfiId || !kfiSet.has(kfiId)) continue;
@@ -241,7 +249,7 @@ export async function parseDelalloPDF(
   });
   if (totalLines === 0) {
     // Scanned image PDF (no text layer). Fall back to OCR via Gemini vision.
-    return ocrDelalloPDF(buffer, kfiSet, year, unmappedIds);
+    return ocrDelalloPDF(buffer, kfiSet, year, unmappedIds, idMap);
   }
   return punches;
 }

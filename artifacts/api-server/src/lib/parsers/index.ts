@@ -13,9 +13,11 @@ import {
   parseIWGPDF,
 } from "./pdf.js";
 import { KNOWN_CUSTOMERS } from "./customers.js";
+import { UnmappedIdAccumulator } from "./types.js";
 import type { ParseResult, ParsedPunch } from "./types.js";
 
 export type * from "./types.js";
+export { UnmappedIdAccumulator } from "./types.js";
 export { KNOWN_CUSTOMERS } from "./customers.js";
 
 function detectCustomer(
@@ -36,6 +38,7 @@ export async function detectAndParseFile(
   buffer: Buffer,
   kfiSet: Set<string>,
   weekStart: string,
+  idMap?: Record<string, string>,
 ): Promise<ParseResult | null> {
   const lower = fileName.toLowerCase();
   const isPdf = lower.endsWith(".pdf");
@@ -44,31 +47,31 @@ export async function detectAndParseFile(
   if (!customer) return null;
 
   let punches: ParsedPunch[] = [];
-  const unmappedIds = new Set<string>();
+  const unmappedIds = new UnmappedIdAccumulator();
   if (isPdf) {
     if (customer === "Adient") {
       // Legacy digital PDF path; current Adient export is XLSX.
-      punches = await parseAdientPDF(buffer, kfiSet, year, unmappedIds);
+      punches = await parseAdientPDF(buffer, kfiSet, year, unmappedIds, idMap);
     } else if (customer === "International Wire Group") {
-      punches = await parseIWGPDF(buffer, kfiSet, unmappedIds);
+      punches = await parseIWGPDF(buffer, kfiSet, unmappedIds, idMap);
     } else if (customer === "DeLallo") {
-      punches = await parseDelalloPDF(buffer, kfiSet, year, unmappedIds);
+      punches = await parseDelalloPDF(buffer, kfiSet, year, unmappedIds, idMap);
     }
   } else {
     const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
-    if (customer === "Adient") punches = parseAdientXLSX(wb, kfiSet, unmappedIds);
+    if (customer === "Adient") punches = parseAdientXLSX(wb, kfiSet, unmappedIds, idMap);
     else if (customer === "Trienda")
-      punches = parsePendaTrienda(wb, "Trienda", kfiSet, unmappedIds);
+      punches = parsePendaTrienda(wb, "Trienda", kfiSet, unmappedIds, idMap);
     else if (customer === "Penda")
-      punches = parsePendaTrienda(wb, "Penda", kfiSet, unmappedIds);
+      punches = parsePendaTrienda(wb, "Penda", kfiSet, unmappedIds, idMap);
     else if (customer === "Greystone")
       punches = parseGreystone(wb, kfiSet, unmappedIds);
     else if (customer === "Landscape Structures")
-      punches = parseLSI(wb, kfiSet, unmappedIds);
+      punches = parseLSI(wb, kfiSet, unmappedIds, idMap);
     else if (customer === "Burnett Dairy - Grantsburg")
-      punches = parseBurnett(wb, kfiSet, unmappedIds);
+      punches = parseBurnett(wb, kfiSet, unmappedIds, idMap);
     else if (customer === "Zenople")
       punches = parseZenople(wb, kfiSet, unmappedIds);
   }
-  return { customer, punches, unmappedIds: [...unmappedIds].sort() };
+  return { customer, punches, unmappedIds: unmappedIds.toArray() };
 }

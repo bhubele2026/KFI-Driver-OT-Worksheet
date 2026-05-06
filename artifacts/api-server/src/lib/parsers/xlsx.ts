@@ -1,7 +1,9 @@
 import * as XLSX from "xlsx";
 import { fmtDate, fmtDT } from "../time.js";
 import { EMBEDDED_MAPPING } from "../mappings.js";
-import type { ParsedPunch } from "./types.js";
+import type { ParsedPunch, UnmappedIdAccumulator } from "./types.js";
+
+type IdMap = Record<string, string>;
 
 type Row = unknown[];
 
@@ -26,7 +28,8 @@ export function parsePendaTrienda(
   wb: XLSX.WorkBook,
   customer: "Penda" | "Trienda",
   kfiSet: Set<string>,
-  unmappedIds: Set<string>,
+  unmappedIds: UnmappedIdAccumulator,
+  idMap: IdMap = EMBEDDED_MAPPING,
 ): ParsedPunch[] {
   const rows = sheetRows(wb);
   const hdr = rows[0];
@@ -44,7 +47,7 @@ export function parsePendaTrienda(
     const r = rows[i];
     if (r[empNumIdx] == null) continue;
     const empId = String(Math.round(Number(r[empNumIdx])));
-    const mapped = EMBEDDED_MAPPING[empId] ?? (kfiSet.has(empId) ? empId : "");
+    const mapped = idMap[empId] ?? (kfiSet.has(empId) ? empId : "");
     const kfiId = mapped && kfiSet.has(mapped) ? mapped : "";
     if (!kfiId) {
       if (/^\d+$/.test(empId)) unmappedIds.add(empId);
@@ -80,7 +83,7 @@ export function parsePendaTrienda(
 export function parseGreystone(
   wb: XLSX.WorkBook,
   kfiSet: Set<string>,
-  unmappedIds: Set<string>,
+  unmappedIds: UnmappedIdAccumulator,
 ): ParsedPunch[] {
   const rows = sheetRows(wb);
   const hdr = rows[0];
@@ -142,7 +145,8 @@ export function parseGreystone(
 export function parseAdientXLSX(
   wb: XLSX.WorkBook,
   kfiSet: Set<string>,
-  unmappedIds: Set<string>,
+  unmappedIds: UnmappedIdAccumulator,
+  idMap: IdMap = EMBEDDED_MAPPING,
 ): ParsedPunch[] {
   const rows = sheetRows(wb);
   const out: ParsedPunch[] = [];
@@ -165,10 +169,18 @@ export function parseAdientXLSX(
       kfiId = null;
       for (const cell of r) {
         if (cell == null) continue;
-        const m = String(cell).match(/\((TELD\d+)\)/);
+        const raw = String(cell);
+        const m = raw.match(/^(.*?)\s*\((TELD\d+)\)/);
         if (m) {
-          kfiId = EMBEDDED_MAPPING[m[1]] ?? null;
-          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(m[1]);
+          const sampleName = m[1].trim() || null;
+          kfiId = idMap[m[2]] ?? null;
+          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(m[2], sampleName);
+          break;
+        }
+        const bareTeld = raw.match(/\((TELD\d+)\)/);
+        if (bareTeld) {
+          kfiId = idMap[bareTeld[1]] ?? null;
+          if (!kfiId || !kfiSet.has(kfiId)) unmappedIds.add(bareTeld[1]);
           break;
         }
       }
@@ -220,7 +232,8 @@ export function parseAdientXLSX(
 export function parseLSI(
   wb: XLSX.WorkBook,
   kfiSet: Set<string>,
-  unmappedIds: Set<string>,
+  unmappedIds: UnmappedIdAccumulator,
+  idMap: IdMap = EMBEDDED_MAPPING,
 ): ParsedPunch[] {
   const rows = sheetRows(wb);
   const hdr = rows[0];
@@ -237,8 +250,7 @@ export function parseLSI(
     if (r[posIdx] == null) continue;
     const posId = String(r[posIdx]).trim();
     if (posId.includes("Total")) continue;
-    const mapped =
-      EMBEDDED_MAPPING[posId] ?? EMBEDDED_MAPPING[posId + "N"] ?? "";
+    const mapped = idMap[posId] ?? idMap[posId + "N"] ?? "";
     const kfiId = mapped && kfiSet.has(mapped) ? mapped : "";
     if (!kfiId) {
       if (posId) unmappedIds.add(posId);
@@ -263,7 +275,7 @@ export function parseLSI(
 export function parseZenople(
   wb: XLSX.WorkBook,
   kfiSet: Set<string>,
-  unmappedIds: Set<string>,
+  unmappedIds: UnmappedIdAccumulator,
 ): ParsedPunch[] {
   const rows = sheetRows(wb);
   const hdr = rows[0];
@@ -311,7 +323,8 @@ export function parseZenople(
 export function parseBurnett(
   wb: XLSX.WorkBook,
   kfiSet: Set<string>,
-  unmappedIds: Set<string>,
+  unmappedIds: UnmappedIdAccumulator,
+  idMap: IdMap = EMBEDDED_MAPPING,
 ): ParsedPunch[] {
   const rows = sheetRows(wb);
   const hdr = rows[0];
@@ -334,7 +347,7 @@ export function parseBurnett(
     const r = rows[i];
     if (r[empIdx] == null) continue;
     const empId = String(Math.round(Number(r[empIdx])));
-    const mapped = EMBEDDED_MAPPING[empId] ?? (kfiSet.has(empId) ? empId : "");
+    const mapped = idMap[empId] ?? (kfiSet.has(empId) ? empId : "");
     const kfiId = mapped && kfiSet.has(mapped) ? mapped : "";
     if (!kfiId) {
       if (/^\d+$/.test(empId)) unmappedIds.add(empId);

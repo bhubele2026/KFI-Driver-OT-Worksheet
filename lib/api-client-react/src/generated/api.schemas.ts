@@ -416,6 +416,17 @@ export interface RefreshResult {
   refreshedAt: string;
 }
 
+export interface UnmappedId {
+  id: string;
+  /** Number of rows in the file that referenced this id and were dropped. */
+  count: number;
+  /**
+   * Driver name as printed next to the id in the source file, when available.
+   * @nullable
+   */
+  sampleName: string | null;
+}
+
 export interface UploadResult {
   customer: string;
   fileName: string;
@@ -423,9 +434,12 @@ export interface UploadResult {
   /** Badge / employee IDs that appeared in the uploaded file but could
 not be mapped to a known KFI driver. Surfaced as a non-blocking
 warning so dispatchers know punches were dropped (e.g. a new hire
-who hasn't been added to the mapping yet).
+who hasn't been added to the mapping yet). `sampleName` carries
+the driver name as it appeared next to the id in the source file
+(when the parser could see one), so admins can recognize who an
+unknown id belongs to without opening the file.
  */
-  unmappedIds: string[];
+  unmappedIds: UnmappedId[];
 }
 
 export interface CustomerUploadStatus {
@@ -470,7 +484,7 @@ persistent warning under the row so dispatchers don't lose the
 list when refreshing the dashboard. Empty when the last upload
 was clean.
  */
-  lastUnmappedIds: string[];
+  lastUnmappedIds: UnmappedId[];
 }
 
 export interface AiExtractedRow {
@@ -619,6 +633,67 @@ export interface CreateParserPromotionSnoozeBody {
    * @nullable
    */
   reason?: string | null;
+}
+
+export interface DriverIdAlias {
+  externalId: string;
+  kfiId: string;
+  /**
+   * Optional context — which customer file this id was first seen in.
+   * @nullable
+   */
+  customer?: string | null;
+  /**
+   * Optional context — sample name-on-doc captured when the alias was created (helps later reviewers recognise it).
+   * @nullable
+   */
+  sampleName?: string | null;
+  /** @nullable */
+  note?: string | null;
+  /**
+   * Name from the drivers table for this kfiId, or null if the driver no longer exists.
+   * @nullable
+   */
+  driverName?: string | null;
+  /** @nullable */
+  driverCustomer?: string | null;
+  /** @nullable */
+  driverIsArchived?: boolean | null;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  createdByEmail?: string | null;
+  /** @nullable */
+  updatedByEmail?: string | null;
+}
+
+export interface DriverIdAliasList {
+  aliases: DriverIdAlias[];
+  drivers: DriverInfo[];
+}
+
+export interface CreateDriverIdAliasBody {
+  /** @minLength 1 */
+  externalId: string;
+  /** @minLength 1 */
+  kfiId: string;
+  /** @nullable */
+  customer?: string | null;
+  /** @nullable */
+  sampleName?: string | null;
+  /** @nullable */
+  note?: string | null;
+}
+
+export interface UpdateDriverIdAliasBody {
+  /** @minLength 1 */
+  kfiId?: string;
+  /** @nullable */
+  customer?: string | null;
+  /** @nullable */
+  sampleName?: string | null;
+  /** @nullable */
+  note?: string | null;
 }
 
 export type ListRateLimitEventTimeseriesParams = {

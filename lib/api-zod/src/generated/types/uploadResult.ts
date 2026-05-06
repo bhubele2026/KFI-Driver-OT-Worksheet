@@ -5,6 +5,7 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { UnmappedId } from "./unmappedId";
 
 export interface UploadResult {
   customer: string;
@@ -13,7 +14,10 @@ export interface UploadResult {
   /** Badge / employee IDs that appeared in the uploaded file but could
 not be mapped to a known KFI driver. Surfaced as a non-blocking
 warning so dispatchers know punches were dropped (e.g. a new hire
-who hasn't been added to the mapping yet).
+who hasn't been added to the mapping yet). `sampleName` carries
+the driver name as it appeared next to the id in the source file
+(when the parser could see one), so admins can recognize who an
+unknown id belongs to without opening the file.
  */
-  unmappedIds: string[];
+  unmappedIds: UnmappedId[];
 }

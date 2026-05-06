@@ -849,6 +849,73 @@ paths:
         "400": { description: Invalid input }
         "403": { description: Admin only }
 
+  /driver-id-aliases:
+    get:
+      operationId: listDriverIdAliases
+      tags: [ingest]
+      summary: List every admin-managed customer-id → KFI driver mapping (admin-only).
+      responses:
+        "200":
+          description: Saved driver-id aliases joined with the resolved driver, plus the active driver roster for the create/edit dropdowns.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DriverIdAliasList" }
+        "403": { description: Admin only }
+    post:
+      operationId: createDriverIdAlias
+      tags: [ingest]
+      summary: Map a new customer payroll id (badge #, TELD code, etc.) to an existing KFI driver (admin-only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateDriverIdAliasBody" }
+      responses:
+        "200":
+          description: Created (or updated, if the externalId already existed) alias.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DriverIdAlias" }
+        "400": { description: Invalid input or unknown kfiId }
+        "403": { description: Admin only }
+
+  /driver-id-aliases/{externalId}:
+    patch:
+      operationId: updateDriverIdAlias
+      tags: [ingest]
+      summary: Re-map an existing alias to a different driver, or update its note (admin-only).
+      parameters:
+        - name: externalId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateDriverIdAliasBody" }
+      responses:
+        "200":
+          description: Updated alias.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DriverIdAlias" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+        "404": { description: Alias not found }
+    delete:
+      operationId: deleteDriverIdAlias
+      tags: [ingest]
+      summary: Remove a saved customer-id → driver mapping (admin-only).
+      parameters:
+        - name: externalId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Deleted (or no alias existed) }
+        "403": { description: Admin only }
+
   /weeks/{weekStart}/manual-punches:
     post:
       operationId: createManualPunch
@@ -1517,8 +1584,24 @@ components:
             Badge / employee IDs that appeared in the uploaded file but could
             not be mapped to a known KFI driver. Surfaced as a non-blocking
             warning so dispatchers know punches were dropped (e.g. a new hire
-            who hasn't been added to the mapping yet).
-          items: { type: string }
+            who hasn't been added to the mapping yet). `sampleName` carries
+            the driver name as it appeared next to the id in the source file
+            (when the parser could see one), so admins can recognize who an
+            unknown id belongs to without opening the file.
+          items:
+            $ref: "#/components/schemas/UnmappedId"
+
+    UnmappedId:
+      type: object
+      required: [id, count, sampleName]
+      properties:
+        id: { type: string }
+        count:
+          type: integer
+          description: Number of rows in the file that referenced this id and were dropped.
+        sampleName:
+          type: ["string", "null"]
+          description: Driver name as printed next to the id in the source file, when available.
 
     CustomerUploadStatus:
       type: object
@@ -1562,7 +1645,8 @@ components:
           description: Where the last attempt came from — "parser" (known-customer route) or "ai" (new-customer flow).
         lastUnmappedIds:
           type: array
-          items: { type: string }
+          items:
+            $ref: "#/components/schemas/UnmappedId"
           description: |
             Badge / employee IDs that appeared in the most recent successful
             upload but didn't map to a known KFI driver. Surfaced as a
@@ -1757,3 +1841,66 @@ components:
         reason:
           type: ["string", "null"]
           maxLength: 500
+
+    DriverIdAlias:
+      type: object
+      required: [externalId, kfiId, createdAt, updatedAt]
+      properties:
+        externalId: { type: string }
+        kfiId: { type: string }
+        customer:
+          type: ["string", "null"]
+          description: Optional context — which customer file this id was first seen in.
+        sampleName:
+          type: ["string", "null"]
+          description: Optional context — sample name-on-doc captured when the alias was created (helps later reviewers recognise it).
+        note:
+          type: ["string", "null"]
+        driverName:
+          type: ["string", "null"]
+          description: Name from the drivers table for this kfiId, or null if the driver no longer exists.
+        driverCustomer:
+          type: ["string", "null"]
+        driverIsArchived:
+          type: ["boolean", "null"]
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        createdByEmail:
+          type: ["string", "null"]
+        updatedByEmail:
+          type: ["string", "null"]
+
+    DriverIdAliasList:
+      type: object
+      required: [aliases, drivers]
+      properties:
+        aliases:
+          type: array
+          items: { $ref: "#/components/schemas/DriverIdAlias" }
+        drivers:
+          type: array
+          items: { $ref: "#/components/schemas/DriverInfo" }
+
+    CreateDriverIdAliasBody:
+      type: object
+      required: [externalId, kfiId]
+      properties:
+        externalId: { type: string, minLength: 1 }
+        kfiId: { type: string, minLength: 1 }
+        customer:
+          type: ["string", "null"]
+        sampleName:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+
+    UpdateDriverIdAliasBody:
+      type: object
+      properties:
+        kfiId: { type: string, minLength: 1 }
+        customer:
+          type: ["string", "null"]
+        sampleName:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]

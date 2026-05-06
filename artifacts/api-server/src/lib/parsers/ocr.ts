@@ -2,7 +2,7 @@ import { Type } from "@google/genai";
 import { EMBEDDED_MAPPING } from "../mappings.js";
 import { logger } from "../logger.js";
 import { getGeminiClient } from "./gemini.js";
-import type { ParsedPunch } from "./types.js";
+import type { ParsedPunch, UnmappedIdAccumulator } from "./types.js";
 
 interface OcrPunchRow {
   badge: string;
@@ -61,7 +61,8 @@ export async function ocrDelalloPDF(
   buffer: Buffer,
   kfiSet: Set<string>,
   year: number,
-  unmappedIds: Set<string>,
+  unmappedIds: UnmappedIdAccumulator,
+  idMap: Record<string, string> = EMBEDDED_MAPPING,
 ): Promise<ParsedPunch[]> {
   const ai = getGeminiClient();
   const start = Date.now();
@@ -111,7 +112,7 @@ export async function ocrDelalloPDF(
   const out: ParsedPunch[] = [];
   for (const row of parsed.punches ?? []) {
     const badge = String(row.badge ?? "").trim();
-    const kfiId = EMBEDDED_MAPPING[badge];
+    const kfiId = idMap[badge];
     if (!kfiId || !kfiSet.has(kfiId)) {
       if (/^\d+$/.test(badge)) unmappedIds.add(badge);
       continue;

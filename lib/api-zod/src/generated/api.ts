@@ -777,9 +777,24 @@ export const UploadCustomerFileResponse = zod.object({
   fileName: zod.string(),
   punchesUpserted: zod.number(),
   unmappedIds: zod
-    .array(zod.string())
+    .array(
+      zod.object({
+        id: zod.string(),
+        count: zod
+          .number()
+          .describe(
+            "Number of rows in the file that referenced this id and were dropped.",
+          ),
+        sampleName: zod
+          .string()
+          .nullable()
+          .describe(
+            "Driver name as printed next to the id in the source file, when available.",
+          ),
+      }),
+    )
     .describe(
-      "Badge \/ employee IDs that appeared in the uploaded file but could\nnot be mapped to a known KFI driver. Surfaced as a non-blocking\nwarning so dispatchers know punches were dropped (e.g. a new hire\nwho hasn't been added to the mapping yet).\n",
+      "Badge \/ employee IDs that appeared in the uploaded file but could\nnot be mapped to a known KFI driver. Surfaced as a non-blocking\nwarning so dispatchers know punches were dropped (e.g. a new hire\nwho hasn't been added to the mapping yet). `sampleName` carries\nthe driver name as it appeared next to the id in the source file\n(when the parser could see one), so admins can recognize who an\nunknown id belongs to without opening the file.\n",
     ),
 });
 
@@ -846,7 +861,22 @@ export const GetCustomerUploadStatusResponseItem = zod.object({
       'Where the last attempt came from — \"parser\" (known-customer route) or \"ai\" (new-customer flow).',
     ),
   lastUnmappedIds: zod
-    .array(zod.string())
+    .array(
+      zod.object({
+        id: zod.string(),
+        count: zod
+          .number()
+          .describe(
+            "Number of rows in the file that referenced this id and were dropped.",
+          ),
+        sampleName: zod
+          .string()
+          .nullable()
+          .describe(
+            "Driver name as printed next to the id in the source file, when available.",
+          ),
+      }),
+    )
     .describe(
       "Badge \/ employee IDs that appeared in the most recent successful\nupload but didn't map to a known KFI driver. Surfaced as a\npersistent warning under the row so dispatchers don't lose the\nlist when refreshing the dashboard. Empty when the last upload\nwas clean.\n",
     ),
@@ -1141,6 +1171,145 @@ export const CreateParserPromotionSnoozeResponse = zod.object({
  */
 export const RemoveParserPromotionSnoozeQueryParams = zod.object({
   customer: zod.coerce.string(),
+});
+
+/**
+ * @summary List every admin-managed customer-id → KFI driver mapping (admin-only).
+ */
+export const ListDriverIdAliasesResponse = zod.object({
+  aliases: zod.array(
+    zod.object({
+      externalId: zod.string(),
+      kfiId: zod.string(),
+      customer: zod
+        .string()
+        .nullish()
+        .describe(
+          "Optional context — which customer file this id was first seen in.",
+        ),
+      sampleName: zod
+        .string()
+        .nullish()
+        .describe(
+          "Optional context — sample name-on-doc captured when the alias was created (helps later reviewers recognise it).",
+        ),
+      note: zod.string().nullish(),
+      driverName: zod
+        .string()
+        .nullish()
+        .describe(
+          "Name from the drivers table for this kfiId, or null if the driver no longer exists.",
+        ),
+      driverCustomer: zod.string().nullish(),
+      driverIsArchived: zod.boolean().nullish(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+      createdByEmail: zod.string().nullish(),
+      updatedByEmail: zod.string().nullish(),
+    }),
+  ),
+  drivers: zod.array(
+    zod.object({
+      kfiId: zod.string(),
+      name: zod.string(),
+      customer: zod.string(),
+      ctUserId: zod.number().nullish(),
+      isDriver: zod.boolean(),
+    }),
+  ),
+});
+
+/**
+ * @summary Map a new customer payroll id (badge
+ */
+
+export const CreateDriverIdAliasBody = zod.object({
+  externalId: zod.string().min(1),
+  kfiId: zod.string().min(1),
+  customer: zod.string().nullish(),
+  sampleName: zod.string().nullish(),
+  note: zod.string().nullish(),
+});
+
+export const CreateDriverIdAliasResponse = zod.object({
+  externalId: zod.string(),
+  kfiId: zod.string(),
+  customer: zod
+    .string()
+    .nullish()
+    .describe(
+      "Optional context — which customer file this id was first seen in.",
+    ),
+  sampleName: zod
+    .string()
+    .nullish()
+    .describe(
+      "Optional context — sample name-on-doc captured when the alias was created (helps later reviewers recognise it).",
+    ),
+  note: zod.string().nullish(),
+  driverName: zod
+    .string()
+    .nullish()
+    .describe(
+      "Name from the drivers table for this kfiId, or null if the driver no longer exists.",
+    ),
+  driverCustomer: zod.string().nullish(),
+  driverIsArchived: zod.boolean().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Re-map an existing alias to a different driver, or update its note (admin-only).
+ */
+export const UpdateDriverIdAliasParams = zod.object({
+  externalId: zod.coerce.string(),
+});
+
+export const UpdateDriverIdAliasBody = zod.object({
+  kfiId: zod.string().min(1).optional(),
+  customer: zod.string().nullish(),
+  sampleName: zod.string().nullish(),
+  note: zod.string().nullish(),
+});
+
+export const UpdateDriverIdAliasResponse = zod.object({
+  externalId: zod.string(),
+  kfiId: zod.string(),
+  customer: zod
+    .string()
+    .nullish()
+    .describe(
+      "Optional context — which customer file this id was first seen in.",
+    ),
+  sampleName: zod
+    .string()
+    .nullish()
+    .describe(
+      "Optional context — sample name-on-doc captured when the alias was created (helps later reviewers recognise it).",
+    ),
+  note: zod.string().nullish(),
+  driverName: zod
+    .string()
+    .nullish()
+    .describe(
+      "Name from the drivers table for this kfiId, or null if the driver no longer exists.",
+    ),
+  driverCustomer: zod.string().nullish(),
+  driverIsArchived: zod.boolean().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Remove a saved customer-id → driver mapping (admin-only).
+ */
+export const DeleteDriverIdAliasParams = zod.object({
+  externalId: zod.coerce.string(),
 });
 
 /**

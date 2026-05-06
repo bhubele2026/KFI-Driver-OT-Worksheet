@@ -5,8 +5,10 @@ import {
   ConfirmNewCustomerFileBody,
   CreateManualPunchBody,
   CreateParserPromotionSnoozeBody,
+  CreateDriverIdAliasBody,
   SetReviewedBody,
   UpdateCustomerNameAliasBody,
+  UpdateDriverIdAliasBody,
 } from "@workspace/api-zod";
 import { db, schema } from "../lib/db.js";
 import { requireAuth, requireAdmin } from "../lib/auth.js";
@@ -16,7 +18,7 @@ import {
   fetchPunchesForWeek,
   looksLikeRosterDateJunk,
 } from "../lib/connecteam.js";
-import { TIME_CLOCKS } from "../lib/mappings.js";
+import { EMBEDDED_MAPPING, TIME_CLOCKS } from "../lib/mappings.js";
 import {
   computeChecks,
   computeDailyTotals,
@@ -32,6 +34,20 @@ import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { topMatches } from "../lib/parsers/fuzzy.js";
 import { mondayOf, weekEndOf } from "../lib/time.js";
 import { makeTimesheetsHandler } from "../lib/timesheets.js";
+
+async function loadMergedIdMap(): Promise<Record<string, string>> {
+  const rows = await db
+    .select({
+      externalId: schema.driverIdAliasesTable.externalId,
+      kfiId: schema.driverIdAliasesTable.kfiId,
+    })
+    .from(schema.driverIdAliasesTable);
+  // Admin DB rows take precedence over the static map so an admin can also
+  // override a stale embedded mapping without a code change.
+  const merged: Record<string, string> = { ...EMBEDDED_MAPPING };
+  for (const r of rows) merged[r.externalId] = r.kfiId;
+  return merged;
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -64,7 +80,7 @@ async function recordAttempt(
   fileName: string,
   error: string | null,
   source: "parser" | "ai",
-  unmappedIds: string[] = [],
+  unmappedIds: schema.UnmappedIdEntry[] = [],
 ): Promise<void> {
   const now = new Date();
   await db
@@ -569,11 +585,13 @@ weeksRouter.post(
     const fileName = req.file.originalname;
     let result;
     try {
+      const idMap = await loadMergedIdMap();
       result = await detectAndParseFile(
         fileName,
         req.file.buffer,
         kfiSet,
         startDate,
+        idMap,
       );
     } catch (err) {
       req.log.error({ err, fileName }, "Parse error");
@@ -1573,6 +1591,238 @@ weeksRouter.delete("/customer-aliases", async (req, res) => {
     );
   res.status(204).end();
 });
+
+// ---------------------------------------------------------------------------
+// Driver-id aliases (admin-managed extension of EMBEDDED_MAPPING).
+// Maps a customer payroll id (badge #, TELD code, employee number, etc.) to
+// an existing KFI driver. Loaded on every customer-file upload and merged
+// with EMBEDDED_MAPPING at parse time (DB rows win).
+// ---------------------------------------------------------------------------
+
+async function serializeDriverIdAliases(
+  rows: Array<{
+    externalId: string;
+    kfiId: string;
+    customer: string | null;
+    sampleName: string | null;
+    note: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    createdBy: number | null;
+    updatedBy: number | null;
+    driverName: string | null;
+    driverCustomer: string | null;
+    driverIsArchived: boolean | null;
+  }>,
+) {
+  const actorIds = new Set<number>();
+  for (const r of rows) {
+    if (r.createdBy) actorIds.add(r.createdBy);
+    if (r.updatedBy) actorIds.add(r.updatedBy);
+  }
+  const actorEmailById = new Map<number, string>();
+  if (actorIds.size > 0) {
+    const actorRows = await db
+      .select({ id: schema.usersTable.id, email: schema.usersTable.email })
+      .from(schema.usersTable)
+      .where(inArray(schema.usersTable.id, [...actorIds]));
+    for (const a of actorRows) actorEmailById.set(a.id, a.email);
+  }
+  return rows.map((r) => ({
+    externalId: r.externalId,
+    kfiId: r.kfiId,
+    customer: r.customer,
+    sampleName: r.sampleName,
+    note: r.note,
+    driverName: r.driverName,
+    driverCustomer: r.driverCustomer,
+    driverIsArchived: r.driverIsArchived,
+    createdAt: new Date(r.createdAt).toISOString(),
+    updatedAt: new Date(r.updatedAt).toISOString(),
+    createdByEmail: r.createdBy ? actorEmailById.get(r.createdBy) ?? null : null,
+    updatedByEmail: r.updatedBy ? actorEmailById.get(r.updatedBy) ?? null : null,
+  }));
+}
+
+const aliasSelect = {
+  externalId: schema.driverIdAliasesTable.externalId,
+  kfiId: schema.driverIdAliasesTable.kfiId,
+  customer: schema.driverIdAliasesTable.customer,
+  sampleName: schema.driverIdAliasesTable.sampleName,
+  note: schema.driverIdAliasesTable.note,
+  createdAt: schema.driverIdAliasesTable.createdAt,
+  updatedAt: schema.driverIdAliasesTable.updatedAt,
+  createdBy: schema.driverIdAliasesTable.createdBy,
+  updatedBy: schema.driverIdAliasesTable.updatedBy,
+  driverName: schema.driversTable.name,
+  driverCustomer: schema.driversTable.customer,
+  driverIsArchived: schema.driversTable.isArchived,
+};
+
+weeksRouter.get("/driver-id-aliases", requireAdmin, async (_req, res) => {
+  const rows = await db
+    .select(aliasSelect)
+    .from(schema.driverIdAliasesTable)
+    .leftJoin(
+      schema.driversTable,
+      eq(schema.driverIdAliasesTable.kfiId, schema.driversTable.kfiId),
+    )
+    .orderBy(asc(sql`lower(${schema.driverIdAliasesTable.externalId})`));
+  const aliases = await serializeDriverIdAliases(rows);
+  const driverRows = await db
+    .select({
+      kfiId: schema.driversTable.kfiId,
+      name: schema.driversTable.name,
+      customer: schema.driversTable.customer,
+      ctUserId: schema.driversTable.ctUserId,
+      isDriver: schema.driversTable.isDriver,
+    })
+    .from(schema.driversTable)
+    .where(eq(schema.driversTable.isArchived, false))
+    .orderBy(asc(sql`lower(${schema.driversTable.name})`));
+  res.json({
+    aliases,
+    drivers: driverRows.map((d) => ({
+      kfiId: d.kfiId,
+      name: d.name,
+      customer: d.customer,
+      ctUserId: d.ctUserId ?? null,
+      isDriver: d.isDriver,
+    })),
+  });
+});
+
+async function fetchAliasJoined(externalId: string) {
+  const [row] = await db
+    .select(aliasSelect)
+    .from(schema.driverIdAliasesTable)
+    .leftJoin(
+      schema.driversTable,
+      eq(schema.driverIdAliasesTable.kfiId, schema.driversTable.kfiId),
+    )
+    .where(
+      sql`lower(${schema.driverIdAliasesTable.externalId}) = lower(${externalId})`,
+    );
+  return row;
+}
+
+weeksRouter.post("/driver-id-aliases", requireAdmin, async (req, res) => {
+  const parsed = CreateDriverIdAliasBody.safeParse(req.body);
+  if (!parsed.success) {
+    res
+      .status(400)
+      .json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+  const { externalId, kfiId, customer, sampleName, note } = parsed.data;
+  const driver = await db.query.driversTable.findFirst({
+    where: eq(schema.driversTable.kfiId, kfiId),
+  });
+  if (!driver) {
+    res.status(400).json({ error: "Unknown kfiId" });
+    return;
+  }
+  const userId = req.session.userId ?? null;
+  await db
+    .insert(schema.driverIdAliasesTable)
+    .values({
+      externalId,
+      kfiId,
+      customer: customer ?? null,
+      sampleName: sampleName ?? null,
+      note: note ?? null,
+      createdBy: userId,
+      updatedBy: userId,
+    })
+    .onConflictDoUpdate({
+      target: schema.driverIdAliasesTable.externalId,
+      set: {
+        kfiId,
+        customer: customer ?? null,
+        sampleName: sampleName ?? null,
+        note: note ?? null,
+        updatedBy: userId,
+      },
+    });
+  const row = await fetchAliasJoined(externalId);
+  if (!row) {
+    res.status(500).json({ error: "Insert succeeded but row not found" });
+    return;
+  }
+  const [serialized] = await serializeDriverIdAliases([row]);
+  res.json(serialized);
+});
+
+weeksRouter.patch(
+  "/driver-id-aliases/:externalId",
+  requireAdmin,
+  async (req, res) => {
+    const externalId = String(req.params.externalId ?? "").trim();
+    if (!externalId) {
+      res.status(400).json({ error: "externalId is required" });
+      return;
+    }
+    const parsed = UpdateDriverIdAliasBody.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "Invalid input", details: parsed.error.issues });
+      return;
+    }
+    const updates: Record<string, unknown> = {
+      updatedBy: req.session.userId ?? null,
+    };
+    if (parsed.data.kfiId !== undefined) {
+      const driver = await db.query.driversTable.findFirst({
+        where: eq(schema.driversTable.kfiId, parsed.data.kfiId),
+      });
+      if (!driver) {
+        res.status(400).json({ error: "Unknown kfiId" });
+        return;
+      }
+      updates.kfiId = parsed.data.kfiId;
+    }
+    if (parsed.data.customer !== undefined) updates.customer = parsed.data.customer;
+    if (parsed.data.sampleName !== undefined) updates.sampleName = parsed.data.sampleName;
+    if (parsed.data.note !== undefined) updates.note = parsed.data.note;
+    const [updated] = await db
+      .update(schema.driverIdAliasesTable)
+      .set(updates)
+      .where(
+        sql`lower(${schema.driverIdAliasesTable.externalId}) = lower(${externalId})`,
+      )
+      .returning({ externalId: schema.driverIdAliasesTable.externalId });
+    if (!updated) {
+      res.status(404).json({ error: "Alias not found" });
+      return;
+    }
+    const row = await fetchAliasJoined(updated.externalId);
+    if (!row) {
+      res.status(404).json({ error: "Alias not found" });
+      return;
+    }
+    const [serialized] = await serializeDriverIdAliases([row]);
+    res.json(serialized);
+  },
+);
+
+weeksRouter.delete(
+  "/driver-id-aliases/:externalId",
+  requireAdmin,
+  async (req, res) => {
+    const externalId = String(req.params.externalId ?? "").trim();
+    if (!externalId) {
+      res.status(400).json({ error: "externalId is required" });
+      return;
+    }
+    await db
+      .delete(schema.driverIdAliasesTable)
+      .where(
+        sql`lower(${schema.driverIdAliasesTable.externalId}) = lower(${externalId})`,
+      );
+    res.status(204).end();
+  },
+);
 
 weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
   const weekStart = req.params.weekStart;

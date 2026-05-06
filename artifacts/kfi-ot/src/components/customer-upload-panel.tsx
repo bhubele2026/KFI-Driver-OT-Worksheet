@@ -117,7 +117,11 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         | {
             customer?: string;
             punchesUpserted?: number;
-            unmappedIds?: string[];
+            unmappedIds?: Array<{
+              id: string;
+              count: number;
+              sampleName: string | null;
+            }>;
             error?: string;
           }
         | null;
@@ -132,11 +136,14 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       setRow(customer, { uploading: false, error: null });
       const unmapped = body?.unmappedIds ?? [];
       if (unmapped.length > 0) {
+        const formatted = unmapped
+          .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
+          .join(", ");
         toast({
           title: `${customer} uploaded with ${unmapped.length} unknown ${
             unmapped.length === 1 ? "badge" : "badges"
           }`,
-          description: `Imported ${body?.punchesUpserted ?? 0} punches. These IDs aren't in the KFI roster, so their rows were skipped: ${unmapped.join(", ")}. Add them to the driver mapping if they're new hires.`,
+          description: `Imported ${body?.punchesUpserted ?? 0} punches. These IDs aren't in the KFI roster, so their rows were skipped: ${formatted}. Add them to the driver mapping if they're new hires.`,
           variant: "destructive",
         });
       } else {
@@ -384,10 +391,35 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                     <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
                     <span>
                       Unknown {s.lastUnmappedIds.length === 1 ? "badge" : "badges"}:{" "}
-                      <span className="font-mono">
-                        {s.lastUnmappedIds.join(", ")}
-                      </span>
-                      . Add to the driver mapping if they're new hires.
+                      {s.lastUnmappedIds.map((u, i) => {
+                        const params = new URLSearchParams({
+                          id: u.id,
+                          customer: s.customer,
+                        });
+                        if (u.sampleName) params.set("sampleName", u.sampleName);
+                        const label = u.sampleName
+                          ? `${u.id} (${u.sampleName})`
+                          : u.id;
+                        return (
+                          <span key={u.id}>
+                            {i > 0 && ", "}
+                            {me?.isAdmin ? (
+                              <Link
+                                href={`/admin/driver-id-aliases?${params.toString()}`}
+                                className="font-mono underline decoration-dotted hover:text-destructive/80"
+                              >
+                                {label}
+                              </Link>
+                            ) : (
+                              <span className="font-mono">{label}</span>
+                            )}
+                          </span>
+                        );
+                      })}
+                      .{" "}
+                      {me?.isAdmin
+                        ? "Click an id to add a driver mapping."
+                        : "Ask an admin to add the missing driver mapping."}
                     </span>
                   </div>
                 )}

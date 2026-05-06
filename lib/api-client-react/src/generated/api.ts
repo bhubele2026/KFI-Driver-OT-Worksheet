@@ -25,11 +25,14 @@ import type {
   ConfirmNewCustomerInput,
   ConfirmNewCustomerResult,
   ConnecteamClocksAudit,
+  CreateDriverIdAliasBody,
   CreateInviteBody,
   CreateParserPromotionSnoozeBody,
   CustomerNameAlias,
   CustomerNameAliasList,
   CustomerUploadStatus,
+  DriverIdAlias,
+  DriverIdAliasList,
   DriverWeek,
   EditPunchInput,
   EmailDeliveryResult,
@@ -67,6 +70,7 @@ import type {
   SuggestedIpBlock,
   UpdateCustomerNameAliasBody,
   UpdateCustomerNameAliasParams,
+  UpdateDriverIdAliasBody,
   UpdateUserBody,
   UploadResult,
   User,
@@ -4254,6 +4258,338 @@ export const useRemoveParserPromotionSnooze = <
   TContext
 > => {
   return useMutation(getRemoveParserPromotionSnoozeMutationOptions(options));
+};
+
+/**
+ * @summary List every admin-managed customer-id → KFI driver mapping (admin-only).
+ */
+export const getListDriverIdAliasesUrl = () => {
+  return `/api/driver-id-aliases`;
+};
+
+export const listDriverIdAliases = async (
+  options?: RequestInit,
+): Promise<DriverIdAliasList> => {
+  return customFetch<DriverIdAliasList>(getListDriverIdAliasesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListDriverIdAliasesQueryKey = () => {
+  return [`/api/driver-id-aliases`] as const;
+};
+
+export const getListDriverIdAliasesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listDriverIdAliases>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listDriverIdAliases>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListDriverIdAliasesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listDriverIdAliases>>
+  > = ({ signal }) => listDriverIdAliases({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listDriverIdAliases>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListDriverIdAliasesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listDriverIdAliases>>
+>;
+export type ListDriverIdAliasesQueryError = ErrorType<void>;
+
+/**
+ * @summary List every admin-managed customer-id → KFI driver mapping (admin-only).
+ */
+
+export function useListDriverIdAliases<
+  TData = Awaited<ReturnType<typeof listDriverIdAliases>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listDriverIdAliases>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListDriverIdAliasesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Map a new customer payroll id (badge
+ */
+export const getCreateDriverIdAliasUrl = () => {
+  return `/api/driver-id-aliases`;
+};
+
+export const createDriverIdAlias = async (
+  createDriverIdAliasBody: CreateDriverIdAliasBody,
+  options?: RequestInit,
+): Promise<DriverIdAlias> => {
+  return customFetch<DriverIdAlias>(getCreateDriverIdAliasUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createDriverIdAliasBody),
+  });
+};
+
+export const getCreateDriverIdAliasMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createDriverIdAlias>>,
+    TError,
+    { data: BodyType<CreateDriverIdAliasBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createDriverIdAlias>>,
+  TError,
+  { data: BodyType<CreateDriverIdAliasBody> },
+  TContext
+> => {
+  const mutationKey = ["createDriverIdAlias"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createDriverIdAlias>>,
+    { data: BodyType<CreateDriverIdAliasBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createDriverIdAlias(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateDriverIdAliasMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createDriverIdAlias>>
+>;
+export type CreateDriverIdAliasMutationBody = BodyType<CreateDriverIdAliasBody>;
+export type CreateDriverIdAliasMutationError = ErrorType<void>;
+
+/**
+ * @summary Map a new customer payroll id (badge
+ */
+export const useCreateDriverIdAlias = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createDriverIdAlias>>,
+    TError,
+    { data: BodyType<CreateDriverIdAliasBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createDriverIdAlias>>,
+  TError,
+  { data: BodyType<CreateDriverIdAliasBody> },
+  TContext
+> => {
+  return useMutation(getCreateDriverIdAliasMutationOptions(options));
+};
+
+/**
+ * @summary Re-map an existing alias to a different driver, or update its note (admin-only).
+ */
+export const getUpdateDriverIdAliasUrl = (externalId: string) => {
+  return `/api/driver-id-aliases/${externalId}`;
+};
+
+export const updateDriverIdAlias = async (
+  externalId: string,
+  updateDriverIdAliasBody: UpdateDriverIdAliasBody,
+  options?: RequestInit,
+): Promise<DriverIdAlias> => {
+  return customFetch<DriverIdAlias>(getUpdateDriverIdAliasUrl(externalId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateDriverIdAliasBody),
+  });
+};
+
+export const getUpdateDriverIdAliasMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDriverIdAlias>>,
+    TError,
+    { externalId: string; data: BodyType<UpdateDriverIdAliasBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateDriverIdAlias>>,
+  TError,
+  { externalId: string; data: BodyType<UpdateDriverIdAliasBody> },
+  TContext
+> => {
+  const mutationKey = ["updateDriverIdAlias"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateDriverIdAlias>>,
+    { externalId: string; data: BodyType<UpdateDriverIdAliasBody> }
+  > = (props) => {
+    const { externalId, data } = props ?? {};
+
+    return updateDriverIdAlias(externalId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateDriverIdAliasMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateDriverIdAlias>>
+>;
+export type UpdateDriverIdAliasMutationBody = BodyType<UpdateDriverIdAliasBody>;
+export type UpdateDriverIdAliasMutationError = ErrorType<void>;
+
+/**
+ * @summary Re-map an existing alias to a different driver, or update its note (admin-only).
+ */
+export const useUpdateDriverIdAlias = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDriverIdAlias>>,
+    TError,
+    { externalId: string; data: BodyType<UpdateDriverIdAliasBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateDriverIdAlias>>,
+  TError,
+  { externalId: string; data: BodyType<UpdateDriverIdAliasBody> },
+  TContext
+> => {
+  return useMutation(getUpdateDriverIdAliasMutationOptions(options));
+};
+
+/**
+ * @summary Remove a saved customer-id → driver mapping (admin-only).
+ */
+export const getDeleteDriverIdAliasUrl = (externalId: string) => {
+  return `/api/driver-id-aliases/${externalId}`;
+};
+
+export const deleteDriverIdAlias = async (
+  externalId: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteDriverIdAliasUrl(externalId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteDriverIdAliasMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteDriverIdAlias>>,
+    TError,
+    { externalId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteDriverIdAlias>>,
+  TError,
+  { externalId: string },
+  TContext
+> => {
+  const mutationKey = ["deleteDriverIdAlias"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteDriverIdAlias>>,
+    { externalId: string }
+  > = (props) => {
+    const { externalId } = props ?? {};
+
+    return deleteDriverIdAlias(externalId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteDriverIdAliasMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteDriverIdAlias>>
+>;
+
+export type DeleteDriverIdAliasMutationError = ErrorType<void>;
+
+/**
+ * @summary Remove a saved customer-id → driver mapping (admin-only).
+ */
+export const useDeleteDriverIdAlias = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteDriverIdAlias>>,
+    TError,
+    { externalId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteDriverIdAlias>>,
+  TError,
+  { externalId: string },
+  TContext
+> => {
+  return useMutation(getDeleteDriverIdAliasMutationOptions(options));
 };
 
 /**

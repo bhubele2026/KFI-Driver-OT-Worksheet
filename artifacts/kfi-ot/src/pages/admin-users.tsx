@@ -672,6 +672,15 @@ export default function AdminUsers() {
               Parser snoozes
             </Button>
           </Link>
+          <Link href="/admin/driver-id-aliases">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
+            >
+              Driver-ID mappings
+            </Button>
+          </Link>
         </div>
       </header>
 

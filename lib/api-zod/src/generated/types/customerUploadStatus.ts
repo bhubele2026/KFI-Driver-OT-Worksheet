@@ -5,6 +5,7 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { UnmappedId } from "./unmappedId";
 
 export interface CustomerUploadStatus {
   customer: string;
@@ -48,5 +49,5 @@ persistent warning under the row so dispatchers don't lose the
 list when refreshing the dashboard. Empty when the last upload
 was clean.
  */
-  lastUnmappedIds: string[];
+  lastUnmappedIds: UnmappedId[];
 }
