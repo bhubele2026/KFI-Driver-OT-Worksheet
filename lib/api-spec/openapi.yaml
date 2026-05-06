@@ -55,7 +55,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/AuthCredentials" }
+            schema: { $ref: "#/components/schemas/LoginCredentials" }
       responses:
         "200":
           description: Authenticated
@@ -269,6 +269,13 @@ components:
       properties:
         email: { type: string, format: email }
         password: { type: string, minLength: 6 }
+
+    LoginCredentials:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 1 }
 
     User:
       type: object

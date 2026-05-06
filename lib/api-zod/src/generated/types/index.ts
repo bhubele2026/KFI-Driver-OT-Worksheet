@@ -16,6 +16,7 @@ export * from "./driverWeek";
 export * from "./driverWeekTotals";
 export * from "./editPunchInput";
 export * from "./healthStatus";
+export * from "./loginCredentials";
 export * from "./manualPunchInput";
 export * from "./manualPunchInputSource";
 export * from "./punch";

@@ -15,6 +15,12 @@ export interface AuthCredentials {
   password: string;
 }
 
+export interface LoginCredentials {
+  email: string;
+  /** @minLength 1 */
+  password: string;
+}
+
 export interface User {
   id: number;
   email: string;

@@ -33,11 +33,10 @@ export const RegisterResponse = zod.object({
 /**
  * @summary Sign in with email & password
  */
-export const loginBodyPasswordMin = 6;
 
 export const LoginBody = zod.object({
   email: zod.string().email(),
-  password: zod.string().min(loginBodyPasswordMin),
+  password: zod.string().min(1),
 });
 
 export const LoginResponse = zod.object({

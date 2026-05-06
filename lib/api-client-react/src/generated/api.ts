@@ -21,6 +21,7 @@ import type {
   DriverWeek,
   EditPunchInput,
   HealthStatus,
+  LoginCredentials,
   ManualPunchInput,
   Punch,
   RefreshResult,
@@ -210,14 +211,14 @@ export const getLoginUrl = () => {
 };
 
 export const login = async (
-  authCredentials: AuthCredentials,
+  loginCredentials: LoginCredentials,
   options?: RequestInit,
 ): Promise<User> => {
   return customFetch<User>(getLoginUrl(), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(authCredentials),
+    body: JSON.stringify(loginCredentials),
   });
 };
 
@@ -228,14 +229,14 @@ export const getLoginMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof login>>,
     TError,
-    { data: BodyType<AuthCredentials> },
+    { data: BodyType<LoginCredentials> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof login>>,
   TError,
-  { data: BodyType<AuthCredentials> },
+  { data: BodyType<LoginCredentials> },
   TContext
 > => {
   const mutationKey = ["login"];
@@ -249,7 +250,7 @@ export const getLoginMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof login>>,
-    { data: BodyType<AuthCredentials> }
+    { data: BodyType<LoginCredentials> }
   > = (props) => {
     const { data } = props ?? {};
 
@@ -262,7 +263,7 @@ export const getLoginMutationOptions = <
 export type LoginMutationResult = NonNullable<
   Awaited<ReturnType<typeof login>>
 >;
-export type LoginMutationBody = BodyType<AuthCredentials>;
+export type LoginMutationBody = BodyType<LoginCredentials>;
 export type LoginMutationError = ErrorType<void>;
 
 /**
@@ -275,14 +276,14 @@ export const useLogin = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof login>>,
     TError,
-    { data: BodyType<AuthCredentials> },
+    { data: BodyType<LoginCredentials> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof login>>,
   TError,
-  { data: BodyType<AuthCredentials> },
+  { data: BodyType<LoginCredentials> },
   TContext
 > => {
   return useMutation(getLoginMutationOptions(options));
