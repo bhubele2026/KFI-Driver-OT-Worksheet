@@ -162,7 +162,13 @@ export default function AdminUsers() {
   const refetchBuckets = () =>
     qc.invalidateQueries({ queryKey: getListRateLimitBucketsQueryKey() });
   const refetchAudit = () =>
-    qc.invalidateQueries({ queryKey: getListUserAuditLogQueryKey({ limit: 50 }) });
+    qc.invalidateQueries({
+      queryKey: [getListUserAuditLogQueryKey({ limit: 50 })[0]],
+    });
+  const refetchUserAudit = (targetUserId: number) =>
+    qc.invalidateQueries({
+      queryKey: getListUserAuditLogQueryKey({ targetUserId, limit: 100 }),
+    });
 
   const handleClearBucket = (name: string, key: string) => {
     clearBucket.mutate(
@@ -304,6 +310,7 @@ export default function AdminUsers() {
         onSuccess: () => {
           refetchUsers();
           refetchAudit();
+          refetchUserAudit(id);
         },
         onError: (err) =>
           toast({
@@ -342,6 +349,7 @@ export default function AdminUsers() {
         onSuccess: () => {
           refetchUsers();
           refetchAudit();
+          refetchUserAudit(id);
         },
         onError: (err) =>
           toast({
@@ -361,6 +369,7 @@ export default function AdminUsers() {
         onSuccess: (data) => {
           setLatestReset({ email, url: data.resetUrl });
           refetchAudit();
+          refetchUserAudit(id);
         },
         onError: (err) =>
           toast({
