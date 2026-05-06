@@ -149,6 +149,99 @@ test("admin can view, filter, and download stashed AI samples", async ({
   await expect(betaHeading).toBeVisible();
 });
 
+test("admin can pin and unpin a stashed AI sample", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+
+  await page.goto("/admin/ai-samples");
+  await expect(
+    page.getByRole("heading", { name: "Admin · AI samples" }),
+  ).toBeVisible();
+
+  // Operate on the Beta sample (only one row under that customer group).
+  const betaId = insertedIds[2];
+  const betaRow = page.locator(
+    `tr:has(a[href$="/api/admin/ai-extract-samples/${betaId}/download"])`,
+  );
+  await expect(betaRow).toBeVisible();
+
+  // Initially: no Pinned badge, no amber tint.
+  await expect(betaRow.getByText("Pinned", { exact: true })).toHaveCount(0);
+  await expect(betaRow).not.toHaveClass(/bg-amber-50/);
+
+  // Click Pin → badge + amber tint appear, button flips to "Unpin".
+  await betaRow.getByRole("button", { name: "Pin", exact: true }).click();
+  await expect(betaRow.getByText("Pinned", { exact: true })).toBeVisible();
+  await expect(betaRow).toHaveClass(/bg-amber-50/);
+  await expect(
+    betaRow.getByRole("button", { name: "Unpin", exact: true }),
+  ).toBeVisible();
+
+  // DB reflects the pin.
+  const afterPin = await pool.query<{ pinned: boolean }>(
+    `SELECT pinned FROM ai_extract_samples WHERE id = $1`,
+    [betaId],
+  );
+  expect(afterPin.rows[0].pinned).toBe(true);
+
+  // Click Unpin → badge + tint disappear, button flips back to "Pin".
+  await betaRow.getByRole("button", { name: "Unpin", exact: true }).click();
+  await expect(betaRow.getByText("Pinned", { exact: true })).toHaveCount(0);
+  await expect(betaRow).not.toHaveClass(/bg-amber-50/);
+  await expect(
+    betaRow.getByRole("button", { name: "Pin", exact: true }),
+  ).toBeVisible();
+
+  const afterUnpin = await pool.query<{ pinned: boolean }>(
+    `SELECT pinned FROM ai_extract_samples WHERE id = $1`,
+    [betaId],
+  );
+  expect(afterUnpin.rows[0].pinned).toBe(false);
+});
+
+test("pinned sample with expired expires_at still appears in the listing", async ({
+  page,
+}) => {
+  // Pin the Alpha[0] row and backdate its expires_at directly in the DB.
+  const pinnedExpiredId = insertedIds[0];
+  await pool.query(
+    `UPDATE ai_extract_samples
+        SET pinned = true,
+            expires_at = now() - interval '7 days'
+      WHERE id = $1`,
+    [pinnedExpiredId],
+  );
+
+  // Trigger the dev auth bypass so the page.request below carries an admin
+  // session cookie, then hit the listing endpoint directly.
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+
+  const res = await page.request.get("/api/admin/ai-extract-samples");
+  expect(res.status()).toBe(200);
+  const rows: Array<{ id: number; pinned: boolean }> = await res.json();
+  const found = rows.find((r) => r.id === pinnedExpiredId);
+  expect(found, "pinned-but-expired sample should survive the predicate").toBeTruthy();
+  expect(found!.pinned).toBe(true);
+
+  // Sanity check: an unpinned + expired row would *not* appear. Backdate the
+  // Beta sample's expires_at without pinning it and confirm it's filtered out.
+  const expiredOnlyId = insertedIds[2];
+  await pool.query(
+    `UPDATE ai_extract_samples
+        SET pinned = false,
+            expires_at = now() - interval '7 days'
+      WHERE id = $1`,
+    [expiredOnlyId],
+  );
+  const res2 = await page.request.get("/api/admin/ai-extract-samples");
+  expect(res2.status()).toBe(200);
+  const rows2: Array<{ id: number }> = await res2.json();
+  expect(rows2.find((r) => r.id === expiredOnlyId)).toBeUndefined();
+  // The pinned-expired row is still present.
+  expect(rows2.find((r) => r.id === pinnedExpiredId)).toBeTruthy();
+});
+
 test("non-admin is redirected away from /admin/ai-samples", async ({
   browser,
 }) => {
