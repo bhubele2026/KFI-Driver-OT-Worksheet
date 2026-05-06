@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import {
+  useGetMe,
   useGetWeekSummary,
   useSetReviewed,
   getGetWeekSummaryQueryKey,
@@ -260,9 +261,62 @@ function FilterControls({
   );
 }
 
-function useDriverFilters() {
-  const [search, setSearch] = useState("");
+const FILTERS_STORAGE_PREFIX = "kfi-ot:drivers-sidebar:filters:v1";
+const VALID_CHIPS: readonly FilterChip[] = ["unreviewed", "ot", "mismatch"];
+
+interface PersistedFilters {
+  search: string;
+  chips: FilterChip[];
+}
+
+function buildStorageKey(userId: number | null, weekStart: string): string | null {
+  if (userId == null) return null;
+  return `${FILTERS_STORAGE_PREFIX}:${userId}:${weekStart}`;
+}
+
+function readPersistedFilters(storageKey: string | null): PersistedFilters | null {
+  if (!storageKey || typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const obj = parsed as { search?: unknown; chips?: unknown };
+    const search = typeof obj.search === "string" ? obj.search : "";
+    const chips = Array.isArray(obj.chips)
+      ? (obj.chips.filter((c): c is FilterChip =>
+          typeof c === "string" && (VALID_CHIPS as readonly string[]).includes(c),
+        ))
+      : [];
+    if (!search && chips.length === 0) return null;
+    return { search, chips };
+  } catch {
+    return null;
+  }
+}
+
+function useDriverFilters(weekStart: string) {
+  const { data: me } = useGetMe();
+  const userId =
+    me && typeof me === "object" && "id" in me && typeof me.id === "number"
+      ? me.id
+      : null;
+  const storageKey = buildStorageKey(userId, weekStart);
+
+  const [search, setSearch] = useState<string>("");
   const [chips, setChips] = useState<Set<FilterChip>>(() => new Set());
+  const [hydratedKey, setHydratedKey] = useState<string | null>(null);
+
+  // Hydrate (or re-hydrate) when the storage key changes — i.e. once the
+  // current user is known, or when the dispatcher switches weeks.
+  useEffect(() => {
+    if (!storageKey) return;
+    const persisted = readPersistedFilters(storageKey);
+    setSearch(persisted?.search ?? "");
+    setChips(new Set(persisted?.chips ?? []));
+    setHydratedKey(storageKey);
+  }, [storageKey]);
+
   const toggleChip = (chip: FilterChip) => {
     setChips((prev) => {
       const next = new Set(prev);
@@ -271,6 +325,27 @@ function useDriverFilters() {
       return next;
     });
   };
+
+  useEffect(() => {
+    // Don't write until the current key has been hydrated, otherwise we
+    // would clobber a previously-stored value with a momentary empty state.
+    if (typeof window === "undefined") return;
+    if (!storageKey || hydratedKey !== storageKey) return;
+    try {
+      if (!search && chips.size === 0) {
+        window.localStorage.removeItem(storageKey);
+      } else {
+        const payload: PersistedFilters = {
+          search,
+          chips: VALID_CHIPS.filter((c) => chips.has(c)),
+        };
+        window.localStorage.setItem(storageKey, JSON.stringify(payload));
+      }
+    } catch {
+      // ignore quota / disabled storage
+    }
+  }, [search, chips, storageKey, hydratedKey]);
+
   return { search, setSearch, chips, toggleChip };
 }
 
@@ -305,7 +380,7 @@ function SidebarHeader({ onCollapse }: { onCollapse?: () => void }) {
 }
 
 export function DriversSidebar({ weekStart, selectedKfiId, collapsed, onToggle }: SidebarProps) {
-  const { search, setSearch, chips, toggleChip } = useDriverFilters();
+  const { search, setSearch, chips, toggleChip } = useDriverFilters(weekStart);
 
   if (collapsed) {
     return (
@@ -361,7 +436,7 @@ export function DriversSidebarMobileTrigger({
   className,
 }: MobileTriggerProps) {
   const [open, setOpen] = useState(false);
-  const { search, setSearch, chips, toggleChip } = useDriverFilters();
+  const { search, setSearch, chips, toggleChip } = useDriverFilters(weekStart);
   return (
     <>
       <Button
