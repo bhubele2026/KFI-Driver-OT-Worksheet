@@ -153,10 +153,23 @@ test("fixture directories and BASELINES agree", () => {
   }
 });
 
+// Some fixtures depend on the Gemini OCR fallback (scanned PDFs with no text
+// layer). Those tests should be skipped — not failed — when the AI
+// Integrations env vars aren't wired up, so contributors without OCR access
+// can still run the suite cleanly.
+const GEMINI_OCR_FILES = new Set(["DeLallo.pdf"]);
+const geminiSkipReason =
+  process.env.AI_INTEGRATIONS_GEMINI_API_KEY &&
+  process.env.AI_INTEGRATIONS_GEMINI_BASE_URL
+    ? null
+    : "AI_INTEGRATIONS_GEMINI_API_KEY / AI_INTEGRATIONS_GEMINI_BASE_URL not configured — skipping Gemini OCR drift test.";
+
 for (const weekStart of fixtureWeeks) {
   const expected = BASELINES[weekStart] ?? [];
   for (const e of expected) {
-    test(`${weekStart} ${e.customer}: ${e.file} parses without drift`, async () => {
+    const skip =
+      GEMINI_OCR_FILES.has(e.file) && geminiSkipReason ? geminiSkipReason : undefined;
+    test(`${weekStart} ${e.customer}: ${e.file} parses without drift`, { skip }, async () => {
       const buf = readFileSync(path.join(fixtureDir, weekStart, e.file));
       const result = await detectAndParseFile(e.file, buf, KFI_SET, weekStart);
       assert.ok(result, `parser routing failed for ${e.file}`);
