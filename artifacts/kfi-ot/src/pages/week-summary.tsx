@@ -33,6 +33,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -175,13 +183,24 @@ export default function WeekSummary() {
     );
   };
 
-  const openTimesheets = () => {
+  const openTimesheets = (params?: { filter?: "reviewed"; customer?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.filter) qs.set("filter", params.filter);
+    if (params?.customer) qs.set("customer", params.customer);
+    const tail = qs.toString() ? `?${qs.toString()}` : "";
     window.open(
-      `${import.meta.env.BASE_URL}api/weeks/${weekStart}/timesheets`,
+      `${import.meta.env.BASE_URL}api/weeks/${weekStart}/timesheets${tail}`,
       "_blank",
       "noopener",
     );
   };
+
+  const printableCustomers = (summary?.customers ?? [])
+    .map((c) => ({
+      customer: c.customer,
+      driverCount: c.drivers.length,
+    }))
+    .filter((c) => c.driverCount > 0);
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
@@ -306,14 +325,54 @@ export default function WeekSummary() {
                 <Printer className="mr-2 h-4 w-4" />
                 Download Report
               </Button>
-              <Button
-                variant="outline"
-                onClick={openTimesheets}
-                data-testid="button-print-week-timesheets"
-              >
-                <Printer className="mr-2 h-4 w-4" />
-                Print Week Timesheets
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    data-testid="button-print-week-timesheets"
+                  >
+                    <Printer className="mr-2 h-4 w-4" />
+                    Print Week Timesheets
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem
+                    onSelect={() => openTimesheets()}
+                    data-testid="menuitem-print-all-drivers"
+                  >
+                    All drivers
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => openTimesheets({ filter: "reviewed" })}
+                    disabled={reviewedCount === 0}
+                    data-testid="menuitem-print-reviewed-only"
+                  >
+                    Reviewed only ({reviewedCount})
+                  </DropdownMenuItem>
+                  {printableCustomers.length > 0 ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel className="text-xs uppercase tracking-wide text-muted-foreground">
+                        By customer
+                      </DropdownMenuLabel>
+                      {printableCustomers.map((c) => (
+                        <DropdownMenuItem
+                          key={c.customer}
+                          onSelect={() =>
+                            openTimesheets({ customer: c.customer })
+                          }
+                          data-testid={`menuitem-print-customer-${c.customer}`}
+                        >
+                          <span className="truncate">{c.customer}</span>
+                          <span className="ml-auto text-xs text-muted-foreground font-mono">
+                            {c.driverCount}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button onClick={handleRefresh} disabled={refreshCt.isPending}>
                 {refreshCt.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

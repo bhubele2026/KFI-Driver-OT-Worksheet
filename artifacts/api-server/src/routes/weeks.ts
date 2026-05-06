@@ -1520,6 +1520,10 @@ weeksRouter.get("/weeks/:weekStart/timesheets", async (req, res) => {
     res.status(400).send("Invalid week");
     return;
   }
+  const filterParam = typeof req.query.filter === "string" ? req.query.filter : "";
+  const customerParam =
+    typeof req.query.customer === "string" ? req.query.customer.trim() : "";
+  const reviewedOnly = filterParam === "reviewed";
   const week = await db.query.weeksTable.findFirst({
     where: eq(schema.weeksTable.startDate, weekStart),
   });
@@ -1531,6 +1535,16 @@ weeksRouter.get("/weeks/:weekStart/timesheets", async (req, res) => {
     .orderBy(asc(schema.punchesTable.kfiId), asc(schema.punchesTable.date));
   const drivers = await db.select().from(schema.driversTable);
   const driverById = new Map(drivers.map((d) => [d.kfiId, d]));
+  const reviewedKfi = reviewedOnly
+    ? new Set(
+        (
+          await db
+            .select()
+            .from(schema.reviewedDriversTable)
+            .where(eq(schema.reviewedDriversTable.weekStart, weekStart))
+        ).map((r) => r.kfiId),
+      )
+    : null;
   const byKfi = new Map<string, typeof punches>();
   for (const p of punches) {
     const arr = byKfi.get(p.kfiId) ?? [];
@@ -1579,7 +1593,13 @@ weeksRouter.get("/weeks/:weekStart/timesheets", async (req, res) => {
   for (const [kfiId, ps] of byKfi.entries()) {
     const totals = computeDriverTotals(ps);
     if (totals.totalHours <= 0) continue;
+    if (reviewedKfi && !reviewedKfi.has(kfiId)) continue;
     const meta = driverById.get(kfiId);
+    if (customerParam) {
+      const driverCustomer = customerKey(meta?.customer ?? ps[0]?.customer ?? "Unknown");
+      const wanted = customerKey(customerParam);
+      if (driverCustomer !== wanted) continue;
+    }
     const sortedPs = [...ps].sort((a, b) => {
       const ta = localStrToSortMs(a.clockIn) ?? isoDateToUtcMs(a.date);
       const tb = localStrToSortMs(b.clockIn) ?? isoDateToUtcMs(b.date);
@@ -1712,7 +1732,7 @@ weeksRouter.get("/weeks/:weekStart/timesheets", async (req, res) => {
   const html = `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<title>KFI Driver Timesheets — Week of ${esc(weekStart)}</title>
+<title>KFI Driver Timesheets — Week of ${esc(weekStart)}${reviewedOnly ? " (Reviewed only)" : customerParam ? ` (${esc(customerParam)})` : ""}</title>
 <style>
   :root { color-scheme: light; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; color: #0f172a; margin: 24px; }
@@ -1759,7 +1779,7 @@ weeksRouter.get("/weeks/:weekStart/timesheets", async (req, res) => {
 <div class="actions"><button onclick="window.print()">Print / Save as PDF</button></div>
 <div class="doc-head">
   <h1>KFI Driver Timesheets</h1>
-  <div class="meta">Week of <strong>${esc(weekStart)}</strong> through <strong>${esc(endDate)}</strong> &middot; ${sheets.length} driver${sheets.length === 1 ? "" : "s"}${week?.lastRefreshedAt ? ` &middot; last Connecteam refresh: ${esc(new Date(week.lastRefreshedAt).toLocaleString())}` : ""}</div>
+  <div class="meta">Week of <strong>${esc(weekStart)}</strong> through <strong>${esc(endDate)}</strong> &middot; ${sheets.length} driver${sheets.length === 1 ? "" : "s"}${reviewedOnly ? " &middot; <strong>reviewed only</strong>" : customerParam ? ` &middot; <strong>${esc(customerParam)}</strong> only` : ""}${week?.lastRefreshedAt ? ` &middot; last Connecteam refresh: ${esc(new Date(week.lastRefreshedAt).toLocaleString())}` : ""}</div>
 </div>
 ${sheetsHtml || "<p>No active drivers found for this week.</p>"}
 </body></html>`;
