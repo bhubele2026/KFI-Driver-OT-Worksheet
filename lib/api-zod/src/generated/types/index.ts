@@ -9,6 +9,7 @@
 export * from "./acceptInviteBody";
 export * from "./aiExtractedRow";
 export * from "./aiExtractPreview";
+export * from "./aiExtractSample";
 export * from "./authCredentials";
 export * from "./check";
 export * from "./checkLevel";
@@ -32,6 +33,7 @@ export * from "./emailDeliveryResult";
 export * from "./healthStatus";
 export * from "./invite";
 export * from "./inviteWithLink";
+export * from "./listAiExtractSamplesParams";
 export * from "./listUserAuditLogParams";
 export * from "./loginCredentials";
 export * from "./mailerStatus";

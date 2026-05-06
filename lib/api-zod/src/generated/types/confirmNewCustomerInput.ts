@@ -11,6 +11,11 @@ import type { ConfirmNewCustomerRow } from "./confirmNewCustomerRow";
 export interface ConfirmNewCustomerInput {
   /** @minLength 1 */
   customer: string;
+  /**
+   * ID returned by /extract-new-customer. When provided, the matching stashed file is marked as confirmed (retained 90 days for engineer fixture use).
+   * @nullable
+   */
+  sampleId?: number | null;
   mapping: ConfirmNewCustomerInputMapping;
   rows: ConfirmNewCustomerRow[];
 }

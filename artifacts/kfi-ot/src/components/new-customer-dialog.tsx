@@ -61,6 +61,7 @@ interface ExtractPreview {
   weekStart: string;
   rows: ExtractedRow[];
   suggestions: Suggestion[];
+  sampleId: number;
 }
 
 function errMessage(err: unknown, fallback: string): string {
@@ -164,6 +165,7 @@ export function NewCustomerDialog({
         weekStart,
         data: {
           customer: preview.customer,
+          sampleId: preview.sampleId,
           mapping: cleanMapping,
           rows: payloadRows,
         },

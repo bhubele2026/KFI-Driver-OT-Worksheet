@@ -332,6 +332,10 @@ export interface CustomerUploadStatus {
   customer: string;
   extensions: string[];
   punchCount: number;
+  /** True when this customer has no deterministic parser and has only ever been imported via the AI extract flow. */
+  isAiImported: boolean;
+  /** Number of distinct weeks this customer has been imported via the AI extract flow (counted across all time). Used to surface promotion candidates. */
+  aiImportWeekCount: number;
   /** @nullable */
   lastUploadAt?: string | null;
   /** @nullable */
@@ -390,6 +394,8 @@ export interface AiExtractPreview {
   weekStart: string;
   rows: AiExtractedRow[];
   suggestions: DriverNameSuggestion[];
+  /** ID of the stashed copy of the uploaded file. Pass back to /confirm-new-customer so the sample is marked confirmed and retained for engineer use. */
+  sampleId: number;
 }
 
 export interface ConfirmNewCustomerRow {
@@ -407,6 +413,11 @@ export type ConfirmNewCustomerInputMapping = { [key: string]: string | null };
 export interface ConfirmNewCustomerInput {
   /** @minLength 1 */
   customer: string;
+  /**
+   * ID returned by /extract-new-customer. When provided, the matching stashed file is marked as confirmed (retained 90 days for engineer fixture use).
+   * @nullable
+   */
+  sampleId?: number | null;
   mapping: ConfirmNewCustomerInputMapping;
   rows: ConfirmNewCustomerRow[];
 }
@@ -418,6 +429,22 @@ export interface ConfirmNewCustomerResult {
   unmappedNames: string[];
 }
 
+export interface AiExtractSample {
+  id: number;
+  weekStart: string;
+  customer: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+  expiresAt: string;
+  /** @nullable */
+  confirmedAt?: string | null;
+  confirmed: boolean;
+  /** @nullable */
+  uploadedByEmail?: string | null;
+}
+
 export type ListUserAuditLogParams = {
   /**
    * @minimum 1
@@ -425,6 +452,10 @@ export type ListUserAuditLogParams = {
    */
   limit?: number;
   targetUserId?: number;
+};
+
+export type ListAiExtractSamplesParams = {
+  customer?: string;
 };
 
 export type SetReviewedBody = {

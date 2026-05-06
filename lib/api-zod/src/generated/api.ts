@@ -580,6 +580,16 @@ export const GetCustomerUploadStatusResponseItem = zod.object({
   customer: zod.string(),
   extensions: zod.array(zod.string()),
   punchCount: zod.number(),
+  isAiImported: zod
+    .boolean()
+    .describe(
+      "True when this customer has no deterministic parser and has only ever been imported via the AI extract flow.",
+    ),
+  aiImportWeekCount: zod
+    .number()
+    .describe(
+      "Number of distinct weeks this customer has been imported via the AI extract flow (counted across all time). Used to surface promotion candidates.",
+    ),
   lastUploadAt: zod.coerce.date().nullish(),
   lastFileName: zod.string().nullish(),
   lastAttemptAt: zod.coerce
@@ -650,6 +660,11 @@ export const ExtractNewCustomerFileResponse = zod.object({
       ),
     }),
   ),
+  sampleId: zod
+    .number()
+    .describe(
+      "ID of the stashed copy of the uploaded file. Pass back to \/confirm-new-customer so the sample is marked confirmed and retained for engineer use.",
+    ),
 });
 
 /**
@@ -672,6 +687,12 @@ export const confirmNewCustomerFileBodyRowsItemDateRegExp = new RegExp(
 
 export const ConfirmNewCustomerFileBody = zod.object({
   customer: zod.string().min(1),
+  sampleId: zod
+    .number()
+    .nullish()
+    .describe(
+      "ID returned by \/extract-new-customer. When provided, the matching stashed file is marked as confirmed (retained 90 days for engineer fixture use).",
+    ),
   mapping: zod.record(zod.string(), zod.string().nullable()),
   rows: zod.array(
     zod.object({
@@ -689,6 +710,37 @@ export const ConfirmNewCustomerFileResponse = zod.object({
   imported: zod.number(),
   skippedUnmapped: zod.number(),
   unmappedNames: zod.array(zod.string()),
+});
+
+/**
+ * @summary List stashed AI-extracted customer files (admin). One row per upload; engineers grab these as fixtures when promoting a customer to a deterministic parser.
+ */
+export const ListAiExtractSamplesQueryParams = zod.object({
+  customer: zod.coerce.string().optional(),
+});
+
+export const ListAiExtractSamplesResponseItem = zod.object({
+  id: zod.number(),
+  weekStart: zod.string(),
+  customer: zod.string(),
+  fileName: zod.string(),
+  mimeType: zod.string(),
+  sizeBytes: zod.number(),
+  uploadedAt: zod.coerce.date(),
+  expiresAt: zod.coerce.date(),
+  confirmedAt: zod.coerce.date().nullish(),
+  confirmed: zod.boolean(),
+  uploadedByEmail: zod.string().nullish(),
+});
+export const ListAiExtractSamplesResponse = zod.array(
+  ListAiExtractSamplesResponseItem,
+);
+
+/**
+ * @summary Download the original stashed file for an AI extract sample (admin)
+ */
+export const DownloadAiExtractSampleParams = zod.object({
+  id: zod.coerce.number(),
 });
 
 /**

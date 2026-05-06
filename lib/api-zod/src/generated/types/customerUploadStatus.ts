@@ -10,6 +10,10 @@ export interface CustomerUploadStatus {
   customer: string;
   extensions: string[];
   punchCount: number;
+  /** True when this customer has no deterministic parser and has only ever been imported via the AI extract flow. */
+  isAiImported: boolean;
+  /** Number of distinct weeks this customer has been imported via the AI extract flow (counted across all time). Used to surface promotion candidates. */
+  aiImportWeekCount: number;
   /** @nullable */
   lastUploadAt?: Date | null;
   /** @nullable */

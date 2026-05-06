@@ -19,6 +19,7 @@ import type {
 import type {
   AcceptInviteBody,
   AiExtractPreview,
+  AiExtractSample,
   AuthCredentials,
   ConfirmNewCustomerInput,
   ConfirmNewCustomerResult,
@@ -31,6 +32,7 @@ import type {
   HealthStatus,
   Invite,
   InviteWithLink,
+  ListAiExtractSamplesParams,
   ListUserAuditLogParams,
   LoginCredentials,
   MailerStatus,
@@ -2698,6 +2700,198 @@ export const useConfirmNewCustomerFile = <
 > => {
   return useMutation(getConfirmNewCustomerFileMutationOptions(options));
 };
+
+/**
+ * @summary List stashed AI-extracted customer files (admin). One row per upload; engineers grab these as fixtures when promoting a customer to a deterministic parser.
+ */
+export const getListAiExtractSamplesUrl = (
+  params?: ListAiExtractSamplesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/ai-extract-samples?${stringifiedParams}`
+    : `/api/admin/ai-extract-samples`;
+};
+
+export const listAiExtractSamples = async (
+  params?: ListAiExtractSamplesParams,
+  options?: RequestInit,
+): Promise<AiExtractSample[]> => {
+  return customFetch<AiExtractSample[]>(getListAiExtractSamplesUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListAiExtractSamplesQueryKey = (
+  params?: ListAiExtractSamplesParams,
+) => {
+  return [
+    `/api/admin/ai-extract-samples`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getListAiExtractSamplesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAiExtractSamples>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListAiExtractSamplesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAiExtractSamples>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListAiExtractSamplesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listAiExtractSamples>>
+  > = ({ signal }) =>
+    listAiExtractSamples(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAiExtractSamples>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListAiExtractSamplesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listAiExtractSamples>>
+>;
+export type ListAiExtractSamplesQueryError = ErrorType<void>;
+
+/**
+ * @summary List stashed AI-extracted customer files (admin). One row per upload; engineers grab these as fixtures when promoting a customer to a deterministic parser.
+ */
+
+export function useListAiExtractSamples<
+  TData = Awaited<ReturnType<typeof listAiExtractSamples>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListAiExtractSamplesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAiExtractSamples>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAiExtractSamplesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Download the original stashed file for an AI extract sample (admin)
+ */
+export const getDownloadAiExtractSampleUrl = (id: number) => {
+  return `/api/admin/ai-extract-samples/${id}/download`;
+};
+
+export const downloadAiExtractSample = async (
+  id: number,
+  options?: RequestInit,
+): Promise<Blob> => {
+  return customFetch<Blob>(getDownloadAiExtractSampleUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getDownloadAiExtractSampleQueryKey = (id: number) => {
+  return [`/api/admin/ai-extract-samples/${id}/download`] as const;
+};
+
+export const getDownloadAiExtractSampleQueryOptions = <
+  TData = Awaited<ReturnType<typeof downloadAiExtractSample>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof downloadAiExtractSample>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getDownloadAiExtractSampleQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof downloadAiExtractSample>>
+  > = ({ signal }) =>
+    downloadAiExtractSample(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof downloadAiExtractSample>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type DownloadAiExtractSampleQueryResult = NonNullable<
+  Awaited<ReturnType<typeof downloadAiExtractSample>>
+>;
+export type DownloadAiExtractSampleQueryError = ErrorType<void>;
+
+/**
+ * @summary Download the original stashed file for an AI extract sample (admin)
+ */
+
+export function useDownloadAiExtractSample<
+  TData = Awaited<ReturnType<typeof downloadAiExtractSample>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof downloadAiExtractSample>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getDownloadAiExtractSampleQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Add a manual driver or customer punch

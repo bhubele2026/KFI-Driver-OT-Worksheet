@@ -7,3 +7,4 @@ export * from "./punchDeletions";
 export * from "./reviewed";
 export * from "./customerUploadAttempts";
 export * from "./rateLimitBuckets";
+export * from "./aiExtractSamples";

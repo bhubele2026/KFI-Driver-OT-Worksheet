@@ -666,6 +666,21 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
     .select()
     .from(schema.customerUploadAttemptsTable)
     .where(eq(schema.customerUploadAttemptsTable.weekStart, weekStart));
+  // Count distinct AI-import weeks per customer across all time so we can
+  // surface a "promote to parser" hint when the same customer keeps coming
+  // through the AI flow.
+  const aiWeekRows = await db
+    .select({
+      customer: schema.customerUploadAttemptsTable.customer,
+      weekCount: sql<number>`count(distinct ${schema.customerUploadAttemptsTable.weekStart})::int`,
+    })
+    .from(schema.customerUploadAttemptsTable)
+    .where(eq(schema.customerUploadAttemptsTable.lastSource, "ai"))
+    .groupBy(schema.customerUploadAttemptsTable.customer);
+  const aiWeekCountByCustomer = new Map(
+    aiWeekRows.map((r) => [r.customer, r.weekCount ?? 0]),
+  );
+  const knownNames = new Set(KNOWN_CUSTOMERS.map((c) => c.displayName));
   const byName = new Map<string, (typeof rows)[number]>();
   for (const r of rows) {
     if (r.customer) byName.set(r.customer, r);
@@ -690,9 +705,46 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
         : null,
       lastError: a?.lastError ?? null,
       lastSource: a?.lastSource ?? null,
+      isAiImported: false,
+      aiImportWeekCount: aiWeekCountByCustomer.get(c.displayName) ?? 0,
     };
   });
-  res.json(out);
+  // Append any AI-only customers that aren't in KNOWN_CUSTOMERS so the
+  // dispatcher can re-upload (via the AI flow) and engineers can see how
+  // often each candidate has been hand-imported.
+  const aiOnlyNames = new Set<string>();
+  for (const r of rows) {
+    if (r.customer && !knownNames.has(r.customer)) aiOnlyNames.add(r.customer);
+  }
+  for (const a of attempts) {
+    if (a.lastSource === "ai" && !knownNames.has(a.customer)) {
+      aiOnlyNames.add(a.customer);
+    }
+  }
+  const aiOnly = [...aiOnlyNames].sort().map((name) => {
+    const r = byName.get(name);
+    const a = attemptByName.get(name);
+    return {
+      customer: name,
+      extensions: ["pdf", "xlsx"],
+      punchCount: r?.punchCount ?? 0,
+      lastUploadAt: r?.lastUploadAt
+        ? new Date(r.lastUploadAt).toISOString()
+        : null,
+      lastFileName: r?.lastFileName ?? a?.lastFileName ?? null,
+      lastAttemptAt: a?.lastAttemptAt
+        ? new Date(a.lastAttemptAt).toISOString()
+        : null,
+      lastSuccessAt: a?.lastSuccessAt
+        ? new Date(a.lastSuccessAt).toISOString()
+        : null,
+      lastError: a?.lastError ?? null,
+      lastSource: a?.lastSource ?? "ai",
+      isAiImported: true,
+      aiImportWeekCount: aiWeekCountByCustomer.get(name) ?? 0,
+    };
+  });
+  res.json([...out, ...aiOnly]);
 });
 
 weeksRouter.post(
@@ -744,6 +796,24 @@ weeksRouter.post(
       });
       return;
     }
+    // Stash the original upload so an engineer can later use it as a fixture
+    // when promoting this customer to a deterministic parser. Unconfirmed
+    // samples expire after 24h; confirmed ones are bumped to 90 days when
+    // /confirm-new-customer fires.
+    const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
+    const [sample] = await db
+      .insert(schema.aiExtractSamplesTable)
+      .values({
+        weekStart: startDate,
+        customer,
+        fileName: req.file.originalname,
+        mimeType: req.file.mimetype || "application/octet-stream",
+        sizeBytes: req.file.size,
+        fileBytes: req.file.buffer,
+        uploadedBy: req.session.userId ?? null,
+        expiresAt: new Date(Date.now() + PENDING_TTL_MS),
+      })
+      .returning({ id: schema.aiExtractSamplesTable.id });
     const drivers = await db
       .select({
         kfiId: schema.driversTable.kfiId,
@@ -767,6 +837,7 @@ weeksRouter.post(
       weekStart: startDate,
       rows,
       suggestions,
+      sampleId: sample.id,
     });
   },
 );
@@ -876,6 +947,39 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
     "ai",
   );
 
+  // Mark the stashed file as confirmed and bump retention so an engineer
+  // can grab it as a fixture when promoting this customer to a parser.
+  // We require the sample's customer + week to match the confirmation so a
+  // stale or unrelated sampleId can't accidentally extend retention on the
+  // wrong file.
+  if (parsed.data.sampleId != null) {
+    const CONFIRMED_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+    const result = await db
+      .update(schema.aiExtractSamplesTable)
+      .set({
+        confirmedAt: new Date(),
+        expiresAt: new Date(Date.now() + CONFIRMED_TTL_MS),
+      })
+      .where(
+        and(
+          eq(schema.aiExtractSamplesTable.id, parsed.data.sampleId),
+          eq(schema.aiExtractSamplesTable.weekStart, weekStart),
+          eq(schema.aiExtractSamplesTable.customer, customer),
+        ),
+      )
+      .returning({ id: schema.aiExtractSamplesTable.id });
+    if (result.length === 0) {
+      req.log.warn(
+        {
+          sampleId: parsed.data.sampleId,
+          weekStart,
+          customer,
+        },
+        "confirm-new-customer: sampleId did not match weekStart+customer, skipping retention bump",
+      );
+    }
+  }
+
   res.json({
     customer,
     imported: toInsert.length,
@@ -883,6 +987,92 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
     unmappedNames: [...unmappedNames],
   });
 });
+
+weeksRouter.get(
+  "/admin/ai-extract-samples",
+  requireAdmin,
+  async (req, res) => {
+    const customer = typeof req.query.customer === "string" ? req.query.customer : null;
+    const whereClauses = [
+      sql`${schema.aiExtractSamplesTable.expiresAt} > now()`,
+    ];
+    if (customer) {
+      whereClauses.push(eq(schema.aiExtractSamplesTable.customer, customer));
+    }
+    const rows = await db
+      .select({
+        id: schema.aiExtractSamplesTable.id,
+        weekStart: schema.aiExtractSamplesTable.weekStart,
+        customer: schema.aiExtractSamplesTable.customer,
+        fileName: schema.aiExtractSamplesTable.fileName,
+        mimeType: schema.aiExtractSamplesTable.mimeType,
+        sizeBytes: schema.aiExtractSamplesTable.sizeBytes,
+        uploadedBy: schema.aiExtractSamplesTable.uploadedBy,
+        uploadedAt: schema.aiExtractSamplesTable.uploadedAt,
+        confirmedAt: schema.aiExtractSamplesTable.confirmedAt,
+        expiresAt: schema.aiExtractSamplesTable.expiresAt,
+      })
+      .from(schema.aiExtractSamplesTable)
+      .where(and(...whereClauses))
+      .orderBy(desc(schema.aiExtractSamplesTable.uploadedAt))
+      .limit(500);
+    const actorIds = new Set<number>();
+    for (const r of rows) if (r.uploadedBy) actorIds.add(r.uploadedBy);
+    const actorEmailById = new Map<number, string>();
+    if (actorIds.size > 0) {
+      const actorRows = await db
+        .select({ id: schema.usersTable.id, email: schema.usersTable.email })
+        .from(schema.usersTable)
+        .where(inArray(schema.usersTable.id, [...actorIds]));
+      for (const r of actorRows) actorEmailById.set(r.id, r.email);
+    }
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        weekStart: r.weekStart,
+        customer: r.customer,
+        fileName: r.fileName,
+        mimeType: r.mimeType,
+        sizeBytes: r.sizeBytes,
+        uploadedAt: new Date(r.uploadedAt).toISOString(),
+        expiresAt: new Date(r.expiresAt).toISOString(),
+        confirmedAt: r.confirmedAt ? new Date(r.confirmedAt).toISOString() : null,
+        confirmed: r.confirmedAt != null,
+        uploadedByEmail: r.uploadedBy
+          ? actorEmailById.get(r.uploadedBy) ?? null
+          : null,
+      })),
+    );
+  },
+);
+
+weeksRouter.get(
+  "/admin/ai-extract-samples/:id/download",
+  requireAdmin,
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const row = await db.query.aiExtractSamplesTable.findFirst({
+      where: and(
+        eq(schema.aiExtractSamplesTable.id, id),
+        sql`${schema.aiExtractSamplesTable.expiresAt} > now()`,
+      ),
+    });
+    if (!row) {
+      res.status(404).json({ error: "Sample not found or expired" });
+      return;
+    }
+    res.setHeader("Content-Type", row.mimeType || "application/octet-stream");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${row.fileName.replace(/"/g, "")}"`,
+    );
+    res.send(row.fileBytes);
+  },
+);
 
 weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
   const weekStart = req.params.weekStart;

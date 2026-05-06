@@ -9,6 +9,7 @@ import {
   setRateLimitBackend,
   startPostgresBackendCleanup,
 } from "./lib/rateLimit";
+import { startAiExtractSampleCleanup } from "./lib/aiExtractSampleCleanup";
 
 if (process.env.NODE_ENV === "production") {
   if (!process.env.APP_BASE_URL && !process.env.REPLIT_DOMAINS) {
@@ -54,6 +55,7 @@ async function main() {
   startPostgresBackendCleanup(pool, {
     onError: (err) => logger.warn({ err }, "rate limit cleanup failed"),
   });
+  startAiExtractSampleCleanup();
 
   app.listen(port, (err) => {
     if (err) {

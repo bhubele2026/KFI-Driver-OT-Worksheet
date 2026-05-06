@@ -13,4 +13,6 @@ export interface AiExtractPreview {
   weekStart: string;
   rows: AiExtractedRow[];
   suggestions: DriverNameSuggestion[];
+  /** ID of the stashed copy of the uploaded file. Pass back to /confirm-new-customer so the sample is marked confirmed and retained for engineer use. */
+  sampleId: number;
 }

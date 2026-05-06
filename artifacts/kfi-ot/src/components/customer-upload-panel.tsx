@@ -16,6 +16,7 @@ import {
   Circle,
   Sparkles,
   AlertCircle,
+  Wand2,
 } from "lucide-react";
 import { NewCustomerDialog } from "@/components/new-customer-dialog";
 
@@ -163,6 +164,21 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       className="text-[10px] text-muted-foreground"
                     >
                       Not uploaded
+                    </Badge>
+                  )}
+                  {s.isAiImported && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1"
+                      title={
+                        s.aiImportWeekCount >= 3
+                          ? "This customer has been AI-imported multiple weeks in a row. Consider writing a deterministic parser — see docs/promote-ai-customer-to-parser.md."
+                          : "AI-imported (no deterministic parser yet)."
+                      }
+                    >
+                      <Wand2 className="h-3 w-3" />
+                      AI · {s.aiImportWeekCount}{" "}
+                      {s.aiImportWeekCount === 1 ? "week" : "weeks"}
                     </Badge>
                   )}
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
