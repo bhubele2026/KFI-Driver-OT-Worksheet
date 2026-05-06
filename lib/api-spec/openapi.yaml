@@ -355,6 +355,52 @@ paths:
         "204": { description: Cleared }
         "403": { description: Admin only }
 
+  /auth/ip-blocklist:
+    get:
+      operationId: listIpBlocklist
+      tags: [auth]
+      summary: List blocklisted IPs (admin)
+      responses:
+        "200":
+          description: Blocklist entries (oldest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/IpBlocklistEntry" }
+        "403": { description: Admin only }
+    post:
+      operationId: addIpBlocklist
+      tags: [auth]
+      summary: Add an IP to the blocklist (admin). Subsequent requests from this IP get a 403 before reaching the rate limiter.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddIpBlocklistBody" }
+      responses:
+        "200":
+          description: Added (or refreshed)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IpBlocklistEntry" }
+        "400": { description: Invalid input or refusing to block caller's own IP }
+        "403": { description: Admin only }
+
+  /auth/ip-blocklist/{ip}:
+    delete:
+      operationId: removeIpBlocklist
+      tags: [auth]
+      summary: Remove an IP from the blocklist (admin)
+      parameters:
+        - name: ip
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Removed (or no entry existed) }
+        "403": { description: Admin only }
+
   /auth/audit-log:
     get:
       operationId: listUserAuditLog
@@ -961,6 +1007,28 @@ components:
           description: Number of times this (limiter, key) pair was blocked in the window.
         firstBlockedAt: { type: string, format: date-time }
         lastBlockedAt: { type: string, format: date-time }
+
+    IpBlocklistEntry:
+      type: object
+      required: [ip, reason, createdAt, createdByEmail]
+      properties:
+        ip: { type: string }
+        reason:
+          type: ["string", "null"]
+        createdAt: { type: string, format: date-time }
+        createdByEmail:
+          type: ["string", "null"]
+
+    AddIpBlocklistBody:
+      type: object
+      required: [ip]
+      properties:
+        ip:
+          type: string
+          minLength: 1
+          description: The client IP address to block. Compared verbatim against `req.ip`.
+        reason:
+          type: ["string", "null"]
 
     UserAuditLogEntry:
       type: object

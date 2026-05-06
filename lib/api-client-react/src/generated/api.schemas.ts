@@ -140,6 +140,25 @@ export interface RateLimitLockout {
   lastBlockedAt: string;
 }
 
+export interface IpBlocklistEntry {
+  ip: string;
+  /** @nullable */
+  reason: string | null;
+  createdAt: string;
+  /** @nullable */
+  createdByEmail: string | null;
+}
+
+export interface AddIpBlocklistBody {
+  /**
+   * The client IP address to block. Compared verbatim against `req.ip`.
+   * @minLength 1
+   */
+  ip: string;
+  /** @nullable */
+  reason?: string | null;
+}
+
 export interface UserAuditLogEntry {
   id: number;
   action: string;

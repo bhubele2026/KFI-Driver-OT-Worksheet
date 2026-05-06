@@ -295,6 +295,45 @@ export const ClearRateLimitBucketParams = zod.object({
 });
 
 /**
+ * @summary List blocklisted IPs (admin)
+ */
+export const ListIpBlocklistResponseItem = zod.object({
+  ip: zod.string(),
+  reason: zod.string().nullable(),
+  createdAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullable(),
+});
+export const ListIpBlocklistResponse = zod.array(ListIpBlocklistResponseItem);
+
+/**
+ * @summary Add an IP to the blocklist (admin). Subsequent requests from this IP get a 403 before reaching the rate limiter.
+ */
+
+export const AddIpBlocklistBody = zod.object({
+  ip: zod
+    .string()
+    .min(1)
+    .describe(
+      "The client IP address to block. Compared verbatim against `req.ip`.",
+    ),
+  reason: zod.string().nullish(),
+});
+
+export const AddIpBlocklistResponse = zod.object({
+  ip: zod.string(),
+  reason: zod.string().nullable(),
+  createdAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullable(),
+});
+
+/**
+ * @summary Remove an IP from the blocklist (admin)
+ */
+export const RemoveIpBlocklistParams = zod.object({
+  ip: zod.coerce.string(),
+});
+
+/**
  * @summary List recent admin actions on user accounts (admin)
  */
 export const listUserAuditLogQueryLimitMax = 500;

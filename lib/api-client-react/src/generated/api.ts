@@ -18,6 +18,7 @@ import type {
 
 import type {
   AcceptInviteBody,
+  AddIpBlocklistBody,
   AiExtractPreview,
   AiExtractSample,
   AuthCredentials,
@@ -35,6 +36,7 @@ import type {
   HealthStatus,
   Invite,
   InviteWithLink,
+  IpBlocklistEntry,
   ListAiExtractSamplesParams,
   ListUserAuditLogParams,
   LoginCredentials,
@@ -1695,6 +1697,251 @@ export const useClearRateLimitBucket = <
   TContext
 > => {
   return useMutation(getClearRateLimitBucketMutationOptions(options));
+};
+
+/**
+ * @summary List blocklisted IPs (admin)
+ */
+export const getListIpBlocklistUrl = () => {
+  return `/api/auth/ip-blocklist`;
+};
+
+export const listIpBlocklist = async (
+  options?: RequestInit,
+): Promise<IpBlocklistEntry[]> => {
+  return customFetch<IpBlocklistEntry[]>(getListIpBlocklistUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListIpBlocklistQueryKey = () => {
+  return [`/api/auth/ip-blocklist`] as const;
+};
+
+export const getListIpBlocklistQueryOptions = <
+  TData = Awaited<ReturnType<typeof listIpBlocklist>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listIpBlocklist>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListIpBlocklistQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listIpBlocklist>>> = ({
+    signal,
+  }) => listIpBlocklist({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listIpBlocklist>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListIpBlocklistQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listIpBlocklist>>
+>;
+export type ListIpBlocklistQueryError = ErrorType<void>;
+
+/**
+ * @summary List blocklisted IPs (admin)
+ */
+
+export function useListIpBlocklist<
+  TData = Awaited<ReturnType<typeof listIpBlocklist>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listIpBlocklist>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListIpBlocklistQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Add an IP to the blocklist (admin). Subsequent requests from this IP get a 403 before reaching the rate limiter.
+ */
+export const getAddIpBlocklistUrl = () => {
+  return `/api/auth/ip-blocklist`;
+};
+
+export const addIpBlocklist = async (
+  addIpBlocklistBody: AddIpBlocklistBody,
+  options?: RequestInit,
+): Promise<IpBlocklistEntry> => {
+  return customFetch<IpBlocklistEntry>(getAddIpBlocklistUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(addIpBlocklistBody),
+  });
+};
+
+export const getAddIpBlocklistMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addIpBlocklist>>,
+    TError,
+    { data: BodyType<AddIpBlocklistBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof addIpBlocklist>>,
+  TError,
+  { data: BodyType<AddIpBlocklistBody> },
+  TContext
+> => {
+  const mutationKey = ["addIpBlocklist"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof addIpBlocklist>>,
+    { data: BodyType<AddIpBlocklistBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return addIpBlocklist(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AddIpBlocklistMutationResult = NonNullable<
+  Awaited<ReturnType<typeof addIpBlocklist>>
+>;
+export type AddIpBlocklistMutationBody = BodyType<AddIpBlocklistBody>;
+export type AddIpBlocklistMutationError = ErrorType<void>;
+
+/**
+ * @summary Add an IP to the blocklist (admin). Subsequent requests from this IP get a 403 before reaching the rate limiter.
+ */
+export const useAddIpBlocklist = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addIpBlocklist>>,
+    TError,
+    { data: BodyType<AddIpBlocklistBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof addIpBlocklist>>,
+  TError,
+  { data: BodyType<AddIpBlocklistBody> },
+  TContext
+> => {
+  return useMutation(getAddIpBlocklistMutationOptions(options));
+};
+
+/**
+ * @summary Remove an IP from the blocklist (admin)
+ */
+export const getRemoveIpBlocklistUrl = (ip: string) => {
+  return `/api/auth/ip-blocklist/${ip}`;
+};
+
+export const removeIpBlocklist = async (
+  ip: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getRemoveIpBlocklistUrl(ip), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getRemoveIpBlocklistMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeIpBlocklist>>,
+    TError,
+    { ip: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeIpBlocklist>>,
+  TError,
+  { ip: string },
+  TContext
+> => {
+  const mutationKey = ["removeIpBlocklist"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeIpBlocklist>>,
+    { ip: string }
+  > = (props) => {
+    const { ip } = props ?? {};
+
+    return removeIpBlocklist(ip, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveIpBlocklistMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeIpBlocklist>>
+>;
+
+export type RemoveIpBlocklistMutationError = ErrorType<void>;
+
+/**
+ * @summary Remove an IP from the blocklist (admin)
+ */
+export const useRemoveIpBlocklist = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeIpBlocklist>>,
+    TError,
+    { ip: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof removeIpBlocklist>>,
+  TError,
+  { ip: string },
+  TContext
+> => {
+  return useMutation(getRemoveIpBlocklistMutationOptions(options));
 };
 
 /**

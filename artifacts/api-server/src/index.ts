@@ -12,6 +12,7 @@ import {
   startRateLimitEventsCleanup,
 } from "./lib/rateLimit";
 import { startAiExtractSampleCleanup } from "./lib/aiExtractSampleCleanup";
+import { initIpBlocklist } from "./lib/ipBlocklist";
 
 if (process.env.NODE_ENV === "production") {
   if (!process.env.APP_BASE_URL && !process.env.REPLIT_DOMAINS) {
@@ -52,6 +53,12 @@ async function main() {
   void repairBogusObjectCustomers().catch((err) => {
     logger.warn({ err }, "repairBogusObjectCustomers threw");
   });
+
+  try {
+    await initIpBlocklist();
+  } catch (err) {
+    logger.warn({ err }, "initial ip blocklist load failed");
+  }
 
   setRateLimitBackend(createPostgresBackend(pool));
   startPostgresBackendCleanup(pool, {

@@ -10,3 +10,4 @@ export * from "./customerNameAliases";
 export * from "./rateLimitBuckets";
 export * from "./aiExtractSamples";
 export * from "./rateLimitEvents";
+export * from "./ipBlocklist";

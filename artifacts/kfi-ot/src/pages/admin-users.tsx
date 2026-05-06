@@ -16,6 +16,9 @@ import {
   useClearRateLimitBucket,
   useListUserAuditLog,
   useAuditConnecteamTimeClocks,
+  useListIpBlocklist,
+  useAddIpBlocklist,
+  useRemoveIpBlocklist,
   getListUsersQueryKey,
   getListInvitesQueryKey,
   getGetMailerStatusQueryKey,
@@ -23,6 +26,7 @@ import {
   getListRateLimitEventsQueryKey,
   getListUserAuditLogQueryKey,
   getAuditConnecteamTimeClocksQueryKey,
+  getListIpBlocklistQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -56,6 +60,7 @@ import {
   ShieldOff,
   KeyRound,
   Send,
+  ShieldX,
   Sparkles,
   Trash2,
   Unlock,
@@ -138,6 +143,17 @@ export default function AdminUsers() {
     });
   const clearBucket = useClearRateLimitBucket();
 
+  const { data: ipBlocklist, isLoading: blocklistLoading } = useListIpBlocklist({
+    query: {
+      enabled: !!me?.isAdmin,
+      queryKey: getListIpBlocklistQueryKey(),
+      refetchInterval: 60_000,
+    },
+  });
+  const addBlocklist = useAddIpBlocklist();
+  const removeBlocklist = useRemoveIpBlocklist();
+  const blocklistedSet = new Set((ipBlocklist ?? []).map((b) => b.ip));
+
   const createInvite = useCreateInvite();
   const revokeInvite = useRevokeInvite();
   const resendInvite = useResendInvite();
@@ -172,6 +188,8 @@ export default function AdminUsers() {
     qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
   const refetchBuckets = () =>
     qc.invalidateQueries({ queryKey: getListRateLimitBucketsQueryKey() });
+  const refetchBlocklist = () =>
+    qc.invalidateQueries({ queryKey: getListIpBlocklistQueryKey() });
   const refetchAudit = () =>
     qc.invalidateQueries({
       queryKey: [getListUserAuditLogQueryKey({ limit: 50 })[0]],
@@ -180,6 +198,47 @@ export default function AdminUsers() {
     qc.invalidateQueries({
       queryKey: getListUserAuditLogQueryKey({ targetUserId, limit: 100 }),
     });
+
+  const handleBlockIp = (ip: string, reasonHint: string) => {
+    const reason = window.prompt(
+      `Block this IP from the API?\n\n${ip}\n\nOptional reason (will be saved with the entry):`,
+      reasonHint,
+    );
+    if (reason === null) return;
+    addBlocklist.mutate(
+      { data: { ip, reason: reason.trim() || null } },
+      {
+        onSuccess: () => {
+          refetchBlocklist();
+          toast({ title: "IP blocked", description: ip });
+        },
+        onError: (err) =>
+          toast({
+            title: "Couldn't block IP",
+            description: err instanceof Error ? err.message : "Unknown error",
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  const handleUnblockIp = (ip: string) => {
+    removeBlocklist.mutate(
+      { ip },
+      {
+        onSuccess: () => {
+          refetchBlocklist();
+          toast({ title: "IP unblocked", description: ip });
+        },
+        onError: (err) =>
+          toast({
+            title: "Couldn't unblock IP",
+            description: err instanceof Error ? err.message : "Unknown error",
+            variant: "destructive",
+          }),
+      },
+    );
+  };
 
   const handleClearBucket = (name: string, key: string) => {
     clearBucket.mutate(
@@ -701,30 +760,128 @@ export default function AdminUsers() {
                       <TableHead className="text-right">Lockouts</TableHead>
                       <TableHead>First</TableHead>
                       <TableHead>Most recent</TableHead>
+                      <TableHead className="w-[1%]" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {rateLimitEvents.map((e) => (
-                      <TableRow key={`${e.name}::${e.key}`}>
-                        <TableCell className="text-xs">
-                          <div className="font-medium">
-                            {formatBucketLabel(e.name)}
-                          </div>
-                          <div className="font-mono text-[10px] text-muted-foreground">
-                            {e.name}
-                          </div>
-                        </TableCell>
+                    {rateLimitEvents.map((e) => {
+                      const ip = e.key.startsWith("ip:")
+                        ? e.key.slice(3)
+                        : null;
+                      const alreadyBlocked = ip
+                        ? blocklistedSet.has(ip)
+                        : false;
+                      return (
+                        <TableRow key={`${e.name}::${e.key}`}>
+                          <TableCell className="text-xs">
+                            <div className="font-medium">
+                              {formatBucketLabel(e.name)}
+                            </div>
+                            <div className="font-mono text-[10px] text-muted-foreground">
+                              {e.name}
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs break-all">
+                            {e.key}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-xs font-semibold">
+                            {e.count}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                            {format(new Date(e.firstBlockedAt), "MMM d, h:mm a")}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                            {format(new Date(e.lastBlockedAt), "MMM d, h:mm a")}
+                          </TableCell>
+                          <TableCell className="flex justify-end">
+                            {ip ? (
+                              alreadyBlocked ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-rose-700 dark:text-rose-300">
+                                  <ShieldX className="h-3 w-3" />
+                                  Blocked
+                                </span>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    handleBlockIp(
+                                      ip,
+                                      `Repeat offender: ${e.count} lockouts on ${e.name}`,
+                                    )
+                                  }
+                                  disabled={addBlocklist.isPending}
+                                  title="Add this IP to the blocklist"
+                                >
+                                  <ShieldX className="h-3 w-3 mr-1" />
+                                  Block IP
+                                </Button>
+                              )
+                            ) : null}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">
+                  No lockouts in the past 7 days.
+                </p>
+              )}
+            </div>
+
+            <div className="mt-6">
+              <h3 className="font-display text-sm font-semibold flex items-center gap-2 mb-1">
+                <ShieldX className="h-3.5 w-3.5" />
+                IP blocklist
+              </h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Requests from these addresses get a 403 before they reach the
+                rate limiter. Use the Block button on a row above to add a new
+                entry, or remove one here when the heat dies down.
+              </p>
+              {blocklistLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              ) : ipBlocklist && ipBlocklist.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>IP</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead>Blocked by</TableHead>
+                      <TableHead>When</TableHead>
+                      <TableHead className="w-[1%]" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {ipBlocklist.map((b) => (
+                      <TableRow key={b.ip}>
                         <TableCell className="font-mono text-xs break-all">
-                          {e.key}
+                          {b.ip}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-xs font-semibold">
-                          {e.count}
+                        <TableCell className="text-xs text-muted-foreground">
+                          {b.reason ?? "—"}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {b.createdByEmail ?? "—"}
                         </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
-                          {format(new Date(e.firstBlockedAt), "MMM d, h:mm a")}
+                          {format(new Date(b.createdAt), "MMM d, h:mm a")}
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
-                          {format(new Date(e.lastBlockedAt), "MMM d, h:mm a")}
+                        <TableCell className="flex justify-end">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleUnblockIp(b.ip)}
+                            disabled={removeBlocklist.isPending}
+                            title="Remove this IP from the blocklist"
+                          >
+                            <Unlock className="h-3 w-3 mr-1" />
+                            Unblock
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -732,7 +889,7 @@ export default function AdminUsers() {
                 </Table>
               ) : (
                 <p className="text-sm text-muted-foreground italic">
-                  No lockouts in the past 7 days.
+                  No IPs are currently blocklisted.
                 </p>
               )}
             </div>

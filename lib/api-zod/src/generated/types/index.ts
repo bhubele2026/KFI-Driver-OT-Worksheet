@@ -7,6 +7,7 @@
  */
 
 export * from "./acceptInviteBody";
+export * from "./addIpBlocklistBody";
 export * from "./aiExtractedRow";
 export * from "./aiExtractPreview";
 export * from "./aiExtractSample";
@@ -36,6 +37,7 @@ export * from "./forgetCustomerNameAliasParams";
 export * from "./healthStatus";
 export * from "./invite";
 export * from "./inviteWithLink";
+export * from "./ipBlocklistEntry";
 export * from "./listAiExtractSamplesParams";
 export * from "./listUserAuditLogParams";
 export * from "./loginCredentials";

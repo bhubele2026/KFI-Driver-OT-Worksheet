@@ -29,6 +29,13 @@ import {
   recordLoginSuccess,
 } from "../lib/rateLimit.js";
 import { pool } from "../lib/db.js";
+import {
+  addToBlocklist,
+  clientIp,
+  listBlocklist,
+  removeFromBlocklist,
+} from "../lib/ipBlocklist.js";
+import { AddIpBlocklistBody } from "@workspace/api-zod";
 
 export const authRouter = Router();
 
@@ -728,6 +735,57 @@ authRouter.delete(
       { name: req.params.name, key: req.params.key },
       "rate limit bucket cleared by admin",
     );
+    res.status(204).end();
+  },
+);
+
+// ----- IP blocklist -----
+
+authRouter.get("/auth/ip-blocklist", requireAdmin, async (_req, res) => {
+  const entries = await listBlocklist();
+  res.json(
+    entries.map((e) => ({
+      ip: e.ip,
+      reason: e.reason,
+      createdAt: e.createdAt.toISOString(),
+      createdByEmail: e.createdByEmail,
+    })),
+  );
+});
+
+authRouter.post("/auth/ip-blocklist", requireAdmin, async (req, res) => {
+  const parsed = AddIpBlocklistBody.safeParse(req.body);
+  if (!parsed.success) {
+    res
+      .status(400)
+      .json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+  const ip = parsed.data.ip.trim();
+  if (!ip) {
+    res.status(400).json({ error: "IP is required" });
+    return;
+  }
+  if (ip === clientIp(req)) {
+    res
+      .status(400)
+      .json({ error: "Refusing to block your own current IP address." });
+    return;
+  }
+  const me = (req as { user?: { id: number } }).user!;
+  const reason = parsed.data.reason?.trim() || null;
+  await addToBlocklist(ip, reason, me.id);
+  req.log?.info({ ip, by: me.id }, "ip added to blocklist");
+  res.json({ ip, reason, createdByEmail: null, createdAt: new Date().toISOString() });
+});
+
+authRouter.delete(
+  "/auth/ip-blocklist/:ip",
+  requireAdmin,
+  async (req, res) => {
+    const ip = String(req.params.ip);
+    await removeFromBlocklist(ip);
+    req.log?.info({ ip }, "ip removed from blocklist");
     res.status(204).end();
   },
 );
