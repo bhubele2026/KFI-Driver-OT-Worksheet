@@ -494,6 +494,10 @@ export const GetDriverWeekResponse = zod.object({
     totalHours: zod.number(),
     regularHours: zod.number(),
     overtimeHours: zod.number(),
+    driverRt: zod.number(),
+    driverOt: zod.number(),
+    custRt: zod.number(),
+    custOt: zod.number(),
   }),
   checks: zod.array(
     zod.object({

@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, Save, X, RefreshCw, Keyboard, Printer } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -610,6 +610,10 @@ export default function DriverDetail() {
           />
         </div>
 
+        {/* Summary + Checks panels — surface the per-source RT/OT split and an
+            independent re-derivation, so any divergence is obvious. */}
+        <SummaryAndChecks totals={data.totals} />
+
         {/* Punch table */}
         <Card>
           <div className="overflow-x-auto">
@@ -929,6 +933,176 @@ export default function DriverDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/**
+ * Two-panel breakdown shown above the punch table on the per-driver page.
+ *
+ * - Summary mirrors the server's chronological RT/OT split (which the hours
+ *   engine has already computed) and adds the per-source rows dispatchers
+ *   need at payroll time, since Driver and Customer hours pay at different
+ *   rates: Total Driver, Total Customer, RT, OT, Driver RT, Driver OT.
+ * - Checks re-derives the same numbers from `totalDriver` / `totalCustomer`
+ *   alone (without consulting the engine output) and shows ✓/✗ next to each
+ *   row. Naive arithmetic divergence vs the chronological split is a strong
+ *   signal of either bad data or an engine regression.
+ */
+function SummaryAndChecks({
+  totals,
+}: {
+  totals: {
+    driverHours: number;
+    customerHours: number;
+    totalHours: number;
+    regularHours: number;
+    overtimeHours: number;
+    driverRt: number;
+    driverOt: number;
+  };
+}) {
+  const totDriver = Number(totals.driverHours) || 0;
+  const totCust = Number(totals.customerHours) || 0;
+  const total = Number(totals.totalHours) || 0;
+  const rt = Number(totals.regularHours) || 0;
+  const ot = Number(totals.overtimeHours) || 0;
+  const driverRt = Number(totals.driverRt) || 0;
+  const driverOt = Number(totals.driverOt) || 0;
+
+  // Independently re-derived from totDriver/totCust only. These are deliberately
+  // *not* taken from the engine output — they cross-check it. RT/OT checks
+  // start from (totDriver + totCust) rather than the engine's totalHours so a
+  // bug in totalHours would surface here too.
+  const checkTotal = totDriver + totCust;
+  const checkCustomer = total - totDriver;
+  const checkDriver = total - totCust;
+  const checkRt = Math.min(checkTotal, OT_THRESHOLD);
+  const checkOt = Math.max(0, checkTotal - OT_THRESHOLD);
+  const rtPlusOt = rt + ot;
+
+  const eq = (a: number, b: number) => Math.abs(a - b) < 0.015;
+
+  const checks = [
+    { label: "Total = Driver + Customer", expected: total, actual: checkTotal },
+    { label: "Customer = Total − Driver", expected: totCust, actual: checkCustomer },
+    { label: "Driver = Total − Customer", expected: totDriver, actual: checkDriver },
+    { label: "RT = min(Total, 40)", expected: rt, actual: checkRt },
+    { label: "OT = max(0, Total − 40)", expected: ot, actual: checkOt },
+    { label: "RT + OT = Total", expected: total, actual: rtPlusOt },
+  ];
+  const allOk = checks.every((c) => eq(c.expected, c.actual));
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <Card data-testid="card-summary">
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle className="text-sm font-display tracking-tight">
+            Summary
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <dl className="divide-y divide-border">
+            <SummaryRow label="Total Driver" value={totDriver} testId="row-summary-total-driver" />
+            <SummaryRow label="Total Customer" value={totCust} testId="row-summary-total-customer" />
+            <SummaryRow label="RT" value={rt} testId="row-summary-rt" />
+            <SummaryRow
+              label="OT"
+              value={ot}
+              valueClass={ot > 0.005 ? "text-warning" : undefined}
+              testId="row-summary-ot"
+            />
+            <SummaryRow label="Driver RT" value={driverRt} testId="row-summary-driver-rt" />
+            <SummaryRow
+              label="Driver OT"
+              value={driverOt}
+              valueClass={driverOt > 0.005 ? "text-warning" : undefined}
+              testId="row-summary-driver-ot"
+            />
+          </dl>
+        </CardContent>
+      </Card>
+
+      <Card
+        data-testid="card-checks"
+        className={cn(
+          allOk
+            ? "border-emerald-500/40 bg-emerald-50/40 dark:bg-emerald-950/20"
+            : "border-warning bg-warning/5",
+        )}
+      >
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle
+            className={cn(
+              "text-sm font-display tracking-tight flex items-center gap-2",
+              allOk
+                ? "text-emerald-700 dark:text-emerald-400"
+                : "text-warning",
+            )}
+          >
+            {allOk ? (
+              <CheckIcon className="h-4 w-4" />
+            ) : (
+              <AlertCircle className="h-4 w-4" />
+            )}
+            Checks {allOk ? "— all reconcile" : "— mismatch"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <dl className="divide-y divide-border">
+            {checks.map((c) => {
+              const ok = eq(c.expected, c.actual);
+              return (
+                <div
+                  key={c.label}
+                  className="flex items-center justify-between py-1.5 gap-3"
+                  data-testid={`row-check-${c.label.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
+                >
+                  <dt className="flex items-center gap-2 text-sm">
+                    {ok ? (
+                      <CheckIcon className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                    ) : (
+                      <X className="h-3.5 w-3.5 text-warning" />
+                    )}
+                    <span className={cn(!ok && "text-warning font-medium")}>
+                      {c.label}
+                    </span>
+                  </dt>
+                  <dd
+                    className={cn(
+                      "font-mono tabular-nums text-sm",
+                      !ok && "text-warning font-semibold",
+                    )}
+                  >
+                    {c.actual.toFixed(2)}
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  valueClass,
+  testId,
+}: {
+  label: string;
+  value: number;
+  valueClass?: string;
+  testId?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between py-1.5" data-testid={testId}>
+      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dd className={cn("font-mono tabular-nums text-sm font-semibold", valueClass)}>
+        {value.toFixed(2)}
+      </dd>
     </div>
   );
 }

@@ -12,4 +12,8 @@ export type DriverWeekTotals = {
   totalHours: number;
   regularHours: number;
   overtimeHours: number;
+  driverRt: number;
+  driverOt: number;
+  custRt: number;
+  custOt: number;
 };

@@ -1195,6 +1195,10 @@ components:
               totalHours,
               regularHours,
               overtimeHours,
+              driverRt,
+              driverOt,
+              custRt,
+              custOt,
             ]
           properties:
             driverHours: { type: number }
@@ -1202,6 +1206,10 @@ components:
             totalHours: { type: number }
             regularHours: { type: number }
             overtimeHours: { type: number }
+            driverRt: { type: number }
+            driverOt: { type: number }
+            custRt: { type: number }
+            custOt: { type: number }
         checks:
           type: array
           items: { $ref: "#/components/schemas/Check" }
