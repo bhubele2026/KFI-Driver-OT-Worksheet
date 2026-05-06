@@ -5,6 +5,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — API server (port wired by workflow). Routes mounted under `/api`.
+- `pnpm run test` — run cross-package tests (currently the parser drift suite in `artifacts/api-server/src/lib/parsers/__tests__/`).
 - `pnpm --filter @workspace/kfi-ot run dev` — frontend (Vite).
 - `pnpm run typecheck` — full typecheck across all packages.
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate hooks + Zod from `lib/api-spec/openapi.yaml`.
