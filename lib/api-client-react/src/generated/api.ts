@@ -62,6 +62,7 @@ import type {
   ResetPasswordBody,
   SetReviewed200,
   SetReviewedBody,
+  SuggestedIpBlock,
   UpdateCustomerNameAliasBody,
   UpdateCustomerNameAliasParams,
   UpdateUserBody,
@@ -1721,6 +1722,81 @@ export function useListRateLimitEventTimeseries<
     params,
     options,
   );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary IPs that have hit the lockout threshold repeatedly in the last 24h and are not yet blocklisted (admin)
+ */
+export const getListSuggestedIpBlocksUrl = () => {
+  return `/api/auth/suggested-ip-blocks`;
+};
+
+export const listSuggestedIpBlocks = async (
+  options?: RequestInit,
+): Promise<SuggestedIpBlock[]> => {
+  return customFetch<SuggestedIpBlock[]>(getListSuggestedIpBlocksUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListSuggestedIpBlocksQueryKey = () => {
+  return [`/api/auth/suggested-ip-blocks`] as const;
+};
+
+export const getListSuggestedIpBlocksQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSuggestedIpBlocks>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listSuggestedIpBlocks>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSuggestedIpBlocksQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listSuggestedIpBlocks>>
+  > = ({ signal }) => listSuggestedIpBlocks({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSuggestedIpBlocks>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListSuggestedIpBlocksQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listSuggestedIpBlocks>>
+>;
+export type ListSuggestedIpBlocksQueryError = ErrorType<void>;
+
+/**
+ * @summary IPs that have hit the lockout threshold repeatedly in the last 24h and are not yet blocklisted (admin)
+ */
+
+export function useListSuggestedIpBlocks<
+  TData = Awaited<ReturnType<typeof listSuggestedIpBlocks>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listSuggestedIpBlocks>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListSuggestedIpBlocksQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

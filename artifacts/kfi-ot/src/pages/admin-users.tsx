@@ -20,6 +20,7 @@ import {
   useListIpBlocklist,
   useAddIpBlocklist,
   useRemoveIpBlocklist,
+  useListSuggestedIpBlocks,
   getListUsersQueryKey,
   getListInvitesQueryKey,
   getGetMailerStatusQueryKey,
@@ -29,6 +30,7 @@ import {
   getListUserAuditLogQueryKey,
   getAuditConnecteamTimeClocksQueryKey,
   getListIpBlocklistQueryKey,
+  getListSuggestedIpBlocksQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -179,6 +181,44 @@ export default function AdminUsers() {
   const removeBlocklist = useRemoveIpBlocklist();
   const blocklistedEntries = (ipBlocklist ?? []).map((b) => b.ip);
 
+  const { data: suggestedBlocks } = useListSuggestedIpBlocks({
+    query: {
+      enabled: !!me?.isAdmin,
+      queryKey: getListSuggestedIpBlocksQueryKey(),
+      refetchInterval: 60_000,
+    },
+  });
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<
+    Record<string, string>
+  >(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem(
+        "kfi.dismissedIpSuggestions",
+      );
+      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const persistDismissed = (next: Record<string, string>) => {
+    setDismissedSuggestions(next);
+    try {
+      window.localStorage.setItem(
+        "kfi.dismissedIpSuggestions",
+        JSON.stringify(next),
+      );
+    } catch {
+      // Storage may be unavailable (private mode); the in-memory state is
+      // still authoritative for this tab.
+    }
+  };
+  const refetchSuggestions = () =>
+    qc.invalidateQueries({ queryKey: getListSuggestedIpBlocksQueryKey() });
+  const visibleSuggestions = (suggestedBlocks ?? []).filter(
+    (s) => dismissedSuggestions[s.ip] !== s.lastBlockedAt,
+  );
+
   const createInvite = useCreateInvite();
   const revokeInvite = useRevokeInvite();
   const resendInvite = useResendInvite();
@@ -282,6 +322,7 @@ export default function AdminUsers() {
       {
         onSuccess: () => {
           refetchBlocklist();
+          refetchSuggestions();
           toast({ title: "Blocked", description: trimmed });
         },
         onError: (err) =>
@@ -793,6 +834,76 @@ export default function AdminUsers() {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {visibleSuggestions.length > 0 && (
+              <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
+                <div className="flex items-start gap-2 mb-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <h4 className="font-display text-sm font-semibold text-amber-900 dark:text-amber-100">
+                      Suggested blocks
+                    </h4>
+                    <p className="text-xs text-amber-900/80 dark:text-amber-100/80">
+                      {visibleSuggestions.length === 1
+                        ? "1 IP has"
+                        : `${visibleSuggestions.length} IPs have`}{" "}
+                      hit the lockout threshold 3+ times in the past 24 hours
+                      and aren't blocklisted yet.
+                    </p>
+                  </div>
+                </div>
+                <ul className="space-y-1.5">
+                  {visibleSuggestions.map((s) => (
+                    <li
+                      key={s.ip}
+                      className="flex items-center gap-2 flex-wrap text-xs"
+                    >
+                      <span className="font-mono font-semibold break-all">
+                        {s.ip}
+                      </span>
+                      <span className="font-mono text-amber-900/70 dark:text-amber-100/70">
+                        {s.lockoutCount} lockouts · last{" "}
+                        {format(new Date(s.lastBlockedAt), "MMM d, h:mm a")}
+                      </span>
+                      <span className="font-mono text-[10px] text-amber-900/60 dark:text-amber-100/60">
+                        {s.limiters.join(", ")}
+                      </span>
+                      <span className="ml-auto flex gap-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            handleBlockIp(
+                              s.ip,
+                              `Auto-suggested: ${s.lockoutCount} lockouts in 24h (${s.limiters.join(", ")})`,
+                            )
+                          }
+                          disabled={addBlocklist.isPending}
+                          title="Add this IP to the blocklist"
+                        >
+                          <ShieldX className="h-3 w-3 mr-1" />
+                          Block
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            persistDismissed({
+                              ...dismissedSuggestions,
+                              [s.ip]: s.lastBlockedAt,
+                            })
+                          }
+                          title="Hide this suggestion until the IP triggers another lockout"
+                        >
+                          Dismiss
+                        </Button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <p className="text-xs text-muted-foreground mb-3">
               Active rate-limit buckets (failed sign-ins, password-reset abuse,
               token guessing). Rows in red are currently blocked. Use the unlock

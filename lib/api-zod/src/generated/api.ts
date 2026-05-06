@@ -352,6 +352,28 @@ export const ListRateLimitEventTimeseriesResponse = zod.array(
 );
 
 /**
+ * @summary IPs that have hit the lockout threshold repeatedly in the last 24h and are not yet blocklisted (admin)
+ */
+export const ListSuggestedIpBlocksResponseItem = zod.object({
+  ip: zod.string(),
+  lockoutCount: zod
+    .number()
+    .describe(
+      "Number of distinct lockout events from this IP across all limiters in the window.",
+    ),
+  firstBlockedAt: zod.coerce.date(),
+  lastBlockedAt: zod.coerce.date(),
+  limiters: zod
+    .array(zod.string())
+    .describe(
+      "Distinct limiter names this IP has tripped (e.g. login:ip, auth:request-reset).",
+    ),
+});
+export const ListSuggestedIpBlocksResponse = zod.array(
+  ListSuggestedIpBlocksResponseItem,
+);
+
+/**
  * @summary Clear a specific rate-limit bucket (admin), e.g. unlock an account or IP
  */
 export const ClearRateLimitBucketParams = zod.object({

@@ -150,6 +150,16 @@ export interface RateLimitLockout {
   lastBlockedAt: string;
 }
 
+export interface SuggestedIpBlock {
+  ip: string;
+  /** Number of distinct lockout events from this IP across all limiters in the window. */
+  lockoutCount: number;
+  firstBlockedAt: string;
+  lastBlockedAt: string;
+  /** Distinct limiter names this IP has tripped (e.g. login:ip, auth:request-reset). */
+  limiters: string[];
+}
+
 export interface IpBlocklistEntry {
   ip: string;
   /** @nullable */

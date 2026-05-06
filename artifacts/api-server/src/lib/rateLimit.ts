@@ -393,6 +393,70 @@ function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+export interface SuggestedIpBlock {
+  ip: string;
+  lockoutCount: number;
+  firstBlockedAt: number;
+  lastBlockedAt: number;
+  limiters: string[];
+}
+
+/**
+ * Aggregate IP-keyed lockouts in a recent window into "suggested blocks".
+ * Returns IPs that have hit at least `minLockouts` lockouts (across any
+ * limiters) since `sinceMs` ago and are NOT already on the blocklist. Used
+ * by the admin Security activity panel to surface repeat offenders without
+ * making the admin eyeball the table.
+ */
+export async function listSuggestedIpBlocks(
+  pool: Pool,
+  opts: {
+    sinceMs?: number;
+    minLockouts?: number;
+    excludeIps?: Iterable<string>;
+    limit?: number;
+  } = {},
+): Promise<SuggestedIpBlock[]> {
+  const sinceMs = opts.sinceMs ?? 24 * 60 * 60 * 1000;
+  const minLockouts = Math.max(1, opts.minLockouts ?? 3);
+  const limit = Math.max(1, Math.min(100, opts.limit ?? 25));
+  const since = new Date(Date.now() - sinceMs);
+  // Exclude blocklisted IPs in SQL (before LIMIT) so the response always
+  // contains the top eligible non-blocklisted offenders even when the busiest
+  // IPs in the window are already blocked.
+  const excludedArr = Array.from(new Set(opts.excludeIps ?? []));
+  const r = await pool.query<{
+    ip: string;
+    lockout_count: string;
+    first_blocked_at: Date;
+    last_blocked_at: Date;
+    limiters: string[];
+  }>(
+    `SELECT
+       substr(key, 4) AS ip,
+       COUNT(*)::text AS lockout_count,
+       MIN(blocked_at) AS first_blocked_at,
+       MAX(blocked_at) AS last_blocked_at,
+       ARRAY_AGG(DISTINCT name ORDER BY name) AS limiters
+     FROM rate_limit_events
+     WHERE blocked_at >= $1
+       AND key LIKE 'ip:%'
+       AND NOT (substr(key, 4) = ANY($4::text[]))
+     GROUP BY substr(key, 4)
+     HAVING COUNT(*) >= $2
+     ORDER BY MAX(blocked_at) DESC
+     LIMIT $3`,
+    [since, minLockouts, limit, excludedArr],
+  );
+  return r.rows.map((row) => ({
+    ip: row.ip,
+    lockoutCount: Number(row.lockout_count),
+    firstBlockedAt: row.first_blocked_at.getTime(),
+    lastBlockedAt: row.last_blocked_at.getTime(),
+    limiters: row.limiters,
+  }));
+}
+
 function clientIp(req: Request): string {
   return (req.ip ?? req.socket.remoteAddress ?? "unknown").toString();
 }

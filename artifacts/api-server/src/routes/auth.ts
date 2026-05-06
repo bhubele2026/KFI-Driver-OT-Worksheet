@@ -26,6 +26,7 @@ import {
   listActiveBuckets,
   listRecentLockouts,
   listLockoutTimeseries,
+  listSuggestedIpBlocks,
   recordLoginFailure,
   recordLoginSuccess,
 } from "../lib/rateLimit.js";
@@ -742,6 +743,26 @@ authRouter.get(
         : 7;
     const series = await listLockoutTimeseries(pool, { days });
     res.json(series);
+  },
+);
+
+authRouter.get(
+  "/auth/suggested-ip-blocks",
+  requireAdmin,
+  async (_req, res) => {
+    const blocked = await listBlocklist();
+    const suggestions = await listSuggestedIpBlocks(pool, {
+      sinceMs: 24 * 60 * 60 * 1000,
+      minLockouts: 3,
+      excludeIps: blocked.map((b) => b.ip),
+    });
+    res.json(
+      suggestions.map((s) => ({
+        ...s,
+        firstBlockedAt: new Date(s.firstBlockedAt).toISOString(),
+        lastBlockedAt: new Date(s.lastBlockedAt).toISOString(),
+      })),
+    );
   },
 );
 

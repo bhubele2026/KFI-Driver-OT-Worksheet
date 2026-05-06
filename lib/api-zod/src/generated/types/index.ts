@@ -65,6 +65,7 @@ export * from "./requestPasswordResetBody";
 export * from "./resetPasswordBody";
 export * from "./setReviewed200";
 export * from "./setReviewedBody";
+export * from "./suggestedIpBlock";
 export * from "./updateCustomerNameAliasBody";
 export * from "./updateCustomerNameAliasParams";
 export * from "./updateUserBody";

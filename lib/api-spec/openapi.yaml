@@ -357,6 +357,21 @@ paths:
                 items: { $ref: "#/components/schemas/RateLimitLockoutTimeseriesPoint" }
         "403": { description: Admin only }
 
+  /auth/suggested-ip-blocks:
+    get:
+      operationId: listSuggestedIpBlocks
+      tags: [auth]
+      summary: IPs that have hit the lockout threshold repeatedly in the last 24h and are not yet blocklisted (admin)
+      responses:
+        "200":
+          description: Suggested IP blocks (most recently active first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SuggestedIpBlock" }
+        "403": { description: Admin only }
+
   /auth/rate-limit-buckets/{name}/{key}:
     delete:
       operationId: clearRateLimitBucket
@@ -1097,6 +1112,21 @@ components:
           description: Number of times this (limiter, key) pair was blocked in the window.
         firstBlockedAt: { type: string, format: date-time }
         lastBlockedAt: { type: string, format: date-time }
+
+    SuggestedIpBlock:
+      type: object
+      required: [ip, lockoutCount, firstBlockedAt, lastBlockedAt, limiters]
+      properties:
+        ip: { type: string }
+        lockoutCount:
+          type: integer
+          description: Number of distinct lockout events from this IP across all limiters in the window.
+        firstBlockedAt: { type: string, format: date-time }
+        lastBlockedAt: { type: string, format: date-time }
+        limiters:
+          type: array
+          items: { type: string }
+          description: Distinct limiter names this IP has tripped (e.g. login:ip, auth:request-reset).
 
     IpBlocklistEntry:
       type: object
