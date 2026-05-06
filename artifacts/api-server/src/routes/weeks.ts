@@ -2,6 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import {
+  ConfirmNewCustomerFileBody,
   CreateManualPunchBody,
   SetReviewedBody,
 } from "@workspace/api-zod";
@@ -17,7 +18,13 @@ import {
   computeDriverTotals,
   defaultDispTz,
 } from "../lib/hoursEngine.js";
-import { detectAndParseFile } from "../lib/parsers/index.js";
+import {
+  KNOWN_CUSTOMERS,
+  detectAndParseFile,
+} from "../lib/parsers/index.js";
+import { detectCustomerFromFileName } from "../lib/parsers/customers.js";
+import { aiExtractRows } from "../lib/parsers/aiExtract.js";
+import { topMatches } from "../lib/parsers/fuzzy.js";
 import { mondayOf, weekEndOf } from "../lib/time.js";
 
 const upload = multer({
@@ -43,6 +50,42 @@ async function ensureWeek(weekStart: string): Promise<{
     .values({ startDate: monday, endDate: end })
     .onConflictDoNothing();
   return { startDate: monday, endDate: end };
+}
+
+async function recordAttempt(
+  weekStart: string,
+  customer: string,
+  fileName: string,
+  error: string | null,
+  source: "parser" | "ai",
+): Promise<void> {
+  const now = new Date();
+  await db
+    .insert(schema.customerUploadAttemptsTable)
+    .values({
+      weekStart,
+      customer,
+      lastAttemptAt: now,
+      lastSuccessAt: error ? null : now,
+      lastFileName: fileName,
+      lastError: error,
+      lastSource: source,
+    })
+    .onConflictDoUpdate({
+      target: [
+        schema.customerUploadAttemptsTable.weekStart,
+        schema.customerUploadAttemptsTable.customer,
+      ],
+      set: {
+        lastAttemptAt: now,
+        lastSuccessAt: error
+          ? sql`${schema.customerUploadAttemptsTable.lastSuccessAt}`
+          : now,
+        lastFileName: fileName,
+        lastError: error,
+        lastSource: source,
+      },
+    });
 }
 
 weeksRouter.get("/weeks", async (_req, res) => {
@@ -362,19 +405,24 @@ weeksRouter.post(
     const { startDate } = await ensureWeek(weekStart);
     const drivers = await db.select().from(schema.driversTable);
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
+    const fileName = req.file.originalname;
     let result;
     try {
       result = await detectAndParseFile(
-        req.file.originalname,
+        fileName,
         req.file.buffer,
         kfiSet,
         startDate,
       );
     } catch (err) {
-      req.log.error({ err, fileName: req.file.originalname }, "Parse error");
-      res.status(400).json({
-        error: err instanceof Error ? err.message : "Could not parse file",
-      });
+      req.log.error({ err, fileName }, "Parse error");
+      const msg = err instanceof Error ? err.message : "Could not parse file";
+      // Best-effort: try to attribute to a known customer for status display.
+      const detected = detectCustomerFromFileName(fileName);
+      if (detected) {
+        await recordAttempt(startDate, detected, fileName, msg, "parser");
+      }
+      res.status(400).json({ error: msg });
       return;
     }
     if (!result) {
@@ -386,12 +434,12 @@ weeksRouter.post(
     }
     if (result.punches.length === 0) {
       req.log.warn(
-        { fileName: req.file.originalname, customer: result.customer },
+        { fileName, customer: result.customer },
         "Customer file parsed to zero punches",
       );
-      res.status(400).json({
-        error: `Detected customer "${result.customer}" but parsed 0 punches. The file format may have changed, or no rows match the loaded driver roster.`,
-      });
+      const msg = `Detected customer "${result.customer}" but parsed 0 punches. The file format may have changed, or no rows match the loaded driver roster.`;
+      await recordAttempt(startDate, result.customer, fileName, msg, "parser");
+      res.status(400).json({ error: msg });
       return;
     }
     // Transactional swap: delete the existing customer-source rows for this
@@ -429,13 +477,261 @@ weeksRouter.post(
         );
       }
     });
+    await recordAttempt(startDate, result.customer, fileName, null, "parser");
     res.json({
       customer: result.customer,
-      fileName: req.file.originalname,
+      fileName,
       punchesUpserted: result.punches.length,
     });
   },
 );
+
+weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
+  const weekStart = req.params.weekStart;
+  if (!isWeek(weekStart)) {
+    res.status(400).json({ error: "Invalid week" });
+    return;
+  }
+  const rows = await db
+    .select({
+      customer: schema.punchesTable.customer,
+      punchCount: sql<number>`count(*)::int`,
+      lastUploadAt: sql<Date | null>`max(${schema.punchesTable.createdAt})`,
+      lastFileName: sql<string | null>`(
+        array_agg(${schema.punchesTable.fileOrigin} order by ${schema.punchesTable.createdAt} desc)
+        filter (where ${schema.punchesTable.fileOrigin} is not null)
+      )[1]`,
+    })
+    .from(schema.punchesTable)
+    .where(
+      and(
+        eq(schema.punchesTable.weekStart, weekStart),
+        eq(schema.punchesTable.source, "Customer"),
+        eq(schema.punchesTable.isManual, false),
+      ),
+    )
+    .groupBy(schema.punchesTable.customer);
+  const attempts = await db
+    .select()
+    .from(schema.customerUploadAttemptsTable)
+    .where(eq(schema.customerUploadAttemptsTable.weekStart, weekStart));
+  const byName = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) {
+    if (r.customer) byName.set(r.customer, r);
+  }
+  const attemptByName = new Map(attempts.map((a) => [a.customer, a]));
+  const out = KNOWN_CUSTOMERS.map((c) => {
+    const r = byName.get(c.displayName);
+    const a = attemptByName.get(c.displayName);
+    return {
+      customer: c.displayName,
+      extensions: [...c.extensions],
+      punchCount: r?.punchCount ?? 0,
+      lastUploadAt: r?.lastUploadAt
+        ? new Date(r.lastUploadAt).toISOString()
+        : null,
+      lastFileName: r?.lastFileName ?? a?.lastFileName ?? null,
+      lastAttemptAt: a?.lastAttemptAt
+        ? new Date(a.lastAttemptAt).toISOString()
+        : null,
+      lastSuccessAt: a?.lastSuccessAt
+        ? new Date(a.lastSuccessAt).toISOString()
+        : null,
+      lastError: a?.lastError ?? null,
+      lastSource: a?.lastSource ?? null,
+    };
+  });
+  res.json(out);
+});
+
+weeksRouter.post(
+  "/weeks/:weekStart/extract-new-customer",
+  upload.single("file"),
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    if (!req.file) {
+      res.status(400).json({ error: "No file uploaded" });
+      return;
+    }
+    const customer = String(req.body?.customer ?? "").trim();
+    if (!customer) {
+      res.status(400).json({ error: "Customer name is required" });
+      return;
+    }
+    const lower = req.file.originalname.toLowerCase();
+    if (!lower.endsWith(".pdf") && !lower.endsWith(".xlsx") && !lower.endsWith(".xls")) {
+      res.status(400).json({ error: "Only .pdf and .xlsx files are supported" });
+      return;
+    }
+    const { startDate, endDate } = await ensureWeek(weekStart);
+    let rows;
+    try {
+      rows = await aiExtractRows(
+        req.file.originalname,
+        req.file.buffer,
+        customer,
+        startDate,
+        endDate,
+      );
+    } catch (err) {
+      req.log.error({ err, fileName: req.file.originalname }, "AI extract error");
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "Could not extract rows",
+      });
+      return;
+    }
+    // Filter to the requested week window — the model is told but doesn't
+    // always obey, so we hard-clamp here.
+    rows = rows.filter((r) => r.date >= startDate && r.date <= endDate);
+    if (rows.length === 0) {
+      res.status(400).json({
+        error: `Could not find any punch rows in this file for the week of ${startDate}.`,
+      });
+      return;
+    }
+    const drivers = await db
+      .select({
+        kfiId: schema.driversTable.kfiId,
+        name: schema.driversTable.name,
+        customer: schema.driversTable.customer,
+      })
+      .from(schema.driversTable)
+      .where(eq(schema.driversTable.isArchived, false));
+    const seen = new Map<string, string | null>();
+    for (const r of rows) {
+      const key = r.driverNameOnDoc.trim();
+      if (!seen.has(key)) seen.set(key, r.badgeOrId ?? null);
+    }
+    const suggestions = [...seen.entries()].map(([driverNameOnDoc, badgeOrId]) => ({
+      driverNameOnDoc,
+      badgeOrId,
+      matches: topMatches(driverNameOnDoc, drivers, 5),
+    }));
+    res.json({
+      customer,
+      weekStart: startDate,
+      rows,
+      suggestions,
+    });
+  },
+);
+
+weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
+  const weekStart = req.params.weekStart;
+  if (!isWeek(weekStart)) {
+    res.status(400).json({ error: "Invalid week" });
+    return;
+  }
+  const parsed = ConfirmNewCustomerFileBody.safeParse(req.body);
+  if (!parsed.success) {
+    res
+      .status(400)
+      .json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+  const { startDate, endDate } = await ensureWeek(weekStart);
+  const customer = parsed.data.customer.trim();
+  if (!customer) {
+    res.status(400).json({ error: "Customer name is required" });
+    return;
+  }
+
+  const unmappedNames = new Set<string>();
+  const toInsert: Array<{
+    kfiId: string;
+    date: string;
+    clockIn: string;
+    clockOut: string;
+    hours: number;
+    dispTz: string;
+  }> = [];
+  let skipped = 0;
+  for (const r of parsed.data.rows) {
+    if (r.date < startDate || r.date > endDate) {
+      skipped++;
+      continue;
+    }
+    const kfiId = parsed.data.mapping[r.driverNameOnDoc] ?? null;
+    if (!kfiId) {
+      unmappedNames.add(r.driverNameOnDoc);
+      skipped++;
+      continue;
+    }
+    let hours = r.hours ?? 0;
+    if (!hours) {
+      const ms =
+        new Date(`${r.date} ${r.clockOut}`).getTime() -
+        new Date(`${r.date} ${r.clockIn}`).getTime();
+      if (!isNaN(ms) && ms > 0) hours = Math.round((ms / 3_600_000) * 1000) / 1000;
+    }
+    if (!(hours > 0)) {
+      skipped++;
+      continue;
+    }
+    toInsert.push({
+      kfiId,
+      date: r.date,
+      clockIn: `${r.date} ${r.clockIn}`,
+      clockOut: `${r.date} ${r.clockOut}`,
+      hours: Math.round(hours * 1000) / 1000,
+      dispTz: defaultDispTz(kfiId),
+    });
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.punchesTable)
+      .where(
+        and(
+          eq(schema.punchesTable.weekStart, startDate),
+          eq(schema.punchesTable.source, "Customer"),
+          eq(schema.punchesTable.customer, customer),
+          eq(schema.punchesTable.isManual, false),
+          ne(schema.punchesTable.edited, true),
+        ),
+      );
+    if (toInsert.length > 0) {
+      await tx.insert(schema.punchesTable).values(
+        toInsert.map((p) => ({
+          weekStart: startDate,
+          kfiId: p.kfiId,
+          customer,
+          source: "Customer",
+          date: p.date,
+          clockIn: p.clockIn,
+          clockOut: p.clockOut,
+          hours: String(p.hours),
+          payType: "Reg",
+          dispTz: p.dispTz,
+          isManual: false,
+          fileOrigin: `ai:${customer}`,
+          createdBy: req.session.userId ?? null,
+        })),
+      );
+    }
+  });
+
+  await recordAttempt(
+    startDate,
+    customer,
+    `ai:${customer}`,
+    toInsert.length === 0
+      ? `AI extract confirmed but 0 rows imported (${skipped} skipped — ${[...unmappedNames].join(", ") || "incomplete rows"})`
+      : null,
+    "ai",
+  );
+
+  res.json({
+    customer,
+    imported: toInsert.length,
+    skippedUnmapped: skipped,
+    unmappedNames: [...unmappedNames],
+  });
+});
 
 weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
   const weekStart = req.params.weekStart;

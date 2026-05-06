@@ -1,24 +1,8 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import { EMBEDDED_MAPPING } from "../mappings.js";
 import { logger } from "../logger.js";
+import { getGeminiClient } from "./gemini.js";
 import type { ParsedPunch } from "./types.js";
-
-let _ai: GoogleGenAI | null = null;
-function getClient(): GoogleGenAI {
-  if (_ai) return _ai;
-  const apiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
-  const baseUrl = process.env.AI_INTEGRATIONS_GEMINI_BASE_URL;
-  if (!apiKey || !baseUrl) {
-    throw new Error(
-      "OCR fallback unavailable: AI_INTEGRATIONS_GEMINI_API_KEY / AI_INTEGRATIONS_GEMINI_BASE_URL not configured.",
-    );
-  }
-  _ai = new GoogleGenAI({
-    apiKey,
-    httpOptions: { apiVersion: "", baseUrl },
-  });
-  return _ai;
-}
 
 interface OcrPunchRow {
   badge: string;
@@ -78,7 +62,7 @@ export async function ocrDelalloPDF(
   kfiSet: Set<string>,
   year: number,
 ): Promise<ParsedPunch[]> {
-  const ai = getClient();
+  const ai = getGeminiClient();
   const start = Date.now();
 
   const response = await ai.models.generateContent({

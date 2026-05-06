@@ -417,6 +417,135 @@ export const UploadCustomerFileResponse = zod.object({
 });
 
 /**
+ * @summary Per-customer upload status for a week
+ */
+export const getCustomerUploadStatusPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const GetCustomerUploadStatusParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(getCustomerUploadStatusPathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+});
+
+export const GetCustomerUploadStatusResponseItem = zod.object({
+  customer: zod.string(),
+  extensions: zod.array(zod.string()),
+  punchCount: zod.number(),
+  lastUploadAt: zod.coerce.date().nullish(),
+  lastFileName: zod.string().nullish(),
+  lastAttemptAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "Timestamp of the most recent upload attempt (success or failure).",
+    ),
+  lastSuccessAt: zod.coerce
+    .date()
+    .nullish()
+    .describe("Timestamp of the most recent successful upload, if any."),
+  lastError: zod
+    .string()
+    .nullish()
+    .describe(
+      "Error message from the last upload attempt, or null if the last attempt succeeded.",
+    ),
+  lastSource: zod
+    .string()
+    .nullish()
+    .describe(
+      'Where the last attempt came from — \"parser\" (known-customer route) or \"ai\" (new-customer flow).',
+    ),
+});
+export const GetCustomerUploadStatusResponse = zod.array(
+  GetCustomerUploadStatusResponseItem,
+);
+
+/**
+ * @summary AI-extract punch rows from an unknown customer file (preview only — nothing persisted). Body is `multipart/form-data` with fields `file` and `customer`; the frontend builds the FormData manually.
+ */
+export const extractNewCustomerFilePathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const ExtractNewCustomerFileParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(extractNewCustomerFilePathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+});
+
+export const ExtractNewCustomerFileResponse = zod.object({
+  customer: zod.string(),
+  weekStart: zod.string(),
+  rows: zod.array(
+    zod.object({
+      driverNameOnDoc: zod.string(),
+      badgeOrId: zod.string().nullish(),
+      date: zod.string(),
+      timeIn: zod.string().nullish(),
+      timeOut: zod.string().nullish(),
+      hours: zod.number().nullish(),
+    }),
+  ),
+  suggestions: zod.array(
+    zod.object({
+      driverNameOnDoc: zod.string(),
+      badgeOrId: zod.string().nullish(),
+      matches: zod.array(
+        zod.object({
+          kfiId: zod.string(),
+          name: zod.string(),
+          customer: zod.string(),
+          confidence: zod.number(),
+        }),
+      ),
+    }),
+  ),
+});
+
+/**
+ * @summary Persist the dispatcher-confirmed rows + driver mapping for a new customer
+ */
+export const confirmNewCustomerFilePathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const ConfirmNewCustomerFileParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(confirmNewCustomerFilePathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+});
+
+export const confirmNewCustomerFileBodyRowsItemDateRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const ConfirmNewCustomerFileBody = zod.object({
+  customer: zod.string().min(1),
+  mapping: zod.record(zod.string(), zod.string().nullable()),
+  rows: zod.array(
+    zod.object({
+      driverNameOnDoc: zod.string(),
+      date: zod.string().regex(confirmNewCustomerFileBodyRowsItemDateRegExp),
+      clockIn: zod.string(),
+      clockOut: zod.string(),
+      hours: zod.number().nullish(),
+    }),
+  ),
+});
+
+export const ConfirmNewCustomerFileResponse = zod.object({
+  customer: zod.string(),
+  imported: zod.number(),
+  skippedUnmapped: zod.number(),
+  unmappedNames: zod.array(zod.string()),
+});
+
+/**
  * @summary Add a manual driver or customer punch
  */
 export const createManualPunchPathWeekStartRegExp = new RegExp(

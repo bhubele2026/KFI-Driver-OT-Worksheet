@@ -261,6 +261,96 @@ export interface UploadResult {
   punchesUpserted: number;
 }
 
+export interface CustomerUploadStatus {
+  customer: string;
+  extensions: string[];
+  punchCount: number;
+  /** @nullable */
+  lastUploadAt?: string | null;
+  /** @nullable */
+  lastFileName?: string | null;
+  /**
+   * Timestamp of the most recent upload attempt (success or failure).
+   * @nullable
+   */
+  lastAttemptAt?: string | null;
+  /**
+   * Timestamp of the most recent successful upload, if any.
+   * @nullable
+   */
+  lastSuccessAt?: string | null;
+  /**
+   * Error message from the last upload attempt, or null if the last attempt succeeded.
+   * @nullable
+   */
+  lastError?: string | null;
+  /**
+   * Where the last attempt came from — "parser" (known-customer route) or "ai" (new-customer flow).
+   * @nullable
+   */
+  lastSource?: string | null;
+}
+
+export interface AiExtractedRow {
+  driverNameOnDoc: string;
+  /** @nullable */
+  badgeOrId?: string | null;
+  date: string;
+  /** @nullable */
+  timeIn?: string | null;
+  /** @nullable */
+  timeOut?: string | null;
+  /** @nullable */
+  hours?: number | null;
+}
+
+export interface DriverMatch {
+  kfiId: string;
+  name: string;
+  customer: string;
+  confidence: number;
+}
+
+export interface DriverNameSuggestion {
+  driverNameOnDoc: string;
+  /** @nullable */
+  badgeOrId?: string | null;
+  matches: DriverMatch[];
+}
+
+export interface AiExtractPreview {
+  customer: string;
+  weekStart: string;
+  rows: AiExtractedRow[];
+  suggestions: DriverNameSuggestion[];
+}
+
+export interface ConfirmNewCustomerRow {
+  driverNameOnDoc: string;
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
+  date: string;
+  clockIn: string;
+  clockOut: string;
+  /** @nullable */
+  hours?: number | null;
+}
+
+export type ConfirmNewCustomerInputMapping = { [key: string]: string | null };
+
+export interface ConfirmNewCustomerInput {
+  /** @minLength 1 */
+  customer: string;
+  mapping: ConfirmNewCustomerInputMapping;
+  rows: ConfirmNewCustomerRow[];
+}
+
+export interface ConfirmNewCustomerResult {
+  customer: string;
+  imported: number;
+  skippedUnmapped: number;
+  unmappedNames: string[];
+}
+
 export type SetReviewedBody = {
   reviewed: boolean;
 };

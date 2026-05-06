@@ -7,12 +7,21 @@
  */
 
 export * from "./acceptInviteBody";
+export * from "./aiExtractedRow";
+export * from "./aiExtractPreview";
 export * from "./authCredentials";
 export * from "./check";
 export * from "./checkLevel";
+export * from "./confirmNewCustomerInput";
+export * from "./confirmNewCustomerInputMapping";
+export * from "./confirmNewCustomerResult";
+export * from "./confirmNewCustomerRow";
 export * from "./createInviteBody";
+export * from "./customerUploadStatus";
 export * from "./dailyTotals";
 export * from "./driverInfo";
+export * from "./driverMatch";
+export * from "./driverNameSuggestion";
 export * from "./driverSummaryRow";
 export * from "./driverWeek";
 export * from "./driverWeekTotals";

@@ -1,14 +1,16 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useLocation, Link, useParams } from "wouter";
 import {
   useGetWeekSummary,
   useListWeeks,
   useRefreshConnecteam,
   getGetWeekSummaryQueryKey,
+  getGetCustomerUploadStatusQueryKey,
   useLogout,
   getGetMeQueryKey,
   useSetReviewed,
 } from "@workspace/api-client-react";
+import { CustomerUploadPanel } from "@/components/customer-upload-panel";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -85,44 +87,10 @@ export default function WeekSummary() {
   const refreshCt = useRefreshConnecteam();
   const setReviewed = useSetReviewed();
 
-  const [uploading, setUploading] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const goWeek = (delta: number) => {
     const base = parseISO(weekStart);
     const target = addWeeks(base, delta);
     setLocation(`/weeks/${format(target, "yyyy-MM-dd")}`);
-  };
-
-  const uploadFile = async (file: File) => {
-    setUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-    try {
-      const res = await fetch(
-        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/upload-customer-file`,
-        { method: "POST", credentials: "include", body: formData },
-      );
-      if (!res.ok) throw new Error((await res.text()) || "Upload failed");
-      const data = await res.json();
-      queryClient.invalidateQueries({
-        queryKey: getGetWeekSummaryQueryKey(weekStart),
-      });
-      toast({
-        title: "File Uploaded",
-        description: `Customer ${data.customer}: added ${data.punchesUpserted} punches.`,
-      });
-    } catch (err: unknown) {
-      toast({
-        title: "Upload Error",
-        description: errMessage(err, "Upload failed"),
-        variant: "destructive",
-      });
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
   };
 
   const handleRefresh = () => {
@@ -132,6 +100,9 @@ export default function WeekSummary() {
         onSuccess: (data) => {
           queryClient.invalidateQueries({
             queryKey: getGetWeekSummaryQueryKey(weekStart),
+          });
+          queryClient.invalidateQueries({
+            queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
           });
           toast({
             title: "Connecteam Refreshed",
@@ -147,18 +118,6 @@ export default function WeekSummary() {
         },
       },
     );
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) await uploadFile(file);
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) await uploadFile(file);
   };
 
   const toggleReviewed = (kfiId: string, currentVal: boolean) => {
@@ -346,24 +305,7 @@ export default function WeekSummary() {
           )}
         </aside>
 
-        <main
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
-          className={`flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden relative ${
-            isDragging
-              ? "outline outline-2 outline-dashed outline-primary bg-primary/5"
-              : ""
-          }`}
-        >
-          {isDragging && (
-            <div className="pointer-events-none absolute inset-6 flex items-center justify-center text-primary font-display text-lg bg-background/60 rounded-lg z-10">
-              Drop customer xlsx or pdf to upload for week of {weekStart}
-            </div>
-          )}
+        <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden relative">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-1">
               <h2 className="text-2xl font-bold font-display tracking-tight text-foreground">
@@ -384,28 +326,9 @@ export default function WeekSummary() {
             </div>
 
             <div className="flex items-center gap-3 flex-wrap">
-              <input
-                type="file"
-                ref={fileInputRef}
-                className="hidden"
-                accept=".pdf,.xlsx,.csv"
-                onChange={handleFileUpload}
-              />
               <Button variant="outline" onClick={openReport}>
                 <Printer className="mr-2 h-4 w-4" />
                 Download Report
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-              >
-                {uploading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <UploadCloud className="mr-2 h-4 w-4" />
-                )}
-                Upload Customer File
               </Button>
               <Button onClick={handleRefresh} disabled={refreshCt.isPending}>
                 {refreshCt.isPending ? (
@@ -509,6 +432,8 @@ export default function WeekSummary() {
                   </CardContent>
                 </Card>
               </div>
+
+              <CustomerUploadPanel weekStart={weekStart} />
 
               <div className="space-y-6">
                 {summary.customers.length === 0 ? (

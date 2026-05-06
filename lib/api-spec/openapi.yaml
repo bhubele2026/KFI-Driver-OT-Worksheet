@@ -369,6 +369,57 @@ paths:
               schema: { $ref: "#/components/schemas/UploadResult" }
         "400": { description: Could not detect or parse file }
 
+  /weeks/{weekStart}/customer-uploads:
+    get:
+      operationId: getCustomerUploadStatus
+      tags: [ingest]
+      summary: Per-customer upload status for a week
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+      responses:
+        "200":
+          description: Status list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CustomerUploadStatus" }
+
+  /weeks/{weekStart}/extract-new-customer:
+    post:
+      operationId: extractNewCustomerFile
+      tags: [ingest]
+      summary: AI-extract punch rows from an unknown customer file (preview only — nothing persisted). Body is `multipart/form-data` with fields `file` and `customer`; the frontend builds the FormData manually.
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+      responses:
+        "200":
+          description: Extracted preview
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiExtractPreview" }
+        "400": { description: Could not extract rows }
+
+  /weeks/{weekStart}/confirm-new-customer:
+    post:
+      operationId: confirmNewCustomerFile
+      tags: [ingest]
+      summary: Persist the dispatcher-confirmed rows + driver mapping for a new customer
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConfirmNewCustomerInput" }
+      responses:
+        "200":
+          description: Import summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfirmNewCustomerResult" }
+        "400": { description: Invalid input }
+
   /weeks/{weekStart}/manual-punches:
     post:
       operationId: createManualPunch
@@ -832,3 +883,115 @@ components:
         customer: { type: string }
         fileName: { type: string }
         punchesUpserted: { type: integer }
+
+    CustomerUploadStatus:
+      type: object
+      required: [customer, extensions, punchCount]
+      properties:
+        customer: { type: string }
+        extensions:
+          type: array
+          items: { type: string }
+        punchCount: { type: integer }
+        lastUploadAt:
+          type: ["string", "null"]
+          format: date-time
+        lastFileName:
+          type: ["string", "null"]
+        lastAttemptAt:
+          type: ["string", "null"]
+          format: date-time
+          description: Timestamp of the most recent upload attempt (success or failure).
+        lastSuccessAt:
+          type: ["string", "null"]
+          format: date-time
+          description: Timestamp of the most recent successful upload, if any.
+        lastError:
+          type: ["string", "null"]
+          description: Error message from the last upload attempt, or null if the last attempt succeeded.
+        lastSource:
+          type: ["string", "null"]
+          description: Where the last attempt came from — "parser" (known-customer route) or "ai" (new-customer flow).
+
+    AiExtractedRow:
+      type: object
+      required: [driverNameOnDoc, date]
+      properties:
+        driverNameOnDoc: { type: string }
+        badgeOrId:
+          type: ["string", "null"]
+        date: { type: string }
+        timeIn:
+          type: ["string", "null"]
+        timeOut:
+          type: ["string", "null"]
+        hours:
+          type: ["number", "null"]
+
+    DriverMatch:
+      type: object
+      required: [kfiId, name, customer, confidence]
+      properties:
+        kfiId: { type: string }
+        name: { type: string }
+        customer: { type: string }
+        confidence: { type: number }
+
+    DriverNameSuggestion:
+      type: object
+      required: [driverNameOnDoc, matches]
+      properties:
+        driverNameOnDoc: { type: string }
+        badgeOrId:
+          type: ["string", "null"]
+        matches:
+          type: array
+          items: { $ref: "#/components/schemas/DriverMatch" }
+
+    AiExtractPreview:
+      type: object
+      required: [customer, weekStart, rows, suggestions]
+      properties:
+        customer: { type: string }
+        weekStart: { type: string }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/AiExtractedRow" }
+        suggestions:
+          type: array
+          items: { $ref: "#/components/schemas/DriverNameSuggestion" }
+
+    ConfirmNewCustomerRow:
+      type: object
+      required: [driverNameOnDoc, date, clockIn, clockOut]
+      properties:
+        driverNameOnDoc: { type: string }
+        date: { type: string, pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
+        clockIn: { type: string }
+        clockOut: { type: string }
+        hours:
+          type: ["number", "null"]
+
+    ConfirmNewCustomerInput:
+      type: object
+      required: [customer, mapping, rows]
+      properties:
+        customer: { type: string, minLength: 1 }
+        mapping:
+          type: object
+          additionalProperties:
+            type: ["string", "null"]
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/ConfirmNewCustomerRow" }
+
+    ConfirmNewCustomerResult:
+      type: object
+      required: [customer, imported, skippedUnmapped, unmappedNames]
+      properties:
+        customer: { type: string }
+        imported: { type: integer }
+        skippedUnmapped: { type: integer }
+        unmappedNames:
+          type: array
+          items: { type: string }

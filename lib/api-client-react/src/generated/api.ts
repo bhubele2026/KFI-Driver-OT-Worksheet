@@ -18,8 +18,12 @@ import type {
 
 import type {
   AcceptInviteBody,
+  AiExtractPreview,
   AuthCredentials,
+  ConfirmNewCustomerInput,
+  ConfirmNewCustomerResult,
   CreateInviteBody,
+  CustomerUploadStatus,
   DriverWeek,
   EditPunchInput,
   HealthStatus,
@@ -1838,6 +1842,279 @@ export const useUploadCustomerFile = <
   TContext
 > => {
   return useMutation(getUploadCustomerFileMutationOptions(options));
+};
+
+/**
+ * @summary Per-customer upload status for a week
+ */
+export const getGetCustomerUploadStatusUrl = (weekStart: string) => {
+  return `/api/weeks/${weekStart}/customer-uploads`;
+};
+
+export const getCustomerUploadStatus = async (
+  weekStart: string,
+  options?: RequestInit,
+): Promise<CustomerUploadStatus[]> => {
+  return customFetch<CustomerUploadStatus[]>(
+    getGetCustomerUploadStatusUrl(weekStart),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetCustomerUploadStatusQueryKey = (weekStart: string) => {
+  return [`/api/weeks/${weekStart}/customer-uploads`] as const;
+};
+
+export const getGetCustomerUploadStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCustomerUploadStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  weekStart: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCustomerUploadStatus>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetCustomerUploadStatusQueryKey(weekStart);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCustomerUploadStatus>>
+  > = ({ signal }) =>
+    getCustomerUploadStatus(weekStart, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!weekStart,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCustomerUploadStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCustomerUploadStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCustomerUploadStatus>>
+>;
+export type GetCustomerUploadStatusQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Per-customer upload status for a week
+ */
+
+export function useGetCustomerUploadStatus<
+  TData = Awaited<ReturnType<typeof getCustomerUploadStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  weekStart: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCustomerUploadStatus>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCustomerUploadStatusQueryOptions(
+    weekStart,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary AI-extract punch rows from an unknown customer file (preview only — nothing persisted). Body is `multipart/form-data` with fields `file` and `customer`; the frontend builds the FormData manually.
+ */
+export const getExtractNewCustomerFileUrl = (weekStart: string) => {
+  return `/api/weeks/${weekStart}/extract-new-customer`;
+};
+
+export const extractNewCustomerFile = async (
+  weekStart: string,
+  options?: RequestInit,
+): Promise<AiExtractPreview> => {
+  return customFetch<AiExtractPreview>(
+    getExtractNewCustomerFileUrl(weekStart),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getExtractNewCustomerFileMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof extractNewCustomerFile>>,
+    TError,
+    { weekStart: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof extractNewCustomerFile>>,
+  TError,
+  { weekStart: string },
+  TContext
+> => {
+  const mutationKey = ["extractNewCustomerFile"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof extractNewCustomerFile>>,
+    { weekStart: string }
+  > = (props) => {
+    const { weekStart } = props ?? {};
+
+    return extractNewCustomerFile(weekStart, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ExtractNewCustomerFileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof extractNewCustomerFile>>
+>;
+
+export type ExtractNewCustomerFileMutationError = ErrorType<void>;
+
+/**
+ * @summary AI-extract punch rows from an unknown customer file (preview only — nothing persisted). Body is `multipart/form-data` with fields `file` and `customer`; the frontend builds the FormData manually.
+ */
+export const useExtractNewCustomerFile = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof extractNewCustomerFile>>,
+    TError,
+    { weekStart: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof extractNewCustomerFile>>,
+  TError,
+  { weekStart: string },
+  TContext
+> => {
+  return useMutation(getExtractNewCustomerFileMutationOptions(options));
+};
+
+/**
+ * @summary Persist the dispatcher-confirmed rows + driver mapping for a new customer
+ */
+export const getConfirmNewCustomerFileUrl = (weekStart: string) => {
+  return `/api/weeks/${weekStart}/confirm-new-customer`;
+};
+
+export const confirmNewCustomerFile = async (
+  weekStart: string,
+  confirmNewCustomerInput: ConfirmNewCustomerInput,
+  options?: RequestInit,
+): Promise<ConfirmNewCustomerResult> => {
+  return customFetch<ConfirmNewCustomerResult>(
+    getConfirmNewCustomerFileUrl(weekStart),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(confirmNewCustomerInput),
+    },
+  );
+};
+
+export const getConfirmNewCustomerFileMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmNewCustomerFile>>,
+    TError,
+    { weekStart: string; data: BodyType<ConfirmNewCustomerInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof confirmNewCustomerFile>>,
+  TError,
+  { weekStart: string; data: BodyType<ConfirmNewCustomerInput> },
+  TContext
+> => {
+  const mutationKey = ["confirmNewCustomerFile"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof confirmNewCustomerFile>>,
+    { weekStart: string; data: BodyType<ConfirmNewCustomerInput> }
+  > = (props) => {
+    const { weekStart, data } = props ?? {};
+
+    return confirmNewCustomerFile(weekStart, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ConfirmNewCustomerFileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof confirmNewCustomerFile>>
+>;
+export type ConfirmNewCustomerFileMutationBody =
+  BodyType<ConfirmNewCustomerInput>;
+export type ConfirmNewCustomerFileMutationError = ErrorType<void>;
+
+/**
+ * @summary Persist the dispatcher-confirmed rows + driver mapping for a new customer
+ */
+export const useConfirmNewCustomerFile = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmNewCustomerFile>>,
+    TError,
+    { weekStart: string; data: BodyType<ConfirmNewCustomerInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof confirmNewCustomerFile>>,
+  TError,
+  { weekStart: string; data: BodyType<ConfirmNewCustomerInput> },
+  TContext
+> => {
+  return useMutation(getConfirmNewCustomerFileMutationOptions(options));
 };
 
 /**
