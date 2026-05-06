@@ -6,6 +6,7 @@ import {
   integer,
   timestamp,
   customType,
+  boolean,
   index,
 } from "drizzle-orm/pg-core";
 
@@ -24,6 +25,8 @@ const bytea = customType<{ data: Buffer; default: false }>({
 //     /confirm-new-customer
 //   - rows where confirmed_at is NULL are purged after 24h (the dispatcher
 //     bailed on the import); confirmed rows are purged after 90 days
+//   - rows with pinned=true are exempt from the TTL purge entirely (admin
+//     opt-in safety net for fixtures we don't want to lose)
 export const aiExtractSamplesTable = pgTable(
   "ai_extract_samples",
   {
@@ -40,6 +43,7 @@ export const aiExtractSamplesTable = pgTable(
       .defaultNow(),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    pinned: boolean("pinned").notNull().default(false),
   },
   (t) => [
     index("ai_extract_samples_customer_idx").on(t.customer),

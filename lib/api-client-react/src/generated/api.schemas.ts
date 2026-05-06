@@ -465,6 +465,7 @@ export interface AiExtractSample {
   /** @nullable */
   confirmedAt?: string | null;
   confirmed: boolean;
+  pinned: boolean;
   /** @nullable */
   uploadedByEmail?: string | null;
 }
@@ -480,6 +481,10 @@ export type ListUserAuditLogParams = {
 
 export type ListAiExtractSamplesParams = {
   customer?: string;
+};
+
+export type PinAiExtractSampleBody = {
+  pinned: boolean;
 };
 
 export type ForgetCustomerNameAliasParams = {

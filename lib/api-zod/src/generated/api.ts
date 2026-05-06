@@ -769,11 +769,38 @@ export const ListAiExtractSamplesResponseItem = zod.object({
   expiresAt: zod.coerce.date(),
   confirmedAt: zod.coerce.date().nullish(),
   confirmed: zod.boolean(),
+  pinned: zod.boolean(),
   uploadedByEmail: zod.string().nullish(),
 });
 export const ListAiExtractSamplesResponse = zod.array(
   ListAiExtractSamplesResponseItem,
 );
+
+/**
+ * @summary Pin or unpin an AI extract sample so the TTL cleanup skips it (admin)
+ */
+export const PinAiExtractSampleParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const PinAiExtractSampleBody = zod.object({
+  pinned: zod.boolean(),
+});
+
+export const PinAiExtractSampleResponse = zod.object({
+  id: zod.number(),
+  weekStart: zod.string(),
+  customer: zod.string(),
+  fileName: zod.string(),
+  mimeType: zod.string(),
+  sizeBytes: zod.number(),
+  uploadedAt: zod.coerce.date(),
+  expiresAt: zod.coerce.date(),
+  confirmedAt: zod.coerce.date().nullish(),
+  confirmed: zod.boolean(),
+  pinned: zod.boolean(),
+  uploadedByEmail: zod.string().nullish(),
+});
 
 /**
  * @summary Download the original stashed file for an AI extract sample (admin)

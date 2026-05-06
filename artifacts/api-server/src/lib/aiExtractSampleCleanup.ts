@@ -7,7 +7,9 @@ const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 export async function purgeExpiredAiExtractSamples(): Promise<number> {
   const result = await db
     .delete(schema.aiExtractSamplesTable)
-    .where(sql`${schema.aiExtractSamplesTable.expiresAt} <= now()`)
+    .where(
+      sql`${schema.aiExtractSamplesTable.expiresAt} <= now() AND ${schema.aiExtractSamplesTable.pinned} = false`,
+    )
     .returning({ id: schema.aiExtractSamplesTable.id });
   return result.length;
 }

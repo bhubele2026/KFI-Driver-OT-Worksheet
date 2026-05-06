@@ -42,6 +42,7 @@ export * from "./manualPunchInput";
 export * from "./manualPunchInputSource";
 export * from "./passwordResetLink";
 export * from "./passwordResetRequestResult";
+export * from "./pinAiExtractSampleBody";
 export * from "./publicInvite";
 export * from "./publicPasswordReset";
 export * from "./punch";

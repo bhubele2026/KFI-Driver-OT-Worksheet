@@ -1090,7 +1090,7 @@ weeksRouter.get(
   async (req, res) => {
     const customer = typeof req.query.customer === "string" ? req.query.customer : null;
     const whereClauses = [
-      sql`${schema.aiExtractSamplesTable.expiresAt} > now()`,
+      sql`(${schema.aiExtractSamplesTable.expiresAt} > now() OR ${schema.aiExtractSamplesTable.pinned} = true)`,
     ];
     if (customer) {
       whereClauses.push(eq(schema.aiExtractSamplesTable.customer, customer));
@@ -1107,6 +1107,7 @@ weeksRouter.get(
         uploadedAt: schema.aiExtractSamplesTable.uploadedAt,
         confirmedAt: schema.aiExtractSamplesTable.confirmedAt,
         expiresAt: schema.aiExtractSamplesTable.expiresAt,
+        pinned: schema.aiExtractSamplesTable.pinned,
       })
       .from(schema.aiExtractSamplesTable)
       .where(and(...whereClauses))
@@ -1134,11 +1135,73 @@ weeksRouter.get(
         expiresAt: new Date(r.expiresAt).toISOString(),
         confirmedAt: r.confirmedAt ? new Date(r.confirmedAt).toISOString() : null,
         confirmed: r.confirmedAt != null,
+        pinned: r.pinned,
         uploadedByEmail: r.uploadedBy
           ? actorEmailById.get(r.uploadedBy) ?? null
           : null,
       })),
     );
+  },
+);
+
+weeksRouter.patch(
+  "/admin/ai-extract-samples/:id/pin",
+  requireAdmin,
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const pinned = req.body?.pinned;
+    if (typeof pinned !== "boolean") {
+      res.status(400).json({ error: "pinned must be a boolean" });
+      return;
+    }
+    const updated = await db
+      .update(schema.aiExtractSamplesTable)
+      .set({ pinned })
+      .where(eq(schema.aiExtractSamplesTable.id, id))
+      .returning({
+        id: schema.aiExtractSamplesTable.id,
+        weekStart: schema.aiExtractSamplesTable.weekStart,
+        customer: schema.aiExtractSamplesTable.customer,
+        fileName: schema.aiExtractSamplesTable.fileName,
+        mimeType: schema.aiExtractSamplesTable.mimeType,
+        sizeBytes: schema.aiExtractSamplesTable.sizeBytes,
+        uploadedBy: schema.aiExtractSamplesTable.uploadedBy,
+        uploadedAt: schema.aiExtractSamplesTable.uploadedAt,
+        confirmedAt: schema.aiExtractSamplesTable.confirmedAt,
+        expiresAt: schema.aiExtractSamplesTable.expiresAt,
+        pinned: schema.aiExtractSamplesTable.pinned,
+      });
+    const row = updated[0];
+    if (!row) {
+      res.status(404).json({ error: "Sample not found" });
+      return;
+    }
+    let uploadedByEmail: string | null = null;
+    if (row.uploadedBy) {
+      const actor = await db.query.usersTable.findFirst({
+        where: eq(schema.usersTable.id, row.uploadedBy),
+        columns: { email: true },
+      });
+      uploadedByEmail = actor?.email ?? null;
+    }
+    res.json({
+      id: row.id,
+      weekStart: row.weekStart,
+      customer: row.customer,
+      fileName: row.fileName,
+      mimeType: row.mimeType,
+      sizeBytes: row.sizeBytes,
+      uploadedAt: new Date(row.uploadedAt).toISOString(),
+      expiresAt: new Date(row.expiresAt).toISOString(),
+      confirmedAt: row.confirmedAt ? new Date(row.confirmedAt).toISOString() : null,
+      confirmed: row.confirmedAt != null,
+      pinned: row.pinned,
+      uploadedByEmail,
+    });
   },
 );
 
@@ -1154,7 +1217,7 @@ weeksRouter.get(
     const row = await db.query.aiExtractSamplesTable.findFirst({
       where: and(
         eq(schema.aiExtractSamplesTable.id, id),
-        sql`${schema.aiExtractSamplesTable.expiresAt} > now()`,
+        sql`(${schema.aiExtractSamplesTable.expiresAt} > now() OR ${schema.aiExtractSamplesTable.pinned} = true)`,
       ),
     });
     if (!row) {

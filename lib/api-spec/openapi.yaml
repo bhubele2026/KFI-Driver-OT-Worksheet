@@ -579,6 +579,34 @@ paths:
                 items: { $ref: "#/components/schemas/AiExtractSample" }
         "403": { description: Admin only }
 
+  /admin/ai-extract-samples/{id}/pin:
+    patch:
+      operationId: pinAiExtractSample
+      tags: [ingest]
+      summary: Pin or unpin an AI extract sample so the TTL cleanup skips it (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pinned]
+              properties:
+                pinned: { type: boolean }
+      responses:
+        "200":
+          description: Updated sample
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiExtractSample" }
+        "403": { description: Admin only }
+        "404": { description: Sample not found }
+
   /admin/ai-extract-samples/{id}/download:
     get:
       operationId: downloadAiExtractSample
@@ -1337,6 +1365,7 @@ components:
           uploadedAt,
           expiresAt,
           confirmed,
+          pinned,
         ]
       properties:
         id: { type: integer }
@@ -1351,5 +1380,6 @@ components:
           type: ["string", "null"]
           format: date-time
         confirmed: { type: boolean }
+        pinned: { type: boolean }
         uploadedByEmail:
           type: ["string", "null"]

@@ -18,6 +18,7 @@ export interface AiExtractSample {
   /** @nullable */
   confirmedAt?: Date | null;
   confirmed: boolean;
+  pinned: boolean;
   /** @nullable */
   uploadedByEmail?: string | null;
 }

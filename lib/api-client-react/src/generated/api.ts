@@ -40,6 +40,7 @@ import type {
   ManualPunchInput,
   PasswordResetLink,
   PasswordResetRequestResult,
+  PinAiExtractSampleBody,
   PublicInvite,
   PublicPasswordReset,
   Punch,
@@ -2880,6 +2881,93 @@ export function useListAiExtractSamples<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Pin or unpin an AI extract sample so the TTL cleanup skips it (admin)
+ */
+export const getPinAiExtractSampleUrl = (id: number) => {
+  return `/api/admin/ai-extract-samples/${id}/pin`;
+};
+
+export const pinAiExtractSample = async (
+  id: number,
+  pinAiExtractSampleBody: PinAiExtractSampleBody,
+  options?: RequestInit,
+): Promise<AiExtractSample> => {
+  return customFetch<AiExtractSample>(getPinAiExtractSampleUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(pinAiExtractSampleBody),
+  });
+};
+
+export const getPinAiExtractSampleMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pinAiExtractSample>>,
+    TError,
+    { id: number; data: BodyType<PinAiExtractSampleBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pinAiExtractSample>>,
+  TError,
+  { id: number; data: BodyType<PinAiExtractSampleBody> },
+  TContext
+> => {
+  const mutationKey = ["pinAiExtractSample"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pinAiExtractSample>>,
+    { id: number; data: BodyType<PinAiExtractSampleBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return pinAiExtractSample(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PinAiExtractSampleMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pinAiExtractSample>>
+>;
+export type PinAiExtractSampleMutationBody = BodyType<PinAiExtractSampleBody>;
+export type PinAiExtractSampleMutationError = ErrorType<void>;
+
+/**
+ * @summary Pin or unpin an AI extract sample so the TTL cleanup skips it (admin)
+ */
+export const usePinAiExtractSample = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pinAiExtractSample>>,
+    TError,
+    { id: number; data: BodyType<PinAiExtractSampleBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof pinAiExtractSample>>,
+  TError,
+  { id: number; data: BodyType<PinAiExtractSampleBody> },
+  TContext
+> => {
+  return useMutation(getPinAiExtractSampleMutationOptions(options));
+};
 
 /**
  * @summary Download the original stashed file for an AI extract sample (admin)
