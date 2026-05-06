@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link, Redirect } from "wouter";
 import {
   useListUsers,
@@ -39,6 +39,8 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Copy,
   Loader2,
@@ -138,6 +140,16 @@ export default function AdminUsers() {
     email: string;
     url: string;
   } | null>(null);
+  const [expandedUsers, setExpandedUsers] = useState<Set<number>>(new Set());
+
+  const toggleExpanded = (id: number) => {
+    setExpandedUsers((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   if (!meLoading && me && !me.isAdmin) {
     return <Redirect to="/" />;
@@ -770,6 +782,7 @@ export default function AdminUsers() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-[1%]" />
                     <TableHead>Email</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
@@ -781,8 +794,28 @@ export default function AdminUsers() {
                   {users?.map((u) => {
                     const isMe = me?.id === u.id;
                     const isLocked = !!u.lockedAt;
+                    const isExpanded = expandedUsers.has(u.id);
                     return (
-                      <TableRow key={u.id}>
+                      <Fragment key={u.id}>
+                      <TableRow>
+                        <TableCell className="pr-0">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0"
+                            onClick={() => toggleExpanded(u.id)}
+                            aria-label={isExpanded ? "Hide history" : "Show history"}
+                            aria-expanded={isExpanded}
+                            title={isExpanded ? "Hide history" : "Show history"}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="h-4 w-4" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </TableCell>
                         <TableCell className="font-mono">
                           {u.email}
                           {isMe && (
@@ -898,6 +931,15 @@ export default function AdminUsers() {
                           </Button>
                         </TableCell>
                       </TableRow>
+                      {isExpanded && (
+                        <TableRow className="bg-muted/30 hover:bg-muted/30">
+                          <TableCell />
+                          <TableCell colSpan={5} className="py-3">
+                            <UserAuditHistory userId={u.id} email={u.email} />
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      </Fragment>
                     );
                   })}
                 </TableBody>
@@ -954,6 +996,85 @@ export default function AdminUsers() {
           </CardContent>
         </Card>
       </main>
+    </div>
+  );
+}
+
+function UserAuditHistory({
+  userId,
+  email,
+}: {
+  userId: number;
+  email: string;
+}) {
+  const { data, isLoading, isError } = useListUserAuditLog(
+    { targetUserId: userId, limit: 100 },
+    {
+      query: {
+        queryKey: getListUserAuditLogQueryKey({
+          targetUserId: userId,
+          limit: 100,
+        }),
+      },
+    },
+  );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading history for {email}…
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <p className="text-xs text-rose-600 dark:text-rose-400 italic">
+        Couldn't load history for {email}.
+      </p>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground italic">
+        No admin actions recorded for {email} yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+        History for {email} · most recent first
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="h-8">When</TableHead>
+            <TableHead className="h-8">Actor</TableHead>
+            <TableHead className="h-8">Action</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.map((entry) => (
+            <TableRow key={entry.id}>
+              <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap py-1.5">
+                {format(new Date(entry.createdAt), "yyyy-MM-dd HH:mm")}
+              </TableCell>
+              <TableCell className="font-mono text-xs py-1.5">
+                {entry.actorEmail ?? "—"}
+              </TableCell>
+              <TableCell className="py-1.5">
+                <span className="text-xs font-mono uppercase tracking-wider text-primary">
+                  {entry.action}
+                </span>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }
