@@ -1221,7 +1221,7 @@ components:
 
     CustomerUploadStatus:
       type: object
-      required: [customer, extensions, punchCount, isAiImported, aiImportWeekCount, aliasCount, promotionCandidate]
+      required: [customer, extensions, punchCount, isAiImported, aiImportWeekCount, aliasCount, promotionCandidate, lastUnmappedIds]
       properties:
         customer: { type: string }
         extensions:
@@ -1259,6 +1259,15 @@ components:
         lastSource:
           type: ["string", "null"]
           description: Where the last attempt came from — "parser" (known-customer route) or "ai" (new-customer flow).
+        lastUnmappedIds:
+          type: array
+          items: { type: string }
+          description: |
+            Badge / employee IDs that appeared in the most recent successful
+            upload but didn't map to a known KFI driver. Surfaced as a
+            persistent warning under the row so dispatchers don't lose the
+            list when refreshing the dashboard. Empty when the last upload
+            was clean.
 
     AiExtractedRow:
       type: object

@@ -647,6 +647,11 @@ export const GetCustomerUploadStatusResponseItem = zod.object({
     .describe(
       'Where the last attempt came from — \"parser\" (known-customer route) or \"ai\" (new-customer flow).',
     ),
+  lastUnmappedIds: zod
+    .array(zod.string())
+    .describe(
+      "Badge \/ employee IDs that appeared in the most recent successful\nupload but didn't map to a known KFI driver. Surfaced as a\npersistent warning under the row so dispatchers don't lose the\nlist when refreshing the dashboard. Empty when the last upload\nwas clean.\n",
+    ),
 });
 export const GetCustomerUploadStatusResponse = zod.array(
   GetCustomerUploadStatusResponseItem,

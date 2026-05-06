@@ -61,6 +61,7 @@ async function recordAttempt(
   fileName: string,
   error: string | null,
   source: "parser" | "ai",
+  unmappedIds: string[] = [],
 ): Promise<void> {
   const now = new Date();
   await db
@@ -73,6 +74,7 @@ async function recordAttempt(
       lastFileName: fileName,
       lastError: error,
       lastSource: source,
+      lastUnmappedIds: unmappedIds,
     })
     .onConflictDoUpdate({
       target: [
@@ -87,6 +89,7 @@ async function recordAttempt(
         lastFileName: fileName,
         lastError: error,
         lastSource: source,
+        lastUnmappedIds: unmappedIds,
       },
     });
 }
@@ -628,7 +631,14 @@ weeksRouter.post(
         );
       }
     });
-    await recordAttempt(startDate, result.customer, fileName, null, "parser");
+    await recordAttempt(
+      startDate,
+      result.customer,
+      fileName,
+      null,
+      "parser",
+      result.unmappedIds,
+    );
     if (result.unmappedIds.length > 0) {
       req.log.warn(
         {
@@ -731,6 +741,7 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
         : null,
       lastError: a?.lastError ?? null,
       lastSource: a?.lastSource ?? null,
+      lastUnmappedIds: a?.lastUnmappedIds ?? [],
       isAiImported: false,
       aiImportWeekCount: aiWeekCountByCustomer.get(c.displayName) ?? 0,
       aliasCount: aliasCountByCustomer.get(c.displayName) ?? 0,
@@ -768,6 +779,7 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
         : null,
       lastError: a?.lastError ?? null,
       lastSource: a?.lastSource ?? "ai",
+      lastUnmappedIds: a?.lastUnmappedIds ?? [],
       isAiImported: true,
       aiImportWeekCount: aiWeekCountByCustomer.get(name) ?? 0,
       aliasCount: aliasCountByCustomer.get(name) ?? 0,

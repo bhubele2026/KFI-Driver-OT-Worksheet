@@ -277,6 +277,18 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                     <span>{lastError}</span>
                   </div>
                 )}
+                {!showError && s.lastUnmappedIds.length > 0 && (
+                  <div className="mt-1 text-xs text-destructive flex items-start gap-1">
+                    <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                    <span>
+                      Unknown {s.lastUnmappedIds.length === 1 ? "badge" : "badges"}:{" "}
+                      <span className="font-mono">
+                        {s.lastUnmappedIds.join(", ")}
+                      </span>
+                      . Add to the driver mapping if they're new hires.
+                    </span>
+                  </div>
+                )}
               </div>
               <input
                 type="file"

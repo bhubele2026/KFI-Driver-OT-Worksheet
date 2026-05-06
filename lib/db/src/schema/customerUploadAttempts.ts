@@ -21,6 +21,10 @@ export const customerUploadAttemptsTable = pgTable(
     lastFileName: text("last_file_name"),
     lastError: text("last_error"),
     lastSource: text("last_source"), // 'parser' | 'ai'
+    // Badge / employee IDs that appeared in the last upload but didn't map to
+    // a known KFI driver. Persisted per (week, customer) so the warning
+    // survives a dashboard refresh. Cleared (empty array) on a clean upload.
+    lastUnmappedIds: text("last_unmapped_ids").array(),
   },
   (t) => [
     uniqueIndex("customer_upload_attempts_week_customer_idx").on(

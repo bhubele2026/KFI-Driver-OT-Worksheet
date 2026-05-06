@@ -42,4 +42,11 @@ export interface CustomerUploadStatus {
    * @nullable
    */
   lastSource?: string | null;
+  /** Badge / employee IDs that appeared in the most recent successful
+upload but didn't map to a known KFI driver. Surfaced as a
+persistent warning under the row so dispatchers don't lose the
+list when refreshing the dashboard. Empty when the last upload
+was clean.
+ */
+  lastUnmappedIds: string[];
 }
