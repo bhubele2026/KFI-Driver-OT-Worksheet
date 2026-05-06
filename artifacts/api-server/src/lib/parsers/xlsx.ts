@@ -80,12 +80,25 @@ export function parseGreystone(
   const rows = sheetRows(wb);
   const hdr = rows[0];
   if (!hdr) return [];
-  const fnIdx = findHeader(hdr, (s) => s.includes("file number"));
-  const dtIdx = findHeader(hdr, (s) => s.includes("pay date"));
+  // Greystone changed columns mid-2026: legacy export had "File Number" /
+  // "Pay Date"; new ADP export uses "Person ID" and a per-week column called
+  // e.g. "Week 4/26/26 - 5/2/26" that holds the actual ISO date per row.
+  const fnIdx = findHeader(
+    hdr,
+    (s) => s.includes("person id") || s.includes("file number"),
+  );
+  const dtIdx = findHeader(
+    hdr,
+    (s) => s.includes("pay date") || s.startsWith("week "),
+  );
   const inIdx = findHeader(hdr, (s) => s === "time in");
   const outIdx = findHeader(hdr, (s) => s === "time out");
   const hrIdx = findHeader(hdr, (s) => s === "hours");
-  if (fnIdx < 0) return [];
+  if (fnIdx < 0 || inIdx < 0 || outIdx < 0) {
+    throw new Error(
+      "Greystone parser: expected columns not found (need Person ID/File Number, Time In, Time Out)",
+    );
+  }
   const out: ParsedPunch[] = [];
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
@@ -103,6 +116,93 @@ export function parseGreystone(
       hours: round3(parseFloat(String(r[hrIdx] ?? "0")) || 0),
       payType: "Reg",
     });
+  }
+  return out;
+}
+
+/**
+ * Adient switched from a digital PDF (handled by `parseAdientPDF`) to a
+ * Kronos/Workforce-Central XLSX pivot export. The sheet is one big block per
+ * employee:
+ *   - "Employee Name" header row, with "LASTNAME, FIRST (TELDxxx)" in col 21
+ *   - "Job" / "Location" row
+ *   - "Transaction Apply Date" row (the actual column header for txns)
+ *   - 1..N transaction rows: date in col 0, type in col 8, hours in col 19,
+ *     start datetime in col 29, end datetime in col 31.
+ * We only keep "Worked Shift Segment" rows (skipping absences, paycode edits).
+ */
+export function parseAdientXLSX(
+  wb: XLSX.WorkBook,
+  kfiSet: Set<string>,
+): ParsedPunch[] {
+  const rows = sheetRows(wb);
+  const out: ParsedPunch[] = [];
+  let kfiId: string | null = null;
+  // Column layout is fixed in the Kronos export but we still tolerate a small
+  // amount of column drift by re-detecting indices on each header row.
+  let dateCol = 0;
+  let typeCol = 8;
+  let hoursCol = 19;
+  let startCol = 29;
+  let endCol = 31;
+  let sawTxnHeader = false;
+  const norm = (v: unknown) =>
+    v == null ? "" : String(v).trim().toLowerCase().replace(/\s+/g, " ");
+  const findCol = (r: unknown[], wanted: string) =>
+    r.findIndex((c) => norm(c) === wanted);
+  for (const r of rows) {
+    if (norm(r[0]) === "employee name") {
+      // Find TELD code anywhere on the row.
+      kfiId = null;
+      for (const cell of r) {
+        if (cell == null) continue;
+        const m = String(cell).match(/\((TELD\d+)\)/);
+        if (m) {
+          kfiId = EMBEDDED_MAPPING[m[1]] ?? null;
+          break;
+        }
+      }
+      continue;
+    }
+    if (norm(r[0]) === "transaction apply date") {
+      dateCol = findCol(r, "transaction apply date");
+      typeCol = findCol(r, "transaction type");
+      hoursCol = findCol(r, "hours");
+      startCol = findCol(r, "transaction start date/time");
+      endCol = findCol(r, "transaction end date/time");
+      if (
+        dateCol < 0 ||
+        typeCol < 0 ||
+        hoursCol < 0 ||
+        startCol < 0 ||
+        endCol < 0
+      ) {
+        throw new Error(
+          "Adient parser: transaction header is missing one of: Transaction Apply Date, Transaction Type, Hours, Transaction Start Date/Time, Transaction End Date/Time",
+        );
+      }
+      sawTxnHeader = true;
+      continue;
+    }
+    if (!sawTxnHeader || !kfiId || !kfiSet.has(kfiId)) continue;
+    if (norm(r[typeCol]) !== "worked shift segment") continue;
+    if (r[startCol] == null || r[endCol] == null) continue;
+    const hours = parseFloat(String(r[hoursCol] ?? "0")) || 0;
+    if (hours <= 0) continue;
+    out.push({
+      kfiId,
+      customer: "Adient",
+      date: fmtDate(r[dateCol]),
+      clockIn: fmtDT(r[startCol]),
+      clockOut: fmtDT(r[endCol]),
+      hours: round3(hours),
+      payType: "Reg",
+    });
+  }
+  if (!sawTxnHeader) {
+    throw new Error(
+      "Adient parser: no 'Transaction Apply Date' header found — file format may have changed",
+    );
   }
   return out;
 }

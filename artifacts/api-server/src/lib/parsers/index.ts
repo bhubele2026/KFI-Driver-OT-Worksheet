@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import {
+  parseAdientXLSX,
   parseBurnett,
   parseGreystone,
   parseLSI,
@@ -26,6 +27,8 @@ export async function detectAndParseFile(
   const year = parseInt(weekStart.slice(0, 4));
 
   if (isPdf) {
+    // Adient kept the PDF parser around for legacy files but switched to XLSX
+    // in 2026; new XLSX path is below.
     if (lower.includes("adient")) {
       return { customer: "Adient", punches: await parseAdientPDF(buffer, kfiSet, year) };
     }
@@ -47,6 +50,9 @@ export async function detectAndParseFile(
   // xlsx / xls
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
 
+  if (lower.includes("adient")) {
+    return { customer: "Adient", punches: parseAdientXLSX(wb, kfiSet) };
+  }
   if (lower.includes("trienda")) {
     return { customer: "Trienda", punches: parsePendaTrienda(wb, "Trienda", kfiSet) };
   }

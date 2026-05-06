@@ -377,10 +377,20 @@ weeksRouter.post(
       });
       return;
     }
-    if (!result || result.punches.length === 0) {
+    if (!result) {
       res.status(400).json({
         error:
           "Could not detect customer from filename. Include the customer name (penda, trienda, greystone, lsi, burnett, adient, iwg, delallo, zenople) in the file name.",
+      });
+      return;
+    }
+    if (result.punches.length === 0) {
+      req.log.warn(
+        { fileName: req.file.originalname, customer: result.customer },
+        "Customer file parsed to zero punches",
+      );
+      res.status(400).json({
+        error: `Detected customer "${result.customer}" but parsed 0 punches. The file format may have changed, or no rows match the loaded driver roster.`,
       });
       return;
     }

@@ -34,7 +34,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - Single unified `punches` table with `source` (`Driver`/`Customer`) and `isManual` flag. Connecteam refresh wipes `(week, source=Driver, isManual=false)` then re-inserts; customer-file upload wipes `(week, source=Customer, customer=X, isManual=false)` then re-inserts. Manual punches are preserved across refreshes.
 - Wall-clock times are stored as display-tz strings (`"YYYY-MM-DD H:MM AM"`); arithmetic treats them as UTC for relative ordering, which is correct because every comparison happens within a single driver's display tz (`America/Chicago` by default, `America/New_York` for IWG drivers).
 - Hours engine sorts all punches chronologically and splits the 40-hour boundary mid-shift into RT vs OT, crediting each portion to the correct source.
-- Customer-file uploads are routed by filename keyword (`adient`, `iwg`, `delallo`, `penda`, `trienda`, `greystone`, `lsi`, `burnett`, `zenople`).
+- Customer-file uploads are routed by filename keyword (`adient`, `iwg`, `delallo`, `penda`, `trienda`, `greystone`, `lsi`, `burnett`, `zenople`). Adient has *both* a PDF parser (legacy digital export) and an XLSX parser (current Kronos pivot export); routing picks by extension.
 - Customer file upload is multipart and intentionally not in the OpenAPI body schema; the frontend posts FormData directly to `/api/weeks/:weekStart/upload-customer-file`.
 - All Connecteam API calls happen server-side (token never leaves the server); the legacy proxy URL is gone.
 
@@ -54,6 +54,8 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - Schema/codegen flow: edit `lib/api-spec/openapi.yaml` → `pnpm --filter @workspace/api-spec run codegen` → use the new hooks/Zod by their generated names (don't guess — Orval names vary).
 - `SHUSTER_CLOCK_IDS` in `lib/mappings.ts` get a +1h fix applied during Connecteam ingest (legacy data quirk).
 - Customer-file routing depends on the uploaded filename containing a known customer keyword.
+- PDF parsers (`Adient`, `IWG`, `DeLallo`) throw a clear "scanned image" error if pdfjs extracts zero text — DeLallo in particular has been seen as a scanner-produced PDF with no text layer.
+- The upload route distinguishes "could not detect customer from filename" from "detected but parsed 0 punches" — the latter signals format drift or a missing roster entry, not a bad filename.
 - Don't `console.log` in server code — use `req.log` / `logger`.
 
 ## Pointers

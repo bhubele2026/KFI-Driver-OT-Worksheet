@@ -63,8 +63,10 @@ export async function parseAdientPDF(
     Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12",
   };
   let kfiId: string | null = null;
+  let totalLines = 0;
   await withPdf(buffer, async (pages) => {
     for await (const lines of pages()) {
+      totalLines += lines.length;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const empMatch = line.match(/\((TELD\d+)\)/);
@@ -115,7 +117,16 @@ export async function parseAdientPDF(
     }
     return undefined;
   });
+  assertExtractable("Adient", totalLines);
   return punches;
+}
+
+function assertExtractable(label: string, totalLines: number) {
+  if (totalLines === 0) {
+    throw new Error(
+      `${label} parser: no extractable text in PDF (likely a scanned image). Ask ${label} for a digital export, or OCR the file before uploading.`,
+    );
+  }
 }
 
 export async function parseIWGPDF(
@@ -124,8 +135,10 @@ export async function parseIWGPDF(
 ): Promise<ParsedPunch[]> {
   const punches: ParsedPunch[] = [];
   let kfiId: string | null = null;
+  let totalLines = 0;
   await withPdf(buffer, async (pages) => {
     for await (const lines of pages()) {
+      totalLines += lines.length;
       for (const line of lines) {
         const empMatch = line.match(/Employee:\s+.+?\s+ID:\s+(\d+)/);
         if (empMatch) {
@@ -153,6 +166,7 @@ export async function parseIWGPDF(
     }
     return undefined;
   });
+  assertExtractable("IWG", totalLines);
   return punches;
 }
 
@@ -163,8 +177,10 @@ export async function parseDelalloPDF(
 ): Promise<ParsedPunch[]> {
   const punches: ParsedPunch[] = [];
   let kfiId: string | null = null;
+  let totalLines = 0;
   await withPdf(buffer, async (pages) => {
     for await (const lines of pages()) {
+      totalLines += lines.length;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const badge = line.match(/Badge\s*[#:]+\s*(\d+)/i);
@@ -216,5 +232,6 @@ export async function parseDelalloPDF(
     }
     return undefined;
   });
+  assertExtractable("DeLallo", totalLines);
   return punches;
 }
