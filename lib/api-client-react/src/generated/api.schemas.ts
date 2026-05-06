@@ -186,6 +186,17 @@ export interface RateLimitLockoutTimeseriesPoint {
   count: number;
 }
 
+export interface RateLimitLockoutTopOffender {
+  /** UTC day boundary as `YYYY-MM-DD`. */
+  day: string;
+  name: string;
+  key: string;
+  /** Number of times this (limiter, key) pair was blocked on this day. */
+  count: number;
+  firstBlockedAt: string;
+  lastBlockedAt: string;
+}
+
 export interface RemoveIpBlocklistBody {
   /**
    * The exact entry string (single IP or CIDR range) to remove from the blocklist.
@@ -600,6 +611,19 @@ export type ListRateLimitEventTimeseriesParams = {
    * @maximum 90
    */
   days?: number;
+};
+
+export type ListRateLimitEventTopOffendersParams = {
+  /**
+   * @minimum 1
+   * @maximum 90
+   */
+  days?: number;
+  /**
+   * @minimum 1
+   * @maximum 20
+   */
+  perDay?: number;
 };
 
 export type ListUserAuditLogParams = {

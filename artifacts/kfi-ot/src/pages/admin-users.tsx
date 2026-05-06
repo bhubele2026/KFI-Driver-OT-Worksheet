@@ -14,6 +14,7 @@ import {
   useListRateLimitBuckets,
   useListRateLimitEvents,
   useListRateLimitEventTimeseries,
+  useListRateLimitEventTopOffenders,
   useClearRateLimitBucket,
   useListUserAuditLog,
   useAuditConnecteamTimeClocks,
@@ -27,6 +28,7 @@ import {
   getListRateLimitBucketsQueryKey,
   getListRateLimitEventsQueryKey,
   getListRateLimitEventTimeseriesQueryKey,
+  getListRateLimitEventTopOffendersQueryKey,
   getListUserAuditLogQueryKey,
   getAuditConnecteamTimeClocksQueryKey,
   getListIpBlocklistQueryKey,
@@ -165,6 +167,20 @@ export default function AdminUsers() {
           enabled: !!me?.isAdmin,
           queryKey: getListRateLimitEventTimeseriesQueryKey({
             days: pressureRangeDays,
+          }),
+          refetchInterval: 60_000,
+        },
+      },
+    );
+  const { data: rateLimitTopOffenders, isLoading: topOffendersLoading } =
+    useListRateLimitEventTopOffenders(
+      { days: 7, perDay: 3 },
+      {
+        query: {
+          enabled: !!me?.isAdmin,
+          queryKey: getListRateLimitEventTopOffendersQueryKey({
+            days: 7,
+            perDay: 3,
           }),
           refetchInterval: 60_000,
         },
@@ -1047,6 +1063,84 @@ export default function AdminUsers() {
                   </Button>
                 </div>
               )}
+
+              {lockoutDayFilter && (() => {
+                const offenders = (rateLimitTopOffenders ?? []).filter(
+                  (o) => o.day === lockoutDayFilter,
+                );
+                if (topOffendersLoading) {
+                  return (
+                    <div className="mb-3 flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
+                      <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                      <span>Loading top offenders…</span>
+                    </div>
+                  );
+                }
+                if (offenders.length === 0) return null;
+                return (
+                  <div className="mb-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+                    <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Top offenders on{" "}
+                      {format(parseISO(lockoutDayFilter), "MMM d")}
+                    </div>
+                    <ol className="space-y-1.5">
+                      {offenders.map((o, idx) => {
+                        const liveBucket = (rateLimitBuckets ?? []).find(
+                          (b) => b.name === o.name && b.key === o.key,
+                        );
+                        return (
+                          <li
+                            key={`${o.name}::${o.key}`}
+                            className="flex items-center gap-2 text-xs"
+                          >
+                            <span className="font-mono text-muted-foreground w-4">
+                              #{idx + 1}
+                            </span>
+                            <span className="font-mono font-semibold tabular-nums w-8">
+                              {o.count}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {formatBucketLabel(o.name)}
+                            </span>
+                            <span className="font-mono break-all">
+                              {o.key}
+                            </span>
+                            <span className="ml-auto flex items-center gap-1">
+                              {liveBucket ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 px-2 text-[11px]"
+                                  onClick={() =>
+                                    handleClearBucket(o.name, o.key)
+                                  }
+                                  disabled={clearBucket.isPending}
+                                  title="Clear this live lockout bucket"
+                                >
+                                  <Unlock className="h-3 w-3 mr-1" />
+                                  Clear
+                                </Button>
+                              ) : null}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 px-2 text-[11px]"
+                                onClick={() => copy(o.key, toast)}
+                                title="Copy the key (e.g. for blocklisting)"
+                              >
+                                <Copy className="h-3 w-3 mr-1" />
+                                Copy key
+                              </Button>
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+                );
+              })()}
 
               {(() => {
                 const filtered = filterEventsByDay(

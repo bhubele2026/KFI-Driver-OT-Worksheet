@@ -40,6 +40,7 @@ import type {
   IpBlocklistEntry,
   ListAiExtractSamplesParams,
   ListRateLimitEventTimeseriesParams,
+  ListRateLimitEventTopOffendersParams,
   ListUserAuditLogParams,
   LoginCredentials,
   MailerStatus,
@@ -54,6 +55,7 @@ import type {
   RateLimitBucket,
   RateLimitLockout,
   RateLimitLockoutTimeseriesPoint,
+  RateLimitLockoutTopOffender,
   RefreshResult,
   RegistrationStatus,
   RemoveIpBlocklistBody,
@@ -1719,6 +1721,115 @@ export function useListRateLimitEventTimeseries<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListRateLimitEventTimeseriesQueryOptions(
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary For each UTC day in the window, the top-N (limiter, key) pairs that drove the lockouts on that day (admin)
+ */
+export const getListRateLimitEventTopOffendersUrl = (
+  params?: ListRateLimitEventTopOffendersParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/auth/rate-limit-events/top-offenders?${stringifiedParams}`
+    : `/api/auth/rate-limit-events/top-offenders`;
+};
+
+export const listRateLimitEventTopOffenders = async (
+  params?: ListRateLimitEventTopOffendersParams,
+  options?: RequestInit,
+): Promise<RateLimitLockoutTopOffender[]> => {
+  return customFetch<RateLimitLockoutTopOffender[]>(
+    getListRateLimitEventTopOffendersUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListRateLimitEventTopOffendersQueryKey = (
+  params?: ListRateLimitEventTopOffendersParams,
+) => {
+  return [
+    `/api/auth/rate-limit-events/top-offenders`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getListRateLimitEventTopOffendersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listRateLimitEventTopOffenders>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListRateLimitEventTopOffendersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listRateLimitEventTopOffenders>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListRateLimitEventTopOffendersQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listRateLimitEventTopOffenders>>
+  > = ({ signal }) =>
+    listRateLimitEventTopOffenders(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listRateLimitEventTopOffenders>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListRateLimitEventTopOffendersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listRateLimitEventTopOffenders>>
+>;
+export type ListRateLimitEventTopOffendersQueryError = ErrorType<void>;
+
+/**
+ * @summary For each UTC day in the window, the top-N (limiter, key) pairs that drove the lockouts on that day (admin)
+ */
+
+export function useListRateLimitEventTopOffenders<
+  TData = Awaited<ReturnType<typeof listRateLimitEventTopOffenders>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListRateLimitEventTopOffendersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listRateLimitEventTopOffenders>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListRateLimitEventTopOffendersQueryOptions(
     params,
     options,
   );

@@ -26,6 +26,7 @@ import {
   listActiveBuckets,
   listRecentLockouts,
   listLockoutTimeseries,
+  listLockoutTopOffenders,
   listSuggestedIpBlocks,
   recordLoginFailure,
   recordLoginSuccess,
@@ -743,6 +744,31 @@ authRouter.get(
         : 7;
     const series = await listLockoutTimeseries(pool, { days });
     res.json(series);
+  },
+);
+
+authRouter.get(
+  "/auth/rate-limit-events/top-offenders",
+  requireAdmin,
+  async (req, res) => {
+    const daysRaw = Number(req.query.days);
+    const days =
+      Number.isFinite(daysRaw) && daysRaw >= 1 && daysRaw <= 90
+        ? Math.floor(daysRaw)
+        : 7;
+    const perDayRaw = Number(req.query.perDay);
+    const perDay =
+      Number.isFinite(perDayRaw) && perDayRaw >= 1 && perDayRaw <= 20
+        ? Math.floor(perDayRaw)
+        : 3;
+    const offenders = await listLockoutTopOffenders(pool, { days, perDay });
+    res.json(
+      offenders.map((o) => ({
+        ...o,
+        firstBlockedAt: new Date(o.firstBlockedAt).toISOString(),
+        lastBlockedAt: new Date(o.lastBlockedAt).toISOString(),
+      })),
+    );
   },
 );
 

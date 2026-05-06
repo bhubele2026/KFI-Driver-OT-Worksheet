@@ -357,6 +357,30 @@ paths:
                 items: { $ref: "#/components/schemas/RateLimitLockoutTimeseriesPoint" }
         "403": { description: Admin only }
 
+  /auth/rate-limit-events/top-offenders:
+    get:
+      operationId: listRateLimitEventTopOffenders
+      tags: [auth]
+      summary: For each UTC day in the window, the top-N (limiter, key) pairs that drove the lockouts on that day (admin)
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 90, default: 7 }
+        - name: perDay
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 20, default: 3 }
+      responses:
+        "200":
+          description: Top offenders per day, ordered most-recent day first then by count desc.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RateLimitLockoutTopOffender" }
+        "403": { description: Admin only }
+
   /auth/suggested-ip-blocks:
     get:
       operationId: listSuggestedIpBlocks
@@ -1159,6 +1183,21 @@ components:
           description: UTC day boundary as `YYYY-MM-DD`.
         name: { type: string }
         count: { type: integer }
+
+    RateLimitLockoutTopOffender:
+      type: object
+      required: [day, name, key, count, firstBlockedAt, lastBlockedAt]
+      properties:
+        day:
+          type: string
+          description: UTC day boundary as `YYYY-MM-DD`.
+        name: { type: string }
+        key: { type: string }
+        count:
+          type: integer
+          description: Number of times this (limiter, key) pair was blocked on this day.
+        firstBlockedAt: { type: string, format: date-time }
+        lastBlockedAt: { type: string, format: date-time }
 
     RemoveIpBlocklistBody:
       type: object

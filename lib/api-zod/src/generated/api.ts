@@ -352,6 +352,44 @@ export const ListRateLimitEventTimeseriesResponse = zod.array(
 );
 
 /**
+ * @summary For each UTC day in the window, the top-N (limiter, key) pairs that drove the lockouts on that day (admin)
+ */
+export const listRateLimitEventTopOffendersQueryDaysDefault = 7;
+export const listRateLimitEventTopOffendersQueryDaysMax = 90;
+
+export const listRateLimitEventTopOffendersQueryPerDayDefault = 3;
+export const listRateLimitEventTopOffendersQueryPerDayMax = 20;
+
+export const ListRateLimitEventTopOffendersQueryParams = zod.object({
+  days: zod.coerce
+    .number()
+    .min(1)
+    .max(listRateLimitEventTopOffendersQueryDaysMax)
+    .default(listRateLimitEventTopOffendersQueryDaysDefault),
+  perDay: zod.coerce
+    .number()
+    .min(1)
+    .max(listRateLimitEventTopOffendersQueryPerDayMax)
+    .default(listRateLimitEventTopOffendersQueryPerDayDefault),
+});
+
+export const ListRateLimitEventTopOffendersResponseItem = zod.object({
+  day: zod.string().describe("UTC day boundary as `YYYY-MM-DD`."),
+  name: zod.string(),
+  key: zod.string(),
+  count: zod
+    .number()
+    .describe(
+      "Number of times this (limiter, key) pair was blocked on this day.",
+    ),
+  firstBlockedAt: zod.coerce.date(),
+  lastBlockedAt: zod.coerce.date(),
+});
+export const ListRateLimitEventTopOffendersResponse = zod.array(
+  ListRateLimitEventTopOffendersResponseItem,
+);
+
+/**
  * @summary IPs that have hit the lockout threshold repeatedly in the last 24h and are not yet blocklisted (admin)
  */
 export const ListSuggestedIpBlocksResponseItem = zod.object({

@@ -393,6 +393,72 @@ function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+export interface LockoutTopOffender {
+  /** ISO date `YYYY-MM-DD` (UTC day boundary). */
+  day: string;
+  name: string;
+  key: string;
+  count: number;
+  firstBlockedAt: number;
+  lastBlockedAt: number;
+}
+
+/**
+ * For each UTC day in the window, return the top-N (limiter, key) pairs by
+ * lockout count. Used by the admin Security panel so admins can go from a
+ * spike on the chart straight to the IPs/emails that drove it without
+ * eyeballing the full table.
+ */
+export async function listLockoutTopOffenders(
+  pool: Pool,
+  opts: { days?: number; perDay?: number } = {},
+): Promise<LockoutTopOffender[]> {
+  const days = Math.max(1, Math.min(90, opts.days ?? 7));
+  const perDay = Math.max(1, Math.min(20, opts.perDay ?? 3));
+  const todayUtcMs = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+  const startMs = todayUtcMs - (days - 1) * 86_400_000;
+  const since = new Date(startMs);
+  const r = await pool.query<{
+    day: Date;
+    name: string;
+    key: string;
+    count: string;
+    first_blocked_at: Date;
+    last_blocked_at: Date;
+  }>(
+    `WITH per_day AS (
+       SELECT date_trunc('day', blocked_at AT TIME ZONE 'UTC') AS day,
+              name, key, COUNT(*) AS count,
+              MIN(blocked_at) AS first_blocked_at,
+              MAX(blocked_at) AS last_blocked_at
+       FROM rate_limit_events
+       WHERE blocked_at >= $1
+       GROUP BY 1, 2, 3
+     ), ranked AS (
+       SELECT day, name, key, count, first_blocked_at, last_blocked_at,
+              ROW_NUMBER() OVER (
+                PARTITION BY day
+                ORDER BY count DESC, last_blocked_at DESC, name ASC, key ASC
+              ) AS rn
+       FROM per_day
+     )
+     SELECT day, name, key, count::text AS count,
+            first_blocked_at, last_blocked_at
+     FROM ranked
+     WHERE rn <= $2
+     ORDER BY day DESC, count DESC, last_blocked_at DESC`,
+    [since, perDay],
+  );
+  return r.rows.map((row) => ({
+    day: isoDay(row.day),
+    name: row.name,
+    key: row.key,
+    count: Number(row.count),
+    firstBlockedAt: row.first_blocked_at.getTime(),
+    lastBlockedAt: row.last_blocked_at.getTime(),
+  }));
+}
+
 export interface SuggestedIpBlock {
   ip: string;
   lockoutCount: number;
