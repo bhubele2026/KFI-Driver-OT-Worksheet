@@ -18,7 +18,7 @@ import {
   defaultDispTz,
 } from "../lib/hoursEngine.js";
 import { detectAndParseFile } from "../lib/parsers/index.js";
-import { addDays, mondayOf, weekEndOf } from "../lib/time.js";
+import { mondayOf, weekEndOf } from "../lib/time.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -512,9 +512,6 @@ weeksRouter.put("/weeks/:weekStart/reviewed/:kfiId", async (req, res) => {
   }
   res.json({ reviewed: parsed.data.reviewed });
 });
-
-// Avoid unused import if `addDays` ever becomes unused after refactor.
-void addDays;
 
 function serializePunch(p: typeof schema.punchesTable.$inferSelect) {
   return {

@@ -39,9 +39,26 @@ export default function DriverDetail() {
   const editPunch = useEditPunch();
   const deletePunch = useDeletePunch();
 
+  const KNOWN_CUSTOMERS = [
+    "Adient",
+    "Burnett",
+    "DeLallo",
+    "Greystone",
+    "IWG",
+    "LSI",
+    "Penda",
+    "Trienda",
+    "Zenople",
+  ];
+
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [manualDate, setManualDate] = useState(weekStart);
   const [manualSource, setManualSource] = useState<"Driver" | "Customer">("Driver");
+  const [manualCustomer, setManualCustomer] = useState<string>(
+    data?.driver.customer && data.driver.customer !== "Unknown"
+      ? data.driver.customer
+      : KNOWN_CUSTOMERS[0],
+  );
   const [manualClockIn, setManualClockIn] = useState("");
   const [manualClockOut, setManualClockOut] = useState("");
 
@@ -66,6 +83,10 @@ export default function DriverDetail() {
       toast({ title: "Validation", description: "Date, Clock In, and Clock Out are required.", variant: "destructive" });
       return;
     }
+    if (manualSource === "Customer" && !manualCustomer) {
+      toast({ title: "Validation", description: "Pick a customer for a Customer-source punch.", variant: "destructive" });
+      return;
+    }
     createPunch.mutate(
       {
         weekStart,
@@ -73,6 +94,10 @@ export default function DriverDetail() {
           kfiId,
           date: manualDate,
           source: manualSource,
+          customer:
+            manualSource === "Customer"
+              ? manualCustomer
+              : null,
           clockIn: manualClockIn,
           clockOut: manualClockOut,
         }
@@ -337,6 +362,21 @@ export default function DriverDetail() {
                 </SelectContent>
               </Select>
             </div>
+            {manualSource === "Customer" && (
+              <div className="grid gap-2">
+                <Label>Customer</Label>
+                <Select value={manualCustomer} onValueChange={setManualCustomer}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {KNOWN_CUSTOMERS.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Clock In</Label>

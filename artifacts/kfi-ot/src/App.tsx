@@ -7,8 +7,6 @@ import { Loader2 } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
-
-// We'll import these in a moment
 import WeekSummary from "@/pages/week-summary";
 import DriverDetail from "@/pages/driver-detail";
 
