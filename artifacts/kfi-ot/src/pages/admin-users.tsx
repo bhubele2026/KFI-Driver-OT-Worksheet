@@ -7,6 +7,8 @@ import {
   useRevokeInvite,
   useUpdateUser,
   useCreatePasswordResetForUser,
+  useResendInvite,
+  useSendPasswordResetForUser,
   useGetMe,
   useGetMailerStatus,
   getListUsersQueryKey,
@@ -37,6 +39,7 @@ import {
   ShieldCheck,
   ShieldOff,
   KeyRound,
+  Send,
   Trash2,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -84,8 +87,10 @@ export default function AdminUsers() {
 
   const createInvite = useCreateInvite();
   const revokeInvite = useRevokeInvite();
+  const resendInvite = useResendInvite();
   const updateUser = useUpdateUser();
   const createReset = useCreatePasswordResetForUser();
+  const sendReset = useSendPasswordResetForUser();
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [latestInvite, setLatestInvite] = useState<string | null>(null);
@@ -118,6 +123,58 @@ export default function AdminUsers() {
             title: "Couldn't create invite",
             description:
               err instanceof Error ? err.message : "Unknown error",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleResendInvite = (token: string, email: string) => {
+    resendInvite.mutate(
+      { token },
+      {
+        onSuccess: () => {
+          toast({
+            title: "Invite re-sent",
+            description: `Emailed the invite link to ${email}.`,
+          });
+        },
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Unknown error";
+          toast({
+            title: /not configured/i.test(msg)
+              ? "Email is not configured"
+              : "Couldn't resend invite",
+            description: /not configured/i.test(msg)
+              ? "Ask the admin to set SMTP_HOST/SMTP_PORT. Copy the link instead."
+              : msg,
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleSendReset = (id: number, email: string) => {
+    sendReset.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          toast({
+            title: "Reset email sent",
+            description: `Emailed a password-reset link to ${email}.`,
+          });
+        },
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Unknown error";
+          toast({
+            title: /not configured/i.test(msg)
+              ? "Email is not configured"
+              : "Couldn't send reset email",
+            description: /not configured/i.test(msg)
+              ? "Ask the admin to set SMTP_HOST/SMTP_PORT, or use Generate link instead."
+              : msg,
             variant: "destructive",
           });
         },
@@ -319,6 +376,19 @@ export default function AdminUsers() {
                             size="sm"
                             variant="outline"
                             onClick={() =>
+                              handleResendInvite(inv.token, inv.email)
+                            }
+                            disabled={resendInvite.isPending}
+                            title="Re-email this invite link to the recipient"
+                          >
+                            <Send className="h-3 w-3 mr-1" />
+                            Resend
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
                               copy(
                                 `${window.location.origin}/accept-invite/${inv.token}`,
                                 toast,
@@ -425,6 +495,16 @@ export default function AdminUsers() {
                             : "—"}
                         </TableCell>
                         <TableCell className="flex gap-1 justify-end">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleSendReset(u.id, u.email)}
+                            disabled={!u.isActive || sendReset.isPending}
+                            title="Email a password-reset link to this user"
+                          >
+                            <Send className="h-3 w-3" />
+                          </Button>
                           <Button
                             type="button"
                             size="sm"

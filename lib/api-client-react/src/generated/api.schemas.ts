@@ -98,6 +98,10 @@ export interface PasswordResetLink {
   expiresAt: string;
 }
 
+export interface EmailDeliveryResult {
+  delivered: boolean;
+}
+
 export interface UpdateUserBody {
   isActive?: boolean;
   isAdmin?: boolean;

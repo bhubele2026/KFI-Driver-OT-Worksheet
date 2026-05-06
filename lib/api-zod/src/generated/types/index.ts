@@ -26,6 +26,7 @@ export * from "./driverSummaryRow";
 export * from "./driverWeek";
 export * from "./driverWeekTotals";
 export * from "./editPunchInput";
+export * from "./emailDeliveryResult";
 export * from "./healthStatus";
 export * from "./invite";
 export * from "./inviteWithLink";

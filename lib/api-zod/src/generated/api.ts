@@ -97,6 +97,17 @@ export const RevokeInviteParams = zod.object({
 });
 
 /**
+ * @summary Re-email an existing invite link to the recipient (admin)
+ */
+export const ResendInviteParams = zod.object({
+  token: zod.coerce.string(),
+});
+
+export const ResendInviteResponse = zod.object({
+  delivered: zod.boolean(),
+});
+
+/**
  * @summary Create an account using an invite token
  */
 export const acceptInviteBodyPasswordMin = 8;
@@ -214,6 +225,17 @@ export const CreatePasswordResetForUserParams = zod.object({
 export const CreatePasswordResetForUserResponse = zod.object({
   resetUrl: zod.string(),
   expiresAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Admin-initiated password reset that emails the link to the user (admin)
+ */
+export const SendPasswordResetForUserParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const SendPasswordResetForUserResponse = zod.object({
+  delivered: zod.boolean(),
 });
 
 /**

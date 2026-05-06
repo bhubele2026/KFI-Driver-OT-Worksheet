@@ -266,6 +266,40 @@ authRouter.post("/auth/invites", requireAdmin, async (req, res) => {
   res.json({ ...invite, acceptUrl });
 });
 
+authRouter.post("/auth/invites/:token/resend", requireAdmin, async (req, res) => {
+  if (!isMailerConfigured()) {
+    res
+      .status(503)
+      .json({ error: "Email is not configured on the server. Copy the link instead." });
+    return;
+  }
+  const token = String(req.params.token);
+  const invite = await db.query.invitesTable.findFirst({
+    where: eq(schema.invitesTable.token, token),
+  });
+  if (!invite || invite.usedAt || invite.expiresAt.getTime() < Date.now()) {
+    res.status(404).json({ error: "Invite not found, expired, or already used" });
+    return;
+  }
+  const base = requireAppBaseUrl(res);
+  if (!base) return;
+  const acceptUrl = `${base}/accept-invite/${invite.token}`;
+  try {
+    const r = await sendMail({
+      to: invite.email,
+      subject: "You're invited to KFI Dispatch",
+      text:
+        `You've been invited to KFI Dispatch.\n\n` +
+        `Click the link below to set your password and sign in. The link expires on ${invite.expiresAt.toISOString()}.\n\n` +
+        `${acceptUrl}\n`,
+    });
+    res.json({ delivered: r.delivered });
+  } catch (err) {
+    req.log?.error({ err }, "invite resend email failed");
+    res.status(502).json({ error: "Failed to send email." });
+  }
+});
+
 authRouter.get("/auth/invites/:token", tokenLookupLimiter, async (req, res) => {
   const token = String(req.params.token);
   const invite = await db.query.invitesTable.findFirst({
@@ -567,3 +601,52 @@ authRouter.post("/auth/users/:id/password-reset", requireAdmin, async (req, res)
   });
   res.json({ resetUrl: `${base}/reset-password/${token}`, expiresAt });
 });
+
+authRouter.post(
+  "/auth/users/:id/send-password-reset",
+  requireAdmin,
+  async (req, res) => {
+    if (!isMailerConfigured()) {
+      res
+        .status(503)
+        .json({ error: "Email is not configured on the server. Generate a link instead." });
+      return;
+    }
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const target = await db.query.usersTable.findFirst({
+      where: eq(schema.usersTable.id, id),
+    });
+    if (!target || !target.isActive) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    const base = requireAppBaseUrl(res);
+    if (!base) return;
+    const token = generateToken();
+    const expiresAt = new Date(Date.now() + RESET_TTL_MS);
+    await db.insert(schema.passwordResetsTable).values({
+      userId: target.id,
+      token,
+      expiresAt,
+    });
+    const resetUrl = `${base}/reset-password/${token}`;
+    try {
+      const r = await sendMail({
+        to: target.email,
+        subject: "Reset your KFI Dispatch password",
+        text:
+          `An admin started a password reset for your KFI Dispatch account.\n\n` +
+          `Click the link below to choose a new password. The link expires in 1 hour.\n\n` +
+          `${resetUrl}\n`,
+      });
+      res.json({ delivered: r.delivered });
+    } catch (err) {
+      req.log?.error({ err, userId: target.id }, "admin password reset email failed");
+      res.status(502).json({ error: "Failed to send email." });
+    }
+  },
+);

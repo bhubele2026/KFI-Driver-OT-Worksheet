@@ -26,6 +26,7 @@ import type {
   CustomerUploadStatus,
   DriverWeek,
   EditPunchInput,
+  EmailDeliveryResult,
   HealthStatus,
   Invite,
   InviteWithLink,
@@ -621,6 +622,90 @@ export const useRevokeInvite = <
   TContext
 > => {
   return useMutation(getRevokeInviteMutationOptions(options));
+};
+
+/**
+ * @summary Re-email an existing invite link to the recipient (admin)
+ */
+export const getResendInviteUrl = (token: string) => {
+  return `/api/auth/invites/${token}/resend`;
+};
+
+export const resendInvite = async (
+  token: string,
+  options?: RequestInit,
+): Promise<EmailDeliveryResult> => {
+  return customFetch<EmailDeliveryResult>(getResendInviteUrl(token), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getResendInviteMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resendInvite>>,
+    TError,
+    { token: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resendInvite>>,
+  TError,
+  { token: string },
+  TContext
+> => {
+  const mutationKey = ["resendInvite"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resendInvite>>,
+    { token: string }
+  > = (props) => {
+    const { token } = props ?? {};
+
+    return resendInvite(token, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResendInviteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof resendInvite>>
+>;
+
+export type ResendInviteMutationError = ErrorType<void>;
+
+/**
+ * @summary Re-email an existing invite link to the recipient (admin)
+ */
+export const useResendInvite = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resendInvite>>,
+    TError,
+    { token: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof resendInvite>>,
+  TError,
+  { token: string },
+  TContext
+> => {
+  return useMutation(getResendInviteMutationOptions(options));
 };
 
 /**
@@ -1278,6 +1363,90 @@ export const useCreatePasswordResetForUser = <
   TContext
 > => {
   return useMutation(getCreatePasswordResetForUserMutationOptions(options));
+};
+
+/**
+ * @summary Admin-initiated password reset that emails the link to the user (admin)
+ */
+export const getSendPasswordResetForUserUrl = (id: number) => {
+  return `/api/auth/users/${id}/send-password-reset`;
+};
+
+export const sendPasswordResetForUser = async (
+  id: number,
+  options?: RequestInit,
+): Promise<EmailDeliveryResult> => {
+  return customFetch<EmailDeliveryResult>(getSendPasswordResetForUserUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getSendPasswordResetForUserMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendPasswordResetForUser>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendPasswordResetForUser>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["sendPasswordResetForUser"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendPasswordResetForUser>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return sendPasswordResetForUser(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendPasswordResetForUserMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendPasswordResetForUser>>
+>;
+
+export type SendPasswordResetForUserMutationError = ErrorType<void>;
+
+/**
+ * @summary Admin-initiated password reset that emails the link to the user (admin)
+ */
+export const useSendPasswordResetForUser = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendPasswordResetForUser>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendPasswordResetForUser>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getSendPasswordResetForUserMutationOptions(options));
 };
 
 /**

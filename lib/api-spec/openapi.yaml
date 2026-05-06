@@ -122,6 +122,26 @@ paths:
         "204": { description: Revoked }
         "403": { description: Admin only }
 
+  /auth/invites/{token}/resend:
+    post:
+      operationId: resendInvite
+      tags: [auth]
+      summary: Re-email an existing invite link to the recipient (admin)
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Email sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmailDeliveryResult" }
+        "403": { description: Admin only }
+        "404": { description: "Invite not found, expired, or already used" }
+        "503": { description: Email is not configured on the server }
+
   /auth/accept-invite:
     post:
       operationId: acceptInvite
@@ -266,6 +286,26 @@ paths:
               schema: { $ref: "#/components/schemas/PasswordResetLink" }
         "403": { description: Admin only }
         "404": { description: User not found }
+
+  /auth/users/{id}/send-password-reset:
+    post:
+      operationId: sendPasswordResetForUser
+      tags: [auth]
+      summary: Admin-initiated password reset that emails the link to the user (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Email sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmailDeliveryResult" }
+        "403": { description: Admin only }
+        "404": { description: User not found }
+        "503": { description: Email is not configured on the server }
 
   /auth/login:
     post:
@@ -651,6 +691,12 @@ components:
       properties:
         resetUrl: { type: string }
         expiresAt: { type: string, format: date-time }
+
+    EmailDeliveryResult:
+      type: object
+      required: [delivered]
+      properties:
+        delivered: { type: boolean }
 
     UpdateUserBody:
       type: object
