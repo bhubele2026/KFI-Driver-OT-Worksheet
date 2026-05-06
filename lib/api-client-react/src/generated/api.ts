@@ -22,6 +22,7 @@ import type {
   AuthCredentials,
   ConfirmNewCustomerInput,
   ConfirmNewCustomerResult,
+  ConnecteamClocksAudit,
   CreateInviteBody,
   CustomerUploadStatus,
   DriverWeek,
@@ -2173,6 +2174,82 @@ export function useGetDriverWeek<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetDriverWeekQueryOptions(weekStart, kfiId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List every Connecteam time-clock and flag any that aren't being pulled (admin)
+ */
+export const getAuditConnecteamTimeClocksUrl = () => {
+  return `/api/admin/connecteam/time-clocks-audit`;
+};
+
+export const auditConnecteamTimeClocks = async (
+  options?: RequestInit,
+): Promise<ConnecteamClocksAudit> => {
+  return customFetch<ConnecteamClocksAudit>(getAuditConnecteamTimeClocksUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAuditConnecteamTimeClocksQueryKey = () => {
+  return [`/api/admin/connecteam/time-clocks-audit`] as const;
+};
+
+export const getAuditConnecteamTimeClocksQueryOptions = <
+  TData = Awaited<ReturnType<typeof auditConnecteamTimeClocks>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof auditConnecteamTimeClocks>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getAuditConnecteamTimeClocksQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof auditConnecteamTimeClocks>>
+  > = ({ signal }) => auditConnecteamTimeClocks({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof auditConnecteamTimeClocks>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AuditConnecteamTimeClocksQueryResult = NonNullable<
+  Awaited<ReturnType<typeof auditConnecteamTimeClocks>>
+>;
+export type AuditConnecteamTimeClocksQueryError = ErrorType<void>;
+
+/**
+ * @summary List every Connecteam time-clock and flag any that aren't being pulled (admin)
+ */
+
+export function useAuditConnecteamTimeClocks<
+  TData = Awaited<ReturnType<typeof auditConnecteamTimeClocks>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof auditConnecteamTimeClocks>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAuditConnecteamTimeClocksQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

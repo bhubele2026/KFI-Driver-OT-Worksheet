@@ -105,6 +105,22 @@ export interface EmailDeliveryResult {
   delivered: boolean;
 }
 
+export interface ConnecteamTimeClock {
+  id: number;
+  name: string;
+  isArchived: boolean;
+  /** Whether this clock is currently in TIME_CLOCKS and being pulled by refresh. */
+  configured: boolean;
+}
+
+export interface ConnecteamClocksAudit {
+  discovered: ConnecteamTimeClock[];
+  /** Clocks that exist in Connecteam but aren't being pulled. */
+  missing: ConnecteamTimeClock[];
+  /** Clock IDs in TIME_CLOCKS that no longer exist in the account. */
+  configuredButMissingFromAccount: number[];
+}
+
 export interface RateLimitBucket {
   name: string;
   key: string;

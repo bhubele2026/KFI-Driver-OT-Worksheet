@@ -449,6 +449,20 @@ paths:
               schema: { $ref: "#/components/schemas/DriverWeek" }
         "404": { description: Driver not found for week }
 
+  /admin/connecteam/time-clocks-audit:
+    get:
+      operationId: auditConnecteamTimeClocks
+      tags: [ingest]
+      summary: List every Connecteam time-clock and flag any that aren't being pulled (admin)
+      responses:
+        "200":
+          description: Audit result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnecteamClocksAudit" }
+        "403": { description: Admin only }
+        "502": { description: Upstream Connecteam error }
+
   /weeks/{weekStart}/refresh-connecteam:
     post:
       operationId: refreshConnecteam
@@ -758,6 +772,33 @@ components:
       required: [delivered]
       properties:
         delivered: { type: boolean }
+
+    ConnecteamTimeClock:
+      type: object
+      required: [id, name, isArchived, configured]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        isArchived: { type: boolean }
+        configured:
+          type: boolean
+          description: Whether this clock is currently in TIME_CLOCKS and being pulled by refresh.
+
+    ConnecteamClocksAudit:
+      type: object
+      required: [discovered, missing, configuredButMissingFromAccount]
+      properties:
+        discovered:
+          type: array
+          items: { $ref: "#/components/schemas/ConnecteamTimeClock" }
+        missing:
+          type: array
+          description: Clocks that exist in Connecteam but aren't being pulled.
+          items: { $ref: "#/components/schemas/ConnecteamTimeClock" }
+        configuredButMissingFromAccount:
+          type: array
+          description: Clock IDs in TIME_CLOCKS that no longer exist in the account.
+          items: { type: integer }
 
     RateLimitBucket:
       type: object

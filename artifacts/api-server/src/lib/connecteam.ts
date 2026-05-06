@@ -73,6 +73,48 @@ function getCustomFieldValue(u: CtUser, name: string): string | undefined {
   return undefined;
 }
 
+export interface ConnecteamTimeClock {
+  id: number;
+  name: string;
+  isArchived: boolean;
+}
+
+/** List every time-clock that exists in the Connecteam account (paginated). */
+export async function fetchAllTimeClocks(): Promise<ConnecteamTimeClock[]> {
+  const out: ConnecteamTimeClock[] = [];
+  const seen = new Set<number>();
+  const limit = 200;
+  let offset = 0;
+  // Hard cap iterations so a malformed response can't infinite-loop.
+  for (let page = 0; page < 50; page++) {
+    const data = (await ctFetch(
+      `/time-clock/v1/time-clocks?limit=${limit}&offset=${offset}`,
+    )) as {
+      data?: {
+        timeClocks?: Array<{ id: number; name?: string; isArchived?: boolean }>;
+      };
+    };
+    const list = data?.data?.timeClocks ?? [];
+    if (list.length === 0) break;
+    let added = 0;
+    for (const c of list) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      out.push({
+        id: c.id,
+        name: c.name ?? `Clock ${c.id}`,
+        isArchived: Boolean(c.isArchived),
+      });
+      added++;
+    }
+    // Defense in depth: if the page returned only dupes, stop to avoid loops.
+    if (added === 0) break;
+    if (list.length < limit) break;
+    offset += limit;
+  }
+  return out;
+}
+
 /** Fetch the entire user roster (paginated, 500/page). */
 export async function fetchAllUsers(): Promise<ConnecteamDriver[]> {
   const drivers: ConnecteamDriver[] = [];

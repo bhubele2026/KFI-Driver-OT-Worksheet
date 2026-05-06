@@ -488,6 +488,41 @@ export const GetDriverWeekResponse = zod.object({
 });
 
 /**
+ * @summary List every Connecteam time-clock and flag any that aren't being pulled (admin)
+ */
+export const AuditConnecteamTimeClocksResponse = zod.object({
+  discovered: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      isArchived: zod.boolean(),
+      configured: zod
+        .boolean()
+        .describe(
+          "Whether this clock is currently in TIME_CLOCKS and being pulled by refresh.",
+        ),
+    }),
+  ),
+  missing: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        name: zod.string(),
+        isArchived: zod.boolean(),
+        configured: zod
+          .boolean()
+          .describe(
+            "Whether this clock is currently in TIME_CLOCKS and being pulled by refresh.",
+          ),
+      }),
+    )
+    .describe("Clocks that exist in Connecteam but aren't being pulled."),
+  configuredButMissingFromAccount: zod
+    .array(zod.number())
+    .describe("Clock IDs in TIME_CLOCKS that no longer exist in the account."),
+});
+
+/**
  * @summary Pull driver punches for the week from Connecteam
  */
 export const refreshConnecteamPathWeekStartRegExp = new RegExp(

@@ -7,11 +7,13 @@ import {
   SetReviewedBody,
 } from "@workspace/api-zod";
 import { db, schema } from "../lib/db.js";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireAdmin } from "../lib/auth.js";
 import {
+  fetchAllTimeClocks,
   fetchAllUsers,
   fetchPunchesForWeek,
 } from "../lib/connecteam.js";
+import { TIME_CLOCKS } from "../lib/mappings.js";
 import {
   computeChecks,
   computeDailyTotals,
@@ -362,6 +364,33 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
     reviewed: Boolean(reviewed),
   });
 });
+
+weeksRouter.get(
+  "/admin/connecteam/time-clocks-audit",
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const clocks = await fetchAllTimeClocks();
+      const configuredSet = new Set<number>(TIME_CLOCKS as readonly number[]);
+      const discovered = clocks
+        .map((c) => ({ ...c, configured: configuredSet.has(c.id) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const discoveredIds = new Set(clocks.map((c) => c.id));
+      res.json({
+        discovered,
+        missing: discovered.filter((c) => !c.configured),
+        configuredButMissingFromAccount: [...configuredSet].filter(
+          (id) => !discoveredIds.has(id),
+        ),
+      });
+    } catch (err) {
+      req.log.error({ err }, "Connecteam time-clocks audit failed");
+      res
+        .status(502)
+        .json({ error: err instanceof Error ? err.message : "Connecteam error" });
+    }
+  },
+);
 
 weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
   const weekStart = req.params.weekStart;

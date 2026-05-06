@@ -16,6 +16,8 @@ export * from "./confirmNewCustomerInput";
 export * from "./confirmNewCustomerInputMapping";
 export * from "./confirmNewCustomerResult";
 export * from "./confirmNewCustomerRow";
+export * from "./connecteamClocksAudit";
+export * from "./connecteamTimeClock";
 export * from "./createInviteBody";
 export * from "./customerUploadStatus";
 export * from "./dailyTotals";
