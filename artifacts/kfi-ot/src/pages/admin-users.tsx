@@ -13,6 +13,7 @@ import {
   useGetMailerStatus,
   useListRateLimitBuckets,
   useListRateLimitEvents,
+  useListRateLimitEventTimeseries,
   useClearRateLimitBucket,
   useListUserAuditLog,
   useAuditConnecteamTimeClocks,
@@ -24,6 +25,7 @@ import {
   getGetMailerStatusQueryKey,
   getListRateLimitBucketsQueryKey,
   getListRateLimitEventsQueryKey,
+  getListRateLimitEventTimeseriesQueryKey,
   getListUserAuditLogQueryKey,
   getAuditConnecteamTimeClocksQueryKey,
   getListIpBlocklistQueryKey,
@@ -65,7 +67,17 @@ import {
   Trash2,
   Unlock,
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 function copy(text: string, toast: ReturnType<typeof useToast>["toast"]) {
   navigator.clipboard
@@ -141,6 +153,18 @@ export default function AdminUsers() {
         refetchInterval: 60_000,
       },
     });
+  const { data: rateLimitTimeseries, isLoading: timeseriesLoading } =
+    useListRateLimitEventTimeseries(
+      { days: 7 },
+      {
+        query: {
+          enabled: !!me?.isAdmin,
+          queryKey: getListRateLimitEventTimeseriesQueryKey({ days: 7 }),
+          refetchInterval: 60_000,
+        },
+      },
+    );
+  const [lockoutDayFilter, setLockoutDayFilter] = useState<string | null>(null);
   const clearBucket = useClearRateLimitBucket();
 
   const { data: ipBlocklist, isLoading: blocklistLoading } = useListIpBlocklist({
@@ -749,87 +773,133 @@ export default function AdminUsers() {
                 at least once in the past week. Use the count to spot repeat
                 offenders worth blocklisting at the network edge.
               </p>
-              {eventsLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              ) : rateLimitEvents && rateLimitEvents.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Limiter</TableHead>
-                      <TableHead>Key</TableHead>
-                      <TableHead className="text-right">Lockouts</TableHead>
-                      <TableHead>First</TableHead>
-                      <TableHead>Most recent</TableHead>
-                      <TableHead className="w-[1%]" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rateLimitEvents.map((e) => {
-                      const ip = e.key.startsWith("ip:")
-                        ? e.key.slice(3)
-                        : null;
-                      const alreadyBlocked = ip
-                        ? blocklistedSet.has(ip)
-                        : false;
-                      return (
-                        <TableRow key={`${e.name}::${e.key}`}>
-                          <TableCell className="text-xs">
-                            <div className="font-medium">
-                              {formatBucketLabel(e.name)}
-                            </div>
-                            <div className="font-mono text-[10px] text-muted-foreground">
-                              {e.name}
-                            </div>
-                          </TableCell>
-                          <TableCell className="font-mono text-xs break-all">
-                            {e.key}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs font-semibold">
-                            {e.count}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
-                            {format(new Date(e.firstBlockedAt), "MMM d, h:mm a")}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
-                            {format(new Date(e.lastBlockedAt), "MMM d, h:mm a")}
-                          </TableCell>
-                          <TableCell className="flex justify-end">
-                            {ip ? (
-                              alreadyBlocked ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-rose-700 dark:text-rose-300">
-                                  <ShieldX className="h-3 w-3" />
-                                  Blocked
-                                </span>
-                              ) : (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() =>
-                                    handleBlockIp(
-                                      ip,
-                                      `Repeat offender: ${e.count} lockouts on ${e.name}`,
-                                    )
-                                  }
-                                  disabled={addBlocklist.isPending}
-                                  title="Add this IP to the blocklist"
-                                >
-                                  <ShieldX className="h-3 w-3 mr-1" />
-                                  Block IP
-                                </Button>
-                              )
-                            ) : null}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              ) : (
-                <p className="text-sm text-muted-foreground italic">
-                  No lockouts in the past 7 days.
-                </p>
+
+              <LockoutPressureChart
+                isLoading={timeseriesLoading}
+                points={rateLimitTimeseries ?? []}
+                selectedDay={lockoutDayFilter}
+                onSelectDay={(day) =>
+                  setLockoutDayFilter((prev) => (prev === day ? null : day))
+                }
+                formatLabel={formatBucketLabel}
+              />
+
+              {lockoutDayFilter && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs">
+                  <span>
+                    Showing lockouts active on{" "}
+                    <span className="font-mono">
+                      {format(parseISO(lockoutDayFilter), "MMM d, yyyy")}
+                    </span>{" "}
+                    (UTC).
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2"
+                    onClick={() => setLockoutDayFilter(null)}
+                  >
+                    Clear
+                  </Button>
+                </div>
               )}
+
+              {(() => {
+                const filtered = filterEventsByDay(
+                  rateLimitEvents ?? [],
+                  lockoutDayFilter,
+                );
+                if (eventsLoading) {
+                  return (
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  );
+                }
+                if (filtered.length === 0) {
+                  return (
+                    <p className="text-sm text-muted-foreground italic">
+                      {lockoutDayFilter
+                        ? "No lockouts active on the selected day."
+                        : "No lockouts in the past 7 days."}
+                    </p>
+                  );
+                }
+                return (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Limiter</TableHead>
+                        <TableHead>Key</TableHead>
+                        <TableHead className="text-right">Lockouts</TableHead>
+                        <TableHead>First</TableHead>
+                        <TableHead>Most recent</TableHead>
+                        <TableHead className="w-[1%]" />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filtered.map((e) => {
+                        const ip = e.key.startsWith("ip:")
+                          ? e.key.slice(3)
+                          : null;
+                        const alreadyBlocked = ip
+                          ? blocklistedSet.has(ip)
+                          : false;
+                        return (
+                          <TableRow key={`${e.name}::${e.key}`}>
+                            <TableCell className="text-xs">
+                              <div className="font-medium">
+                                {formatBucketLabel(e.name)}
+                              </div>
+                              <div className="font-mono text-[10px] text-muted-foreground">
+                                {e.name}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs break-all">
+                              {e.key}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs font-semibold">
+                              {e.count}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                              {format(new Date(e.firstBlockedAt), "MMM d, h:mm a")}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                              {format(new Date(e.lastBlockedAt), "MMM d, h:mm a")}
+                            </TableCell>
+                            <TableCell className="flex justify-end">
+                              {ip ? (
+                                alreadyBlocked ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-rose-700 dark:text-rose-300">
+                                    <ShieldX className="h-3 w-3" />
+                                    Blocked
+                                  </span>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      handleBlockIp(
+                                        ip,
+                                        `Repeat offender: ${e.count} lockouts on ${e.name}`,
+                                      )
+                                    }
+                                    disabled={addBlocklist.isPending}
+                                    title="Add this IP to the blocklist"
+                                  >
+                                    <ShieldX className="h-3 w-3 mr-1" />
+                                    Block IP
+                                  </Button>
+                                )
+                              ) : null}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                );
+              })()}
             </div>
 
             <div className="mt-6">
@@ -1342,4 +1412,230 @@ function UserAuditHistory({
       </Table>
     </div>
   );
+}
+
+const LIMITER_COLORS: Record<string, string> = {
+  "login:ip": "hsl(var(--chart-1))",
+  "login:email": "hsl(var(--chart-2))",
+  "auth:request-reset": "hsl(var(--chart-4))",
+  "auth:token-submit": "hsl(var(--chart-5))",
+  "auth:token-lookup": "hsl(var(--chart-3))",
+};
+
+const FALLBACK_COLORS = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-4))",
+  "hsl(var(--chart-5))",
+  "hsl(var(--chart-3))",
+];
+
+function colorFor(name: string, index: number): string {
+  return LIMITER_COLORS[name] ?? FALLBACK_COLORS[index % FALLBACK_COLORS.length];
+}
+
+interface LockoutPressureChartProps {
+  isLoading: boolean;
+  points: { day: string; name: string; count: number }[];
+  selectedDay: string | null;
+  onSelectDay: (day: string) => void;
+  formatLabel: (name: string) => string;
+}
+
+function LockoutPressureChart({
+  isLoading,
+  points,
+  selectedDay,
+  onSelectDay,
+  formatLabel,
+}: LockoutPressureChartProps) {
+  if (isLoading) {
+    return (
+      <div className="mb-3 flex h-[160px] items-center justify-center rounded-md border border-border/50 bg-muted/20">
+        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Pivot the long-form rows into one record per day with a column per limiter.
+  const dayMap = new Map<string, Record<string, number>>();
+  const limiterNames: string[] = [];
+  for (const p of points) {
+    if (!dayMap.has(p.day)) dayMap.set(p.day, {});
+    dayMap.get(p.day)![p.name] = p.count;
+    if (!limiterNames.includes(p.name)) limiterNames.push(p.name);
+  }
+  const rows = Array.from(dayMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, byName]) => ({ day, ...byName }));
+
+  const total = rows.reduce(
+    (sum, r) =>
+      sum +
+      limiterNames.reduce(
+        (s, n) => s + ((r as unknown as Record<string, number>)[n] ?? 0),
+        0,
+      ),
+    0,
+  );
+  if (total === 0) {
+    return (
+      <div className="mb-3 rounded-md border border-dashed border-border/60 bg-muted/10 px-3 py-6 text-center text-xs italic text-muted-foreground">
+        No lockouts in the past 7 days — nothing to chart.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-3">
+      <div className="h-[180px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={rows}
+            margin={{ top: 8, right: 12, bottom: 0, left: -16 }}
+          >
+            <CartesianGrid
+              strokeDasharray="3 3"
+              vertical={false}
+              stroke="var(--border)"
+            />
+            <XAxis
+              dataKey="day"
+              tick={{ fontSize: 10 }}
+              tickFormatter={(v: string) => format(parseISO(v), "EEE M/d")}
+              stroke="var(--muted-foreground)"
+            />
+            <YAxis
+              allowDecimals={false}
+              tick={{ fontSize: 10 }}
+              stroke="var(--muted-foreground)"
+              width={32}
+            />
+            <Tooltip
+              cursor={{ fill: "var(--muted)", opacity: 0.4 }}
+              contentStyle={{
+                fontSize: 11,
+                background: "var(--popover)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                color: "var(--popover-foreground)",
+              }}
+              labelFormatter={(v: string) =>
+                format(parseISO(v), "EEEE, MMM d, yyyy") + " (UTC)"
+              }
+              formatter={(value: number, name: string) => [
+                value,
+                formatLabel(name),
+              ]}
+            />
+            <Legend
+              iconType="square"
+              wrapperStyle={{ fontSize: 10, paddingTop: 4 }}
+              formatter={(v: string) => formatLabel(v)}
+            />
+            {limiterNames.map((name, i) => (
+              <Bar
+                key={name}
+                dataKey={name}
+                stackId="lockouts"
+                fill={colorFor(name, i)}
+                radius={
+                  i === limiterNames.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]
+                }
+                onClick={(d: unknown) => {
+                  const day = (d as { day?: string } | undefined)?.day;
+                  if (day) onSelectDay(day);
+                }}
+                cursor="pointer"
+                opacity={selectedDay ? 0.35 : 1}
+                shape={(props: unknown) => {
+                  const p = props as {
+                    x: number;
+                    y: number;
+                    width: number;
+                    height: number;
+                    fill: string;
+                    payload?: { day?: string };
+                    radius?: number | [number, number, number, number];
+                  };
+                  const dimmed =
+                    selectedDay != null && p.payload?.day !== selectedDay;
+                  const r = Array.isArray(p.radius)
+                    ? p.radius
+                    : ([0, 0, 0, 0] as [number, number, number, number]);
+                  const [tl, tr, br, bl] = r;
+                  const path = roundedRectPath(
+                    p.x,
+                    p.y,
+                    p.width,
+                    p.height,
+                    tl,
+                    tr,
+                    br,
+                    bl,
+                  );
+                  return (
+                    <path
+                      d={path}
+                      fill={p.fill}
+                      opacity={dimmed ? 0.35 : 1}
+                    />
+                  );
+                }}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-1 text-[10px] text-muted-foreground">
+        Tip: click a bar to filter the table below to lockouts active on that
+        day.
+      </div>
+    </div>
+  );
+}
+
+function roundedRectPath(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  tl: number,
+  tr: number,
+  br: number,
+  bl: number,
+): string {
+  if (w <= 0 || h <= 0) return "";
+  const cap = Math.max(0, Math.min(w / 2, h / 2));
+  const _tl = Math.min(tl, cap);
+  const _tr = Math.min(tr, cap);
+  const _br = Math.min(br, cap);
+  const _bl = Math.min(bl, cap);
+  return [
+    `M${x + _tl},${y}`,
+    `H${x + w - _tr}`,
+    _tr ? `A${_tr},${_tr} 0 0 1 ${x + w},${y + _tr}` : "",
+    `V${y + h - _br}`,
+    _br ? `A${_br},${_br} 0 0 1 ${x + w - _br},${y + h}` : "",
+    `H${x + _bl}`,
+    _bl ? `A${_bl},${_bl} 0 0 1 ${x},${y + h - _bl}` : "",
+    `V${y + _tl}`,
+    _tl ? `A${_tl},${_tl} 0 0 1 ${x + _tl},${y}` : "",
+    "Z",
+  ].join(" ");
+}
+
+function utcDay(iso: string): string {
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+function filterEventsByDay<
+  E extends { firstBlockedAt: string; lastBlockedAt: string },
+>(events: E[], day: string | null): E[] {
+  if (!day) return events;
+  return events.filter((e) => {
+    const first = utcDay(e.firstBlockedAt);
+    const last = utcDay(e.lastBlockedAt);
+    return first <= day && day <= last;
+  });
 }

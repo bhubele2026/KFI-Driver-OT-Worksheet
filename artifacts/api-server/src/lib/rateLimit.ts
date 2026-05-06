@@ -331,6 +331,68 @@ export async function listRecentLockouts(
   }));
 }
 
+export interface LockoutTimeseriesPoint {
+  /** ISO date `YYYY-MM-DD` (UTC day boundary). */
+  day: string;
+  /** Limiter name (e.g. `login:ip`). */
+  name: string;
+  /** Number of lockout events that fired in this bucket. */
+  count: number;
+}
+
+/**
+ * Daily lockout counts grouped by limiter name, padded so every (day, name)
+ * pair in the window has a row even when the count is zero. Used by the
+ * admin Security panel chart so trendlines and gaps are visually obvious.
+ */
+export async function listLockoutTimeseries(
+  pool: Pool,
+  opts: { days?: number } = {},
+): Promise<LockoutTimeseriesPoint[]> {
+  const days = Math.max(1, Math.min(90, opts.days ?? 7));
+  // Anchor "today" to the UTC day boundary so the same row count comes back
+  // regardless of when in the day the request fires.
+  const todayUtcMs = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+  const startMs = todayUtcMs - (days - 1) * 86_400_000;
+  const since = new Date(startMs);
+  const r = await pool.query<{
+    day: Date;
+    name: string;
+    count: string;
+  }>(
+    `SELECT date_trunc('day', blocked_at AT TIME ZONE 'UTC') AS day,
+            name,
+            COUNT(*)::text AS count
+     FROM rate_limit_events
+     WHERE blocked_at >= $1
+     GROUP BY 1, 2
+     ORDER BY 1 ASC`,
+    [since],
+  );
+  // Build a (day, name) -> count map plus the set of limiter names that
+  // actually showed up, so we can pad zeros only for relevant series.
+  const counts = new Map<string, number>();
+  const names = new Set<string>();
+  for (const row of r.rows) {
+    const day = isoDay(row.day);
+    counts.set(`${day}::${row.name}`, Number(row.count));
+    names.add(row.name);
+  }
+  const out: LockoutTimeseriesPoint[] = [];
+  for (let i = 0; i < days; i++) {
+    const day = isoDay(new Date(startMs + i * 86_400_000));
+    for (const name of names) {
+      out.push({ day, name, count: counts.get(`${day}::${name}`) ?? 0 });
+    }
+  }
+  return out;
+}
+
+function isoDay(d: Date): string {
+  // YYYY-MM-DD in UTC.
+  return d.toISOString().slice(0, 10);
+}
+
 function clientIp(req: Request): string {
   return (req.ip ?? req.socket.remoteAddress ?? "unknown").toString();
 }

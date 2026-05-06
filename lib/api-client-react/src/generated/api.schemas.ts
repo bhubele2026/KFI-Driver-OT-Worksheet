@@ -159,6 +159,13 @@ export interface AddIpBlocklistBody {
   reason?: string | null;
 }
 
+export interface RateLimitLockoutTimeseriesPoint {
+  /** UTC day boundary as `YYYY-MM-DD`. */
+  day: string;
+  name: string;
+  count: number;
+}
+
 export interface UserAuditLogEntry {
   id: number;
   action: string;
@@ -527,6 +534,14 @@ export interface UpdateCustomerNameAliasBody {
   /** @minLength 1 */
   kfiId: string;
 }
+
+export type ListRateLimitEventTimeseriesParams = {
+  /**
+   * @minimum 1
+   * @maximum 90
+   */
+  days?: number;
+};
 
 export type ListUserAuditLogParams = {
   /**

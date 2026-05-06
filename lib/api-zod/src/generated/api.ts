@@ -287,6 +287,29 @@ export const ListRateLimitEventsResponse = zod.array(
 );
 
 /**
+ * @summary Daily lockout counts grouped by limiter name (admin)
+ */
+export const listRateLimitEventTimeseriesQueryDaysDefault = 7;
+export const listRateLimitEventTimeseriesQueryDaysMax = 90;
+
+export const ListRateLimitEventTimeseriesQueryParams = zod.object({
+  days: zod.coerce
+    .number()
+    .min(1)
+    .max(listRateLimitEventTimeseriesQueryDaysMax)
+    .default(listRateLimitEventTimeseriesQueryDaysDefault),
+});
+
+export const ListRateLimitEventTimeseriesResponseItem = zod.object({
+  day: zod.string().describe("UTC day boundary as `YYYY-MM-DD`."),
+  name: zod.string(),
+  count: zod.number(),
+});
+export const ListRateLimitEventTimeseriesResponse = zod.array(
+  ListRateLimitEventTimeseriesResponseItem,
+);
+
+/**
  * @summary Clear a specific rate-limit bucket (admin), e.g. unlock an account or IP
  */
 export const ClearRateLimitBucketParams = zod.object({

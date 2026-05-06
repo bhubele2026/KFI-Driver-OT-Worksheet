@@ -25,6 +25,7 @@ import {
   ipRateLimit,
   listActiveBuckets,
   listRecentLockouts,
+  listLockoutTimeseries,
   recordLoginFailure,
   recordLoginSuccess,
 } from "../lib/rateLimit.js";
@@ -725,6 +726,20 @@ authRouter.get("/auth/rate-limit-events", requireAdmin, async (_req, res) => {
     })),
   );
 });
+
+authRouter.get(
+  "/auth/rate-limit-events/timeseries",
+  requireAdmin,
+  async (req, res) => {
+    const daysRaw = Number(req.query.days);
+    const days =
+      Number.isFinite(daysRaw) && daysRaw >= 1 && daysRaw <= 90
+        ? Math.floor(daysRaw)
+        : 7;
+    const series = await listLockoutTimeseries(pool, { days });
+    res.json(series);
+  },
+);
 
 authRouter.delete(
   "/auth/rate-limit-buckets/:name/:key",

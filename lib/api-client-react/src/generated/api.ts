@@ -38,6 +38,7 @@ import type {
   InviteWithLink,
   IpBlocklistEntry,
   ListAiExtractSamplesParams,
+  ListRateLimitEventTimeseriesParams,
   ListUserAuditLogParams,
   LoginCredentials,
   MailerStatus,
@@ -50,6 +51,7 @@ import type {
   Punch,
   RateLimitBucket,
   RateLimitLockout,
+  RateLimitLockoutTimeseriesPoint,
   RefreshResult,
   RegistrationStatus,
   RequestPasswordResetBody,
@@ -1606,6 +1608,115 @@ export function useListRateLimitEvents<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListRateLimitEventsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Daily lockout counts grouped by limiter name (admin)
+ */
+export const getListRateLimitEventTimeseriesUrl = (
+  params?: ListRateLimitEventTimeseriesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/auth/rate-limit-events/timeseries?${stringifiedParams}`
+    : `/api/auth/rate-limit-events/timeseries`;
+};
+
+export const listRateLimitEventTimeseries = async (
+  params?: ListRateLimitEventTimeseriesParams,
+  options?: RequestInit,
+): Promise<RateLimitLockoutTimeseriesPoint[]> => {
+  return customFetch<RateLimitLockoutTimeseriesPoint[]>(
+    getListRateLimitEventTimeseriesUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListRateLimitEventTimeseriesQueryKey = (
+  params?: ListRateLimitEventTimeseriesParams,
+) => {
+  return [
+    `/api/auth/rate-limit-events/timeseries`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getListRateLimitEventTimeseriesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listRateLimitEventTimeseries>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListRateLimitEventTimeseriesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listRateLimitEventTimeseries>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListRateLimitEventTimeseriesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listRateLimitEventTimeseries>>
+  > = ({ signal }) =>
+    listRateLimitEventTimeseries(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listRateLimitEventTimeseries>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListRateLimitEventTimeseriesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listRateLimitEventTimeseries>>
+>;
+export type ListRateLimitEventTimeseriesQueryError = ErrorType<void>;
+
+/**
+ * @summary Daily lockout counts grouped by limiter name (admin)
+ */
+
+export function useListRateLimitEventTimeseries<
+  TData = Awaited<ReturnType<typeof listRateLimitEventTimeseries>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListRateLimitEventTimeseriesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listRateLimitEventTimeseries>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListRateLimitEventTimeseriesQueryOptions(
+    params,
+    options,
+  );
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

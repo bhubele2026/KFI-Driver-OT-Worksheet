@@ -337,6 +337,26 @@ paths:
                 items: { $ref: "#/components/schemas/RateLimitLockout" }
         "403": { description: Admin only }
 
+  /auth/rate-limit-events/timeseries:
+    get:
+      operationId: listRateLimitEventTimeseries
+      tags: [auth]
+      summary: Daily lockout counts grouped by limiter name (admin)
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 90, default: 7 }
+      responses:
+        "200":
+          description: One row per (day, limiter) in the window, padded with zeros.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RateLimitLockoutTimeseriesPoint" }
+        "403": { description: Admin only }
+
   /auth/rate-limit-buckets/{name}/{key}:
     delete:
       operationId: clearRateLimitBucket
@@ -1029,6 +1049,16 @@ components:
           description: The client IP address to block. Compared verbatim against `req.ip`.
         reason:
           type: ["string", "null"]
+
+    RateLimitLockoutTimeseriesPoint:
+      type: object
+      required: [day, name, count]
+      properties:
+        day:
+          type: string
+          description: UTC day boundary as `YYYY-MM-DD`.
+        name: { type: string }
+        count: { type: integer }
 
     UserAuditLogEntry:
       type: object
