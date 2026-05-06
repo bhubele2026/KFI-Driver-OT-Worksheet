@@ -99,7 +99,7 @@ export function looksLikeRosterDateJunk(value: string | undefined): boolean {
  * unwraps the common shapes and returns a plain string, or undefined if there
  * is nothing usable.
  */
-function coerceCustomFieldValue(value: unknown): string | undefined {
+export function coerceCustomFieldValue(value: unknown): string | undefined {
   if (value == null) return undefined;
   if (typeof value === "string") return value || undefined;
   if (typeof value === "number" || typeof value === "boolean") {
