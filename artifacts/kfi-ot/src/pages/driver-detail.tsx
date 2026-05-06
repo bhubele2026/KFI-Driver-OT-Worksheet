@@ -188,7 +188,17 @@ export default function DriverDetail() {
           <div className="h-4 w-px bg-sidebar-border" />
           <div>
             <h1 className="font-display font-bold text-lg tracking-tight leading-none">{data.driver.name}</h1>
-            <p className="text-xs text-sidebar-foreground/70 font-mono mt-0.5">{data.driver.kfiId} • {data.driver.customer}</p>
+            <p className="text-sm text-sidebar-foreground/90 mt-1 leading-none">
+              <span className="font-medium">
+                {data.driver.customer && data.driver.customer !== "Unknown"
+                  ? data.driver.customer
+                  : "Unassigned"}
+              </span>
+              <span className="text-sidebar-foreground/50 mx-2">·</span>
+              <span className="font-mono text-xs text-sidebar-foreground/70">
+                {data.driver.kfiId}
+              </span>
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-6">

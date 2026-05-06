@@ -67,8 +67,36 @@ function getCustomFieldValue(u: CtUser, name: string): string | undefined {
   const lower = name.toLowerCase();
   for (const f of u.customFields ?? []) {
     if (typeof f.name === "string" && f.name.toLowerCase().includes(lower)) {
-      return f.value == null ? undefined : String(f.value);
+      return coerceCustomFieldValue(f.value);
     }
+  }
+  return undefined;
+}
+
+/**
+ * Connecteam custom-field values are typed (`str`, `dropdown`, `directManager`,
+ * etc). Dropdown values come back as `[{ id, value }]` (array), and other
+ * structured types may come back as `{ value: "..." }`. Naive `String(value)`
+ * yields `"[object Object]"` and corrupts the customer column. This helper
+ * unwraps the common shapes and returns a plain string, or undefined if there
+ * is nothing usable.
+ */
+function coerceCustomFieldValue(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value === "string") return value || undefined;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((v) => coerceCustomFieldValue(v))
+      .filter((v): v is string => Boolean(v));
+    return parts.length > 0 ? parts.join(", ") : undefined;
+  }
+  if (typeof value === "object") {
+    const inner = (value as { value?: unknown; name?: unknown }).value
+      ?? (value as { value?: unknown; name?: unknown }).name;
+    return coerceCustomFieldValue(inner);
   }
   return undefined;
 }

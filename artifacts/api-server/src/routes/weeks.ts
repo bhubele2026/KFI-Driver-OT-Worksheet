@@ -265,12 +265,30 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     (a, b) =>
       a.customer.localeCompare(b.customer) || a.name.localeCompare(b.name),
   );
-  const customers = [...new Set(rows.map((r) => r.customer))]
-    .sort()
-    .map((customer) => ({
-      customer,
-      drivers: rows.filter((r) => r.customer === customer),
-    }));
+  // Group drivers by customer in a stable, dispatcher-friendly order:
+  // KNOWN_CUSTOMERS first (matches the customer-files panel), then any extras
+  // alphabetically, then a single "Unassigned" bucket for drivers whose
+  // roster customer is missing or "Unknown".
+  const UNASSIGNED = "Unassigned";
+  const customerKey = (c: string) =>
+    !c || c === "Unknown" ? UNASSIGNED : c;
+  const knownOrder = new Map<string, number>(
+    KNOWN_CUSTOMERS.map((c, i) => [c.displayName, i]),
+  );
+  const present = new Set(rows.map((r) => customerKey(r.customer)));
+  const ordered: string[] = [];
+  for (const c of KNOWN_CUSTOMERS) {
+    if (present.has(c.displayName)) ordered.push(c.displayName);
+  }
+  const extras = [...present]
+    .filter((c) => c !== UNASSIGNED && !knownOrder.has(c))
+    .sort((a, b) => a.localeCompare(b));
+  ordered.push(...extras);
+  if (present.has(UNASSIGNED)) ordered.push(UNASSIGNED);
+  const customers = ordered.map((customer) => ({
+    customer,
+    drivers: rows.filter((r) => customerKey(r.customer) === customer),
+  }));
 
   res.json({
     startDate: weekStart,
