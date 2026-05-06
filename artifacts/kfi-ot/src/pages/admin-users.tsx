@@ -12,6 +12,7 @@ import {
   useGetMe,
   useGetMailerStatus,
   useListRateLimitBuckets,
+  useListRateLimitEvents,
   useClearRateLimitBucket,
   useListUserAuditLog,
   useAuditConnecteamTimeClocks,
@@ -19,6 +20,7 @@ import {
   getListInvitesQueryKey,
   getGetMailerStatusQueryKey,
   getListRateLimitBucketsQueryKey,
+  getListRateLimitEventsQueryKey,
   getListUserAuditLogQueryKey,
   getAuditConnecteamTimeClocksQueryKey,
 } from "@workspace/api-client-react";
@@ -123,6 +125,14 @@ export default function AdminUsers() {
         enabled: !!me?.isAdmin,
         queryKey: getListRateLimitBucketsQueryKey(),
         refetchInterval: 30_000,
+      },
+    });
+  const { data: rateLimitEvents, isLoading: eventsLoading } =
+    useListRateLimitEvents({
+      query: {
+        enabled: !!me?.isAdmin,
+        queryKey: getListRateLimitEventsQueryKey(),
+        refetchInterval: 60_000,
       },
     });
   const clearBucket = useClearRateLimitBucket();
@@ -637,6 +647,63 @@ export default function AdminUsers() {
                 traffic look normal.
               </p>
             )}
+
+            <div className="mt-6">
+              <h3 className="font-display text-sm font-semibold flex items-center gap-2 mb-1">
+                <ShieldAlert className="h-3.5 w-3.5" />
+                Recent lockouts (last 7 days)
+              </h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Each row is a (limiter, key) pair that has hit its threshold
+                at least once in the past week. Use the count to spot repeat
+                offenders worth blocklisting at the network edge.
+              </p>
+              {eventsLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              ) : rateLimitEvents && rateLimitEvents.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Limiter</TableHead>
+                      <TableHead>Key</TableHead>
+                      <TableHead className="text-right">Lockouts</TableHead>
+                      <TableHead>First</TableHead>
+                      <TableHead>Most recent</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rateLimitEvents.map((e) => (
+                      <TableRow key={`${e.name}::${e.key}`}>
+                        <TableCell className="text-xs">
+                          <div className="font-medium">
+                            {formatBucketLabel(e.name)}
+                          </div>
+                          <div className="font-mono text-[10px] text-muted-foreground">
+                            {e.name}
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs break-all">
+                          {e.key}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-xs font-semibold">
+                          {e.count}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                          {format(new Date(e.firstBlockedAt), "MMM d, h:mm a")}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                          {format(new Date(e.lastBlockedAt), "MMM d, h:mm a")}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">
+                  No lockouts in the past 7 days.
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
 

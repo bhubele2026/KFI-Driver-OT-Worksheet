@@ -44,6 +44,7 @@ import type {
   PublicPasswordReset,
   Punch,
   RateLimitBucket,
+  RateLimitLockout,
   RefreshResult,
   RegistrationStatus,
   RequestPasswordResetBody,
@@ -1523,6 +1524,81 @@ export function useListRateLimitBuckets<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListRateLimitBucketsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Recent rate-limit lockouts grouped by (limiter, key) over the last 7 days (admin)
+ */
+export const getListRateLimitEventsUrl = () => {
+  return `/api/auth/rate-limit-events`;
+};
+
+export const listRateLimitEvents = async (
+  options?: RequestInit,
+): Promise<RateLimitLockout[]> => {
+  return customFetch<RateLimitLockout[]>(getListRateLimitEventsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListRateLimitEventsQueryKey = () => {
+  return [`/api/auth/rate-limit-events`] as const;
+};
+
+export const getListRateLimitEventsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listRateLimitEvents>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listRateLimitEvents>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListRateLimitEventsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listRateLimitEvents>>
+  > = ({ signal }) => listRateLimitEvents({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listRateLimitEvents>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListRateLimitEventsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listRateLimitEvents>>
+>;
+export type ListRateLimitEventsQueryError = ErrorType<void>;
+
+/**
+ * @summary Recent rate-limit lockouts grouped by (limiter, key) over the last 7 days (admin)
+ */
+
+export function useListRateLimitEvents<
+  TData = Awaited<ReturnType<typeof listRateLimitEvents>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listRateLimitEvents>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListRateLimitEventsQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

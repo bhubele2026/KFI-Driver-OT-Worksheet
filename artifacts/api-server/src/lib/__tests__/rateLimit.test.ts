@@ -8,6 +8,7 @@ import {
   loginIpLimiter,
   recordLoginFailure,
   recordLoginSuccess,
+  setRateLimitEventSink,
 } from "../rateLimit.js";
 
 // Force a fresh in-memory backend for the test suite so buckets don't bleed
@@ -108,6 +109,34 @@ test("successful login does NOT clear prior IP failures", async () => {
   const ok = await checkLoginLimits(fakeReq(ip), r2, attacker);
   assert.equal(ok, false, "IP bucket should still be exhausted after success");
   assert.equal(r2.statusCode, 429);
+});
+
+test("event sink fires once when a bucket first crosses its threshold", async () => {
+  const ip = "10.0.0.99";
+  const email = "sinkcheck@example.com";
+  await resetIp(ip);
+  await resetEmail(email);
+
+  const events: { name: string; key: string }[] = [];
+  setRateLimitEventSink((e) => events.push({ name: e.name, key: e.key }));
+  try {
+    // 5 failures = email bucket reaches max. Events should fire once for the
+    // email limiter (max=5) and zero times for the ip limiter (max=20).
+    for (let i = 0; i < 5; i++) {
+      await recordLoginFailure(fakeReq(ip), email);
+    }
+    // Extra failures inside the same window must NOT re-fire the sink.
+    await recordLoginFailure(fakeReq(ip), email);
+    await recordLoginFailure(fakeReq(ip), email);
+
+    const emailEvents = events.filter((e) => e.name === "login:email");
+    const ipEvents = events.filter((e) => e.name === "login:ip");
+    assert.equal(emailEvents.length, 1, "email sink fires exactly once");
+    assert.equal(emailEvents[0].key, `email:${email}`);
+    assert.equal(ipEvents.length, 0, "ip sink should not fire (under max)");
+  } finally {
+    setRateLimitEventSink(null);
+  }
 });
 
 test("successful login clears the per-email bucket for that email", async () => {

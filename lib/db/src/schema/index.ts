@@ -9,3 +9,4 @@ export * from "./customerUploadAttempts";
 export * from "./customerNameAliases";
 export * from "./rateLimitBuckets";
 export * from "./aiExtractSamples";
+export * from "./rateLimitEvents";

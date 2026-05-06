@@ -47,6 +47,7 @@ export * from "./publicPasswordReset";
 export * from "./punch";
 export * from "./punchSource";
 export * from "./rateLimitBucket";
+export * from "./rateLimitLockout";
 export * from "./refreshResult";
 export * from "./registrationStatus";
 export * from "./requestPasswordResetBody";

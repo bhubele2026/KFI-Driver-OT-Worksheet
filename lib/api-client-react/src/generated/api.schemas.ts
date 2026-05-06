@@ -131,6 +131,15 @@ export interface RateLimitBucket {
   blocked: boolean;
 }
 
+export interface RateLimitLockout {
+  name: string;
+  key: string;
+  /** Number of times this (limiter, key) pair was blocked in the window. */
+  count: number;
+  firstBlockedAt: string;
+  lastBlockedAt: string;
+}
+
 export interface UserAuditLogEntry {
   id: number;
   action: string;

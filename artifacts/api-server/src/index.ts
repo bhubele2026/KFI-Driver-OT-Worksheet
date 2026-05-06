@@ -7,6 +7,7 @@ import { pool } from "./lib/db";
 import {
   createPostgresBackend,
   setRateLimitBackend,
+  setRateLimitEventSink,
   startPostgresBackendCleanup,
 } from "./lib/rateLimit";
 import { startAiExtractSampleCleanup } from "./lib/aiExtractSampleCleanup";
@@ -56,6 +57,20 @@ async function main() {
     onError: (err) => logger.warn({ err }, "rate limit cleanup failed"),
   });
   startAiExtractSampleCleanup();
+  setRateLimitEventSink((event) => {
+    pool
+      .query(
+        `INSERT INTO rate_limit_events (name, key, blocked_at, expired_at)
+         VALUES ($1, $2, $3, $4)`,
+        [event.name, event.key, event.blockedAt, event.expiredAt],
+      )
+      .catch((err) =>
+        logger.warn(
+          { err, name: event.name, key: event.key },
+          "rate limit event insert failed",
+        ),
+      );
+  });
 
   app.listen(port, (err) => {
     if (err) {

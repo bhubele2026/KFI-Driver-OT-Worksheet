@@ -161,6 +161,28 @@ export function setRateLimitBackend(b: RateLimitBackend): void {
   backend = b;
 }
 
+// ---------------- Event logging ----------------
+
+/**
+ * Optional sink invoked once per "transition to blocked" event — i.e. the
+ * first increment that takes a bucket's count to (or past) its limiter's
+ * `max`. Subsequent denials inside the same window do NOT re-fire. The sink
+ * is best-effort and must not throw; failures should be swallowed so a
+ * persistence hiccup never breaks the user-facing rate-limit response.
+ */
+export type RateLimitEventSink = (event: {
+  name: string;
+  key: string;
+  blockedAt: Date;
+  expiredAt: Date;
+}) => void;
+
+let eventSink: RateLimitEventSink | null = null;
+
+export function setRateLimitEventSink(sink: RateLimitEventSink | null): void {
+  eventSink = sink;
+}
+
 // ---------------- Limiter registry ----------------
 
 interface RegisteredLimiter {
@@ -232,6 +254,52 @@ export async function clearBucket(name: string, key: string): Promise<void> {
   await backend.reset(name, key);
 }
 
+export interface RecentLockout {
+  name: string;
+  key: string;
+  count: number;
+  lastBlockedAt: number;
+  firstBlockedAt: number;
+}
+
+/**
+ * Aggregate recent rate-limit lockouts grouped by (name, key). Used by the
+ * admin Security activity panel to spot repeat offenders even after their
+ * live bucket has expired and disappeared from `rate_limit_buckets`.
+ */
+export async function listRecentLockouts(
+  pool: Pool,
+  opts: { sinceMs?: number; limit?: number } = {},
+): Promise<RecentLockout[]> {
+  const sinceMs = opts.sinceMs ?? 7 * 24 * 60 * 60 * 1000;
+  const limit = Math.max(1, Math.min(500, opts.limit ?? 100));
+  const since = new Date(Date.now() - sinceMs);
+  const r = await pool.query<{
+    name: string;
+    key: string;
+    count: string;
+    last_blocked_at: Date;
+    first_blocked_at: Date;
+  }>(
+    `SELECT name, key, COUNT(*)::text AS count,
+            MAX(blocked_at) AS last_blocked_at,
+            MIN(blocked_at) AS first_blocked_at
+     FROM rate_limit_events
+     WHERE blocked_at >= $1
+     GROUP BY name, key
+     ORDER BY MAX(blocked_at) DESC
+     LIMIT $2`,
+    [since, limit],
+  );
+  return r.rows.map((row) => ({
+    name: row.name,
+    key: row.key,
+    count: Number(row.count),
+    lastBlockedAt: row.last_blocked_at.getTime(),
+    firstBlockedAt: row.first_blocked_at.getTime(),
+  }));
+}
+
 function clientIp(req: Request): string {
   return (req.ip ?? req.socket.remoteAddress ?? "unknown").toString();
 }
@@ -262,6 +330,20 @@ export function createLimiter(opts: {
     async consume(key) {
       const { count, resetAt } = await backend.increment(name, key, windowMs);
       const now = Date.now();
+      // Fire the event sink exactly once per window, on the increment that
+      // first crosses the threshold. With +1 increments that's count == max.
+      if (count === max && eventSink) {
+        try {
+          eventSink({
+            name,
+            key,
+            blockedAt: new Date(now),
+            expiredAt: new Date(resetAt),
+          });
+        } catch {
+          // Sink errors must not affect the request path.
+        }
+      }
       if (count > max) {
         return {
           ok: false,

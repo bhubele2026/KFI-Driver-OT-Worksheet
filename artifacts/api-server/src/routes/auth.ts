@@ -24,6 +24,7 @@ import {
   clearBucket,
   ipRateLimit,
   listActiveBuckets,
+  listRecentLockouts,
   recordLoginFailure,
   recordLoginSuccess,
 } from "../lib/rateLimit.js";
@@ -644,6 +645,20 @@ authRouter.get("/auth/rate-limit-buckets", requireAdmin, async (_req, res) => {
     buckets.map((b) => ({
       ...b,
       resetAt: new Date(b.resetAt).toISOString(),
+    })),
+  );
+});
+
+authRouter.get("/auth/rate-limit-events", requireAdmin, async (_req, res) => {
+  const lockouts = await listRecentLockouts(pool, {
+    sinceMs: 7 * 24 * 60 * 60 * 1000,
+    limit: 200,
+  });
+  res.json(
+    lockouts.map((l) => ({
+      ...l,
+      firstBlockedAt: new Date(l.firstBlockedAt).toISOString(),
+      lastBlockedAt: new Date(l.lastBlockedAt).toISOString(),
     })),
   );
 });

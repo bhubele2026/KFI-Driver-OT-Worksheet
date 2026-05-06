@@ -269,6 +269,24 @@ export const ListRateLimitBucketsResponse = zod.array(
 );
 
 /**
+ * @summary Recent rate-limit lockouts grouped by (limiter, key) over the last 7 days (admin)
+ */
+export const ListRateLimitEventsResponseItem = zod.object({
+  name: zod.string(),
+  key: zod.string(),
+  count: zod
+    .number()
+    .describe(
+      "Number of times this (limiter, key) pair was blocked in the window.",
+    ),
+  firstBlockedAt: zod.coerce.date(),
+  lastBlockedAt: zod.coerce.date(),
+});
+export const ListRateLimitEventsResponse = zod.array(
+  ListRateLimitEventsResponseItem,
+);
+
+/**
  * @summary Clear a specific rate-limit bucket (admin), e.g. unlock an account or IP
  */
 export const ClearRateLimitBucketParams = zod.object({

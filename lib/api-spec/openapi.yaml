@@ -322,6 +322,21 @@ paths:
                 items: { $ref: "#/components/schemas/RateLimitBucket" }
         "403": { description: Admin only }
 
+  /auth/rate-limit-events:
+    get:
+      operationId: listRateLimitEvents
+      tags: [auth]
+      summary: Recent rate-limit lockouts grouped by (limiter, key) over the last 7 days (admin)
+      responses:
+        "200":
+          description: Recent lockouts (most-recent first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RateLimitLockout" }
+        "403": { description: Admin only }
+
   /auth/rate-limit-buckets/{name}/{key}:
     delete:
       operationId: clearRateLimitBucket
@@ -868,6 +883,18 @@ components:
         windowMs: { type: integer }
         resetAt: { type: string, format: date-time }
         blocked: { type: boolean }
+
+    RateLimitLockout:
+      type: object
+      required: [name, key, count, firstBlockedAt, lastBlockedAt]
+      properties:
+        name: { type: string }
+        key: { type: string }
+        count:
+          type: integer
+          description: Number of times this (limiter, key) pair was blocked in the window.
+        firstBlockedAt: { type: string, format: date-time }
+        lastBlockedAt: { type: string, format: date-time }
 
     UserAuditLogEntry:
       type: object
