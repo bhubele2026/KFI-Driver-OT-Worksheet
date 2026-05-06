@@ -815,6 +815,66 @@ export const DownloadAiExtractSampleParams = zod.object({
 });
 
 /**
+ * @summary List every saved (customer, nameOnDoc) → driver mapping (admin-only).
+ */
+export const ListCustomerNameAliasesResponse = zod.object({
+  aliases: zod.array(
+    zod.object({
+      customer: zod.string(),
+      nameOnDoc: zod.string(),
+      kfiId: zod.string(),
+      driverName: zod
+        .string()
+        .nullish()
+        .describe(
+          "Name from the drivers table for this kfiId, or null if the driver no longer exists.",
+        ),
+      driverCustomer: zod.string().nullish(),
+      driverIsArchived: zod.boolean().nullish(),
+      updatedAt: zod.coerce.date(),
+      updatedByEmail: zod.string().nullish(),
+    }),
+  ),
+  drivers: zod.array(
+    zod.object({
+      kfiId: zod.string(),
+      name: zod.string(),
+      customer: zod.string(),
+      ctUserId: zod.number().nullish(),
+      isDriver: zod.boolean(),
+    }),
+  ),
+});
+
+/**
+ * @summary Re-map a previously-saved alias to a different driver (admin-only).
+ */
+export const UpdateCustomerNameAliasQueryParams = zod.object({
+  customer: zod.coerce.string(),
+  nameOnDoc: zod.coerce.string(),
+});
+
+export const UpdateCustomerNameAliasBody = zod.object({
+  kfiId: zod.string().min(1),
+});
+
+export const UpdateCustomerNameAliasResponse = zod.object({
+  customer: zod.string(),
+  nameOnDoc: zod.string(),
+  kfiId: zod.string(),
+  driverName: zod
+    .string()
+    .nullish()
+    .describe(
+      "Name from the drivers table for this kfiId, or null if the driver no longer exists.",
+    ),
+  driverCustomer: zod.string().nullish(),
+  driverIsArchived: zod.boolean().nullish(),
+  updatedAt: zod.coerce.date(),
+  updatedByEmail: zod.string().nullish(),
+});
+
+/**
  * @summary Forget a previously-saved (customer, nameOnDoc) → kfiId mapping so the dispatcher can re-decide next time.
  */
 export const ForgetCustomerNameAliasQueryParams = zod.object({

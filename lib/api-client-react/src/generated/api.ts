@@ -25,6 +25,8 @@ import type {
   ConfirmNewCustomerResult,
   ConnecteamClocksAudit,
   CreateInviteBody,
+  CustomerNameAlias,
+  CustomerNameAliasList,
   CustomerUploadStatus,
   DriverWeek,
   EditPunchInput,
@@ -52,6 +54,8 @@ import type {
   ResetPasswordBody,
   SetReviewed200,
   SetReviewedBody,
+  UpdateCustomerNameAliasBody,
+  UpdateCustomerNameAliasParams,
   UpdateUserBody,
   UploadResult,
   User,
@@ -3057,6 +3061,199 @@ export function useDownloadAiExtractSample<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary List every saved (customer, nameOnDoc) → driver mapping (admin-only).
+ */
+export const getListCustomerNameAliasesUrl = () => {
+  return `/api/customer-aliases`;
+};
+
+export const listCustomerNameAliases = async (
+  options?: RequestInit,
+): Promise<CustomerNameAliasList> => {
+  return customFetch<CustomerNameAliasList>(getListCustomerNameAliasesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListCustomerNameAliasesQueryKey = () => {
+  return [`/api/customer-aliases`] as const;
+};
+
+export const getListCustomerNameAliasesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCustomerNameAliases>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCustomerNameAliases>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListCustomerNameAliasesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listCustomerNameAliases>>
+  > = ({ signal }) => listCustomerNameAliases({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCustomerNameAliases>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCustomerNameAliasesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCustomerNameAliases>>
+>;
+export type ListCustomerNameAliasesQueryError = ErrorType<void>;
+
+/**
+ * @summary List every saved (customer, nameOnDoc) → driver mapping (admin-only).
+ */
+
+export function useListCustomerNameAliases<
+  TData = Awaited<ReturnType<typeof listCustomerNameAliases>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCustomerNameAliases>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCustomerNameAliasesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Re-map a previously-saved alias to a different driver (admin-only).
+ */
+export const getUpdateCustomerNameAliasUrl = (
+  params: UpdateCustomerNameAliasParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/customer-aliases?${stringifiedParams}`
+    : `/api/customer-aliases`;
+};
+
+export const updateCustomerNameAlias = async (
+  updateCustomerNameAliasBody: UpdateCustomerNameAliasBody,
+  params: UpdateCustomerNameAliasParams,
+  options?: RequestInit,
+): Promise<CustomerNameAlias> => {
+  return customFetch<CustomerNameAlias>(getUpdateCustomerNameAliasUrl(params), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateCustomerNameAliasBody),
+  });
+};
+
+export const getUpdateCustomerNameAliasMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCustomerNameAlias>>,
+    TError,
+    {
+      data: BodyType<UpdateCustomerNameAliasBody>;
+      params: UpdateCustomerNameAliasParams;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateCustomerNameAlias>>,
+  TError,
+  {
+    data: BodyType<UpdateCustomerNameAliasBody>;
+    params: UpdateCustomerNameAliasParams;
+  },
+  TContext
+> => {
+  const mutationKey = ["updateCustomerNameAlias"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateCustomerNameAlias>>,
+    {
+      data: BodyType<UpdateCustomerNameAliasBody>;
+      params: UpdateCustomerNameAliasParams;
+    }
+  > = (props) => {
+    const { data, params } = props ?? {};
+
+    return updateCustomerNameAlias(data, params, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateCustomerNameAliasMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateCustomerNameAlias>>
+>;
+export type UpdateCustomerNameAliasMutationBody =
+  BodyType<UpdateCustomerNameAliasBody>;
+export type UpdateCustomerNameAliasMutationError = ErrorType<void>;
+
+/**
+ * @summary Re-map a previously-saved alias to a different driver (admin-only).
+ */
+export const useUpdateCustomerNameAlias = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCustomerNameAlias>>,
+    TError,
+    {
+      data: BodyType<UpdateCustomerNameAliasBody>;
+      params: UpdateCustomerNameAliasParams;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateCustomerNameAlias>>,
+  TError,
+  {
+    data: BodyType<UpdateCustomerNameAliasBody>;
+    params: UpdateCustomerNameAliasParams;
+  },
+  TContext
+> => {
+  return useMutation(getUpdateCustomerNameAliasMutationOptions(options));
+};
 
 /**
  * @summary Forget a previously-saved (customer, nameOnDoc) → kfiId mapping so the dispatcher can re-decide next time.

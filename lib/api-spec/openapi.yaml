@@ -627,6 +627,44 @@ paths:
         "404": { description: Sample not found or expired }
 
   /customer-aliases:
+    get:
+      operationId: listCustomerNameAliases
+      tags: [ingest]
+      summary: List every saved (customer, nameOnDoc) → driver mapping (admin-only).
+      responses:
+        "200":
+          description: Saved aliases joined with the resolved driver and the actor who last updated each one, plus the roster of available drivers for re-mapping.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomerNameAliasList" }
+        "403": { description: Admin only }
+    patch:
+      operationId: updateCustomerNameAlias
+      tags: [ingest]
+      summary: Re-map a previously-saved alias to a different driver (admin-only).
+      parameters:
+        - name: customer
+          in: query
+          required: true
+          schema: { type: string }
+        - name: nameOnDoc
+          in: query
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateCustomerNameAliasBody" }
+      responses:
+        "200":
+          description: Updated alias.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomerNameAlias" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+        "404": { description: Alias not found }
     delete:
       operationId: forgetCustomerNameAlias
       tags: [ingest]
@@ -1392,3 +1430,38 @@ components:
         pinned: { type: boolean }
         uploadedByEmail:
           type: ["string", "null"]
+
+    CustomerNameAlias:
+      type: object
+      required: [customer, nameOnDoc, kfiId, updatedAt]
+      properties:
+        customer: { type: string }
+        nameOnDoc: { type: string }
+        kfiId: { type: string }
+        driverName:
+          type: ["string", "null"]
+          description: Name from the drivers table for this kfiId, or null if the driver no longer exists.
+        driverCustomer:
+          type: ["string", "null"]
+        driverIsArchived:
+          type: ["boolean", "null"]
+        updatedAt: { type: string, format: date-time }
+        updatedByEmail:
+          type: ["string", "null"]
+
+    CustomerNameAliasList:
+      type: object
+      required: [aliases, drivers]
+      properties:
+        aliases:
+          type: array
+          items: { $ref: "#/components/schemas/CustomerNameAlias" }
+        drivers:
+          type: array
+          items: { $ref: "#/components/schemas/DriverInfo" }
+
+    UpdateCustomerNameAliasBody:
+      type: object
+      required: [kfiId]
+      properties:
+        kfiId: { type: string, minLength: 1 }

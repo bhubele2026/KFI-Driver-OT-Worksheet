@@ -13,6 +13,7 @@ import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import AdminUsers from "@/pages/admin-users";
 import AdminAiSamples from "@/pages/admin-ai-samples";
+import AdminCustomerAliases from "@/pages/admin-customer-aliases";
 import WeekSummary from "@/pages/week-summary";
 import DriverDetail from "@/pages/driver-detail";
 
@@ -85,6 +86,7 @@ function Router() {
         <Route path="/accept-invite/:token" component={AcceptInvite} />
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/admin/ai-samples" component={AdminAiSamples} />
+        <Route path="/admin/customer-aliases" component={AdminCustomerAliases} />
         <Route path="/" component={WeekSummary} />
         <Route path="/weeks/:weekStart" component={WeekSummary} />
         <Route path="/weeks/:weekStart/drivers/:kfiId" component={DriverDetail} />

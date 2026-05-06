@@ -477,6 +477,34 @@ export interface AiExtractSample {
   uploadedByEmail?: string | null;
 }
 
+export interface CustomerNameAlias {
+  customer: string;
+  nameOnDoc: string;
+  kfiId: string;
+  /**
+   * Name from the drivers table for this kfiId, or null if the driver no longer exists.
+   * @nullable
+   */
+  driverName?: string | null;
+  /** @nullable */
+  driverCustomer?: string | null;
+  /** @nullable */
+  driverIsArchived?: boolean | null;
+  updatedAt: string;
+  /** @nullable */
+  updatedByEmail?: string | null;
+}
+
+export interface CustomerNameAliasList {
+  aliases: CustomerNameAlias[];
+  drivers: DriverInfo[];
+}
+
+export interface UpdateCustomerNameAliasBody {
+  /** @minLength 1 */
+  kfiId: string;
+}
+
 export type ListUserAuditLogParams = {
   /**
    * @minimum 1
@@ -492,6 +520,11 @@ export type ListAiExtractSamplesParams = {
 
 export type PinAiExtractSampleBody = {
   pinned: boolean;
+};
+
+export type UpdateCustomerNameAliasParams = {
+  customer: string;
+  nameOnDoc: string;
 };
 
 export type ForgetCustomerNameAliasParams = {

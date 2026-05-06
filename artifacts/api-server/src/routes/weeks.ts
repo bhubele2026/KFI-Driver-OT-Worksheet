@@ -5,6 +5,7 @@ import {
   ConfirmNewCustomerFileBody,
   CreateManualPunchBody,
   SetReviewedBody,
+  UpdateCustomerNameAliasBody,
 } from "@workspace/api-zod";
 import { db, schema } from "../lib/db.js";
 import { requireAuth, requireAdmin } from "../lib/auth.js";
@@ -1244,6 +1245,131 @@ weeksRouter.get(
     res.send(row.fileBytes);
   },
 );
+
+weeksRouter.get("/customer-aliases", requireAdmin, async (_req, res) => {
+  const rows = await db
+    .select({
+      customer: schema.customerNameAliasesTable.customer,
+      nameOnDoc: schema.customerNameAliasesTable.nameOnDoc,
+      kfiId: schema.customerNameAliasesTable.kfiId,
+      updatedAt: schema.customerNameAliasesTable.updatedAt,
+      updatedBy: schema.customerNameAliasesTable.updatedBy,
+      driverName: schema.driversTable.name,
+      driverCustomer: schema.driversTable.customer,
+      driverIsArchived: schema.driversTable.isArchived,
+    })
+    .from(schema.customerNameAliasesTable)
+    .leftJoin(
+      schema.driversTable,
+      eq(schema.customerNameAliasesTable.kfiId, schema.driversTable.kfiId),
+    )
+    .orderBy(
+      asc(sql`lower(${schema.customerNameAliasesTable.customer})`),
+      asc(sql`lower(${schema.customerNameAliasesTable.nameOnDoc})`),
+    );
+  const actorIds = new Set<number>();
+  for (const r of rows) if (r.updatedBy) actorIds.add(r.updatedBy);
+  const actorEmailById = new Map<number, string>();
+  if (actorIds.size > 0) {
+    const actorRows = await db
+      .select({ id: schema.usersTable.id, email: schema.usersTable.email })
+      .from(schema.usersTable)
+      .where(inArray(schema.usersTable.id, [...actorIds]));
+    for (const a of actorRows) actorEmailById.set(a.id, a.email);
+  }
+  const driverRows = await db
+    .select({
+      kfiId: schema.driversTable.kfiId,
+      name: schema.driversTable.name,
+      customer: schema.driversTable.customer,
+      ctUserId: schema.driversTable.ctUserId,
+      isDriver: schema.driversTable.isDriver,
+    })
+    .from(schema.driversTable)
+    .where(eq(schema.driversTable.isArchived, false))
+    .orderBy(asc(sql`lower(${schema.driversTable.name})`));
+  res.json({
+    aliases: rows.map((r) => ({
+      customer: r.customer,
+      nameOnDoc: r.nameOnDoc,
+      kfiId: r.kfiId,
+      driverName: r.driverName ?? null,
+      driverCustomer: r.driverCustomer ?? null,
+      driverIsArchived: r.driverIsArchived ?? null,
+      updatedAt: new Date(r.updatedAt).toISOString(),
+      updatedByEmail: r.updatedBy ? actorEmailById.get(r.updatedBy) ?? null : null,
+    })),
+    drivers: driverRows.map((d) => ({
+      kfiId: d.kfiId,
+      name: d.name,
+      customer: d.customer,
+      ctUserId: d.ctUserId ?? null,
+      isDriver: d.isDriver,
+    })),
+  });
+});
+
+weeksRouter.patch("/customer-aliases", requireAdmin, async (req, res) => {
+  const customer = String(req.query.customer ?? "").trim();
+  const nameOnDoc = String(req.query.nameOnDoc ?? "").trim();
+  if (!customer || !nameOnDoc) {
+    res.status(400).json({ error: "customer and nameOnDoc are required" });
+    return;
+  }
+  const parsed = UpdateCustomerNameAliasBody.safeParse(req.body);
+  if (!parsed.success) {
+    res
+      .status(400)
+      .json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+  const { kfiId } = parsed.data;
+  const driver = await db.query.driversTable.findFirst({
+    where: eq(schema.driversTable.kfiId, kfiId),
+  });
+  if (!driver) {
+    res.status(400).json({ error: "Unknown kfiId" });
+    return;
+  }
+  const [updated] = await db
+    .update(schema.customerNameAliasesTable)
+    .set({ kfiId, updatedBy: req.session.userId ?? null })
+    .where(
+      and(
+        sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+        sql`lower(${schema.customerNameAliasesTable.nameOnDoc}) = lower(${nameOnDoc})`,
+      ),
+    )
+    .returning({
+      customer: schema.customerNameAliasesTable.customer,
+      nameOnDoc: schema.customerNameAliasesTable.nameOnDoc,
+      kfiId: schema.customerNameAliasesTable.kfiId,
+      updatedAt: schema.customerNameAliasesTable.updatedAt,
+      updatedBy: schema.customerNameAliasesTable.updatedBy,
+    });
+  if (!updated) {
+    res.status(404).json({ error: "Alias not found" });
+    return;
+  }
+  let updatedByEmail: string | null = null;
+  if (updated.updatedBy) {
+    const actor = await db.query.usersTable.findFirst({
+      where: eq(schema.usersTable.id, updated.updatedBy),
+      columns: { email: true },
+    });
+    updatedByEmail = actor?.email ?? null;
+  }
+  res.json({
+    customer: updated.customer,
+    nameOnDoc: updated.nameOnDoc,
+    kfiId: updated.kfiId,
+    driverName: driver.name,
+    driverCustomer: driver.customer,
+    driverIsArchived: driver.isArchived,
+    updatedAt: new Date(updated.updatedAt).toISOString(),
+    updatedByEmail,
+  });
+});
 
 weeksRouter.delete("/customer-aliases", async (req, res) => {
   const customer = String(req.query.customer ?? "").trim();
