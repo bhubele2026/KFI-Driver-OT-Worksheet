@@ -196,11 +196,55 @@ function DriversList({
   );
 }
 
+interface FilterCountProps {
+  weekStart: string;
+  search: string;
+  chips: Set<FilterChip>;
+}
+
+function FilterCountBadge({ weekStart, search, chips }: FilterCountProps) {
+  const { data: summary } = useGetWeekSummary(weekStart);
+  const needle = search.trim().toLowerCase();
+  const filterActive = needle.length > 0 || chips.size > 0;
+
+  const counts = useMemo(() => {
+    let total = 0;
+    let matched = 0;
+    if (!summary?.customers) return { total, matched };
+    for (const group of summary.customers) {
+      for (const driver of group.drivers) {
+        total += 1;
+        if (needle) {
+          const hay = `${driver.name} ${driver.kfiId}`.toLowerCase();
+          if (!hay.includes(needle)) continue;
+        }
+        if (chips.has("unreviewed") && driver.reviewed) continue;
+        if (chips.has("ot") && !driver.hasOvertime) continue;
+        if (chips.has("mismatch") && !driverHasMismatch(driver)) continue;
+        matched += 1;
+      }
+    }
+    return { total, matched };
+  }, [summary?.customers, needle, chips]);
+
+  if (!filterActive || counts.total === 0) return null;
+
+  return (
+    <span
+      data-testid="sidebar-filter-count"
+      className="inline-flex items-center text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground bg-muted/60 border border-border/60 rounded px-1.5 py-0.5"
+    >
+      {counts.matched} of {counts.total} drivers
+    </span>
+  );
+}
+
 interface FilterControlsProps {
   search: string;
   onSearchChange: (value: string) => void;
   chips: Set<FilterChip>;
   onToggleChip: (chip: FilterChip) => void;
+  weekStart: string;
 }
 
 function FilterControls({
@@ -208,6 +252,7 @@ function FilterControls({
   onSearchChange,
   chips,
   onToggleChip,
+  weekStart,
 }: FilterControlsProps) {
   const chipKeys: FilterChip[] = ["unreviewed", "ot", "mismatch"];
   return (
@@ -235,7 +280,7 @@ function FilterControls({
           </button>
         )}
       </div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {chipKeys.map((key) => {
           const active = chips.has(key);
           return (
@@ -256,6 +301,13 @@ function FilterControls({
             </button>
           );
         })}
+        <div className="ml-auto">
+          <FilterCountBadge
+            weekStart={weekStart}
+            search={search}
+            chips={chips}
+          />
+        </div>
       </div>
     </div>
   );
@@ -413,6 +465,7 @@ export function DriversSidebar({ weekStart, selectedKfiId, collapsed, onToggle }
         onSearchChange={setSearch}
         chips={chips}
         onToggleChip={toggleChip}
+        weekStart={weekStart}
       />
       <DriversList
         weekStart={weekStart}
@@ -460,6 +513,7 @@ export function DriversSidebarMobileTrigger({
             onSearchChange={setSearch}
             chips={chips}
             onToggleChip={toggleChip}
+            weekStart={weekStart}
           />
           <DriversList
             weekStart={weekStart}
