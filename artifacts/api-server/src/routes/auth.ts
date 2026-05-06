@@ -18,8 +18,35 @@ import {
   verifyPassword,
 } from "../lib/auth.js";
 import { sendMail } from "../lib/mailer.js";
+import {
+  checkLoginLimits,
+  ipRateLimit,
+  recordLoginFailure,
+  recordLoginSuccess,
+} from "../lib/rateLimit.js";
 
 export const authRouter = Router();
+
+// Per-IP limits for unauthenticated, token/email-bearing endpoints.
+const resetRequestLimiter = ipRateLimit({
+  name: "auth:request-reset",
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message:
+    "Too many password reset requests from your network. Please wait and try again.",
+});
+const tokenSubmitLimiter = ipRateLimit({
+  name: "auth:token-submit",
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: "Too many attempts. Please wait and try again.",
+});
+const tokenLookupLimiter = ipRateLimit({
+  name: "auth:token-lookup",
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: "Too many attempts. Please wait and try again.",
+});
 
 const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 const RESET_TTL_MS = 1000 * 60 * 60; // 1 hour
@@ -101,23 +128,28 @@ authRouter.post("/auth/register", async (req, res) => {
 });
 
 authRouter.post("/auth/login", async (req, res) => {
+  if (!checkLoginLimits(req, res, null)) return;
   const parsed = LoginBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
   const email = parsed.data.email.trim().toLowerCase();
+  if (!checkLoginLimits(req, res, email)) return;
   const user = await db.query.usersTable.findFirst({
     where: eq(schema.usersTable.email, email),
   });
   if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
+    recordLoginFailure(req, email);
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
   if (!user.isActive) {
+    recordLoginFailure(req, email);
     res.status(401).json({ error: "Account is deactivated. Contact an admin." });
     return;
   }
+  recordLoginSuccess(req, email);
   req.session.userId = user.id;
   res.json(publicUser(user));
 });
@@ -226,8 +258,8 @@ authRouter.post("/auth/invites", requireAdmin, async (req, res) => {
   res.json({ ...invite, acceptUrl });
 });
 
-authRouter.get("/auth/invites/:token", async (req, res) => {
-  const token = req.params.token;
+authRouter.get("/auth/invites/:token", tokenLookupLimiter, async (req, res) => {
+  const token = String(req.params.token);
   const invite = await db.query.invitesTable.findFirst({
     where: eq(schema.invitesTable.token, token),
   });
@@ -246,7 +278,7 @@ authRouter.delete("/auth/invites/:token", requireAdmin, async (req, res) => {
   res.status(204).end();
 });
 
-authRouter.post("/auth/accept-invite", async (req, res) => {
+authRouter.post("/auth/accept-invite", tokenSubmitLimiter, async (req, res) => {
   const parsed = AcceptInviteBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
@@ -301,7 +333,7 @@ authRouter.post("/auth/accept-invite", async (req, res) => {
 
 // ----- Password resets -----
 
-authRouter.post("/auth/request-password-reset", async (req, res) => {
+authRouter.post("/auth/request-password-reset", resetRequestLimiter, async (req, res) => {
   const parsed = RequestPasswordResetBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
@@ -352,9 +384,10 @@ authRouter.post("/auth/request-password-reset", async (req, res) => {
   res.json({ ok: true, resetUrl: echoLink ? resetUrl : null });
 });
 
-authRouter.get("/auth/password-resets/:token", async (req, res) => {
+authRouter.get("/auth/password-resets/:token", tokenLookupLimiter, async (req, res) => {
+  const token = String(req.params.token);
   const reset = await db.query.passwordResetsTable.findFirst({
-    where: eq(schema.passwordResetsTable.token, req.params.token),
+    where: eq(schema.passwordResetsTable.token, token),
   });
   if (!reset || reset.usedAt || reset.expiresAt.getTime() < Date.now()) {
     res.status(404).json({ error: "Token not found, expired, or already used" });
@@ -370,7 +403,7 @@ authRouter.get("/auth/password-resets/:token", async (req, res) => {
   res.json({ email: user.email, expiresAt: reset.expiresAt });
 });
 
-authRouter.post("/auth/reset-password", async (req, res) => {
+authRouter.post("/auth/reset-password", tokenSubmitLimiter, async (req, res) => {
   const parsed = ResetPasswordBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input", details: parsed.error.issues });

@@ -8,7 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test 'src/lib/parsers/__tests__/*.test.ts'"
+    "test": "node --import tsx --test 'src/lib/**/__tests__/*.test.ts'"
   },
   "dependencies": {
     "@google/genai": "^1.52.0",
