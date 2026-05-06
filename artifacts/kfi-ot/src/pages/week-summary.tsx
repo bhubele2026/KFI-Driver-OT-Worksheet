@@ -11,6 +11,8 @@ import {
   useSetReviewed,
 } from "@workspace/api-client-react";
 import { CustomerUploadPanel } from "@/components/customer-upload-panel";
+import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
+import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,8 +43,6 @@ import {
   ChevronRight,
   ChevronLeft,
   Printer,
-  CheckCircle2,
-  Circle,
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
 import {
@@ -86,6 +86,7 @@ export default function WeekSummary() {
 
   const refreshCt = useRefreshConnecteam();
   const setReviewed = useSetReviewed();
+  const [sidebarCollapsed, , toggleSidebar] = useSidebarCollapsed();
 
   const goWeek = (delta: number) => {
     const base = parseISO(weekStart);
@@ -174,6 +175,10 @@ export default function WeekSummary() {
     <div className="min-h-[100dvh] flex flex-col bg-background">
       <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-4">
+          <DriversSidebarMobileTrigger
+            weekStart={weekStart}
+            className="text-sidebar-foreground hover:bg-sidebar-accent"
+          />
           <h1 className="font-display font-bold text-lg tracking-tight">
             KFI OT Worksheet
           </h1>
@@ -241,69 +246,11 @@ export default function WeekSummary() {
       </header>
 
       <div className="flex-1 flex min-h-0">
-        {/* Left sidebar — drivers grouped by customer; double-click toggles reviewed */}
-        <aside className="w-72 shrink-0 border-r border-border bg-muted/20 overflow-y-auto hidden md:block">
-          <div className="px-4 py-3 border-b border-border bg-muted/40">
-            <h3 className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
-              Drivers by Customer
-            </h3>
-            <p className="text-[11px] text-muted-foreground mt-1 leading-tight">
-              Click a name to open · double-click to mark reviewed.
-            </p>
-          </div>
-          {summary?.customers && summary.customers.length > 0 ? (
-            <ul className="py-2">
-              {summary.customers.map((group) => (
-                <li key={group.customer} className="mb-2">
-                  <div className="px-4 py-1.5 text-xs font-display font-semibold uppercase tracking-wider text-foreground/80 bg-muted/30">
-                    {group.customer}
-                    <span className="ml-2 text-[10px] font-normal font-mono text-muted-foreground">
-                      {group.drivers.length}
-                    </span>
-                  </div>
-                  <ul>
-                    {group.drivers.map((driver) => (
-                      <li key={driver.kfiId}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setLocation(
-                              `/weeks/${weekStart}/drivers/${driver.kfiId}`,
-                            )
-                          }
-                          onDoubleClick={(e) => {
-                            e.preventDefault();
-                            toggleReviewed(driver.kfiId, driver.reviewed);
-                          }}
-                          title="Click to open · Double-click to toggle reviewed"
-                          className="w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 hover:bg-accent hover:text-accent-foreground transition-colors group select-none"
-                        >
-                          {driver.reviewed ? (
-                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                          ) : (
-                            <Circle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
-                          )}
-                          <span className="flex-1 truncate">
-                            {driver.name}
-                          </span>
-                          {driver.overtimeHours > 0 && (
-                            <span className="text-[10px] font-mono font-semibold text-warning bg-warning/10 px-1 rounded">
-                              OT
-                            </span>
-                          )}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="px-4 py-3 text-xs text-muted-foreground">
-              No drivers loaded. Click "Refresh Connecteam" to pull this week.
-            </p>
-          )}
-        </aside>
+        <DriversSidebar
+          weekStart={weekStart}
+          collapsed={sidebarCollapsed}
+          onToggle={toggleSidebar}
+        />
 
         <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden relative">
           <div className="flex flex-wrap items-start justify-between gap-4">

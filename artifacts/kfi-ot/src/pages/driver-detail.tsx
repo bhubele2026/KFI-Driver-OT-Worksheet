@@ -22,6 +22,8 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
+import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 
 const OT_THRESHOLD = 40;
 
@@ -94,6 +96,7 @@ export default function DriverDetail() {
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useGetDriverWeek(weekStart, kfiId);
+  const [sidebarCollapsed, , toggleSidebar] = useSidebarCollapsed();
   type Punch = NonNullable<typeof data>["punches"][number];
 
   const errMsg = (err: unknown, fallback: string) =>
@@ -225,16 +228,41 @@ export default function DriverDetail() {
     );
   };
 
-  if (isLoading) {
+  if (isLoading || isError || !data) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div className="min-h-[100dvh] flex flex-col bg-background">
+        <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-3 flex items-center gap-4 shadow-sm">
+          <DriversSidebarMobileTrigger
+            weekStart={weekStart}
+            selectedKfiId={kfiId}
+            className="text-sidebar-foreground hover:bg-sidebar-accent"
+          />
+          <Link href={`/weeks/${weekStart}`}>
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <h1 className="font-display font-bold text-lg tracking-tight">
+            Week of <span className="font-mono">{weekStart}</span>
+          </h1>
+        </header>
+        <div className="flex-1 flex min-h-0">
+          <DriversSidebar
+            weekStart={weekStart}
+            selectedKfiId={kfiId}
+            collapsed={sidebarCollapsed}
+            onToggle={toggleSidebar}
+          />
+          <main className="flex-1 flex items-center justify-center p-8">
+            {isLoading ? (
+              <Loader2 className="h-8 w-8 animate-spin" />
+            ) : (
+              <p className="text-destructive">Failed to load driver data.</p>
+            )}
+          </main>
+        </div>
       </div>
     );
-  }
-
-  if (isError || !data) {
-    return <div className="p-8 text-center text-destructive">Failed to load driver data.</div>;
   }
 
   // Chronological sort using the same parser the server hours engine uses, so
@@ -273,6 +301,11 @@ export default function DriverDetail() {
     <div className="min-h-[100dvh] flex flex-col bg-background">
       <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-2.5 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
+          <DriversSidebarMobileTrigger
+            weekStart={weekStart}
+            selectedKfiId={kfiId}
+            className="text-sidebar-foreground hover:bg-sidebar-accent"
+          />
           <Link href={`/weeks/${weekStart}`}>
             <Button variant="ghost" size="sm" className="h-8 text-sidebar-foreground hover:bg-sidebar-accent gap-2">
               <ArrowLeft className="h-4 w-4" />
@@ -308,7 +341,15 @@ export default function DriverDetail() {
         </div>
       </header>
 
-      <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
+      <div className="flex-1 flex min-h-0">
+        <DriversSidebar
+          weekStart={weekStart}
+          selectedKfiId={kfiId}
+          collapsed={sidebarCollapsed}
+          onToggle={toggleSidebar}
+        />
+
+        <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden">
         {/* Title block */}
         <div className="space-y-2">
           <h1 className="font-display font-bold text-3xl tracking-tight leading-none">
@@ -334,6 +375,7 @@ export default function DriverDetail() {
             </span>
           </div>
         </div>
+
 
         {data.checks.length > 0 && (
           <Card className="border-warning bg-warning/5">
@@ -569,7 +611,8 @@ export default function DriverDetail() {
             </Table>
           </div>
         </Card>
-      </main>
+        </main>
+      </div>
 
       <Dialog open={isManualModalOpen} onOpenChange={setIsManualModalOpen}>
         <DialogContent>
