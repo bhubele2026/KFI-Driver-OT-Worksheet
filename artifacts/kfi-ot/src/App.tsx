@@ -1,9 +1,10 @@
 import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useGetMe } from "@workspace/api-client-react";
+import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
 import { Loader2 } from "lucide-react";
+import { useEffect, useRef } from "react";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
@@ -12,11 +13,33 @@ import DriverDetail from "@/pages/driver-detail";
 
 const queryClient = new QueryClient();
 
+const DEV_BYPASS_AUTH = import.meta.env.DEV;
+
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { data: user, isLoading } = useGetMe();
   const [location] = useLocation();
+  const qc = useQueryClient();
+  const triedBypass = useRef(false);
 
-  if (isLoading) {
+  useEffect(() => {
+    if (
+      !DEV_BYPASS_AUTH ||
+      isLoading ||
+      user ||
+      triedBypass.current
+    ) {
+      return;
+    }
+    triedBypass.current = true;
+    void fetch(`${import.meta.env.BASE_URL}api/auth/dev-bypass`, {
+      method: "POST",
+      credentials: "include",
+    }).then((r) => {
+      if (r.ok) qc.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    });
+  }, [user, isLoading, qc]);
+
+  if (isLoading || (DEV_BYPASS_AUTH && !user && triedBypass.current)) {
     return (
       <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />

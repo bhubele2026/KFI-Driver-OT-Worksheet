@@ -54,6 +54,27 @@ authRouter.post("/auth/logout", (req, res) => {
   });
 });
 
+authRouter.post("/auth/dev-bypass", async (req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const email = "dev@kfi.local";
+  let user = await db.query.usersTable.findFirst({
+    where: eq(schema.usersTable.email, email),
+  });
+  if (!user) {
+    const passwordHash = await hashPassword("dev-bypass-no-login");
+    [user] = await db
+      .insert(schema.usersTable)
+      .values({ email, passwordHash })
+      .returning();
+  }
+  req.session.userId = user.id;
+  req.log?.info({ userId: user.id }, "dev auth bypass");
+  res.json({ id: user.id, email: user.email, createdAt: user.createdAt });
+});
+
 authRouter.get("/auth/me", async (req, res) => {
   const id = req.session?.userId;
   if (!id) {
