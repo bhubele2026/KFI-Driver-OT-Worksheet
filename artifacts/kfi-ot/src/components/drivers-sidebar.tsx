@@ -137,8 +137,11 @@ function SidebarHeader({ onCollapse }: { onCollapse?: () => void }) {
         <h3 className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
           Drivers by Customer
         </h3>
-        <p className="text-[11px] text-muted-foreground mt-1 leading-tight">
-          Click a name to open · double-click to mark reviewed.
+        <p
+          className="text-[11px] text-muted-foreground mt-1 leading-tight"
+          title="Shortcuts: j/↓ next driver · k/↑ previous driver · r toggle reviewed · ? for help"
+        >
+          Click to open · double-click to review · <span className="font-mono">j/k</span> to jump.
         </p>
       </div>
       {onCollapse && (

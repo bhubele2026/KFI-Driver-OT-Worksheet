@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useParams, Link } from "wouter";
 import {
   useGetDriverWeek,
+  useGetWeekSummary,
   useCreateManualPunch,
   useEditPunch,
   useDeletePunch,
@@ -15,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, Save, X, RefreshCw } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, Save, X, RefreshCw, Keyboard } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -91,12 +92,19 @@ export default function DriverDetail() {
   const params = useParams();
   const weekStart = params.weekStart!;
   const kfiId = params.kfiId!;
-  useLocation();
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useGetDriverWeek(weekStart, kfiId);
+  const { data: weekSummary } = useGetWeekSummary(weekStart);
   const [sidebarCollapsed, , toggleSidebar] = useSidebarCollapsed();
+
+  // Flat driver order matches the sidebar's grouping (customer -> drivers).
+  const flatDriverIds = useMemo(() => {
+    if (!weekSummary?.customers) return [] as string[];
+    return weekSummary.customers.flatMap((g) => g.drivers.map((d) => d.kfiId));
+  }, [weekSummary]);
   type Punch = NonNullable<typeof data>["punches"][number];
 
   const errMsg = (err: unknown, fallback: string) =>
@@ -137,6 +145,85 @@ export default function DriverDetail() {
   const [editingPunchId, setEditingPunchId] = useState<number | null>(null);
   const [editClockIn, setEditClockIn] = useState("");
   const [editClockOut, setEditClockOut] = useState("");
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  // Keyboard shortcuts: j/ArrowDown = next driver, k/ArrowUp = previous driver,
+  // r = toggle reviewed, ? = show help. Skipped while typing in inputs/textareas
+  // or while the Add Punch dialog is open.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      if (isManualModalOpen) return;
+      // Don't fight an open Radix dialog elsewhere on the page.
+      if (document.querySelector('[role="dialog"][data-state="open"]')) return;
+
+      const key = e.key;
+      if (key === "?" ) {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+        return;
+      }
+      if (key === "Escape" && shortcutsOpen) {
+        setShortcutsOpen(false);
+        return;
+      }
+
+      if (key === "j" || key === "ArrowDown") {
+        if (flatDriverIds.length === 0) return;
+        e.preventDefault();
+        const idx = flatDriverIds.indexOf(kfiId);
+        const next = flatDriverIds[(idx === -1 ? 0 : idx + 1) % flatDriverIds.length];
+        setLocation(`/weeks/${weekStart}/drivers/${next}`);
+        return;
+      }
+      if (key === "k" || key === "ArrowUp") {
+        if (flatDriverIds.length === 0) return;
+        e.preventDefault();
+        const idx = flatDriverIds.indexOf(kfiId);
+        const len = flatDriverIds.length;
+        const prev = flatDriverIds[(idx === -1 ? 0 : (idx - 1 + len) % len)];
+        setLocation(`/weeks/${weekStart}/drivers/${prev}`);
+        return;
+      }
+      if (key === "r" || key === "R") {
+        if (!data) return;
+        e.preventDefault();
+        setReviewed.mutate(
+          { weekStart, kfiId, data: { reviewed: !data.reviewed } },
+          {
+            onSuccess: () => {
+              queryClient.invalidateQueries({ queryKey: getGetDriverWeekQueryKey(weekStart, kfiId) });
+              queryClient.invalidateQueries({ queryKey: getGetWeekSummaryQueryKey(weekStart) });
+            },
+          },
+        );
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [
+    flatDriverIds,
+    kfiId,
+    weekStart,
+    setLocation,
+    isManualModalOpen,
+    shortcutsOpen,
+    data,
+    setReviewed,
+    queryClient,
+  ]);
 
   const toggleReviewed = () => {
     if (!data) return;
@@ -337,6 +424,16 @@ export default function DriverDetail() {
           <Button variant="secondary" size="sm" onClick={() => setIsManualModalOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Add Punch
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShortcutsOpen(true)}
+            title="Keyboard shortcuts (?)"
+            data-testid="button-show-shortcuts"
+            className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent"
+          >
+            <Keyboard className="h-4 w-4" />
           </Button>
         </div>
       </header>
@@ -614,6 +711,23 @@ export default function DriverDetail() {
         </main>
       </div>
 
+      <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Keyboard shortcuts</DialogTitle>
+          </DialogHeader>
+          <div className="text-sm space-y-2 py-2">
+            <ShortcutRow keys={["j", "↓"]} label="Next driver" />
+            <ShortcutRow keys={["k", "↑"]} label="Previous driver" />
+            <ShortcutRow keys={["r"]} label="Toggle reviewed" />
+            <ShortcutRow keys={["?"]} label="Show this help" />
+            <p className="text-xs text-muted-foreground pt-2">
+              Shortcuts are ignored while typing in a field or while a dialog is open.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isManualModalOpen} onOpenChange={setIsManualModalOpen}>
         <DialogContent>
           <DialogHeader>
@@ -702,6 +816,24 @@ function StatCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ShortcutRow({ keys, label }: { keys: string[]; label: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-foreground">{label}</span>
+      <div className="flex items-center gap-1">
+        {keys.map((k, i) => (
+          <kbd
+            key={i}
+            className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-xs min-w-[1.5rem] text-center"
+          >
+            {k}
+          </kbd>
+        ))}
+      </div>
+    </div>
   );
 }
 
