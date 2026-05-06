@@ -19,6 +19,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Logo } from "@/components/logo";
 
 export default function AcceptInvite() {
   const params = useParams<{ token: string }>();
@@ -70,7 +71,9 @@ export default function AcceptInvite() {
   if (error || !invite) {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
-        <Card className="w-full max-w-sm shadow-lg border-border/50">
+        <div className="w-full max-w-sm">
+          <Logo variant="auth" />
+          <Card className="shadow-lg border-border/50">
           <CardHeader>
             <CardTitle className="text-xl font-display">
               Invite invalid
@@ -88,14 +91,17 @@ export default function AcceptInvite() {
               Back to sign in
             </Link>
           </CardFooter>
-        </Card>
+          </Card>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-sm shadow-lg border-border/50">
+      <div className="w-full max-w-sm">
+        <Logo variant="auth" />
+        <Card className="shadow-lg border-border/50">
         <CardHeader>
           <CardTitle className="text-2xl font-bold font-display tracking-tight">
             Accept Invite
@@ -143,7 +149,8 @@ export default function AcceptInvite() {
             </Button>
           </CardFooter>
         </form>
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }

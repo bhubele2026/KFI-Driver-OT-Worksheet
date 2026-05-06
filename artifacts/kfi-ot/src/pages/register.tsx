@@ -19,6 +19,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Logo } from "@/components/logo";
 
 export default function Register() {
   const [, setLocation] = useLocation();
@@ -64,32 +65,37 @@ export default function Register() {
   if (!status?.openRegistration) {
     return (
       <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted/30 p-4">
-        <Card className="w-full max-w-sm shadow-lg border-border/50">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold tracking-tight font-display">
-              Invite required
-            </CardTitle>
-            <CardDescription>
-              KFI Dispatch is invite-only. Ask an admin to send you an invite
-              link.
-            </CardDescription>
-          </CardHeader>
-          <CardFooter>
-            <Link
-              href="/login"
-              className="text-sm text-primary hover:underline underline-offset-4"
-            >
-              Back to sign in
-            </Link>
-          </CardFooter>
-        </Card>
+        <div className="w-full max-w-sm">
+          <Logo variant="auth" />
+          <Card className="shadow-lg border-border/50">
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-2xl font-bold tracking-tight font-display">
+                Invite required
+              </CardTitle>
+              <CardDescription>
+                KFI Dispatch is invite-only. Ask an admin to send you an invite
+                link.
+              </CardDescription>
+            </CardHeader>
+            <CardFooter>
+              <Link
+                href="/login"
+                className="text-sm text-primary hover:underline underline-offset-4"
+              >
+                Back to sign in
+              </Link>
+            </CardFooter>
+          </Card>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-sm shadow-lg border-border/50">
+      <div className="w-full max-w-sm">
+        <Logo variant="auth" />
+        <Card className="shadow-lg border-border/50">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold tracking-tight font-display">
             Create First Admin
@@ -145,7 +151,8 @@ export default function Register() {
             </div>
           </CardFooter>
         </form>
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }

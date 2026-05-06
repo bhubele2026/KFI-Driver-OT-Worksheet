@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Logo } from "@/components/logo";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -45,10 +46,12 @@ export default function Login() {
 
   return (
     <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-sm shadow-lg border-border/50">
+      <div className="w-full max-w-sm">
+        <Logo variant="auth" />
+        <Card className="shadow-lg border-border/50">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold tracking-tight font-display">KFI Dispatch</CardTitle>
-          <CardDescription>Enter your credentials to access the OT Worksheet</CardDescription>
+          <CardTitle className="text-2xl font-bold tracking-tight font-display">Driver OT Worksheet</CardTitle>
+          <CardDescription>Sign in to reconcile this week's punches.</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
@@ -104,7 +107,8 @@ export default function Login() {
             )}
           </CardFooter>
         </form>
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }

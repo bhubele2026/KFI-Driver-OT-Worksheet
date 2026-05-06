@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, BellOff, BellRing, Loader2 } from "lucide-react";
 import { format } from "date-fns";
+import { Logo } from "@/components/logo";
 
 function snoozeStatus(s: ParserPromotionSnooze): {
   label: string;
@@ -101,8 +102,10 @@ export default function AdminParserSnoozes() {
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
-      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-3 flex items-center justify-between shadow-sm">
+      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 h-14 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
+          <Link href="/" title="KFI Staffing" className="no-underline"><Logo /></Link>
+          <div className="h-5 w-px bg-sidebar-border/60" />
           <Link href="/admin/users">
             <Button
               variant="ghost"

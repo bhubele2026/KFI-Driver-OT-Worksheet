@@ -19,6 +19,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Logo } from "@/components/logo";
 
 export default function ResetPassword() {
   const params = useParams<{ token: string }>();
@@ -68,7 +69,9 @@ export default function ResetPassword() {
   if (error || !data) {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
-        <Card className="w-full max-w-sm shadow-lg border-border/50">
+        <div className="w-full max-w-sm">
+          <Logo variant="auth" />
+          <Card className="shadow-lg border-border/50">
           <CardHeader>
             <CardTitle className="text-xl font-display">
               Reset link invalid
@@ -91,14 +94,17 @@ export default function ResetPassword() {
               Back to sign in
             </Link>
           </CardFooter>
-        </Card>
+          </Card>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-sm shadow-lg border-border/50">
+      <div className="w-full max-w-sm">
+        <Logo variant="auth" />
+        <Card className="shadow-lg border-border/50">
         <CardHeader>
           <CardTitle className="text-2xl font-bold font-display tracking-tight">
             Set new password
@@ -146,7 +152,8 @@ export default function ResetPassword() {
             </Button>
           </CardFooter>
         </form>
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }

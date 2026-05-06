@@ -54,6 +54,7 @@ import {
   Printer,
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
+import { Logo } from "@/components/logo";
 import {
   format,
   parseISO,
@@ -204,16 +205,23 @@ export default function WeekSummary() {
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
-      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-3 flex items-center justify-between shadow-sm">
+      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 h-14 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-4">
           <DriversSidebarMobileTrigger
             weekStart={weekStart}
             className="text-sidebar-foreground hover:bg-sidebar-accent"
           />
-          <h1 className="font-display font-bold text-lg tracking-tight">
-            KFI OT Worksheet
-          </h1>
-          <div className="h-4 w-px bg-sidebar-border" />
+          <Link
+            href="/"
+            className="flex items-center gap-2.5 no-underline"
+            title="KFI Staffing — Driver OT Worksheet"
+          >
+            <Logo />
+            <span className="hidden lg:inline text-[11px] uppercase tracking-[0.18em] text-sidebar-foreground/60 font-display">
+              Driver OT Worksheet
+            </span>
+          </Link>
+          <div className="h-5 w-px bg-sidebar-border/60" />
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"

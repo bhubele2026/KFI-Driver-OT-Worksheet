@@ -83,6 +83,7 @@ import {
   YAxis,
 } from "recharts";
 import { ipMatchesAny, isCidrEntry } from "@/lib/cidr";
+import { Logo } from "@/components/logo";
 
 function copy(text: string, toast: ReturnType<typeof useToast>["toast"]) {
   navigator.clipboard
@@ -627,8 +628,10 @@ export default function AdminUsers() {
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
-      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-3 flex items-center justify-between shadow-sm">
+      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 h-14 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
+          <Link href="/" title="KFI Staffing" className="no-underline"><Logo /></Link>
+          <div className="h-5 w-px bg-sidebar-border/60" />
           <Link href="/">
             <Button
               variant="ghost"

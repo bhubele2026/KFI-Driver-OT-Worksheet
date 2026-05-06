@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
+import { Logo } from "@/components/logo";
 
 export default function ForgotPassword() {
   const request = useRequestPasswordReset();
@@ -33,7 +34,9 @@ export default function ForgotPassword() {
 
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-sm shadow-lg border-border/50">
+      <div className="w-full max-w-sm">
+        <Logo variant="auth" />
+        <Card className="shadow-lg border-border/50">
         <CardHeader>
           <CardTitle className="text-2xl font-bold font-display tracking-tight">
             Reset password
@@ -95,7 +98,8 @@ export default function ForgotPassword() {
             </CardFooter>
           </form>
         )}
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }

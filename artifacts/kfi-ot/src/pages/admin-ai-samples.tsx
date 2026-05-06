@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Logo } from "@/components/logo";
 import {
   Table,
   TableBody,
@@ -140,8 +141,10 @@ export default function AdminAiSamples() {
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
-      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-3 flex items-center justify-between shadow-sm">
+      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 h-14 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
+          <Link href="/" title="KFI Staffing" className="no-underline"><Logo /></Link>
+          <div className="h-5 w-px bg-sidebar-border/60" />
           <Link href="/">
             <Button
               variant="ghost"

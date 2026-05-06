@@ -26,6 +26,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
 import { ReviewedPill } from "@/components/reviewed-pill";
+import { Logo } from "@/components/logo";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useAutoAdvancePref } from "@/hooks/use-auto-advance";
 
@@ -386,12 +387,14 @@ export default function DriverDetail() {
   if (isLoading || isError || !data) {
     return (
       <div className="min-h-[100dvh] flex flex-col bg-background">
-        <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-3 flex items-center gap-4 shadow-sm">
+        <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 h-14 flex items-center gap-4 shadow-sm">
           <DriversSidebarMobileTrigger
             weekStart={weekStart}
             selectedKfiId={kfiId}
             className="text-sidebar-foreground hover:bg-sidebar-accent"
           />
+          <Link href="/" title="KFI Staffing" className="no-underline"><Logo /></Link>
+          <div className="h-5 w-px bg-sidebar-border/60" />
           <Link href={`/weeks/${weekStart}`}>
             <Button variant="ghost" size="icon" className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent">
               <ArrowLeft className="h-4 w-4" />
@@ -454,13 +457,15 @@ export default function DriverDetail() {
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
-      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-2.5 flex items-center justify-between shadow-sm print:hidden">
+      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 h-14 flex items-center justify-between shadow-sm print:hidden">
         <div className="flex items-center gap-3">
           <DriversSidebarMobileTrigger
             weekStart={weekStart}
             selectedKfiId={kfiId}
             className="text-sidebar-foreground hover:bg-sidebar-accent"
           />
+          <Link href="/" title="KFI Staffing" className="no-underline"><Logo /></Link>
+          <div className="h-5 w-px bg-sidebar-border/60" />
           <Link href={`/weeks/${weekStart}`}>
             <Button variant="ghost" size="sm" className="h-8 text-sidebar-foreground hover:bg-sidebar-accent gap-2">
               <ArrowLeft className="h-4 w-4" />
