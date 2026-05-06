@@ -94,7 +94,7 @@ export async function ocrDelalloPDF(
     config: {
       responseMimeType: "application/json",
       responseSchema: PUNCH_SCHEMA,
-      maxOutputTokens: 8192,
+      maxOutputTokens: 32768,
     },
   });
 

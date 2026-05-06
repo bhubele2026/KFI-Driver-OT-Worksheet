@@ -93,6 +93,13 @@ const BASELINES: Record<string, Expected[]> = {
     { file: "LSI.xlsx",       customer: "Landscape Structures",       minPunches:  24, totalHours:  116.56, tolerance: 0.5 },
     { file: "Zenople.xlsx",   customer: "Zenople",                    minPunches: 231, totalHours: 2135.00, tolerance: 0.5 },
     { file: "IWG.pdf",        customer: "International Wire Group",   minPunches:   5, totalHours:   45.00, tolerance: 0.5 },
+    // DeLallo is a scanned (image-only) PDF that goes through the Gemini OCR
+    // fallback in pdf.ts. Only badge 3619 is in EMBEDDED_MAPPING for this
+    // fixture week, so the parser keeps ~10 punches totaling ~40h after the
+    // OCR pass. OCR is non-deterministic, so the tolerance is intentionally
+    // wide — it's meant to catch parser/routing/OCR-prompt drift, not
+    // row-by-row variance.
+    { file: "DeLallo.pdf",    customer: "DeLallo",                    minPunches:   7, totalHours:   41.50, tolerance: 8.0 },
   ],
 };
 
