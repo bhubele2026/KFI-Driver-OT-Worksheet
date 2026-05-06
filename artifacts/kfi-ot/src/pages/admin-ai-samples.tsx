@@ -6,6 +6,7 @@ import {
   useListAiExtractSamples,
   useDeleteAiExtractSample,
   useListUserAuditLog,
+  usePinAiExtractSample,
   getListAiExtractSamplesQueryKey,
   getListUserAuditLogQueryKey,
   getDownloadAiExtractSampleUrl,
@@ -36,6 +37,8 @@ import {
   Download,
   History,
   Loader2,
+  Pin,
+  PinOff,
   Sparkles,
   Trash2,
   Users,
@@ -65,6 +68,26 @@ export default function AdminAiSamples() {
       onError: (err: unknown) => {
         toast({
           title: "Could not delete sample",
+          description: err instanceof Error ? err.message : "Unknown error",
+          variant: "destructive",
+        });
+      },
+    },
+  });
+  const pinSample = usePinAiExtractSample({
+    mutation: {
+      onSuccess: (updated) => {
+        toast({
+          title: updated.pinned ? "Sample pinned" : "Sample unpinned",
+          description: updated.pinned
+            ? "This sample is exempt from the TTL cleanup."
+            : "This sample will expire on its normal schedule.",
+        });
+        qc.invalidateQueries({ queryKey: getListAiExtractSamplesQueryKey() });
+      },
+      onError: (err: unknown) => {
+        toast({
+          title: "Could not update pin",
           description: err instanceof Error ? err.message : "Unknown error",
           variant: "destructive",
         });
@@ -184,7 +207,8 @@ export default function AdminAiSamples() {
               Original files uploaded through the "New customer file…" flow are
               stashed here so engineers can grab a fixture when promoting a
               customer to a deterministic parser. Unconfirmed samples expire
-              after 24 hours; confirmed samples are kept for 90 days.
+              after 24 hours; confirmed samples are kept for 90 days. Pin a
+              sample to keep it indefinitely.
               See{" "}
               <code className="font-mono">
                 docs/promote-ai-customer-to-parser.md
@@ -255,8 +279,8 @@ export default function AdminAiSamples() {
                           <TableHead className="w-[90px]">Size</TableHead>
                           <TableHead className="w-[180px]">Uploaded</TableHead>
                           <TableHead className="w-[180px]">By</TableHead>
-                          <TableHead className="w-[110px]">Status</TableHead>
-                          <TableHead className="w-[200px] text-right">
+                          <TableHead className="w-[160px]">Status</TableHead>
+                          <TableHead className="w-[280px] text-right">
                             Actions
                           </TableHead>
                         </TableRow>
@@ -266,8 +290,18 @@ export default function AdminAiSamples() {
                           const downloadUrl = `${import.meta.env.BASE_URL}${getDownloadAiExtractSampleUrl(
                             s.id,
                           ).replace(/^\//, "")}`;
+                          const pinPending =
+                            pinSample.isPending &&
+                            pinSample.variables?.id === s.id;
                           return (
-                            <TableRow key={s.id}>
+                            <TableRow
+                              key={s.id}
+                              className={
+                                s.pinned
+                                  ? "bg-amber-50/60 dark:bg-amber-950/20"
+                                  : undefined
+                              }
+                            >
                               <TableCell className="font-mono text-xs">
                                 {s.weekStart}
                               </TableCell>
@@ -286,26 +320,64 @@ export default function AdminAiSamples() {
                                 )}
                               </TableCell>
                               <TableCell>
-                                {s.confirmed ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
-                                    title={`Expires ${new Date(s.expiresAt).toLocaleString()}`}
-                                  >
-                                    Confirmed
-                                  </Badge>
-                                ) : (
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400"
-                                    title={`Expires ${new Date(s.expiresAt).toLocaleString()}`}
-                                  >
-                                    Unconfirmed
-                                  </Badge>
-                                )}
+                                <div className="flex flex-wrap gap-1">
+                                  {s.confirmed ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
+                                      title={`Expires ${new Date(s.expiresAt).toLocaleString()}`}
+                                    >
+                                      Confirmed
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400"
+                                      title={`Expires ${new Date(s.expiresAt).toLocaleString()}`}
+                                    >
+                                      Unconfirmed
+                                    </Badge>
+                                  )}
+                                  {s.pinned && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] border-amber-600/50 bg-amber-100/60 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                                      title="Pinned: exempt from TTL cleanup"
+                                    >
+                                      <Pin className="h-2.5 w-2.5 mr-1" />
+                                      Pinned
+                                    </Badge>
+                                  )}
+                                </div>
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex justify-end gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    type="button"
+                                    disabled={pinPending}
+                                    onClick={() =>
+                                      pinSample.mutate({
+                                        id: s.id,
+                                        data: { pinned: !s.pinned },
+                                      })
+                                    }
+                                    title={
+                                      s.pinned
+                                        ? "Unpin: allow this sample to expire on its normal schedule"
+                                        : "Pin: keep this sample even after the TTL"
+                                    }
+                                  >
+                                    {pinPending ? (
+                                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                                    ) : s.pinned ? (
+                                      <PinOff className="h-3.5 w-3.5 mr-1.5" />
+                                    ) : (
+                                      <Pin className="h-3.5 w-3.5 mr-1.5" />
+                                    )}
+                                    {s.pinned ? "Unpin" : "Pin"}
+                                  </Button>
                                   <a
                                     href={downloadUrl}
                                     download={s.fileName}
