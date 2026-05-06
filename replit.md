@@ -38,6 +38,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - Customer-file uploads are routed by filename keyword (`adient`, `iwg`, `delallo`, `penda`, `trienda`, `greystone`, `lsi`, `burnett`, `zenople`). Adient has *both* a PDF parser (legacy digital export) and an XLSX parser (current Kronos pivot export); routing picks by extension.
 - Customer file upload is multipart and intentionally not in the OpenAPI body schema; the frontend posts FormData directly to `/api/weeks/:weekStart/upload-customer-file`.
 - All Connecteam API calls happen server-side (token never leaves the server); the legacy proxy URL is gone.
+- DeLallo PDFs that come from a scanner (no text layer) automatically fall back to OCR via Gemini (`@google/genai`, `gemini-2.5-flash`) using the Replit AI Integrations proxy. The fallback only fires when pdfjs extracts zero text, so digital PDFs stay on the fast path. Env vars `AI_INTEGRATIONS_GEMINI_BASE_URL` + `AI_INTEGRATIONS_GEMINI_API_KEY` are auto-provisioned.
 
 ## Product
 

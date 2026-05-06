@@ -1,4 +1,5 @@
 import { EMBEDDED_MAPPING } from "../mappings.js";
+import { ocrDelalloPDF } from "./ocr.js";
 import type { ParsedPunch } from "./types.js";
 
 // pdfjs-dist is huge and tries to dynamically load workers; we always use the
@@ -232,6 +233,9 @@ export async function parseDelalloPDF(
     }
     return undefined;
   });
-  assertExtractable("DeLallo", totalLines);
+  if (totalLines === 0) {
+    // Scanned image PDF (no text layer). Fall back to OCR via Gemini vision.
+    return ocrDelalloPDF(buffer, kfiSet, year);
+  }
   return punches;
 }
