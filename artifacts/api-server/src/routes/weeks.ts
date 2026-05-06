@@ -272,8 +272,19 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
   // whose roster customer is missing, "Unknown", or date-shaped junk left
   // over from a corrupted Connecteam custom field.
   const UNASSIGNED = "Needs roster cleanup";
-  const customerKey = (c: string) =>
-    !c || c === "Unknown" || looksLikeRosterDateJunk(c) ? UNASSIGNED : c;
+  const customerKey = (c: string) => {
+    if (!c) return UNASSIGNED;
+    const trimmed = c.trim();
+    if (
+      !trimmed ||
+      trimmed === "Unknown" ||
+      trimmed.toLowerCase() === "[object object]" ||
+      looksLikeRosterDateJunk(trimmed)
+    ) {
+      return UNASSIGNED;
+    }
+    return c;
+  };
   const knownOrder = new Map<string, number>(
     KNOWN_CUSTOMERS.map((c, i) => [c.displayName, i]),
   );

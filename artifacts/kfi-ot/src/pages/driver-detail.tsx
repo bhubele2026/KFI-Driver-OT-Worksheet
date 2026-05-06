@@ -191,7 +191,10 @@ export default function DriverDetail() {
             <p className="text-sm text-sidebar-foreground/90 mt-1 leading-none">
               <span className="font-medium">
                 {data.driver.customer &&
+                data.driver.customer.trim() !== "" &&
                 data.driver.customer !== "Unknown" &&
+                data.driver.customer.trim().toLowerCase() !==
+                  "[object object]" &&
                 !/^\d{1,2}[/-]\d{1,2}[/-]\d{2}(\d{2})?$|^\d{4}[/-]\d{1,2}[/-]\d{1,2}$/.test(
                   data.driver.customer.trim(),
                 )

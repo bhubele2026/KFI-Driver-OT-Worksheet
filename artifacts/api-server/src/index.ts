@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { isMailerConfigured } from "./lib/mailer";
 import { ensureAtLeastOneAdmin } from "./lib/adminBootstrap";
+import { repairBogusObjectCustomers } from "./lib/repairBogusCustomers";
 import { pool } from "./lib/db";
 import {
   createPostgresBackend,
@@ -41,6 +42,13 @@ async function main() {
     logger.error({ err }, "ensureAtLeastOneAdmin failed");
     process.exit(1);
   }
+
+  // Fire-and-forget: never block server start on a Connecteam round-trip,
+  // and never crash boot if the repair fails — it's idempotent and re-runs
+  // on the next boot.
+  void repairBogusObjectCustomers().catch((err) => {
+    logger.warn({ err }, "repairBogusObjectCustomers threw");
+  });
 
   setRateLimitBackend(createPostgresBackend(pool));
   startPostgresBackendCleanup(pool, {
