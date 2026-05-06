@@ -105,6 +105,12 @@ export default function DriverDetail() {
     if (!weekSummary?.customers) return [] as string[];
     return weekSummary.customers.flatMap((g) => g.drivers.map((d) => d.kfiId));
   }, [weekSummary]);
+  const flatDrivers = useMemo(() => {
+    if (!weekSummary?.customers) return [] as { kfiId: string; reviewed: boolean }[];
+    return weekSummary.customers.flatMap((g) =>
+      g.drivers.map((d) => ({ kfiId: d.kfiId, reviewed: d.reviewed })),
+    );
+  }, [weekSummary]);
   type Punch = NonNullable<typeof data>["punches"][number];
 
   const errMsg = (err: unknown, fallback: string) =>
@@ -197,6 +203,28 @@ export default function DriverDetail() {
         setLocation(`/weeks/${weekStart}/drivers/${prev}`);
         return;
       }
+      if (key === "n" || key === "N" || key === "p" || key === "P") {
+        if (flatDrivers.length === 0) return;
+        e.preventDefault();
+        const forward = key === "n" || key === "N";
+        const len = flatDrivers.length;
+        const startIdx = flatDrivers.findIndex((d) => d.kfiId === kfiId);
+        const base = startIdx === -1 ? (forward ? -1 : 0) : startIdx;
+        let target: string | null = null;
+        for (let step = 1; step <= len; step++) {
+          const probe = ((base + (forward ? step : -step)) % len + len) % len;
+          if (!flatDrivers[probe].reviewed) {
+            target = flatDrivers[probe].kfiId;
+            break;
+          }
+        }
+        if (!target) {
+          toast({ title: "All drivers reviewed for this week" });
+          return;
+        }
+        setLocation(`/weeks/${weekStart}/drivers/${target}`);
+        return;
+      }
       if (key === "r" || key === "R") {
         if (!data) return;
         e.preventDefault();
@@ -215,6 +243,7 @@ export default function DriverDetail() {
     return () => window.removeEventListener("keydown", handler);
   }, [
     flatDriverIds,
+    flatDrivers,
     kfiId,
     weekStart,
     setLocation,
@@ -223,6 +252,7 @@ export default function DriverDetail() {
     data,
     setReviewed,
     queryClient,
+    toast,
   ]);
 
   const toggleReviewed = () => {
@@ -719,6 +749,8 @@ export default function DriverDetail() {
           <div className="text-sm space-y-2 py-2">
             <ShortcutRow keys={["j", "↓"]} label="Next driver" />
             <ShortcutRow keys={["k", "↑"]} label="Previous driver" />
+            <ShortcutRow keys={["n"]} label="Next unreviewed driver" />
+            <ShortcutRow keys={["p"]} label="Previous unreviewed driver" />
             <ShortcutRow keys={["r"]} label="Toggle reviewed" />
             <ShortcutRow keys={["?"]} label="Show this help" />
             <p className="text-xs text-muted-foreground pt-2">

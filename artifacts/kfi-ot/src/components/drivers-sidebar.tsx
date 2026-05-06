@@ -283,9 +283,9 @@ function SidebarHeader({ onCollapse }: { onCollapse?: () => void }) {
         </h3>
         <p
           className="text-[11px] text-muted-foreground mt-1 leading-tight"
-          title="Shortcuts: j/↓ next driver · k/↑ previous driver · r toggle reviewed · ? for help"
+          title="Shortcuts: j/↓ next driver · k/↑ previous driver · n next unreviewed · p previous unreviewed · r toggle reviewed · ? for help"
         >
-          Click to open · double-click to review · <span className="font-mono">j/k</span> to jump.
+          Click to open · double-click to review · <span className="font-mono">j/k</span> to jump · <span className="font-mono">n/p</span> for unreviewed.
         </p>
       </div>
       {onCollapse && (
