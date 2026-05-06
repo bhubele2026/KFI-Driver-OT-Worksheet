@@ -9,6 +9,7 @@ import {
   setRateLimitBackend,
   setRateLimitEventSink,
   startPostgresBackendCleanup,
+  startRateLimitEventsCleanup,
 } from "./lib/rateLimit";
 import { startAiExtractSampleCleanup } from "./lib/aiExtractSampleCleanup";
 
@@ -55,6 +56,10 @@ async function main() {
   setRateLimitBackend(createPostgresBackend(pool));
   startPostgresBackendCleanup(pool, {
     onError: (err) => logger.warn({ err }, "rate limit cleanup failed"),
+  });
+  startRateLimitEventsCleanup(pool, {
+    onError: (err) =>
+      logger.warn({ err }, "rate limit events cleanup failed"),
   });
   startAiExtractSampleCleanup();
   setRateLimitEventSink((event) => {

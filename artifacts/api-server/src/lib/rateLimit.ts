@@ -152,6 +152,37 @@ export function startPostgresBackendCleanup(
   return timer;
 }
 
+/**
+ * Periodically delete rate_limit_events rows older than ~90 days so the
+ * append-only audit table stays bounded. Modeled on
+ * `startPostgresBackendCleanup`. Returns the timer handle so callers can
+ * clear it on shutdown if needed.
+ */
+export function startRateLimitEventsCleanup(
+  pool: Pool,
+  opts: {
+    intervalMs?: number;
+    retentionDays?: number;
+    onError?: (err: unknown) => void;
+  } = {},
+): NodeJS.Timeout {
+  const intervalMs = opts.intervalMs ?? 60 * 60 * 1000;
+  const retentionDays = opts.retentionDays ?? 90;
+  const timer = setInterval(() => {
+    pool
+      .query(
+        `DELETE FROM rate_limit_events
+         WHERE blocked_at < NOW() - ($1 || ' days')::interval`,
+        [String(retentionDays)],
+      )
+      .catch((err) => {
+        opts.onError?.(err);
+      });
+  }, intervalMs);
+  if (typeof timer.unref === "function") timer.unref();
+  return timer;
+}
+
 // ---------------- Backend selection ----------------
 
 let backend: RateLimitBackend = createMemoryBackend();
