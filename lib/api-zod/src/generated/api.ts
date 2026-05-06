@@ -239,6 +239,30 @@ export const SendPasswordResetForUserResponse = zod.object({
 });
 
 /**
+ * @summary List currently-active rate-limit buckets so admins can spot brute-force attempts (admin)
+ */
+export const ListRateLimitBucketsResponseItem = zod.object({
+  name: zod.string(),
+  key: zod.string(),
+  count: zod.number(),
+  max: zod.number(),
+  windowMs: zod.number(),
+  resetAt: zod.coerce.date(),
+  blocked: zod.boolean(),
+});
+export const ListRateLimitBucketsResponse = zod.array(
+  ListRateLimitBucketsResponseItem,
+);
+
+/**
+ * @summary Clear a specific rate-limit bucket (admin), e.g. unlock an account or IP
+ */
+export const ClearRateLimitBucketParams = zod.object({
+  name: zod.coerce.string(),
+  key: zod.coerce.string(),
+});
+
+/**
  * @summary Sign in with email & password
  */
 

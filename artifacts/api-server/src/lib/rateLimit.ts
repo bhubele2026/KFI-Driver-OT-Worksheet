@@ -161,6 +161,77 @@ export function setRateLimitBackend(b: RateLimitBackend): void {
   backend = b;
 }
 
+// ---------------- Limiter registry ----------------
+
+interface RegisteredLimiter {
+  name: string;
+  windowMs: number;
+  max: number;
+}
+
+const registry = new Map<string, RegisteredLimiter>();
+
+export function getRegisteredLimiters(): RegisteredLimiter[] {
+  return Array.from(registry.values());
+}
+
+export interface ActiveBucket {
+  name: string;
+  key: string;
+  count: number;
+  max: number;
+  windowMs: number;
+  resetAt: number;
+  blocked: boolean;
+}
+
+/**
+ * Return all currently-tracked buckets (those whose window has not yet
+ * expired) joined with their limiter's max/window. Buckets whose limiter is no
+ * longer registered (e.g. renamed across a deploy) are still surfaced with
+ * `max=0` and `blocked=true` so admins can see and clear them.
+ *
+ * Reads `rate_limit_buckets` directly because the Postgres backend is the only
+ * one used in production; the in-memory backend is for tests.
+ */
+export async function listActiveBuckets(
+  pool: Pool,
+  opts: { limit?: number } = {},
+): Promise<ActiveBucket[]> {
+  const limit = Math.max(1, Math.min(500, opts.limit ?? 200));
+  const r = await pool.query<{
+    name: string;
+    key: string;
+    count: number;
+    reset_at: Date;
+  }>(
+    `SELECT name, key, count, reset_at
+     FROM rate_limit_buckets
+     WHERE reset_at > NOW()
+     ORDER BY count DESC, reset_at DESC
+     LIMIT $1`,
+    [limit],
+  );
+  return r.rows.map((row) => {
+    const reg = registry.get(row.name);
+    const max = reg?.max ?? 0;
+    const count = Number(row.count);
+    return {
+      name: row.name,
+      key: row.key,
+      count,
+      max,
+      windowMs: reg?.windowMs ?? 0,
+      resetAt: row.reset_at.getTime(),
+      blocked: max > 0 ? count >= max : true,
+    };
+  });
+}
+
+export async function clearBucket(name: string, key: string): Promise<void> {
+  await backend.reset(name, key);
+}
+
 function clientIp(req: Request): string {
   return (req.ip ?? req.socket.remoteAddress ?? "unknown").toString();
 }
@@ -171,6 +242,7 @@ export function createLimiter(opts: {
   max: number;
 }): Limiter {
   const { name, windowMs, max } = opts;
+  registry.set(name, { name, windowMs, max });
   return {
     async check(key) {
       const now = Date.now();

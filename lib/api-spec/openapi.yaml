@@ -307,6 +307,39 @@ paths:
         "404": { description: User not found }
         "503": { description: Email is not configured on the server }
 
+  /auth/rate-limit-buckets:
+    get:
+      operationId: listRateLimitBuckets
+      tags: [auth]
+      summary: List currently-active rate-limit buckets so admins can spot brute-force attempts (admin)
+      responses:
+        "200":
+          description: Active buckets
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RateLimitBucket" }
+        "403": { description: Admin only }
+
+  /auth/rate-limit-buckets/{name}/{key}:
+    delete:
+      operationId: clearRateLimitBucket
+      tags: [auth]
+      summary: Clear a specific rate-limit bucket (admin), e.g. unlock an account or IP
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Cleared }
+        "403": { description: Admin only }
+
   /auth/login:
     post:
       operationId: login
@@ -697,6 +730,18 @@ components:
       required: [delivered]
       properties:
         delivered: { type: boolean }
+
+    RateLimitBucket:
+      type: object
+      required: [name, key, count, max, windowMs, resetAt, blocked]
+      properties:
+        name: { type: string }
+        key: { type: string }
+        count: { type: integer }
+        max: { type: integer }
+        windowMs: { type: integer }
+        resetAt: { type: string, format: date-time }
+        blocked: { type: boolean }
 
     UpdateUserBody:
       type: object

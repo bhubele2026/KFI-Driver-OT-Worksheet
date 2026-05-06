@@ -20,10 +20,13 @@ import {
 import { isMailerConfigured, sendMail } from "../lib/mailer.js";
 import {
   checkLoginLimits,
+  clearBucket,
   ipRateLimit,
+  listActiveBuckets,
   recordLoginFailure,
   recordLoginSuccess,
 } from "../lib/rateLimit.js";
+import { pool } from "../lib/db.js";
 
 export const authRouter = Router();
 
@@ -496,6 +499,31 @@ authRouter.post("/auth/reset-password", tokenSubmitLimiter, async (req, res) => 
 authRouter.get("/auth/mailer-status", requireAdmin, (_req, res) => {
   res.json({ configured: isMailerConfigured() });
 });
+
+// ----- Rate-limit visibility -----
+
+authRouter.get("/auth/rate-limit-buckets", requireAdmin, async (_req, res) => {
+  const buckets = await listActiveBuckets(pool);
+  res.json(
+    buckets.map((b) => ({
+      ...b,
+      resetAt: new Date(b.resetAt).toISOString(),
+    })),
+  );
+});
+
+authRouter.delete(
+  "/auth/rate-limit-buckets/:name/:key",
+  requireAdmin,
+  async (req, res) => {
+    await clearBucket(String(req.params.name), String(req.params.key));
+    req.log?.info(
+      { name: req.params.name, key: req.params.key },
+      "rate limit bucket cleared by admin",
+    );
+    res.status(204).end();
+  },
+);
 
 // ----- Admin user management -----
 

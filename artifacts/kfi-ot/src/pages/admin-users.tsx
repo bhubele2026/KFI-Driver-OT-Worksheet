@@ -11,9 +11,12 @@ import {
   useSendPasswordResetForUser,
   useGetMe,
   useGetMailerStatus,
+  useListRateLimitBuckets,
+  useClearRateLimitBucket,
   getListUsersQueryKey,
   getListInvitesQueryKey,
   getGetMailerStatusQueryKey,
+  getListRateLimitBucketsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -36,11 +39,13 @@ import {
   Mail,
   Power,
   PowerOff,
+  ShieldAlert,
   ShieldCheck,
   ShieldOff,
   KeyRound,
   Send,
   Trash2,
+  Unlock,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -85,6 +90,16 @@ export default function AdminUsers() {
     mailerStatus?.configured === false &&
     !mailerWarningDismissed;
 
+  const { data: rateLimitBuckets, isLoading: bucketsLoading } =
+    useListRateLimitBuckets({
+      query: {
+        enabled: !!me?.isAdmin,
+        queryKey: getListRateLimitBucketsQueryKey(),
+        refetchInterval: 30_000,
+      },
+    });
+  const clearBucket = useClearRateLimitBucket();
+
   const createInvite = useCreateInvite();
   const revokeInvite = useRevokeInvite();
   const resendInvite = useResendInvite();
@@ -107,6 +122,53 @@ export default function AdminUsers() {
     qc.invalidateQueries({ queryKey: getListInvitesQueryKey() });
   const refetchUsers = () =>
     qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
+  const refetchBuckets = () =>
+    qc.invalidateQueries({ queryKey: getListRateLimitBucketsQueryKey() });
+
+  const handleClearBucket = (name: string, key: string) => {
+    clearBucket.mutate(
+      { name, key },
+      {
+        onSuccess: () => {
+          refetchBuckets();
+          toast({ title: "Lockout cleared", description: `${name} · ${key}` });
+        },
+        onError: (err) =>
+          toast({
+            title: "Couldn't clear lockout",
+            description: err instanceof Error ? err.message : "Unknown error",
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  const formatBucketLabel = (name: string) => {
+    switch (name) {
+      case "login:ip":
+        return "Failed sign-ins (per IP)";
+      case "login:email":
+        return "Failed sign-ins (per email)";
+      case "auth:request-reset":
+        return "Password-reset requests (per IP)";
+      case "auth:token-submit":
+        return "Token submissions (per IP)";
+      case "auth:token-lookup":
+        return "Token lookups (per IP)";
+      default:
+        return name;
+    }
+  };
+
+  const formatTimeRemaining = (resetAtIso: string) => {
+    const ms = new Date(resetAtIso).getTime() - Date.now();
+    if (ms <= 0) return "expired";
+    const totalSec = Math.ceil(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    if (m === 0) return `${s}s`;
+    return `${m}m ${s.toString().padStart(2, "0")}s`;
+  };
 
   const handleCreateInvite = (e: React.FormEvent) => {
     e.preventDefault();
@@ -418,6 +480,87 @@ export default function AdminUsers() {
                 </p>
               )}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-display text-base flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4" />
+              Security activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-3">
+              Active rate-limit buckets (failed sign-ins, password-reset abuse,
+              token guessing). Rows in red are currently blocked. Use the unlock
+              button to clear a lockout for a specific account or IP.
+            </p>
+            {bucketsLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            ) : rateLimitBuckets && rateLimitBuckets.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Limiter</TableHead>
+                    <TableHead>Key</TableHead>
+                    <TableHead className="text-right">Attempts</TableHead>
+                    <TableHead>Resets in</TableHead>
+                    <TableHead className="w-[1%]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rateLimitBuckets.map((b) => {
+                    const id = `${b.name}::${b.key}`;
+                    return (
+                      <TableRow
+                        key={id}
+                        className={b.blocked ? "bg-rose-500/5" : undefined}
+                      >
+                        <TableCell className="text-xs">
+                          <div className="font-medium">
+                            {formatBucketLabel(b.name)}
+                          </div>
+                          <div className="font-mono text-[10px] text-muted-foreground">
+                            {b.name}
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs break-all">
+                          {b.key}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right font-mono text-xs ${b.blocked ? "text-rose-600 dark:text-rose-400 font-semibold" : ""}`}
+                        >
+                          {b.count}
+                          {b.max > 0 ? ` / ${b.max}` : ""}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {formatTimeRemaining(b.resetAt)}
+                        </TableCell>
+                        <TableCell className="flex justify-end">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleClearBucket(b.name, b.key)}
+                            disabled={clearBucket.isPending}
+                            title="Clear this lockout"
+                          >
+                            <Unlock className="h-3 w-3 mr-1" />
+                            Clear
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-sm text-muted-foreground italic">
+                No active rate-limit buckets. Sign-ins and password-reset
+                traffic look normal.
+              </p>
+            )}
           </CardContent>
         </Card>
 

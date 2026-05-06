@@ -38,6 +38,7 @@ import type {
   PublicInvite,
   PublicPasswordReset,
   Punch,
+  RateLimitBucket,
   RefreshResult,
   RegistrationStatus,
   RequestPasswordResetBody,
@@ -1447,6 +1448,166 @@ export const useSendPasswordResetForUser = <
   TContext
 > => {
   return useMutation(getSendPasswordResetForUserMutationOptions(options));
+};
+
+/**
+ * @summary List currently-active rate-limit buckets so admins can spot brute-force attempts (admin)
+ */
+export const getListRateLimitBucketsUrl = () => {
+  return `/api/auth/rate-limit-buckets`;
+};
+
+export const listRateLimitBuckets = async (
+  options?: RequestInit,
+): Promise<RateLimitBucket[]> => {
+  return customFetch<RateLimitBucket[]>(getListRateLimitBucketsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListRateLimitBucketsQueryKey = () => {
+  return [`/api/auth/rate-limit-buckets`] as const;
+};
+
+export const getListRateLimitBucketsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listRateLimitBuckets>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listRateLimitBuckets>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListRateLimitBucketsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listRateLimitBuckets>>
+  > = ({ signal }) => listRateLimitBuckets({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listRateLimitBuckets>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListRateLimitBucketsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listRateLimitBuckets>>
+>;
+export type ListRateLimitBucketsQueryError = ErrorType<void>;
+
+/**
+ * @summary List currently-active rate-limit buckets so admins can spot brute-force attempts (admin)
+ */
+
+export function useListRateLimitBuckets<
+  TData = Awaited<ReturnType<typeof listRateLimitBuckets>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listRateLimitBuckets>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListRateLimitBucketsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Clear a specific rate-limit bucket (admin), e.g. unlock an account or IP
+ */
+export const getClearRateLimitBucketUrl = (name: string, key: string) => {
+  return `/api/auth/rate-limit-buckets/${name}/${key}`;
+};
+
+export const clearRateLimitBucket = async (
+  name: string,
+  key: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getClearRateLimitBucketUrl(name, key), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getClearRateLimitBucketMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof clearRateLimitBucket>>,
+    TError,
+    { name: string; key: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof clearRateLimitBucket>>,
+  TError,
+  { name: string; key: string },
+  TContext
+> => {
+  const mutationKey = ["clearRateLimitBucket"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof clearRateLimitBucket>>,
+    { name: string; key: string }
+  > = (props) => {
+    const { name, key } = props ?? {};
+
+    return clearRateLimitBucket(name, key, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ClearRateLimitBucketMutationResult = NonNullable<
+  Awaited<ReturnType<typeof clearRateLimitBucket>>
+>;
+
+export type ClearRateLimitBucketMutationError = ErrorType<void>;
+
+/**
+ * @summary Clear a specific rate-limit bucket (admin), e.g. unlock an account or IP
+ */
+export const useClearRateLimitBucket = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof clearRateLimitBucket>>,
+    TError,
+    { name: string; key: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof clearRateLimitBucket>>,
+  TError,
+  { name: string; key: string },
+  TContext
+> => {
+  return useMutation(getClearRateLimitBucketMutationOptions(options));
 };
 
 /**

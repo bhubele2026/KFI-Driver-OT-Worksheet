@@ -40,6 +40,7 @@ export * from "./publicInvite";
 export * from "./publicPasswordReset";
 export * from "./punch";
 export * from "./punchSource";
+export * from "./rateLimitBucket";
 export * from "./refreshResult";
 export * from "./registrationStatus";
 export * from "./requestPasswordResetBody";

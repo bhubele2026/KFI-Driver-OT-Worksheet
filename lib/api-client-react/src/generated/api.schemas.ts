@@ -102,6 +102,16 @@ export interface EmailDeliveryResult {
   delivered: boolean;
 }
 
+export interface RateLimitBucket {
+  name: string;
+  key: string;
+  count: number;
+  max: number;
+  windowMs: number;
+  resetAt: string;
+  blocked: boolean;
+}
+
 export interface UpdateUserBody {
   isActive?: boolean;
   isAdmin?: boolean;
