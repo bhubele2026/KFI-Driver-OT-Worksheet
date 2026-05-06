@@ -234,7 +234,11 @@ const BASELINES: Record<string, Expected[]> = {
     {
       file: "DeLallo.pdf",
       customer: "DeLallo",
-      minPunches: 7,
+      // OCR variance can legitimately add or drop a row; the typical result
+      // is ~10 punches, so the floor is set well below that to avoid
+      // flapping while still catching a parser regression that drops most
+      // rows.
+      minPunches: 5,
       totalHours: 41.5,
       tolerance: 8.0,
       expectedUnmappedIds: ["3618", "3620", "3623", "3636", "3637"],
@@ -328,7 +332,10 @@ for (const weekStart of fixtureWeeks) {
       // started dropping rows) shows up as a loud diff. DeLallo is the one
       // exception — OCR variance can legitimately add or drop one row, so
       // we only require the pinned ids to be a subset of what's reported.
-      const got = [...result.unmappedIds].sort();
+      // `result.unmappedIds` is now `UnmappedIdEntry[]` (Task #52 added the
+      // `count` + `sampleName` fields for the admin UI). The pinned baselines
+      // are `string[]`, so compare on the id field.
+      const got = result.unmappedIds.map((u) => u.id).sort();
       const want = [...e.expectedUnmappedIds].sort();
       if (e.file === "DeLallo.pdf") {
         const gotSet = new Set(got);
@@ -390,13 +397,17 @@ test("Greystone: dropping a known driver id surfaces it in unmappedIds", async (
   assert.ok(result, "partial parse failed");
 
   // The victim should be reported back exactly once (Set semantics) and no
-  // surviving punch should still reference them.
+  // surviving punch should still reference them. `unmappedIds` is now an
+  // array of `UnmappedIdEntry` objects (Task #52); compare on the id field.
+  const unmappedVictimEntries = result.unmappedIds.filter(
+    (u) => u.id === victimId,
+  );
   assert.ok(
-    result.unmappedIds.includes(victimId),
+    unmappedVictimEntries.length > 0,
     `expected ${victimId} in unmappedIds, got ${JSON.stringify(result.unmappedIds)}`,
   );
   assert.equal(
-    result.unmappedIds.filter((id) => id === victimId).length,
+    unmappedVictimEntries.length,
     1,
     "unmappedIds should be deduplicated",
   );

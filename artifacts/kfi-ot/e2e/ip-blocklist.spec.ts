@@ -91,13 +91,27 @@ test("admin can block an IP, the API rejects it with 403, and admin can unblock"
   const blockBtn = lockoutRow.getByRole("button", { name: /Block IP/ });
   await expect(blockBtn).toBeVisible();
 
-  // 3. Accept the prompt() dialog and click Block IP.
-  page.once("dialog", (d) => {
+  // 3. Accept the two prompt() dialogs and click Block IP. The handler asks
+  //    first for the IP/CIDR target (defaulting to the offending IP) and
+  //    then for an optional reason — accept both with the test fixtures.
+  const dialogReplies = [TEST_IP, "e2e test block"];
+  const handleDialog = async (d: import("@playwright/test").Dialog) => {
     expect(d.type()).toBe("prompt");
-    expect(d.message()).toContain(TEST_IP);
-    void d.accept("e2e test block");
-  });
-  await blockBtn.click();
+    const reply = dialogReplies.shift();
+    if (reply === undefined) {
+      await d.dismiss();
+      return;
+    }
+    await d.accept(reply);
+  };
+  page.on("dialog", handleDialog);
+  try {
+    await blockBtn.click();
+    // Wait for both prompts to be consumed before asserting on the new row.
+    await expect.poll(() => dialogReplies.length).toBe(0);
+  } finally {
+    page.off("dialog", handleDialog);
+  }
 
   // 4. The IP should now appear in the IP blocklist table, and the
   //    lockout row should flip to a "Blocked" badge.
