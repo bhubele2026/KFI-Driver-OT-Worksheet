@@ -22,6 +22,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
@@ -614,7 +615,23 @@ export default function DriverDetail() {
                   <TableHead className="uppercase text-[11px] tracking-wider">Clock In</TableHead>
                   <TableHead className="uppercase text-[11px] tracking-wider">Clock Out</TableHead>
                   <TableHead className="text-right uppercase text-[11px] tracking-wider w-[80px]">Hours</TableHead>
-                  <TableHead className="uppercase text-[11px] tracking-wider min-w-[220px]">Running Total</TableHead>
+                  <TableHead className="uppercase text-[11px] tracking-wider min-w-[220px]">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1 min-w-[120px] h-4">
+                        <div
+                          className="absolute top-0 bottom-0 w-px bg-warning/70"
+                          style={{ left: `${otLinePct}%` }}
+                        />
+                        <span
+                          className="absolute -top-0.5 text-[9px] font-mono font-semibold text-warning tracking-tight whitespace-nowrap -translate-x-1/2"
+                          style={{ left: `${otLinePct}%` }}
+                        >
+                          40h OT
+                        </span>
+                      </div>
+                      <span className="w-12 text-right normal-case tracking-wider">Running</span>
+                    </div>
+                  </TableHead>
                   <TableHead className="text-right uppercase text-[11px] tracking-wider w-[100px]">Type</TableHead>
                   <TableHead className="text-right w-[90px] print:hidden"></TableHead>
                 </TableRow>
@@ -635,6 +652,13 @@ export default function DriverDetail() {
                   // Within "before", how much was already RT vs OT (for the lighter "completed" portion).
                   const beforeRtPct = (Math.min(before, OT_THRESHOLD) / scaleMax) * 100;
                   const beforeOtPct = (Math.max(0, before - OT_THRESHOLD) / scaleMax) * 100;
+                  const remaining = OT_THRESHOLD - after;
+                  const tooltipLine =
+                    remaining > 0.0001
+                      ? `${remaining.toFixed(2)}h until OT`
+                      : remaining < -0.0001
+                        ? `${Math.abs(remaining).toFixed(2)}h over OT`
+                        : `at the 40h OT line`;
                   return (
                     <TableRow
                       key={p.id}
@@ -692,56 +716,66 @@ export default function DriverDetail() {
                       </TableCell>
                       <TableCell className="text-right font-mono font-medium">{p.hours.toFixed(2)}</TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className="relative h-1.5 flex-1 min-w-[120px] bg-muted rounded-full overflow-hidden print:hidden">
-                            {/* "Already accumulated" lighter base */}
-                            {beforeRtPct > 0 && (
-                              <div
-                                className="absolute top-0 left-0 h-full bg-blue-300/60 dark:bg-blue-400/30"
-                                style={{ width: `${beforeRtPct}%` }}
-                              />
-                            )}
-                            {beforeOtPct > 0 && (
-                              <div
-                                className="absolute top-0 h-full bg-warning/40"
-                                style={{ left: `${otLinePct}%`, width: `${beforeOtPct}%` }}
-                              />
-                            )}
-                            {/* This-row RT portion */}
-                            {rtPctOfRow > 0 && (
-                              <div
-                                className={cn(
-                                  "absolute top-0 h-full",
-                                  isDriver ? "bg-blue-700 dark:bg-blue-400" : "bg-emerald-600 dark:bg-emerald-400",
-                                )}
-                                style={{ left: `${beforeRtPct}%`, width: `${rtPctOfRow}%` }}
-                              />
-                            )}
-                            {/* This-row OT portion */}
-                            {otPctOfRow > 0 && (
-                              <div
-                                className="absolute top-0 h-full bg-warning"
-                                style={{
-                                  left: `${otLinePct + beforeOtPct}%`,
-                                  width: `${otPctOfRow}%`,
-                                }}
-                              />
-                            )}
-                            {/* OT threshold marker */}
-                            <div
-                              className="absolute top-0 h-full w-px bg-warning/70"
-                              style={{ left: `${otLinePct}%` }}
-                            />
-                          </div>
-                          <span
-                            className={cn(
-                              "font-mono text-xs tabular-nums w-12 text-right",
-                              isOt ? "text-warning" : "text-muted-foreground",
-                            )}
-                          >
-                            {after.toFixed(2)}
-                          </span>
-                        </div>
+                        <TooltipProvider delayDuration={150}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="flex items-center gap-2 cursor-help">
+                                <div className="relative h-1.5 flex-1 min-w-[120px] bg-muted rounded-full overflow-hidden print:hidden">
+                                  {/* "Already accumulated" lighter base */}
+                                  {beforeRtPct > 0 && (
+                                    <div
+                                      className="absolute top-0 left-0 h-full bg-blue-300/60 dark:bg-blue-400/30"
+                                      style={{ width: `${beforeRtPct}%` }}
+                                    />
+                                  )}
+                                  {beforeOtPct > 0 && (
+                                    <div
+                                      className="absolute top-0 h-full bg-warning/40"
+                                      style={{ left: `${otLinePct}%`, width: `${beforeOtPct}%` }}
+                                    />
+                                  )}
+                                  {/* This-row RT portion */}
+                                  {rtPctOfRow > 0 && (
+                                    <div
+                                      className={cn(
+                                        "absolute top-0 h-full",
+                                        isDriver ? "bg-blue-700 dark:bg-blue-400" : "bg-emerald-600 dark:bg-emerald-400",
+                                      )}
+                                      style={{ left: `${beforeRtPct}%`, width: `${rtPctOfRow}%` }}
+                                    />
+                                  )}
+                                  {/* This-row OT portion */}
+                                  {otPctOfRow > 0 && (
+                                    <div
+                                      className="absolute top-0 h-full bg-warning"
+                                      style={{
+                                        left: `${otLinePct + beforeOtPct}%`,
+                                        width: `${otPctOfRow}%`,
+                                      }}
+                                    />
+                                  )}
+                                  {/* OT threshold marker */}
+                                  <div
+                                    className="absolute top-0 h-full w-px bg-warning/70"
+                                    style={{ left: `${otLinePct}%` }}
+                                  />
+                                </div>
+                                <span
+                                  className={cn(
+                                    "font-mono text-xs tabular-nums w-12 text-right",
+                                    isOt ? "text-warning" : "text-muted-foreground",
+                                  )}
+                                >
+                                  {after.toFixed(2)}
+                                </span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="font-mono text-[11px] leading-relaxed">
+                              <div>Cumulative: {after.toFixed(2)}h</div>
+                              <div>{tooltipLine}</div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </TableCell>
                       <TableCell
                         className={cn(
