@@ -921,6 +921,14 @@ weeksRouter.post(
         snoozedByUserId: req.session.userId ?? null,
         reason,
       });
+      await tx.insert(schema.userAuditLogTable).values({
+        actorUserId: req.session.userId ?? null,
+        targetUserId: null,
+        targetEmail: `parser-snooze:${customer}|until=${
+          snoozedUntil ? snoozedUntil.toISOString() : "forever"
+        }`,
+        action: "parser-snooze",
+      });
     });
     let snoozedByEmail: string | null = null;
     if (req.session.userId) {
@@ -949,11 +957,21 @@ weeksRouter.delete(
       res.status(400).json({ error: "customer is required" });
       return;
     }
-    await db
-      .delete(schema.parserPromotionSnoozesTable)
-      .where(
-        sql`lower(${schema.parserPromotionSnoozesTable.customer}) = lower(${customer})`,
-      );
+    await db.transaction(async (tx) => {
+      const removed = await tx
+        .delete(schema.parserPromotionSnoozesTable)
+        .where(
+          sql`lower(${schema.parserPromotionSnoozesTable.customer}) = lower(${customer})`,
+        )
+        .returning({ customer: schema.parserPromotionSnoozesTable.customer });
+      if (removed.length === 0) return;
+      await tx.insert(schema.userAuditLogTable).values({
+        actorUserId: req.session.userId ?? null,
+        targetUserId: null,
+        targetEmail: `parser-snooze:${removed[0].customer}`,
+        action: "parser-snooze-lift",
+      });
+    });
     res.status(204).end();
   },
 );
