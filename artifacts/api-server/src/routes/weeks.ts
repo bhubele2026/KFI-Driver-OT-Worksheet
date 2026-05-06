@@ -1,6 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
 import {
   ConfirmNewCustomerFileBody,
   CreateManualPunchBody,
@@ -1594,22 +1594,46 @@ weeksRouter.patch("/customer-aliases", requireAdmin, async (req, res) => {
     res.status(400).json({ error: "Unknown kfiId" });
     return;
   }
-  const [updated] = await db
-    .update(schema.customerNameAliasesTable)
-    .set({ kfiId, updatedBy: req.session.userId ?? null })
-    .where(
-      and(
-        sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
-        sql`lower(${schema.customerNameAliasesTable.nameOnDoc}) = lower(${nameOnDoc})`,
-      ),
-    )
-    .returning({
-      customer: schema.customerNameAliasesTable.customer,
-      nameOnDoc: schema.customerNameAliasesTable.nameOnDoc,
-      kfiId: schema.customerNameAliasesTable.kfiId,
-      updatedAt: schema.customerNameAliasesTable.updatedAt,
-      updatedBy: schema.customerNameAliasesTable.updatedBy,
-    });
+  const updated = await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ kfiId: schema.customerNameAliasesTable.kfiId })
+      .from(schema.customerNameAliasesTable)
+      .where(
+        and(
+          sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+          sql`lower(${schema.customerNameAliasesTable.nameOnDoc}) = lower(${nameOnDoc})`,
+        ),
+      );
+    if (!existing) return null;
+    const [row] = await tx
+      .update(schema.customerNameAliasesTable)
+      .set({ kfiId, updatedBy: req.session.userId ?? null })
+      .where(
+        and(
+          sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+          sql`lower(${schema.customerNameAliasesTable.nameOnDoc}) = lower(${nameOnDoc})`,
+        ),
+      )
+      .returning({
+        customer: schema.customerNameAliasesTable.customer,
+        nameOnDoc: schema.customerNameAliasesTable.nameOnDoc,
+        kfiId: schema.customerNameAliasesTable.kfiId,
+        updatedAt: schema.customerNameAliasesTable.updatedAt,
+        updatedBy: schema.customerNameAliasesTable.updatedBy,
+      });
+    if (!row) return null;
+    if (existing.kfiId !== row.kfiId) {
+      await tx.insert(schema.customerAliasAuditLogTable).values({
+        actorUserId: req.session.userId ?? null,
+        customer: row.customer,
+        nameOnDoc: row.nameOnDoc,
+        action: "remap",
+        beforeKfiId: existing.kfiId,
+        afterKfiId: row.kfiId,
+      });
+    }
+    return row;
+  });
   if (!updated) {
     res.status(404).json({ error: "Alias not found" });
     return;
@@ -1657,14 +1681,31 @@ weeksRouter.delete("/customer-aliases", async (req, res) => {
     res.status(400).json({ error: "customer and nameOnDoc are required" });
     return;
   }
-  await db
-    .delete(schema.customerNameAliasesTable)
-    .where(
-      and(
-        sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
-        sql`lower(${schema.customerNameAliasesTable.nameOnDoc}) = lower(${nameOnDoc})`,
-      ),
-    );
+  await db.transaction(async (tx) => {
+    const [deleted] = await tx
+      .delete(schema.customerNameAliasesTable)
+      .where(
+        and(
+          sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+          sql`lower(${schema.customerNameAliasesTable.nameOnDoc}) = lower(${nameOnDoc})`,
+        ),
+      )
+      .returning({
+        customer: schema.customerNameAliasesTable.customer,
+        nameOnDoc: schema.customerNameAliasesTable.nameOnDoc,
+        kfiId: schema.customerNameAliasesTable.kfiId,
+      });
+    if (deleted) {
+      await tx.insert(schema.customerAliasAuditLogTable).values({
+        actorUserId: req.session.userId ?? null,
+        customer: deleted.customer,
+        nameOnDoc: deleted.nameOnDoc,
+        action: "forget",
+        beforeKfiId: deleted.kfiId,
+        afterKfiId: null,
+      });
+    }
+  });
   res.status(204).end();
 });
 
@@ -1897,6 +1938,103 @@ weeksRouter.delete(
         sql`lower(${schema.driverIdAliasesTable.externalId}) = lower(${externalId})`,
       );
     res.status(204).end();
+  },
+);
+
+weeksRouter.get(
+  "/customer-aliases/audit-log",
+  requireAdmin,
+  async (req, res) => {
+    const limitParam = Number(req.query.limit);
+    const limit =
+      Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 500
+        ? limitParam
+        : 100;
+    const customerFilter =
+      typeof req.query.customer === "string" && req.query.customer.trim()
+        ? req.query.customer.trim()
+        : null;
+    const nameOnDocFilter =
+      typeof req.query.nameOnDoc === "string" && req.query.nameOnDoc.trim()
+        ? req.query.nameOnDoc.trim()
+        : null;
+
+    const conds: SQL[] = [];
+    if (customerFilter) {
+      conds.push(
+        sql`lower(${schema.customerAliasAuditLogTable.customer}) = lower(${customerFilter})`,
+      );
+    }
+    if (nameOnDocFilter) {
+      conds.push(
+        sql`lower(${schema.customerAliasAuditLogTable.nameOnDoc}) = lower(${nameOnDocFilter})`,
+      );
+    }
+
+    const baseQuery = db
+      .select({
+        id: schema.customerAliasAuditLogTable.id,
+        action: schema.customerAliasAuditLogTable.action,
+        customer: schema.customerAliasAuditLogTable.customer,
+        nameOnDoc: schema.customerAliasAuditLogTable.nameOnDoc,
+        beforeKfiId: schema.customerAliasAuditLogTable.beforeKfiId,
+        afterKfiId: schema.customerAliasAuditLogTable.afterKfiId,
+        createdAt: schema.customerAliasAuditLogTable.createdAt,
+        actorUserId: schema.customerAliasAuditLogTable.actorUserId,
+        actorEmail: schema.usersTable.email,
+      })
+      .from(schema.customerAliasAuditLogTable)
+      .leftJoin(
+        schema.usersTable,
+        eq(
+          schema.usersTable.id,
+          schema.customerAliasAuditLogTable.actorUserId,
+        ),
+      );
+    const filtered =
+      conds.length > 0 ? baseQuery.where(and(...conds)) : baseQuery;
+    const rows = await filtered
+      .orderBy(desc(schema.customerAliasAuditLogTable.createdAt))
+      .limit(limit);
+
+    const beforeIds = new Set<string>();
+    const afterIds = new Set<string>();
+    for (const r of rows) {
+      if (r.beforeKfiId) beforeIds.add(r.beforeKfiId);
+      if (r.afterKfiId) afterIds.add(r.afterKfiId);
+    }
+    const allIds = [...new Set([...beforeIds, ...afterIds])];
+    const driverNameById = new Map<string, string>();
+    if (allIds.length > 0) {
+      const driverRows = await db
+        .select({
+          kfiId: schema.driversTable.kfiId,
+          name: schema.driversTable.name,
+        })
+        .from(schema.driversTable)
+        .where(inArray(schema.driversTable.kfiId, allIds));
+      for (const d of driverRows) driverNameById.set(d.kfiId, d.name);
+    }
+
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        action: r.action,
+        customer: r.customer,
+        nameOnDoc: r.nameOnDoc,
+        beforeKfiId: r.beforeKfiId,
+        afterKfiId: r.afterKfiId,
+        beforeDriverName: r.beforeKfiId
+          ? driverNameById.get(r.beforeKfiId) ?? null
+          : null,
+        afterDriverName: r.afterKfiId
+          ? driverNameById.get(r.afterKfiId) ?? null
+          : null,
+        actorUserId: r.actorUserId,
+        actorEmail: r.actorEmail ?? null,
+        createdAt: new Date(r.createdAt).toISOString(),
+      })),
+    );
   },
 );
 

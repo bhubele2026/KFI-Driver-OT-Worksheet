@@ -5,7 +5,9 @@ import {
   useListCustomerNameAliases,
   useUpdateCustomerNameAlias,
   useForgetCustomerNameAlias,
+  useListCustomerAliasAuditLog,
   getListCustomerNameAliasesQueryKey,
+  getListCustomerAliasAuditLogQueryKey,
   type CustomerNameAlias,
   type DriverInfo,
 } from "@workspace/api-client-react";
@@ -32,6 +34,8 @@ import { useToast } from "@/hooks/use-toast";
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
+  History,
   Link as LinkIcon,
   Loader2,
   Trash2,
@@ -60,6 +64,17 @@ export default function AdminCustomerAliases() {
     },
   });
 
+  const { data: auditLog, isLoading: auditLoading } =
+    useListCustomerAliasAuditLog(
+      { limit: 50 },
+      {
+        query: {
+          enabled: !!me?.isAdmin,
+          queryKey: getListCustomerAliasAuditLogQueryKey({ limit: 50 }),
+        },
+      },
+    );
+
   const updateAlias = useUpdateCustomerNameAlias();
   const forgetAlias = useForgetCustomerNameAlias();
 
@@ -84,8 +99,12 @@ export default function AdminCustomerAliases() {
     return <Redirect to="/" />;
   }
 
-  const refetch = () =>
+  const refetch = () => {
     qc.invalidateQueries({ queryKey: getListCustomerNameAliasesQueryKey() });
+    qc.invalidateQueries({
+      queryKey: [getListCustomerAliasAuditLogQueryKey({ limit: 50 })[0]],
+    });
+  };
 
   const handleSaveEdit = () => {
     if (!edit) return;
@@ -386,8 +405,109 @@ export default function AdminCustomerAliases() {
             )}
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-display text-base flex items-center gap-2">
+              <History className="h-4 w-4" />
+              Recent activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-4">
+              Append-only log of every alias re-map and forget. Use this to
+              trace which admin (or dispatcher) changed a mapping when a
+              dispatcher's punches start landing on the wrong driver.
+            </p>
+            {auditLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            ) : auditLog && auditLog.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>When</TableHead>
+                    <TableHead>Actor</TableHead>
+                    <TableHead>Action</TableHead>
+                    <TableHead>Customer · name on doc</TableHead>
+                    <TableHead>Change</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {auditLog.map((entry) => (
+                    <TableRow key={entry.id}>
+                      <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap align-top">
+                        {format(new Date(entry.createdAt), "yyyy-MM-dd HH:mm")}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs align-top">
+                        {entry.actorEmail ?? "—"}
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <span
+                          className={`text-xs font-mono uppercase tracking-wider ${
+                            entry.action === "forget"
+                              ? "text-rose-600 dark:text-rose-400"
+                              : "text-primary"
+                          }`}
+                        >
+                          {entry.action}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs align-top">
+                        <div className="font-medium">{entry.customer}</div>
+                        <div className="font-mono text-[10px] text-muted-foreground">
+                          {entry.nameOnDoc}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs align-top">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <KfiIdLabel
+                            kfiId={entry.beforeKfiId ?? null}
+                            driverName={entry.beforeDriverName ?? null}
+                          />
+                          <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                          <KfiIdLabel
+                            kfiId={entry.afterKfiId ?? null}
+                            driverName={entry.afterDriverName ?? null}
+                          />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-sm text-muted-foreground italic">
+                No alias changes recorded yet.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </main>
     </div>
+  );
+}
+
+function KfiIdLabel({
+  kfiId,
+  driverName,
+}: {
+  kfiId: string | null;
+  driverName: string | null;
+}) {
+  if (!kfiId) {
+    return (
+      <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">
+        none
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex flex-col">
+      <span className="font-medium">{driverName ?? "Unknown driver"}</span>
+      <span className="font-mono text-[10px] text-muted-foreground">
+        {kfiId}
+      </span>
+    </span>
   );
 }
 

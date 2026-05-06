@@ -1140,6 +1140,42 @@ export const ForgetCustomerNameAliasQueryParams = zod.object({
 });
 
 /**
+ * @summary List recent re-map / forget actions on customer-driver aliases (admin-only).
+ */
+export const listCustomerAliasAuditLogQueryLimitMax = 500;
+
+export const ListCustomerAliasAuditLogQueryParams = zod.object({
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listCustomerAliasAuditLogQueryLimitMax)
+    .optional(),
+  customer: zod.coerce.string().optional(),
+  nameOnDoc: zod.coerce.string().optional(),
+});
+
+export const ListCustomerAliasAuditLogResponseItem = zod.object({
+  id: zod.number(),
+  action: zod
+    .string()
+    .describe(
+      "One of `remap` (driver re-assigned) or `forget` (alias deleted).",
+    ),
+  customer: zod.string(),
+  nameOnDoc: zod.string(),
+  beforeKfiId: zod.string().nullish(),
+  afterKfiId: zod.string().nullish(),
+  beforeDriverName: zod.string().nullish(),
+  afterDriverName: zod.string().nullish(),
+  actorUserId: zod.number().nullish(),
+  actorEmail: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+});
+export const ListCustomerAliasAuditLogResponse = zod.array(
+  ListCustomerAliasAuditLogResponseItem,
+);
+
+/**
  * @summary List every active or expired parser-promotion snooze (admin-only).
  */
 export const ListParserPromotionSnoozesResponseItem = zod.object({

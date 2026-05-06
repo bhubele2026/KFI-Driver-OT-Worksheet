@@ -28,6 +28,7 @@ import type {
   CreateDriverIdAliasBody,
   CreateInviteBody,
   CreateParserPromotionSnoozeBody,
+  CustomerAliasAuditLogEntry,
   CustomerNameAlias,
   CustomerNameAliasList,
   CustomerUploadStatus,
@@ -42,6 +43,7 @@ import type {
   InviteWithLink,
   IpBlocklistEntry,
   ListAiExtractSamplesParams,
+  ListCustomerAliasAuditLogParams,
   ListRateLimitEventTimeseriesParams,
   ListRateLimitEventTopOffendersParams,
   ListUserAuditLogParams,
@@ -3992,6 +3994,115 @@ export const useForgetCustomerNameAlias = <
 > => {
   return useMutation(getForgetCustomerNameAliasMutationOptions(options));
 };
+
+/**
+ * @summary List recent re-map / forget actions on customer-driver aliases (admin-only).
+ */
+export const getListCustomerAliasAuditLogUrl = (
+  params?: ListCustomerAliasAuditLogParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/customer-aliases/audit-log?${stringifiedParams}`
+    : `/api/customer-aliases/audit-log`;
+};
+
+export const listCustomerAliasAuditLog = async (
+  params?: ListCustomerAliasAuditLogParams,
+  options?: RequestInit,
+): Promise<CustomerAliasAuditLogEntry[]> => {
+  return customFetch<CustomerAliasAuditLogEntry[]>(
+    getListCustomerAliasAuditLogUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListCustomerAliasAuditLogQueryKey = (
+  params?: ListCustomerAliasAuditLogParams,
+) => {
+  return [
+    `/api/customer-aliases/audit-log`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getListCustomerAliasAuditLogQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCustomerAliasAuditLog>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListCustomerAliasAuditLogParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listCustomerAliasAuditLog>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListCustomerAliasAuditLogQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listCustomerAliasAuditLog>>
+  > = ({ signal }) =>
+    listCustomerAliasAuditLog(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCustomerAliasAuditLog>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCustomerAliasAuditLogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCustomerAliasAuditLog>>
+>;
+export type ListCustomerAliasAuditLogQueryError = ErrorType<void>;
+
+/**
+ * @summary List recent re-map / forget actions on customer-driver aliases (admin-only).
+ */
+
+export function useListCustomerAliasAuditLog<
+  TData = Awaited<ReturnType<typeof listCustomerAliasAuditLog>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListCustomerAliasAuditLogParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listCustomerAliasAuditLog>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCustomerAliasAuditLogQueryOptions(
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary List every active or expired parser-promotion snooze (admin-only).

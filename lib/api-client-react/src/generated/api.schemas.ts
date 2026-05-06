@@ -703,6 +703,27 @@ export interface UpdateDriverIdAliasBody {
   note?: string | null;
 }
 
+export interface CustomerAliasAuditLogEntry {
+  id: number;
+  /** One of `remap` (driver re-assigned) or `forget` (alias deleted). */
+  action: string;
+  customer: string;
+  nameOnDoc: string;
+  /** @nullable */
+  beforeKfiId?: string | null;
+  /** @nullable */
+  afterKfiId?: string | null;
+  /** @nullable */
+  beforeDriverName?: string | null;
+  /** @nullable */
+  afterDriverName?: string | null;
+  /** @nullable */
+  actorUserId?: number | null;
+  /** @nullable */
+  actorEmail?: string | null;
+  createdAt: string;
+}
+
 export type ListRateLimitEventTimeseriesParams = {
   /**
    * @minimum 1
@@ -749,6 +770,16 @@ export type UpdateCustomerNameAliasParams = {
 export type ForgetCustomerNameAliasParams = {
   customer: string;
   nameOnDoc: string;
+};
+
+export type ListCustomerAliasAuditLogParams = {
+  /**
+   * @minimum 1
+   * @maximum 500
+   */
+  limit?: number;
+  customer?: string;
+  nameOnDoc?: string;
 };
 
 export type RemoveParserPromotionSnoozeParams = {

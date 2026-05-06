@@ -804,6 +804,34 @@ paths:
         "204": { description: Forgotten (or no alias existed) }
         "400": { description: Invalid input }
 
+  /customer-aliases/audit-log:
+    get:
+      operationId: listCustomerAliasAuditLog
+      tags: [ingest]
+      summary: List recent re-map / forget actions on customer-driver aliases (admin-only).
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500 }
+        - name: customer
+          in: query
+          required: false
+          schema: { type: string }
+        - name: nameOnDoc
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Audit entries (most recent first).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CustomerAliasAuditLogEntry" }
+        "403": { description: Admin only }
+
   /parser-promotion-snoozes:
     get:
       operationId: listParserPromotionSnoozes
@@ -847,7 +875,6 @@ paths:
       responses:
         "204": { description: Removed (or no snooze existed) }
         "400": { description: Invalid input }
-        "403": { description: Admin only }
 
   /driver-id-aliases:
     get:
@@ -1910,3 +1937,27 @@ components:
           type: ["string", "null"]
         note:
           type: ["string", "null"]
+
+    CustomerAliasAuditLogEntry:
+      type: object
+      required: [id, action, customer, nameOnDoc, createdAt]
+      properties:
+        id: { type: integer }
+        action:
+          type: string
+          description: One of `remap` (driver re-assigned) or `forget` (alias deleted).
+        customer: { type: string }
+        nameOnDoc: { type: string }
+        beforeKfiId:
+          type: ["string", "null"]
+        afterKfiId:
+          type: ["string", "null"]
+        beforeDriverName:
+          type: ["string", "null"]
+        afterDriverName:
+          type: ["string", "null"]
+        actorUserId:
+          type: ["integer", "null"]
+        actorEmail:
+          type: ["string", "null"]
+        createdAt: { type: string, format: date-time }

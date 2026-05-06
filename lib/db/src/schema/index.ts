@@ -7,6 +7,7 @@ export * from "./punchDeletions";
 export * from "./reviewed";
 export * from "./customerUploadAttempts";
 export * from "./customerNameAliases";
+export * from "./customerAliasAuditLog";
 export * from "./rateLimitBuckets";
 export * from "./aiExtractSamples";
 export * from "./rateLimitEvents";
