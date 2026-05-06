@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { and, count, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   AcceptInviteBody,
   CreateInviteBody,
@@ -103,6 +104,30 @@ function requireAppBaseUrl(res: import("express").Response): string | null {
     return null;
   }
   return base;
+}
+
+type AuditAction =
+  | "deactivate"
+  | "reactivate"
+  | "promote"
+  | "demote"
+  | "create-reset-link"
+  | "create-invite"
+  | "revoke-invite"
+  | "accept-invite";
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function writeAudit(
+  tx: Tx | typeof db,
+  entry: {
+    actorUserId: number | null;
+    targetUserId: number | null;
+    targetEmail: string | null;
+    action: AuditAction;
+  },
+): Promise<void> {
+  await tx.insert(schema.userAuditLogTable).values(entry);
 }
 
 async function userCount(): Promise<number> {
@@ -285,15 +310,24 @@ authRouter.post("/auth/invites", requireAdmin, async (req, res) => {
   const me = (req as { user?: { id: number } }).user!;
   const token = generateToken();
   const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
-  const [invite] = await db
-    .insert(schema.invitesTable)
-    .values({
-      email,
-      token,
-      createdByUserId: me.id,
-      expiresAt,
-    })
-    .returning();
+  const invite = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(schema.invitesTable)
+      .values({
+        email,
+        token,
+        createdByUserId: me.id,
+        expiresAt,
+      })
+      .returning();
+    await writeAudit(tx, {
+      actorUserId: me.id,
+      targetUserId: null,
+      targetEmail: email,
+      action: "create-invite",
+    });
+    return created;
+  });
   const acceptUrl = `${base}/accept-invite/${token}`;
   try {
     await sendMail({
@@ -358,9 +392,21 @@ authRouter.get("/auth/invites/:token", tokenLookupLimiter, async (req, res) => {
 
 authRouter.delete("/auth/invites/:token", requireAdmin, async (req, res) => {
   const token = String(req.params.token);
-  await db
-    .delete(schema.invitesTable)
-    .where(eq(schema.invitesTable.token, token));
+  const me = (req as { user?: { id: number } }).user!;
+  await db.transaction(async (tx) => {
+    const [deleted] = await tx
+      .delete(schema.invitesTable)
+      .where(eq(schema.invitesTable.token, token))
+      .returning();
+    if (deleted) {
+      await writeAudit(tx, {
+        actorUserId: me.id,
+        targetUserId: null,
+        targetEmail: deleted.email,
+        action: "revoke-invite",
+      });
+    }
+  });
   res.status(204).end();
 });
 
@@ -403,6 +449,12 @@ authRouter.post("/auth/accept-invite", tokenSubmitLimiter, async (req, res) => {
         isActive: true,
       })
       .returning();
+    await writeAudit(tx, {
+      actorUserId: invite.createdByUserId,
+      targetUserId: user.id,
+      targetEmail: user.email,
+      action: "accept-invite",
+    });
     return { kind: "ok" as const, user };
   });
   if (result.kind === "invalid") {
@@ -656,6 +708,21 @@ authRouter.patch("/auth/users/:id", requireAdmin, async (req, res) => {
       .set(patch)
       .where(eq(schema.usersTable.id, id))
       .returning();
+    const actions: AuditAction[] = [];
+    if (typeof patch.isActive === "boolean" && patch.isActive !== target.isActive) {
+      actions.push(patch.isActive ? "reactivate" : "deactivate");
+    }
+    if (typeof patch.isAdmin === "boolean" && patch.isAdmin !== target.isAdmin) {
+      actions.push(patch.isAdmin ? "promote" : "demote");
+    }
+    for (const action of actions) {
+      await writeAudit(tx, {
+        actorUserId: me.id,
+        targetUserId: target.id,
+        targetEmail: target.email,
+        action,
+      });
+    }
     return { kind: "ok" as const, user: updated };
   });
   if (result.kind === "lastAdmin") {
@@ -680,12 +747,21 @@ authRouter.post("/auth/users/:id/password-reset", requireAdmin, async (req, res)
   }
   const base = requireAppBaseUrl(res);
   if (!base) return;
+  const me = (req as { user?: { id: number } }).user!;
   const token = generateToken();
   const expiresAt = new Date(Date.now() + RESET_TTL_MS);
-  await db.insert(schema.passwordResetsTable).values({
-    userId: target.id,
-    token,
-    expiresAt,
+  await db.transaction(async (tx) => {
+    await tx.insert(schema.passwordResetsTable).values({
+      userId: target.id,
+      token,
+      expiresAt,
+    });
+    await writeAudit(tx, {
+      actorUserId: me.id,
+      targetUserId: target.id,
+      targetEmail: target.email,
+      action: "create-reset-link",
+    });
   });
   res.json({ resetUrl: `${base}/reset-password/${token}`, expiresAt });
 });
@@ -714,12 +790,21 @@ authRouter.post(
     }
     const base = requireAppBaseUrl(res);
     if (!base) return;
+    const me = (req as { user?: { id: number } }).user!;
     const token = generateToken();
     const expiresAt = new Date(Date.now() + RESET_TTL_MS);
-    await db.insert(schema.passwordResetsTable).values({
-      userId: target.id,
-      token,
-      expiresAt,
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.passwordResetsTable).values({
+        userId: target.id,
+        token,
+        expiresAt,
+      });
+      await writeAudit(tx, {
+        actorUserId: me.id,
+        targetUserId: target.id,
+        targetEmail: target.email,
+        action: "create-reset-link",
+      });
     });
     const resetUrl = `${base}/reset-password/${token}`;
     try {
@@ -738,3 +823,37 @@ authRouter.post(
     }
   },
 );
+
+authRouter.get("/auth/audit-log", requireAdmin, async (req, res) => {
+  const limitParam = Number(req.query.limit);
+  const limit =
+    Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 500
+      ? limitParam
+      : 100;
+  const targetParam = Number(req.query.targetUserId);
+  const filterTarget =
+    Number.isInteger(targetParam) && targetParam > 0 ? targetParam : null;
+
+  const actor = alias(schema.usersTable, "actor");
+  const target = alias(schema.usersTable, "target");
+  const where = filterTarget
+    ? eq(schema.userAuditLogTable.targetUserId, filterTarget)
+    : undefined;
+  const baseQuery = db
+    .select({
+      id: schema.userAuditLogTable.id,
+      action: schema.userAuditLogTable.action,
+      createdAt: schema.userAuditLogTable.createdAt,
+      actorUserId: schema.userAuditLogTable.actorUserId,
+      actorEmail: actor.email,
+      targetUserId: schema.userAuditLogTable.targetUserId,
+      targetEmail: schema.userAuditLogTable.targetEmail,
+    })
+    .from(schema.userAuditLogTable)
+    .leftJoin(actor, eq(actor.id, schema.userAuditLogTable.actorUserId))
+    .leftJoin(target, eq(target.id, schema.userAuditLogTable.targetUserId));
+  const rows = await (where ? baseQuery.where(where) : baseQuery)
+    .orderBy(desc(schema.userAuditLogTable.createdAt))
+    .limit(limit);
+  res.json(rows);
+});

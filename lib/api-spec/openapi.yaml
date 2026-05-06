@@ -340,6 +340,30 @@ paths:
         "204": { description: Cleared }
         "403": { description: Admin only }
 
+  /auth/audit-log:
+    get:
+      operationId: listUserAuditLog
+      tags: [auth]
+      summary: List recent admin actions on user accounts (admin)
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500 }
+        - name: targetUserId
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Audit entries (most recent first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/UserAuditLogEntry" }
+        "403": { description: Admin only }
+
   /auth/login:
     post:
       operationId: login
@@ -746,6 +770,22 @@ components:
         windowMs: { type: integer }
         resetAt: { type: string, format: date-time }
         blocked: { type: boolean }
+
+    UserAuditLogEntry:
+      type: object
+      required: [id, action, createdAt]
+      properties:
+        id: { type: integer }
+        action: { type: string }
+        createdAt: { type: string, format: date-time }
+        actorUserId:
+          type: ["integer", "null"]
+        actorEmail:
+          type: ["string", "null"]
+        targetUserId:
+          type: ["integer", "null"]
+        targetEmail:
+          type: ["string", "null"]
 
     UpdateUserBody:
       type: object

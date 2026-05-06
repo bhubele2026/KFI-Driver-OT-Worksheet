@@ -277,6 +277,31 @@ export const ClearRateLimitBucketParams = zod.object({
 });
 
 /**
+ * @summary List recent admin actions on user accounts (admin)
+ */
+export const listUserAuditLogQueryLimitMax = 500;
+
+export const ListUserAuditLogQueryParams = zod.object({
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listUserAuditLogQueryLimitMax)
+    .optional(),
+  targetUserId: zod.coerce.number().optional(),
+});
+
+export const ListUserAuditLogResponseItem = zod.object({
+  id: zod.number(),
+  action: zod.string(),
+  createdAt: zod.coerce.date(),
+  actorUserId: zod.number().nullish(),
+  actorEmail: zod.string().nullish(),
+  targetUserId: zod.number().nullish(),
+  targetEmail: zod.string().nullish(),
+});
+export const ListUserAuditLogResponse = zod.array(ListUserAuditLogResponseItem);
+
+/**
  * @summary Sign in with email & password
  */
 

@@ -49,6 +49,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - `weeks.lastRefreshedBy` is stamped on every Connecteam refresh; the week summary returns `lastRefreshedByEmail` and the dashboard renders "by …" next to the timestamp.
 - `punches.createdBy` (already stored on Connecteam refresh, customer-file upload, and manual creation) and `punches.updatedBy` (stamped on `PATCH /punches/:id`) drive per-row attribution. The week summary computes a per-driver "last touched by" from the most-recently-updated punch in that driver's week. The driver-detail view renders the actor email under each punch's badges.
 - `DELETE /punches/:id` writes an append-only `punch_deletions` row (punchId, weekStart, kfiId, source, customer, deletedBy, deletedAt) inside the same transaction as the hard delete, so deletions are still attributable. The week summary folds the most recent delete per driver into the "last touched" calculation.
+- Admin actions on user accounts are append-only logged to `user_audit_log` (actorUserId, targetUserId, targetEmail, action, createdAt) inside the same transaction as the change. Actions: `create-invite`, `revoke-invite`, `accept-invite`, `deactivate`, `reactivate`, `promote`, `demote`, `create-reset-link`. `GET /auth/audit-log?limit=&targetUserId=` (admin-only) returns recent entries joined to actor/target emails; the admin users page renders the last 50 in a "Recent activity" card.
 
 ## Architecture decisions
 

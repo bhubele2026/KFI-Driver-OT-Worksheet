@@ -115,6 +115,20 @@ export interface RateLimitBucket {
   blocked: boolean;
 }
 
+export interface UserAuditLogEntry {
+  id: number;
+  action: string;
+  createdAt: string;
+  /** @nullable */
+  actorUserId?: number | null;
+  /** @nullable */
+  actorEmail?: string | null;
+  /** @nullable */
+  targetUserId?: number | null;
+  /** @nullable */
+  targetEmail?: string | null;
+}
+
 export interface UpdateUserBody {
   isActive?: boolean;
   isAdmin?: boolean;
@@ -387,6 +401,15 @@ export interface ConfirmNewCustomerResult {
   skippedUnmapped: number;
   unmappedNames: string[];
 }
+
+export type ListUserAuditLogParams = {
+  /**
+   * @minimum 1
+   * @maximum 500
+   */
+  limit?: number;
+  targetUserId?: number;
+};
 
 export type SetReviewedBody = {
   reviewed: boolean;

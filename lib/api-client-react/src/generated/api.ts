@@ -30,6 +30,7 @@ import type {
   HealthStatus,
   Invite,
   InviteWithLink,
+  ListUserAuditLogParams,
   LoginCredentials,
   MailerStatus,
   ManualPunchInput,
@@ -48,6 +49,7 @@ import type {
   UpdateUserBody,
   UploadResult,
   User,
+  UserAuditLogEntry,
   Week,
   WeekSummary,
 } from "./api.schemas";
@@ -1609,6 +1611,103 @@ export const useClearRateLimitBucket = <
 > => {
   return useMutation(getClearRateLimitBucketMutationOptions(options));
 };
+
+/**
+ * @summary List recent admin actions on user accounts (admin)
+ */
+export const getListUserAuditLogUrl = (params?: ListUserAuditLogParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/auth/audit-log?${stringifiedParams}`
+    : `/api/auth/audit-log`;
+};
+
+export const listUserAuditLog = async (
+  params?: ListUserAuditLogParams,
+  options?: RequestInit,
+): Promise<UserAuditLogEntry[]> => {
+  return customFetch<UserAuditLogEntry[]>(getListUserAuditLogUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListUserAuditLogQueryKey = (
+  params?: ListUserAuditLogParams,
+) => {
+  return [`/api/auth/audit-log`, ...(params ? [params] : [])] as const;
+};
+
+export const getListUserAuditLogQueryOptions = <
+  TData = Awaited<ReturnType<typeof listUserAuditLog>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListUserAuditLogParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listUserAuditLog>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListUserAuditLogQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listUserAuditLog>>
+  > = ({ signal }) => listUserAuditLog(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listUserAuditLog>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListUserAuditLogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listUserAuditLog>>
+>;
+export type ListUserAuditLogQueryError = ErrorType<void>;
+
+/**
+ * @summary List recent admin actions on user accounts (admin)
+ */
+
+export function useListUserAuditLog<
+  TData = Awaited<ReturnType<typeof listUserAuditLog>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListUserAuditLogParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listUserAuditLog>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListUserAuditLogQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Sign in with email & password

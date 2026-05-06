@@ -13,10 +13,12 @@ import {
   useGetMailerStatus,
   useListRateLimitBuckets,
   useClearRateLimitBucket,
+  useListUserAuditLog,
   getListUsersQueryKey,
   getListInvitesQueryKey,
   getGetMailerStatusQueryKey,
   getListRateLimitBucketsQueryKey,
+  getListUserAuditLogQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -91,6 +93,15 @@ export default function AdminUsers() {
     !!me?.isAdmin &&
     mailerStatus?.configured === false &&
     !mailerWarningDismissed;
+  const { data: auditLog, isLoading: auditLoading } = useListUserAuditLog(
+    { limit: 50 },
+    {
+      query: {
+        enabled: !!me?.isAdmin,
+        queryKey: getListUserAuditLogQueryKey({ limit: 50 }),
+      },
+    },
+  );
 
   const { data: rateLimitBuckets, isLoading: bucketsLoading } =
     useListRateLimitBuckets({
@@ -126,6 +137,8 @@ export default function AdminUsers() {
     qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
   const refetchBuckets = () =>
     qc.invalidateQueries({ queryKey: getListRateLimitBucketsQueryKey() });
+  const refetchAudit = () =>
+    qc.invalidateQueries({ queryKey: getListUserAuditLogQueryKey({ limit: 50 }) });
 
   const handleClearBucket = (name: string, key: string) => {
     clearBucket.mutate(
@@ -181,6 +194,7 @@ export default function AdminUsers() {
           setLatestInvite(data.acceptUrl);
           setInviteEmail("");
           refetchInvites();
+          refetchAudit();
         },
         onError: (err) => {
           toast({
@@ -252,6 +266,7 @@ export default function AdminUsers() {
       {
         onSuccess: () => {
           refetchInvites();
+          refetchAudit();
           toast({ title: "Invite revoked" });
         },
       },
@@ -262,7 +277,10 @@ export default function AdminUsers() {
     updateUser.mutate(
       { id, data: { isActive: !isActive } },
       {
-        onSuccess: () => refetchUsers(),
+        onSuccess: () => {
+          refetchUsers();
+          refetchAudit();
+        },
         onError: (err) =>
           toast({
             title: "Update failed",
@@ -297,7 +315,10 @@ export default function AdminUsers() {
     updateUser.mutate(
       { id, data: { isAdmin: !isAdmin } },
       {
-        onSuccess: () => refetchUsers(),
+        onSuccess: () => {
+          refetchUsers();
+          refetchAudit();
+        },
         onError: (err) =>
           toast({
             title: "Update failed",
@@ -315,6 +336,7 @@ export default function AdminUsers() {
       {
         onSuccess: (data) => {
           setLatestReset({ email, url: data.resetUrl });
+          refetchAudit();
         },
         onError: (err) =>
           toast({
@@ -751,6 +773,54 @@ export default function AdminUsers() {
                   })}
                 </TableBody>
               </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-display text-base">
+              Recent activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {auditLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            ) : auditLog && auditLog.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>When</TableHead>
+                    <TableHead>Actor</TableHead>
+                    <TableHead>Action</TableHead>
+                    <TableHead>Target</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {auditLog.map((entry) => (
+                    <TableRow key={entry.id}>
+                      <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        {format(new Date(entry.createdAt), "yyyy-MM-dd HH:mm")}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {entry.actorEmail ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-xs font-mono uppercase tracking-wider text-primary">
+                          {entry.action}
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {entry.targetEmail ?? "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-sm text-muted-foreground italic">
+                No admin activity recorded yet.
+              </p>
             )}
           </CardContent>
         </Card>
