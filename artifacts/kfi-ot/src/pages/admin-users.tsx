@@ -156,13 +156,16 @@ export default function AdminUsers() {
         refetchInterval: 60_000,
       },
     });
+  const [pressureRangeDays, setPressureRangeDays] = useState<7 | 30 | 90>(7);
   const { data: rateLimitTimeseries, isLoading: timeseriesLoading } =
     useListRateLimitEventTimeseries(
-      { days: 7 },
+      { days: pressureRangeDays },
       {
         query: {
           enabled: !!me?.isAdmin,
-          queryKey: getListRateLimitEventTimeseriesQueryKey({ days: 7 }),
+          queryKey: getListRateLimitEventTimeseriesQueryKey({
+            days: pressureRangeDays,
+          }),
           refetchInterval: 60_000,
         },
       },
@@ -976,19 +979,47 @@ export default function AdminUsers() {
             )}
 
             <div className="mt-6">
-              <h3 className="font-display text-sm font-semibold flex items-center gap-2 mb-1">
-                <ShieldAlert className="h-3.5 w-3.5" />
-                Recent lockouts (last 7 days)
-              </h3>
+              <div className="flex items-start justify-between gap-3 mb-1">
+                <h3 className="font-display text-sm font-semibold flex items-center gap-2">
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  Recent lockouts (last {pressureRangeDays} days)
+                </h3>
+                <div
+                  className="inline-flex rounded-md border border-border/60 bg-muted/20 p-0.5"
+                  role="group"
+                  aria-label="Attack pressure window"
+                >
+                  {([7, 30, 90] as const).map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => {
+                        setPressureRangeDays(d);
+                        setLockoutDayFilter(null);
+                      }}
+                      className={`px-2 py-0.5 text-[11px] font-mono rounded-sm transition-colors ${
+                        pressureRangeDays === d
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                      aria-pressed={pressureRangeDays === d}
+                    >
+                      {d}d
+                    </button>
+                  ))}
+                </div>
+              </div>
               <p className="text-xs text-muted-foreground mb-3">
                 Each row is a (limiter, key) pair that has hit its threshold
-                at least once in the past week. Use the count to spot repeat
-                offenders worth blocklisting at the network edge.
+                at least once in the selected window. Use the count to spot
+                repeat offenders worth blocklisting at the network edge.
+                Widen the window to spot slow brute-force campaigns.
               </p>
 
               <LockoutPressureChart
                 isLoading={timeseriesLoading}
                 points={rateLimitTimeseries ?? []}
+                rangeDays={pressureRangeDays}
                 selectedDay={lockoutDayFilter}
                 onSelectDay={(day) =>
                   setLockoutDayFilter((prev) => (prev === day ? null : day))
@@ -1684,6 +1715,7 @@ function colorFor(name: string, index: number): string {
 interface LockoutPressureChartProps {
   isLoading: boolean;
   points: { day: string; name: string; count: number }[];
+  rangeDays: number;
   selectedDay: string | null;
   onSelectDay: (day: string) => void;
   formatLabel: (name: string) => string;
@@ -1692,10 +1724,12 @@ interface LockoutPressureChartProps {
 function LockoutPressureChart({
   isLoading,
   points,
+  rangeDays,
   selectedDay,
   onSelectDay,
   formatLabel,
 }: LockoutPressureChartProps) {
+  const compactTicks = rangeDays > 14;
   if (isLoading) {
     return (
       <div className="mb-3 flex h-[160px] items-center justify-center rounded-md border border-border/50 bg-muted/20">
@@ -1728,7 +1762,7 @@ function LockoutPressureChart({
   if (total === 0) {
     return (
       <div className="mb-3 rounded-md border border-dashed border-border/60 bg-muted/10 px-3 py-6 text-center text-xs italic text-muted-foreground">
-        No lockouts in the past 7 days — nothing to chart.
+        No lockouts in the past {rangeDays} days — nothing to chart.
       </div>
     );
   }
@@ -1749,7 +1783,11 @@ function LockoutPressureChart({
             <XAxis
               dataKey="day"
               tick={{ fontSize: 10 }}
-              tickFormatter={(v: string) => format(parseISO(v), "EEE M/d")}
+              tickFormatter={(v: string) =>
+                format(parseISO(v), compactTicks ? "M/d" : "EEE M/d")
+              }
+              interval={compactTicks ? "preserveStartEnd" : 0}
+              minTickGap={compactTicks ? 12 : 4}
               stroke="var(--muted-foreground)"
             />
             <YAxis
