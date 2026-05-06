@@ -14,11 +14,13 @@ import {
   useListRateLimitBuckets,
   useClearRateLimitBucket,
   useListUserAuditLog,
+  useAuditConnecteamTimeClocks,
   getListUsersQueryKey,
   getListInvitesQueryKey,
   getGetMailerStatusQueryKey,
   getListRateLimitBucketsQueryKey,
   getListUserAuditLogQueryKey,
+  getAuditConnecteamTimeClocksQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -36,6 +38,8 @@ import { useToast } from "@/hooks/use-toast";
 import {
   AlertTriangle,
   ArrowLeft,
+  CheckCircle2,
+  Clock,
   Copy,
   Loader2,
   Lock,
@@ -102,6 +106,14 @@ export default function AdminUsers() {
       },
     },
   );
+
+  const { data: clocksAudit, isLoading: clocksLoading } =
+    useAuditConnecteamTimeClocks({
+      query: {
+        enabled: !!me?.isAdmin,
+        queryKey: getAuditConnecteamTimeClocksQueryKey(),
+      },
+    });
 
   const { data: rateLimitBuckets, isLoading: bucketsLoading } =
     useListRateLimitBuckets({
@@ -603,6 +615,123 @@ export default function AdminUsers() {
                 No active rate-limit buckets. Sign-ins and password-reset
                 traffic look normal.
               </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-display text-base flex items-center gap-2">
+              <Clock className="h-4 w-4" />
+              Connecteam clocks
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-3">
+              Every time-clock discovered in the Connecteam account. Anything
+              flagged "not pulled" won't show up in payroll refreshes until it's
+              added to <code className="font-mono">TIME_CLOCKS</code>.
+            </p>
+            {clocksLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            ) : !clocksAudit ? (
+              <p className="text-sm text-muted-foreground italic">
+                Couldn't load clocks audit.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {clocksAudit.missing.length > 0 && (
+                  <div
+                    role="alert"
+                    className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-xs flex items-start gap-2"
+                  >
+                    <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <div>
+                      <div className="font-semibold">
+                        {clocksAudit.missing.length} clock
+                        {clocksAudit.missing.length === 1 ? "" : "s"} not pulled
+                      </div>
+                      <div className="text-muted-foreground">
+                        Connecteam has clocks we aren't ingesting. Add their IDs
+                        to <code className="font-mono">TIME_CLOCKS</code> if
+                        their punches should land in payroll.
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {clocksAudit.configuredButMissingFromAccount.length > 0 && (
+                  <div
+                    role="alert"
+                    className="rounded-md border border-rose-500/50 bg-rose-500/10 p-3 text-xs flex items-start gap-2"
+                  >
+                    <AlertTriangle className="h-4 w-4 mt-0.5 text-rose-600 dark:text-rose-400 shrink-0" />
+                    <div>
+                      <div className="font-semibold">
+                        Stale config:{" "}
+                        {clocksAudit.configuredButMissingFromAccount.join(", ")}
+                      </div>
+                      <div className="text-muted-foreground">
+                        These clock IDs are in{" "}
+                        <code className="font-mono">TIME_CLOCKS</code> but no
+                        longer exist in the Connecteam account. Remove them to
+                        avoid wasted refresh calls.
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {clocksAudit.discovered.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">
+                    No clocks discovered in Connecteam.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>ID</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Pulled?</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {clocksAudit.discovered.map((clock) => (
+                        <TableRow key={clock.id}>
+                          <TableCell className="text-sm">
+                            {clock.name}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground">
+                            {clock.id}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {clock.isArchived ? (
+                              <span className="text-muted-foreground">
+                                ARCHIVED
+                              </span>
+                            ) : (
+                              <span className="text-emerald-600 dark:text-emerald-400">
+                                ACTIVE
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {clock.configured ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                                <CheckCircle2 className="h-3 w-3" />
+                                Pulled
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                                <AlertTriangle className="h-3 w-3" />
+                                Not pulled
+                              </span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
