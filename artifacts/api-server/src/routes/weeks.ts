@@ -12,6 +12,7 @@ import {
   fetchAllTimeClocks,
   fetchAllUsers,
   fetchPunchesForWeek,
+  looksLikeRosterDateJunk,
 } from "../lib/connecteam.js";
 import { TIME_CLOCKS } from "../lib/mappings.js";
 import {
@@ -267,11 +268,12 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
   );
   // Group drivers by customer in a stable, dispatcher-friendly order:
   // KNOWN_CUSTOMERS first (matches the customer-files panel), then any extras
-  // alphabetically, then a single "Unassigned" bucket for drivers whose
-  // roster customer is missing or "Unknown".
-  const UNASSIGNED = "Unassigned";
+  // alphabetically, then a single "Needs roster cleanup" bucket for drivers
+  // whose roster customer is missing, "Unknown", or date-shaped junk left
+  // over from a corrupted Connecteam custom field.
+  const UNASSIGNED = "Needs roster cleanup";
   const customerKey = (c: string) =>
-    !c || c === "Unknown" ? UNASSIGNED : c;
+    !c || c === "Unknown" || looksLikeRosterDateJunk(c) ? UNASSIGNED : c;
   const knownOrder = new Map<string, number>(
     KNOWN_CUSTOMERS.map((c, i) => [c.displayName, i]),
   );

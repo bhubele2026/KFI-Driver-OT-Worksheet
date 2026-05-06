@@ -190,9 +190,13 @@ export default function DriverDetail() {
             <h1 className="font-display font-bold text-lg tracking-tight leading-none">{data.driver.name}</h1>
             <p className="text-sm text-sidebar-foreground/90 mt-1 leading-none">
               <span className="font-medium">
-                {data.driver.customer && data.driver.customer !== "Unknown"
+                {data.driver.customer &&
+                data.driver.customer !== "Unknown" &&
+                !/^\d{1,2}[/-]\d{1,2}[/-]\d{2}(\d{2})?$|^\d{4}[/-]\d{1,2}[/-]\d{1,2}$/.test(
+                  data.driver.customer.trim(),
+                )
                   ? data.driver.customer
-                  : "Unassigned"}
+                  : "Needs roster cleanup"}
               </span>
               <span className="text-sidebar-foreground/50 mx-2">·</span>
               <span className="font-mono text-xs text-sidebar-foreground/70">

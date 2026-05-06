@@ -74,6 +74,24 @@ function getCustomFieldValue(u: CtUser, name: string): string | undefined {
 }
 
 /**
+ * Some Connecteam roster entries have date-shaped junk in the Customer
+ * dropdown ("12/22/2025", "01-23-2026", "2026-01-23"). These leak into the
+ * dashboard as their own customer groups, which is meaningless and confusing.
+ * Treat anything that parses as a date as no-customer so the driver lands in
+ * the "Needs roster cleanup" bucket until someone fixes the roster entry.
+ */
+export function looksLikeRosterDateJunk(value: string | undefined): boolean {
+  if (!value) return false;
+  const s = value.trim();
+  if (!s) return false;
+  // M/D/YY, M/D/YYYY, MM/DD/YYYY, with / or - separators, optional leading 0s.
+  if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2}(\d{2})?$/.test(s)) return true;
+  // ISO YYYY-MM-DD or YYYY/MM/DD.
+  if (/^\d{4}[/-]\d{1,2}[/-]\d{1,2}$/.test(s)) return true;
+  return false;
+}
+
+/**
  * Connecteam custom-field values are typed (`str`, `dropdown`, `directManager`,
  * etc). Dropdown values come back as `[{ id, value }]` (array), and other
  * structured types may come back as `{ value: "..." }`. Naive `String(value)`
@@ -159,7 +177,10 @@ export async function fetchAllUsers(): Promise<ConnecteamDriver[]> {
       const kfiRaw = getCustomFieldValue(u, "kfi") ?? getCustomFieldValue(u, "employee id");
       const kfiId = (kfiRaw ?? String(u.userId)).trim();
       if (!kfiId) continue;
-      const customer = getCustomFieldValue(u, "customer") ?? "Unknown";
+      const customerRaw = getCustomFieldValue(u, "customer");
+      const customer = looksLikeRosterDateJunk(customerRaw)
+        ? "Unknown"
+        : customerRaw ?? "Unknown";
       const isDriverField = getCustomFieldValue(u, "driver");
       const isDriver = isDriverField
         ? /yes|true|1|y/i.test(isDriverField)
