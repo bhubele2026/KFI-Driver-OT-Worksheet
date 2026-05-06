@@ -184,10 +184,15 @@ export default function WeekSummary() {
     );
   };
 
-  const openTimesheets = (params?: { filter?: "reviewed"; customer?: string }) => {
+  const openTimesheets = (params?: {
+    filter?: "reviewed";
+    customer?: string;
+    format?: "pdf";
+  }) => {
     const qs = new URLSearchParams();
     if (params?.filter) qs.set("filter", params.filter);
     if (params?.customer) qs.set("customer", params.customer);
+    if (params?.format) qs.set("format", params.format);
     const tail = qs.toString() ? `?${qs.toString()}` : "";
     window.open(
       `${import.meta.env.BASE_URL}api/weeks/${weekStart}/timesheets${tail}`,
@@ -343,7 +348,10 @@ export default function WeekSummary() {
                     Print Week Timesheets
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuLabel className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Print preview (HTML)
+                  </DropdownMenuLabel>
                   <DropdownMenuItem
                     onSelect={() => openTimesheets()}
                     data-testid="menuitem-print-all-drivers"
@@ -356,6 +364,25 @@ export default function WeekSummary() {
                     data-testid="menuitem-print-reviewed-only"
                   >
                     Reviewed only ({reviewedCount})
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Download PDF
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem
+                    onSelect={() => openTimesheets({ format: "pdf" })}
+                    data-testid="menuitem-pdf-all-drivers"
+                  >
+                    All drivers (PDF)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      openTimesheets({ filter: "reviewed", format: "pdf" })
+                    }
+                    disabled={reviewedCount === 0}
+                    data-testid="menuitem-pdf-reviewed-only"
+                  >
+                    Reviewed only ({reviewedCount}) (PDF)
                   </DropdownMenuItem>
                   {printableCustomers.length > 0 ? (
                     <>
@@ -373,7 +400,24 @@ export default function WeekSummary() {
                         >
                           <span className="truncate">{c.customer}</span>
                           <span className="ml-auto text-xs text-muted-foreground font-mono">
-                            {c.driverCount}
+                            HTML · {c.driverCount}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                      {printableCustomers.map((c) => (
+                        <DropdownMenuItem
+                          key={`${c.customer}-pdf`}
+                          onSelect={() =>
+                            openTimesheets({
+                              customer: c.customer,
+                              format: "pdf",
+                            })
+                          }
+                          data-testid={`menuitem-pdf-customer-${c.customer}`}
+                        >
+                          <span className="truncate">{c.customer}</span>
+                          <span className="ml-auto text-xs text-muted-foreground font-mono">
+                            PDF · {c.driverCount}
                           </span>
                         </DropdownMenuItem>
                       ))}

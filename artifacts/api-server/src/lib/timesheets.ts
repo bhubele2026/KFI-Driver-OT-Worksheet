@@ -8,6 +8,7 @@ import {
 import { isoDateToUtcMs, localStrToSortMs, weekEndOf } from "./time.js";
 import { KNOWN_CUSTOMERS } from "./parsers/index.js";
 import { looksLikeRosterDateJunk } from "./connecteam.js";
+import { renderTimesheetsPdf } from "./timesheetsPdf.js";
 
 const WEEK_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -209,7 +210,12 @@ export function makeTimesheetsHandler(
       typeof req.query.filter === "string" ? req.query.filter : "";
     const customerParam =
       typeof req.query.customer === "string" ? req.query.customer.trim() : "";
+    const formatParam =
+      typeof req.query.format === "string"
+        ? req.query.format.toLowerCase()
+        : "";
     const reviewedOnly = filterParam === "reviewed";
+    const wantPdf = formatParam === "pdf";
     const week = await loaders.getWeek(weekStart);
     const endDate = week?.endDate ?? weekEndOf(weekStart);
     const [punches, drivers, reviewedKfiIds] = await Promise.all([
@@ -223,6 +229,24 @@ export function makeTimesheetsHandler(
       reviewedKfiIds,
       customerFilter: customerParam || null,
     });
+    if (wantPdf) {
+      const filename = pdfFilename(weekStart, reviewedOnly, customerParam);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`,
+      );
+      const stream = renderTimesheetsPdf({
+        weekStart,
+        endDate,
+        sheets,
+        lastRefreshedAt: week?.lastRefreshedAt ?? null,
+        reviewedOnly,
+        customerFilter: customerParam || null,
+      });
+      stream.pipe(res);
+      return;
+    }
     const html = renderTimesheetsHtml({
       weekStart,
       endDate,
@@ -234,6 +258,25 @@ export function makeTimesheetsHandler(
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(html);
   };
+}
+
+function pdfFilename(
+  weekStart: string,
+  reviewedOnly: boolean,
+  customer: string,
+): string {
+  const slug = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  const parts = [`kfi-timesheets-${weekStart}`];
+  if (reviewedOnly) parts.push("reviewed");
+  else if (customer) {
+    const c = slug(customer);
+    if (c) parts.push(c);
+  }
+  return `${parts.join("-")}.pdf`;
 }
 
 export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {

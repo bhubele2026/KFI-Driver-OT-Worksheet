@@ -100,7 +100,10 @@ function buildFixture(): Fixture {
   return { drivers, punches };
 }
 
-async function startServer(fixture: Fixture): Promise<{
+async function startServer(
+  fixture: Fixture,
+  options: { reviewedKfiIds?: ReadonlySet<string> } = {},
+): Promise<{
   url: string;
   close: () => Promise<void>;
 }> {
@@ -115,6 +118,9 @@ async function startServer(fixture: Fixture): Promise<{
       getPunches: async (ws) =>
         ws === WEEK_START ? fixture.punches : [],
       getDrivers: async () => fixture.drivers,
+      getReviewedKfiIds: options.reviewedKfiIds
+        ? async () => options.reviewedKfiIds!
+        : undefined,
     }),
   );
   const server = http.createServer(app);
@@ -194,6 +200,54 @@ test("GET /weeks/:weekStart/timesheets returns 200 HTML with correct order, tota
       owenSection,
       /Customer:\s*<strong>Needs roster cleanup<\/strong>/,
     );
+  } finally {
+    await close();
+  }
+});
+
+test("GET /weeks/:weekStart/timesheets?format=pdf streams an application/pdf attachment", async () => {
+  const fixture = buildFixture();
+  const { url, close } = await startServer(fixture);
+  try {
+    const res = await fetch(
+      `${url}/weeks/${WEEK_START}/timesheets?format=pdf`,
+    );
+    assert.equal(res.status, 200);
+    assert.match(
+      res.headers.get("content-type") ?? "",
+      /^application\/pdf/,
+      "Content-Type is application/pdf",
+    );
+    const cd = res.headers.get("content-disposition") ?? "";
+    assert.match(cd, /attachment/);
+    assert.match(cd, /kfi-timesheets-2026-04-27\.pdf/);
+    const buf = Buffer.from(await res.arrayBuffer());
+    // Real PDFs start with the "%PDF-" magic header and end with "%%EOF".
+    assert.equal(buf.subarray(0, 5).toString("ascii"), "%PDF-");
+    assert.match(buf.subarray(-10).toString("ascii"), /%%EOF\s*$/);
+    // 4 drivers => one /Page object per driver in the page tree.
+    const pageCount = (buf.toString("binary").match(/\/Type\s*\/Page[^s]/g) ?? [])
+      .length;
+    assert.equal(pageCount, 4, "one page per driver section");
+  } finally {
+    await close();
+  }
+});
+
+test("GET /weeks/:weekStart/timesheets?format=pdf&filter=reviewed names the file with a 'reviewed' suffix", async () => {
+  const fixture = buildFixture();
+  const { url, close } = await startServer(fixture, {
+    reviewedKfiIds: new Set(["D-ADIENT-1"]),
+  });
+  try {
+    const res = await fetch(
+      `${url}/weeks/${WEEK_START}/timesheets?format=pdf&filter=reviewed`,
+    );
+    assert.equal(res.status, 200);
+    const cd = res.headers.get("content-disposition") ?? "";
+    assert.match(cd, /kfi-timesheets-2026-04-27-reviewed\.pdf/);
+    const buf = Buffer.from(await res.arrayBuffer());
+    assert.equal(buf.subarray(0, 5).toString("ascii"), "%PDF-");
   } finally {
     await close();
   }
