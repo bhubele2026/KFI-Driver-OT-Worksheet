@@ -175,6 +175,14 @@ export default function WeekSummary() {
     );
   };
 
+  const openTimesheets = () => {
+    window.open(
+      `${import.meta.env.BASE_URL}api/weeks/${weekStart}/timesheets`,
+      "_blank",
+      "noopener",
+    );
+  };
+
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
       <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-3 flex items-center justify-between shadow-sm">
@@ -297,6 +305,14 @@ export default function WeekSummary() {
               <Button variant="outline" onClick={openReport}>
                 <Printer className="mr-2 h-4 w-4" />
                 Download Report
+              </Button>
+              <Button
+                variant="outline"
+                onClick={openTimesheets}
+                data-testid="button-print-week-timesheets"
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                Print Week Timesheets
               </Button>
               <Button onClick={handleRefresh} disabled={refreshCt.isPending}>
                 {refreshCt.isPending ? (
