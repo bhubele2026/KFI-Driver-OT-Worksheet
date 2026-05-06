@@ -27,10 +27,10 @@ export default function Register() {
           queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
           setLocation("/");
         },
-        onError: (err: any) => {
+        onError: (err) => {
           toast({
             title: "Registration failed",
-            description: err.message || "Could not create account",
+            description: err instanceof Error ? err.message : "Could not create account",
             variant: "destructive",
           });
         },

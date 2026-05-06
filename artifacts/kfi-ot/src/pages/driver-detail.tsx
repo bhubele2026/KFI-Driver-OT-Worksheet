@@ -30,6 +30,10 @@ export default function DriverDetail() {
   const queryClient = useQueryClient();
   
   const { data, isLoading, isError } = useGetDriverWeek(weekStart, kfiId);
+  type Punch = NonNullable<typeof data>["punches"][number];
+
+  const errMsg = (err: unknown, fallback: string) =>
+    err instanceof Error ? err.message : fallback;
   const setReviewed = useSetReviewed();
   const createPunch = useCreateManualPunch();
   const editPunch = useEditPunch();
@@ -81,14 +85,14 @@ export default function DriverDetail() {
           setManualClockOut("");
           toast({ title: "Punch added" });
         },
-        onError: (err: any) => {
-          toast({ title: "Error", description: err.message, variant: "destructive" });
+        onError: (err) => {
+          toast({ title: "Error", description: errMsg(err, "Failed to add punch"), variant: "destructive" });
         }
       }
     );
   };
 
-  const startEdit = (p: any) => {
+  const startEdit = (p: Punch) => {
     setEditingPunchId(p.id);
     setEditClockIn(p.clockIn);
     setEditClockOut(p.clockOut);
@@ -107,8 +111,8 @@ export default function DriverDetail() {
           setEditingPunchId(null);
           toast({ title: "Punch updated" });
         },
-        onError: (err: any) => {
-          toast({ title: "Error", description: err.message, variant: "destructive" });
+        onError: (err) => {
+          toast({ title: "Error", description: errMsg(err, "Failed to update punch"), variant: "destructive" });
         }
       }
     );
@@ -123,8 +127,8 @@ export default function DriverDetail() {
           queryClient.invalidateQueries({ queryKey: getGetDriverWeekQueryKey(weekStart, kfiId) });
           toast({ title: "Punch deleted" });
         },
-        onError: (err: any) => {
-          toast({ title: "Error", description: err.message, variant: "destructive" });
+        onError: (err) => {
+          toast({ title: "Error", description: errMsg(err, "Failed to delete punch"), variant: "destructive" });
         }
       }
     );
@@ -323,7 +327,7 @@ export default function DriverDetail() {
             </div>
             <div className="grid gap-2">
               <Label>Source</Label>
-              <Select value={manualSource} onValueChange={(val: any) => setManualSource(val)}>
+              <Select value={manualSource} onValueChange={(val) => setManualSource(val as "Driver" | "Customer")}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>

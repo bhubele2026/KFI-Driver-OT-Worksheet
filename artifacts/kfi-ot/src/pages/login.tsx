@@ -27,10 +27,10 @@ export default function Login() {
           queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
           setLocation("/");
         },
-        onError: (err: any) => {
+        onError: (err) => {
           toast({
             title: "Login failed",
-            description: err.message || "Invalid credentials",
+            description: err instanceof Error ? err.message : "Invalid credentials",
             variant: "destructive",
           });
         },
