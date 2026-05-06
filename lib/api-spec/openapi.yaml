@@ -897,6 +897,10 @@ components:
         lastLoginAt:
           type: ["string", "null"]
           format: date-time
+        passwordResetLastSentAt:
+          type: ["string", "null"]
+          format: date-time
+          description: When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.
 
     RegistrationStatus:
       type: object
@@ -923,6 +927,10 @@ components:
         usedAt:
           type: ["string", "null"]
           format: date-time
+        lastSentAt:
+          type: ["string", "null"]
+          format: date-time
+          description: When this invite was most recently re-emailed. Drives the per-row Resend cooldown countdown in the admin UI.
 
     InviteWithLink:
       allOf:

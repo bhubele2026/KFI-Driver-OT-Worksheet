@@ -17,4 +17,9 @@ export interface User {
   lockedAt?: Date | null;
   /** @nullable */
   lastLoginAt?: Date | null;
+  /**
+   * When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.
+   * @nullable
+   */
+  passwordResetLastSentAt?: Date | null;
 }

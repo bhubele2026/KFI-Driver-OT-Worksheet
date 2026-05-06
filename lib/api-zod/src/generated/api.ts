@@ -33,6 +33,12 @@ export const RegisterResponse = zod.object({
   failedLoginCount: zod.number(),
   lockedAt: zod.coerce.date().nullish(),
   lastLoginAt: zod.coerce.date().nullish(),
+  passwordResetLastSentAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
+    ),
 });
 
 /**
@@ -53,6 +59,12 @@ export const ListInvitesResponseItem = zod.object({
   createdAt: zod.coerce.date(),
   expiresAt: zod.coerce.date(),
   usedAt: zod.coerce.date().nullish(),
+  lastSentAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "When this invite was most recently re-emailed. Drives the per-row Resend cooldown countdown in the admin UI.",
+    ),
 });
 export const ListInvitesResponse = zod.array(ListInvitesResponseItem);
 
@@ -72,6 +84,12 @@ export const CreateInviteResponse = zod
     createdAt: zod.coerce.date(),
     expiresAt: zod.coerce.date(),
     usedAt: zod.coerce.date().nullish(),
+    lastSentAt: zod.coerce
+      .date()
+      .nullish()
+      .describe(
+        "When this invite was most recently re-emailed. Drives the per-row Resend cooldown countdown in the admin UI.",
+      ),
   })
   .and(
     zod.object({
@@ -128,6 +146,12 @@ export const AcceptInviteResponse = zod.object({
   failedLoginCount: zod.number(),
   lockedAt: zod.coerce.date().nullish(),
   lastLoginAt: zod.coerce.date().nullish(),
+  passwordResetLastSentAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
+    ),
 });
 
 /**
@@ -178,6 +202,12 @@ export const ResetPasswordResponse = zod.object({
   failedLoginCount: zod.number(),
   lockedAt: zod.coerce.date().nullish(),
   lastLoginAt: zod.coerce.date().nullish(),
+  passwordResetLastSentAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
+    ),
 });
 
 /**
@@ -199,6 +229,12 @@ export const ListUsersResponseItem = zod.object({
   failedLoginCount: zod.number(),
   lockedAt: zod.coerce.date().nullish(),
   lastLoginAt: zod.coerce.date().nullish(),
+  passwordResetLastSentAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
+    ),
 });
 export const ListUsersResponse = zod.array(ListUsersResponseItem);
 
@@ -227,6 +263,12 @@ export const UpdateUserResponse = zod.object({
   failedLoginCount: zod.number(),
   lockedAt: zod.coerce.date().nullish(),
   lastLoginAt: zod.coerce.date().nullish(),
+  passwordResetLastSentAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
+    ),
 });
 
 /**
@@ -406,6 +448,12 @@ export const LoginResponse = zod.object({
   failedLoginCount: zod.number(),
   lockedAt: zod.coerce.date().nullish(),
   lastLoginAt: zod.coerce.date().nullish(),
+  passwordResetLastSentAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
+    ),
 });
 
 /**
@@ -421,6 +469,12 @@ export const GetMeResponse = zod.union([
     failedLoginCount: zod.number(),
     lockedAt: zod.coerce.date().nullish(),
     lastLoginAt: zod.coerce.date().nullish(),
+    passwordResetLastSentAt: zod.coerce
+      .date()
+      .nullish()
+      .describe(
+        "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
+      ),
   }),
   zod.null(),
 ]);

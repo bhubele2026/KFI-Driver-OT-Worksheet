@@ -32,6 +32,11 @@ export interface User {
   lockedAt?: string | null;
   /** @nullable */
   lastLoginAt?: string | null;
+  /**
+   * When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.
+   * @nullable
+   */
+  passwordResetLastSentAt?: string | null;
 }
 
 export interface RegistrationStatus {
@@ -51,6 +56,11 @@ export interface Invite {
   expiresAt: string;
   /** @nullable */
   usedAt?: string | null;
+  /**
+   * When this invite was most recently re-emailed. Drives the per-row Resend cooldown countdown in the admin UI.
+   * @nullable
+   */
+  lastSentAt?: string | null;
 }
 
 export type InviteWithLink = Invite & {

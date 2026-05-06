@@ -97,6 +97,7 @@ function publicUser(user: {
   failedLoginCount: number;
   lockedAt: Date | string | null;
   lastLoginAt?: Date | string | null;
+  passwordResetLastSentAt?: Date | string | null;
 }) {
   return {
     id: user.id,
@@ -107,6 +108,7 @@ function publicUser(user: {
     failedLoginCount: user.failedLoginCount,
     lockedAt: user.lockedAt,
     lastLoginAt: user.lastLoginAt ?? null,
+    passwordResetLastSentAt: user.passwordResetLastSentAt ?? null,
   };
 }
 

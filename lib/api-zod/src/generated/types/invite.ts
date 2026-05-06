@@ -15,4 +15,9 @@ export interface Invite {
   expiresAt: Date;
   /** @nullable */
   usedAt?: Date | null;
+  /**
+   * When this invite was most recently re-emailed. Drives the per-row Resend cooldown countdown in the admin UI.
+   * @nullable
+   */
+  lastSentAt?: Date | null;
 }

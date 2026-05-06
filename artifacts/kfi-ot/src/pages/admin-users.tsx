@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link, Redirect } from "wouter";
 import {
   useListUsers,
@@ -193,6 +193,46 @@ export default function AdminUsers() {
     url: string;
   } | null>(null);
   const [expandedUsers, setExpandedUsers] = useState<Set<number>>(new Set());
+  // Per-row local override of the cooldown end time (epoch ms). Set when the
+  // server returns 429 so the button immediately reflects the cooldown even
+  // before the next /auth/invites or /auth/users refresh stamps lastSentAt.
+  const [resendCooldownOverride, setResendCooldownOverride] = useState<
+    Record<string, number>
+  >({});
+  const [resetCooldownOverride, setResetCooldownOverride] = useState<
+    Record<number, number>
+  >({});
+  // 1Hz ticker so the "Try again in Ns" label counts down. We only mount this
+  // page for admins viewing the table, so a per-second re-render is cheap.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // Mirror the server constant in artifacts/api-server/src/routes/auth.ts.
+  const RESEND_COOLDOWN_MS = 60_000;
+  const remainingSeconds = (
+    lastSentAt: string | null | undefined,
+    override: number | undefined,
+  ): number => {
+    const stampedEnd = lastSentAt
+      ? new Date(lastSentAt).getTime() + RESEND_COOLDOWN_MS
+      : 0;
+    const end = Math.max(stampedEnd, override ?? 0);
+    if (end <= now) return 0;
+    return Math.max(1, Math.ceil((end - now) / 1000));
+  };
+  // Parse "...try again in N second(s)..." out of the 429 message; fall back
+  // to the full cooldown if the message shape ever changes.
+  const parseCooldownSeconds = (msg: string): number => {
+    const m = /try again in (\d+)\s*second/i.exec(msg);
+    if (m) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return Math.ceil(RESEND_COOLDOWN_MS / 1000);
+  };
 
   const toggleExpanded = (id: number) => {
     setExpandedUsers((prev) => {
@@ -345,6 +385,14 @@ export default function AdminUsers() {
       { token },
       {
         onSuccess: () => {
+          // Optimistically arm the cooldown so the button disables immediately;
+          // the next /auth/invites refetch will replace this with the
+          // server-stamped lastSentAt.
+          setResendCooldownOverride((prev) => ({
+            ...prev,
+            [token]: Date.now() + RESEND_COOLDOWN_MS,
+          }));
+          refetchInvites();
           toast({
             title: "Invite re-sent",
             description: `Emailed the invite link to ${email}.`,
@@ -353,6 +401,14 @@ export default function AdminUsers() {
         onError: (err) => {
           const msg = err instanceof Error ? err.message : "Unknown error";
           const tooSoon = /already sent recently/i.test(msg);
+          if (tooSoon) {
+            const secs = parseCooldownSeconds(msg);
+            setResendCooldownOverride((prev) => ({
+              ...prev,
+              [token]: Date.now() + secs * 1000,
+            }));
+            refetchInvites();
+          }
           toast({
             title: tooSoon
               ? "Already sent recently"
@@ -376,6 +432,13 @@ export default function AdminUsers() {
       { id },
       {
         onSuccess: () => {
+          // Optimistically arm the cooldown; refetchUsers() will replace this
+          // with the server-stamped passwordResetLastSentAt.
+          setResetCooldownOverride((prev) => ({
+            ...prev,
+            [id]: Date.now() + RESEND_COOLDOWN_MS,
+          }));
+          refetchUsers();
           toast({
             title: "Reset email sent",
             description: `Emailed a password-reset link to ${email}.`,
@@ -384,6 +447,14 @@ export default function AdminUsers() {
         onError: (err) => {
           const msg = err instanceof Error ? err.message : "Unknown error";
           const tooSoon = /already sent recently/i.test(msg);
+          if (tooSoon) {
+            const secs = parseCooldownSeconds(msg);
+            setResetCooldownOverride((prev) => ({
+              ...prev,
+              [id]: Date.now() + secs * 1000,
+            }));
+            refetchUsers();
+          }
           toast({
             title: tooSoon
               ? "Already sent recently"
@@ -635,7 +706,13 @@ export default function AdminUsers() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {invites.map((inv) => (
+                    {invites.map((inv) => {
+                      const resendRemaining = remainingSeconds(
+                        inv.lastSentAt,
+                        resendCooldownOverride[inv.token],
+                      );
+                      const onCooldown = resendRemaining > 0;
+                      return (
                       <TableRow key={inv.id}>
                         <TableCell className="font-mono">{inv.email}</TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">
@@ -649,11 +726,17 @@ export default function AdminUsers() {
                             onClick={() =>
                               handleResendInvite(inv.token, inv.email)
                             }
-                            disabled={resendInvite.isPending}
-                            title="Re-email this invite link to the recipient"
+                            disabled={resendInvite.isPending || onCooldown}
+                            title={
+                              onCooldown
+                                ? `You can resend this invite in ${resendRemaining}s`
+                                : "Re-email this invite link to the recipient"
+                            }
                           >
                             <Send className="h-3 w-3 mr-1" />
-                            Resend
+                            {onCooldown
+                              ? `Try again in ${resendRemaining}s`
+                              : "Resend"}
                           </Button>
                           <Button
                             type="button"
@@ -680,7 +763,8 @@ export default function AdminUsers() {
                           </Button>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               ) : (
@@ -1235,16 +1319,38 @@ export default function AdminUsers() {
                               <Lock className="h-3 w-3 opacity-30" />
                             </span>
                           )}
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleSendReset(u.id, u.email)}
-                            disabled={!u.isActive || sendReset.isPending}
-                            title="Email a password-reset link to this user"
-                          >
-                            <Send className="h-3 w-3" />
-                          </Button>
+                          {(() => {
+                            const sendResetRemaining = remainingSeconds(
+                              u.passwordResetLastSentAt,
+                              resetCooldownOverride[u.id],
+                            );
+                            const onCooldown = sendResetRemaining > 0;
+                            return (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleSendReset(u.id, u.email)}
+                                disabled={
+                                  !u.isActive ||
+                                  sendReset.isPending ||
+                                  onCooldown
+                                }
+                                title={
+                                  onCooldown
+                                    ? `You can send another reset email in ${sendResetRemaining}s`
+                                    : "Email a password-reset link to this user"
+                                }
+                              >
+                                <Send className="h-3 w-3" />
+                                {onCooldown && (
+                                  <span className="ml-1 text-[10px]">
+                                    Try again in {sendResetRemaining}s
+                                  </span>
+                                )}
+                              </Button>
+                            );
+                          })()}
                           <Button
                             type="button"
                             size="sm"
