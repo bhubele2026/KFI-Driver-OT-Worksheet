@@ -11,7 +11,7 @@ export interface HealthStatus {
 
 export interface AuthCredentials {
   email: string;
-  /** @minLength 6 */
+  /** @minLength 8 */
   password: string;
 }
 
@@ -25,6 +25,76 @@ export interface User {
   id: number;
   email: string;
   createdAt: string;
+  isAdmin: boolean;
+  isActive: boolean;
+}
+
+export interface RegistrationStatus {
+  openRegistration: boolean;
+}
+
+export interface Invite {
+  id: number;
+  email: string;
+  token: string;
+  createdByUserId: number;
+  createdAt: string;
+  expiresAt: string;
+  /** @nullable */
+  usedAt?: string | null;
+}
+
+export type InviteWithLink = Invite & {
+  acceptUrl: string;
+};
+
+export interface PublicInvite {
+  email: string;
+  expiresAt: string;
+}
+
+export interface CreateInviteBody {
+  email: string;
+}
+
+export interface AcceptInviteBody {
+  token: string;
+  /** @minLength 8 */
+  password: string;
+}
+
+export interface RequestPasswordResetBody {
+  email: string;
+}
+
+export interface PasswordResetRequestResult {
+  ok: boolean;
+  /**
+   * Only present in non-production environments to aid local testing.
+   * @nullable
+   */
+  resetUrl?: string | null;
+}
+
+export interface PublicPasswordReset {
+  email: string;
+  expiresAt: string;
+}
+
+export interface ResetPasswordBody {
+  token: string;
+  /** @minLength 8 */
+  password: string;
+}
+
+export interface PasswordResetLink {
+  resetUrl: string;
+  expiresAt: string;
+}
+
+export interface UpdateUserBody {
+  isActive?: boolean;
+  isAdmin?: boolean;
 }
 
 export interface Week {

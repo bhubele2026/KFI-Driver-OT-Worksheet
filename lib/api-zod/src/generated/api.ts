@@ -15,9 +15,9 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
- * @summary Create a new account
+ * @summary Create the first admin account (only allowed when there are no users yet)
  */
-export const registerBodyPasswordMin = 6;
+export const registerBodyPasswordMin = 8;
 
 export const RegisterBody = zod.object({
   email: zod.string().email(),
@@ -28,6 +28,180 @@ export const RegisterResponse = zod.object({
   id: zod.number(),
   email: zod.string(),
   createdAt: zod.coerce.date(),
+  isAdmin: zod.boolean(),
+  isActive: zod.boolean(),
+});
+
+/**
+ * @summary Whether open registration is allowed (true only when there are zero users)
+ */
+export const GetRegistrationStatusResponse = zod.object({
+  openRegistration: zod.boolean(),
+});
+
+/**
+ * @summary List outstanding invites (admin)
+ */
+export const ListInvitesResponseItem = zod.object({
+  id: zod.number(),
+  email: zod.string(),
+  token: zod.string(),
+  createdByUserId: zod.number(),
+  createdAt: zod.coerce.date(),
+  expiresAt: zod.coerce.date(),
+  usedAt: zod.coerce.date().nullish(),
+});
+export const ListInvitesResponse = zod.array(ListInvitesResponseItem);
+
+/**
+ * @summary Create an invite link for a new dispatcher (admin)
+ */
+export const CreateInviteBody = zod.object({
+  email: zod.string().email(),
+});
+
+export const CreateInviteResponse = zod
+  .object({
+    id: zod.number(),
+    email: zod.string(),
+    token: zod.string(),
+    createdByUserId: zod.number(),
+    createdAt: zod.coerce.date(),
+    expiresAt: zod.coerce.date(),
+    usedAt: zod.coerce.date().nullish(),
+  })
+  .and(
+    zod.object({
+      acceptUrl: zod.string(),
+    }),
+  );
+
+/**
+ * @summary Look up an invite by token (public, used by the accept-invite page)
+ */
+export const GetInviteParams = zod.object({
+  token: zod.coerce.string(),
+});
+
+export const GetInviteResponse = zod.object({
+  email: zod.string(),
+  expiresAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Revoke an outstanding invite (admin)
+ */
+export const RevokeInviteParams = zod.object({
+  token: zod.coerce.string(),
+});
+
+/**
+ * @summary Create an account using an invite token
+ */
+export const acceptInviteBodyPasswordMin = 8;
+
+export const AcceptInviteBody = zod.object({
+  token: zod.string(),
+  password: zod.string().min(acceptInviteBodyPasswordMin),
+});
+
+export const AcceptInviteResponse = zod.object({
+  id: zod.number(),
+  email: zod.string(),
+  createdAt: zod.coerce.date(),
+  isAdmin: zod.boolean(),
+  isActive: zod.boolean(),
+});
+
+/**
+ * @summary Request a password-reset link (always returns 200 to avoid email enumeration)
+ */
+export const RequestPasswordResetBody = zod.object({
+  email: zod.string().email(),
+});
+
+export const RequestPasswordResetResponse = zod.object({
+  ok: zod.boolean(),
+  resetUrl: zod
+    .string()
+    .nullish()
+    .describe(
+      "Only present in non-production environments to aid local testing.",
+    ),
+});
+
+/**
+ * @summary Validate a password-reset token
+ */
+export const GetPasswordResetParams = zod.object({
+  token: zod.coerce.string(),
+});
+
+export const GetPasswordResetResponse = zod.object({
+  email: zod.string(),
+  expiresAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Complete a password reset using a token
+ */
+export const resetPasswordBodyPasswordMin = 8;
+
+export const ResetPasswordBody = zod.object({
+  token: zod.string(),
+  password: zod.string().min(resetPasswordBodyPasswordMin),
+});
+
+export const ResetPasswordResponse = zod.object({
+  id: zod.number(),
+  email: zod.string(),
+  createdAt: zod.coerce.date(),
+  isAdmin: zod.boolean(),
+  isActive: zod.boolean(),
+});
+
+/**
+ * @summary List all dispatcher accounts (admin)
+ */
+export const ListUsersResponseItem = zod.object({
+  id: zod.number(),
+  email: zod.string(),
+  createdAt: zod.coerce.date(),
+  isAdmin: zod.boolean(),
+  isActive: zod.boolean(),
+});
+export const ListUsersResponse = zod.array(ListUsersResponseItem);
+
+/**
+ * @summary Activate / deactivate a user or grant admin (admin)
+ */
+export const UpdateUserParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateUserBody = zod.object({
+  isActive: zod.boolean().optional(),
+  isAdmin: zod.boolean().optional(),
+});
+
+export const UpdateUserResponse = zod.object({
+  id: zod.number(),
+  email: zod.string(),
+  createdAt: zod.coerce.date(),
+  isAdmin: zod.boolean(),
+  isActive: zod.boolean(),
+});
+
+/**
+ * @summary Admin-initiated password reset that returns the link directly (admin)
+ */
+export const CreatePasswordResetForUserParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const CreatePasswordResetForUserResponse = zod.object({
+  resetUrl: zod.string(),
+  expiresAt: zod.coerce.date(),
 });
 
 /**
@@ -43,6 +217,8 @@ export const LoginResponse = zod.object({
   id: zod.number(),
   email: zod.string(),
   createdAt: zod.coerce.date(),
+  isAdmin: zod.boolean(),
+  isActive: zod.boolean(),
 });
 
 /**
@@ -53,6 +229,8 @@ export const GetMeResponse = zod.union([
     id: zod.number(),
     email: zod.string(),
     createdAt: zod.coerce.date(),
+    isAdmin: zod.boolean(),
+    isActive: zod.boolean(),
   }),
   zod.null(),
 ]);

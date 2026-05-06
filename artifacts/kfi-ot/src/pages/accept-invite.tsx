@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { useLocation, Link } from "wouter";
+import { Link, useLocation, useParams } from "wouter";
 import {
-  useRegister,
-  useGetRegistrationStatus,
+  useAcceptInvite,
+  useGetInvite,
   getGetMeQueryKey,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -20,20 +20,28 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
-export default function Register() {
+export default function AcceptInvite() {
+  const params = useParams<{ token: string }>();
+  const token = params.token;
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const register = useRegister();
-  const { data: status, isLoading } = useGetRegistrationStatus();
-
-  const [email, setEmail] = useState("");
+  const { data: invite, isLoading, error } = useGetInvite(token);
+  const accept = useAcceptInvite();
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    register.mutate(
-      { data: { email, password } },
+    if (password !== confirm) {
+      toast({
+        title: "Passwords don't match",
+        variant: "destructive",
+      });
+      return;
+    }
+    accept.mutate(
+      { data: { token, password } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
@@ -41,11 +49,9 @@ export default function Register() {
         },
         onError: (err) => {
           toast({
-            title: "Registration failed",
+            title: "Could not create account",
             description:
-              err instanceof Error
-                ? err.message
-                : "Could not create account",
+              err instanceof Error ? err.message : "Try requesting a new invite",
             variant: "destructive",
           });
         },
@@ -55,23 +61,23 @@ export default function Register() {
 
   if (isLoading) {
     return (
-      <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted/30">
+      <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     );
   }
 
-  if (!status?.openRegistration) {
+  if (error || !invite) {
     return (
-      <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted/30 p-4">
+      <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
         <Card className="w-full max-w-sm shadow-lg border-border/50">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold tracking-tight font-display">
-              Invite required
+          <CardHeader>
+            <CardTitle className="text-xl font-display">
+              Invite invalid
             </CardTitle>
             <CardDescription>
-              KFI Dispatch is invite-only. Ask an admin to send you an invite
-              link.
+              This invite link has expired, been used, or never existed. Ask an
+              admin to send a fresh one.
             </CardDescription>
           </CardHeader>
           <CardFooter>
@@ -88,61 +94,53 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted/30 p-4">
+    <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-sm shadow-lg border-border/50">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold tracking-tight font-display">
-            Create First Admin
+        <CardHeader>
+          <CardTitle className="text-2xl font-bold font-display tracking-tight">
+            Accept Invite
           </CardTitle>
           <CardDescription>
-            No accounts exist yet. The first account becomes the admin.
+            Set a password for{" "}
+            <span className="font-mono text-foreground">{invite.email}</span>.
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="dispatcher@kfi.com"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
                 type="password"
                 required
-                minLength={6}
+                minLength={8}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm">Confirm password</Label>
+              <Input
+                id="confirm"
+                type="password"
+                required
+                minLength={8}
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+              />
+            </div>
           </CardContent>
-          <CardFooter className="flex flex-col space-y-4">
+          <CardFooter>
             <Button
               type="submit"
               className="w-full"
-              disabled={register.isPending}
+              disabled={accept.isPending}
             >
-              {register.isPending && (
+              {accept.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
-              Create Admin Account
+              Create account
             </Button>
-            <div className="text-center text-sm">
-              Already have an account?{" "}
-              <Link
-                href="/login"
-                className="text-primary hover:underline underline-offset-4"
-              >
-                Sign in
-              </Link>
-            </div>
           </CardFooter>
         </form>
       </Card>

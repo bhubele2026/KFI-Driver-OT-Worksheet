@@ -6,8 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface AuthCredentials {
+export interface RequestPasswordResetBody {
   email: string;
-  /** @minLength 8 */
-  password: string;
 }

@@ -42,6 +42,7 @@ import {
   CheckCircle2,
   Circle,
 } from "lucide-react";
+import { AdminLink } from "@/components/admin-link";
 import {
   format,
   parseISO,
@@ -267,6 +268,7 @@ export default function WeekSummary() {
         </div>
 
         <div className="flex items-center gap-3">
+          <AdminLink />
           <Button
             variant="ghost"
             size="sm"

@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { useLocation, Link } from "wouter";
-import { useLogin, getGetMeQueryKey } from "@workspace/api-client-react";
+import {
+  useLogin,
+  useGetRegistrationStatus,
+  getGetMeQueryKey,
+} from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +18,7 @@ export default function Login() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const login = useLogin();
+  const { data: regStatus } = useGetRegistrationStatus();
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -79,11 +84,24 @@ export default function Login() {
               Sign In
             </Button>
             <div className="text-center text-sm">
-              Don't have an account?{" "}
-              <Link href="/register" className="text-primary hover:underline underline-offset-4">
-                Register here
+              <Link
+                href="/forgot-password"
+                className="text-primary hover:underline underline-offset-4"
+              >
+                Forgot your password?
               </Link>
             </div>
+            {regStatus?.openRegistration && (
+              <div className="text-center text-sm text-muted-foreground">
+                First-time setup?{" "}
+                <Link
+                  href="/register"
+                  className="text-primary hover:underline underline-offset-4"
+                >
+                  Create the admin account
+                </Link>
+              </div>
+            )}
           </CardFooter>
         </form>
       </Card>

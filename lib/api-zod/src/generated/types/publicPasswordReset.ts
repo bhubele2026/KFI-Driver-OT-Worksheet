@@ -6,8 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface AuthCredentials {
+export interface PublicPasswordReset {
   email: string;
-  /** @minLength 8 */
-  password: string;
+  expiresAt: Date;
 }

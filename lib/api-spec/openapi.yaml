@@ -31,7 +31,7 @@ paths:
     post:
       operationId: register
       tags: [auth]
-      summary: Create a new account
+      summary: Create the first admin account (only allowed when there are no users yet)
       requestBody:
         required: true
         content:
@@ -44,7 +44,215 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/User" }
         "400": { description: Invalid input }
+        "403": { description: Registration is invite-only }
         "409": { description: Email already taken }
+
+  /auth/registration-status:
+    get:
+      operationId: getRegistrationStatus
+      tags: [auth]
+      summary: Whether open registration is allowed (true only when there are zero users)
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RegistrationStatus" }
+
+  /auth/invites:
+    get:
+      operationId: listInvites
+      tags: [auth]
+      summary: List outstanding invites (admin)
+      responses:
+        "200":
+          description: Invites
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Invite" }
+        "403": { description: Admin only }
+    post:
+      operationId: createInvite
+      tags: [auth]
+      summary: Create an invite link for a new dispatcher (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateInviteBody" }
+      responses:
+        "200":
+          description: Invite created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InviteWithLink" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+        "409": { description: Email already registered }
+
+  /auth/invites/{token}:
+    get:
+      operationId: getInvite
+      tags: [auth]
+      summary: Look up an invite by token (public, used by the accept-invite page)
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Invite details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicInvite" }
+        "404": { description: "Invite not found, expired, or already used" }
+    delete:
+      operationId: revokeInvite
+      tags: [auth]
+      summary: Revoke an outstanding invite (admin)
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Revoked }
+        "403": { description: Admin only }
+
+  /auth/accept-invite:
+    post:
+      operationId: acceptInvite
+      tags: [auth]
+      summary: Create an account using an invite token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AcceptInviteBody" }
+      responses:
+        "200":
+          description: Account created and signed in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { description: Invalid input }
+        "404": { description: "Invite not found, expired, or already used" }
+
+  /auth/request-password-reset:
+    post:
+      operationId: requestPasswordReset
+      tags: [auth]
+      summary: Request a password-reset link (always returns 200 to avoid email enumeration)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RequestPasswordResetBody" }
+      responses:
+        "200":
+          description: Request acknowledged
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PasswordResetRequestResult" }
+
+  /auth/password-resets/{token}:
+    get:
+      operationId: getPasswordReset
+      tags: [auth]
+      summary: Validate a password-reset token
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Reset details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicPasswordReset" }
+        "404": { description: "Token not found, expired, or already used" }
+
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      tags: [auth]
+      summary: Complete a password reset using a token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetPasswordBody" }
+      responses:
+        "200":
+          description: Password reset and signed in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { description: Invalid input }
+        "404": { description: "Token not found, expired, or already used" }
+
+  /auth/users:
+    get:
+      operationId: listUsers
+      tags: [auth]
+      summary: List all dispatcher accounts (admin)
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+        "403": { description: Admin only }
+
+  /auth/users/{id}:
+    patch:
+      operationId: updateUser
+      tags: [auth]
+      summary: Activate / deactivate a user or grant admin (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateUserBody" }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+        "404": { description: User not found }
+
+  /auth/users/{id}/password-reset:
+    post:
+      operationId: createPasswordResetForUser
+      tags: [auth]
+      summary: Admin-initiated password reset that returns the link directly (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Reset link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PasswordResetLink" }
+        "403": { description: Admin only }
+        "404": { description: User not found }
 
   /auth/login:
     post:
@@ -268,7 +476,7 @@ components:
       required: [email, password]
       properties:
         email: { type: string, format: email }
-        password: { type: string, minLength: 6 }
+        password: { type: string, minLength: 8 }
 
     LoginCredentials:
       type: object
@@ -279,11 +487,103 @@ components:
 
     User:
       type: object
-      required: [id, email, createdAt]
+      required: [id, email, createdAt, isAdmin, isActive]
       properties:
         id: { type: integer }
         email: { type: string }
         createdAt: { type: string, format: date-time }
+        isAdmin: { type: boolean }
+        isActive: { type: boolean }
+
+    RegistrationStatus:
+      type: object
+      required: [openRegistration]
+      properties:
+        openRegistration: { type: boolean }
+
+    Invite:
+      type: object
+      required: [id, email, token, createdAt, expiresAt, createdByUserId]
+      properties:
+        id: { type: integer }
+        email: { type: string }
+        token: { type: string }
+        createdByUserId: { type: integer }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        usedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    InviteWithLink:
+      allOf:
+        - $ref: "#/components/schemas/Invite"
+        - type: object
+          required: [acceptUrl]
+          properties:
+            acceptUrl: { type: string }
+
+    PublicInvite:
+      type: object
+      required: [email, expiresAt]
+      properties:
+        email: { type: string }
+        expiresAt: { type: string, format: date-time }
+
+    CreateInviteBody:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+
+    AcceptInviteBody:
+      type: object
+      required: [token, password]
+      properties:
+        token: { type: string }
+        password: { type: string, minLength: 8 }
+
+    RequestPasswordResetBody:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+
+    PasswordResetRequestResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+        resetUrl:
+          type: ["string", "null"]
+          description: Only present in non-production environments to aid local testing.
+
+    PublicPasswordReset:
+      type: object
+      required: [email, expiresAt]
+      properties:
+        email: { type: string }
+        expiresAt: { type: string, format: date-time }
+
+    ResetPasswordBody:
+      type: object
+      required: [token, password]
+      properties:
+        token: { type: string }
+        password: { type: string, minLength: 8 }
+
+    PasswordResetLink:
+      type: object
+      required: [resetUrl, expiresAt]
+      properties:
+        resetUrl: { type: string }
+        expiresAt: { type: string, format: date-time }
+
+    UpdateUserBody:
+      type: object
+      properties:
+        isActive: { type: boolean }
+        isAdmin: { type: boolean }
 
     Week:
       type: object

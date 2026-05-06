@@ -8,6 +8,10 @@ import { useEffect, useRef } from "react";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
+import AcceptInvite from "@/pages/accept-invite";
+import ForgotPassword from "@/pages/forgot-password";
+import ResetPassword from "@/pages/reset-password";
+import AdminUsers from "@/pages/admin-users";
 import WeekSummary from "@/pages/week-summary";
 import DriverDetail from "@/pages/driver-detail";
 
@@ -48,13 +52,21 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const isAuthRoute = location === "/login" || location === "/register";
+  const PUBLIC_ROUTE_RES = [
+    /^\/login$/,
+    /^\/register$/,
+    /^\/forgot-password$/,
+    /^\/reset-password\/.+$/,
+    /^\/accept-invite\/.+$/,
+  ];
+  const isPublicRoute = PUBLIC_ROUTE_RES.some((re) => re.test(location));
+  const isLoginRoute = location === "/login" || location === "/register";
 
-  if (!user && !isAuthRoute) {
+  if (!user && !isPublicRoute) {
     return <Redirect to="/login" />;
   }
 
-  if (user && isAuthRoute) {
+  if (user && isLoginRoute) {
     return <Redirect to="/" />;
   }
 
@@ -67,6 +79,10 @@ function Router() {
       <Switch>
         <Route path="/login" component={Login} />
         <Route path="/register" component={Register} />
+        <Route path="/forgot-password" component={ForgotPassword} />
+        <Route path="/reset-password/:token" component={ResetPassword} />
+        <Route path="/accept-invite/:token" component={AcceptInvite} />
+        <Route path="/admin/users" component={AdminUsers} />
         <Route path="/" component={WeekSummary} />
         <Route path="/weeks/:weekStart" component={WeekSummary} />
         <Route path="/weeks/:weekStart/drivers/:kfiId" component={DriverDetail} />

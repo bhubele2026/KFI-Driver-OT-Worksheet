@@ -6,10 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface User {
+export interface Invite {
   id: number;
   email: string;
+  token: string;
+  createdByUserId: number;
   createdAt: Date;
-  isAdmin: boolean;
-  isActive: boolean;
+  expiresAt: Date;
+  /** @nullable */
+  usedAt?: Date | null;
 }

@@ -11,6 +11,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate hooks + Zod from `lib/api-spec/openapi.yaml`.
 - `pnpm --filter @workspace/db run push` — push DB schema (dev only).
 - Required env: `DATABASE_URL`, `SESSION_SECRET`, `CONNECTEAM_API_TOKEN`.
+- Optional env: `APP_BASE_URL` (origin used in invite/reset links — falls back to `https://${REPLIT_DOMAINS[0]}`; required in prod if neither is set), `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` (when set, invites and password resets are emailed via nodemailer).
 
 ## Stack
 
@@ -29,6 +30,16 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - Routes: `artifacts/api-server/src/routes/{auth,weeks,punches,index}.ts`.
 - Frontend: `artifacts/kfi-ot/src/{App.tsx,pages/,components/}`. Theme + fonts in `src/index.css`.
 - Reference legacy single-page dashboard: `attached_assets/KFI_Dashboard_*.html`.
+
+## Auth model
+
+- Cookie session, bcrypt passwords. Registration is invite-only after the first user.
+- `/auth/registration-status` exposes whether the bootstrap account exists. The first registrant becomes admin (`isAdmin=true`); thereafter `/auth/register` returns 403.
+- Admins (re)issue accounts via `/auth/invites` (single-use tokens, 7-day TTL). Acceptance happens at `/accept-invite/:token`.
+- Self-serve password reset: `/auth/request-password-reset` always returns 200 (no enumeration). When SMTP is configured the reset link is emailed; otherwise (dev only) the link is echoed in the response so local testing isn't blocked. Tokens are never logged in either case.
+- Invite/reset URLs are built from `APP_BASE_URL` (or `REPLIT_DOMAINS[0]`) — never from `Host` / `X-Forwarded-*` headers — to defend against host-header poisoning.
+- Admin-only `/auth/users` page (`/admin/users`) lists accounts and supports deactivate / reactivate / promote / demote / generate-reset-link. Guards prevent self-deactivation and removing the last active admin.
+- `requireAuth` re-loads the session user on every request and rejects if `isActive=false`.
 
 ## Architecture decisions
 

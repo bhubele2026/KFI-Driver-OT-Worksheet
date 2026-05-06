@@ -5,9 +5,8 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { Invite } from "./invite";
 
-export interface AuthCredentials {
-  email: string;
-  /** @minLength 8 */
-  password: string;
-}
+export type InviteWithLink = Invite & {
+  acceptUrl: string;
+};

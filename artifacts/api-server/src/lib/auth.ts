@@ -1,8 +1,10 @@
 import bcrypt from "bcryptjs";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
-import type { RequestHandler } from "express";
-import { pool } from "./db.js";
+import crypto from "node:crypto";
+import { eq } from "drizzle-orm";
+import type { Request, RequestHandler } from "express";
+import { pool, db, schema } from "./db.js";
 
 declare module "express-session" {
   interface SessionData {
@@ -42,10 +44,46 @@ export async function verifyPassword(plain: string, hash: string): Promise<boole
   return bcrypt.compare(plain, hash);
 }
 
-export const requireAuth: RequestHandler = (req, res, next) => {
-  if (!req.session?.userId) {
+export function generateToken(): string {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+export async function loadSessionUser(req: Request) {
+  const id = req.session?.userId;
+  if (!id) return null;
+  const user = await db.query.usersTable.findFirst({
+    where: eq(schema.usersTable.id, id),
+  });
+  if (!user || !user.isActive) return null;
+  return user;
+}
+
+export const requireAuth: RequestHandler = async (req, res, next) => {
+  const user = await loadSessionUser(req);
+  if (!user) {
+    if (req.session?.userId) {
+      req.session.destroy(() => {});
+    }
     res.status(401).json({ error: "Authentication required" });
     return;
   }
+  (req as Request & { user?: typeof user }).user = user;
+  next();
+};
+
+export const requireAdmin: RequestHandler = async (req, res, next) => {
+  const user = await loadSessionUser(req);
+  if (!user) {
+    if (req.session?.userId) {
+      req.session.destroy(() => {});
+    }
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  if (!user.isAdmin) {
+    res.status(403).json({ error: "Admin access required" });
+    return;
+  }
+  (req as Request & { user?: typeof user }).user = user;
   next();
 };
