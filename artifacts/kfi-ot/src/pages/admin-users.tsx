@@ -1688,8 +1688,22 @@ export default function AdminUsers() {
                           {entry.action}
                         </span>
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {entry.targetEmail ?? "—"}
+                      <TableCell className="text-xs">
+                        {entry.aiSample ? (
+                          <span>
+                            Deleted AI sample{" "}
+                            <span className="font-mono">{entry.aiSample.fileName}</span>{" "}
+                            <span className="text-muted-foreground">
+                              ({entry.aiSample.customer}
+                              {entry.aiSample.weekStart
+                                ? `, week ${entry.aiSample.weekStart}`
+                                : ""}
+                              )
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="font-mono">{entry.targetEmail ?? "—"}</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

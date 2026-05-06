@@ -1223,6 +1223,15 @@ components:
           type: ["integer", "null"]
         targetEmail:
           type: ["string", "null"]
+        aiSample:
+          description: Populated when `action` is `delete-ai-extract-sample`. Parsed from `targetEmail` so the UI can render a friendly label without re-parsing the synthetic string.
+          type: ["object", "null"]
+          required: [id, customer, fileName, weekStart]
+          properties:
+            id: { type: integer }
+            customer: { type: string }
+            fileName: { type: string }
+            weekStart: { type: string, format: date }
 
     UpdateUserBody:
       type: object

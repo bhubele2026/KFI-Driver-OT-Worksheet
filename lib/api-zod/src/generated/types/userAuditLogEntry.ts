@@ -5,6 +5,7 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { UserAuditLogEntryAiSample } from "./userAuditLogEntryAiSample";
 
 export interface UserAuditLogEntry {
   id: number;
@@ -18,4 +19,9 @@ export interface UserAuditLogEntry {
   targetUserId?: number | null;
   /** @nullable */
   targetEmail?: string | null;
+  /**
+   * Populated when `action` is `delete-ai-extract-sample`. Parsed from `targetEmail` so the UI can render a friendly label without re-parsing the synthetic string.
+   * @nullable
+   */
+  aiSample?: UserAuditLogEntryAiSample;
 }

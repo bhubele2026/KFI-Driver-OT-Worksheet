@@ -487,6 +487,17 @@ export const ListUserAuditLogResponseItem = zod.object({
   actorEmail: zod.string().nullish(),
   targetUserId: zod.number().nullish(),
   targetEmail: zod.string().nullish(),
+  aiSample: zod
+    .object({
+      id: zod.number(),
+      customer: zod.string(),
+      fileName: zod.string(),
+      weekStart: zod.coerce.date(),
+    })
+    .nullish()
+    .describe(
+      "Populated when `action` is `delete-ai-extract-sample`. Parsed from `targetEmail` so the UI can render a friendly label without re-parsing the synthetic string.",
+    ),
 });
 export const ListUserAuditLogResponse = zod.array(ListUserAuditLogResponseItem);
 

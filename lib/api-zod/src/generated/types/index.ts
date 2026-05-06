@@ -74,6 +74,7 @@ export * from "./updateUserBody";
 export * from "./uploadResult";
 export * from "./user";
 export * from "./userAuditLogEntry";
+export * from "./userAuditLogEntryAiSample";
 export * from "./week";
 export * from "./weekSummary";
 export * from "./weekSummaryCustomersItem";

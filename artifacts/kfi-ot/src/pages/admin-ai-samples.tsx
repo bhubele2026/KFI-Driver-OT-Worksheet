@@ -5,9 +5,12 @@ import {
   useGetMe,
   useListAiExtractSamples,
   useDeleteAiExtractSample,
+  useListUserAuditLog,
   getListAiExtractSamplesQueryKey,
+  getListUserAuditLogQueryKey,
   getDownloadAiExtractSampleUrl,
 } from "@workspace/api-client-react";
+import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,6 +33,7 @@ import {
 import {
   ArrowLeft,
   Download,
+  History,
   Loader2,
   Sparkles,
   Trash2,
@@ -53,6 +57,9 @@ export default function AdminAiSamples() {
       onSuccess: () => {
         toast({ title: "Sample deleted" });
         qc.invalidateQueries({ queryKey: getListAiExtractSamplesQueryKey() });
+        qc.invalidateQueries({
+          queryKey: getListUserAuditLogQueryKey({ limit: 200 }),
+        });
       },
       onError: (err: unknown) => {
         toast({
@@ -75,6 +82,28 @@ export default function AdminAiSamples() {
       queryKey: getListAiExtractSamplesQueryKey(),
     },
   });
+
+  const { data: auditLog, isLoading: auditLoading } = useListUserAuditLog(
+    { limit: 200 },
+    {
+      query: {
+        enabled: !!me?.isAdmin,
+        queryKey: getListUserAuditLogQueryKey({ limit: 200 }),
+      },
+    },
+  );
+
+  const recentDeletions = useMemo(() => {
+    if (!auditLog) return [];
+    return auditLog
+      .filter(
+        (e) =>
+          e.action === "delete-ai-extract-sample" &&
+          e.aiSample &&
+          (!customerFilter || e.aiSample.customer === customerFilter),
+      )
+      .slice(0, 25);
+  }, [auditLog, customerFilter]);
 
   const allRows = samples ?? [];
   const customers = useMemo(() => {
@@ -324,6 +353,67 @@ export default function AdminAiSamples() {
                   </div>
                 ))}
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-display text-base flex items-center gap-2">
+              <History className="h-4 w-4" />
+              Recent AI sample deletions
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-3">
+              Append-only log of admin deletes from this page.
+              {customerFilter ? ` Filtered to ${customerFilter}.` : ""}
+            </p>
+            {auditLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading history…
+              </div>
+            ) : recentDeletions.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">
+                No AI sample deletions recorded
+                {customerFilter ? ` for "${customerFilter}"` : ""} yet.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[160px]">When</TableHead>
+                    <TableHead className="w-[200px]">Deleted by</TableHead>
+                    <TableHead className="w-[110px]">Week</TableHead>
+                    <TableHead className="w-[160px]">Customer</TableHead>
+                    <TableHead>File</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentDeletions.map((entry) => (
+                    <TableRow key={entry.id}>
+                      <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        {format(new Date(entry.createdAt), "yyyy-MM-dd HH:mm")}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs break-all">
+                        {entry.actorEmail ?? (
+                          <span className="italic">unknown</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {entry.aiSample?.weekStart || "—"}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {entry.aiSample?.customer}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs break-all">
+                        {entry.aiSample?.fileName}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         </Card>

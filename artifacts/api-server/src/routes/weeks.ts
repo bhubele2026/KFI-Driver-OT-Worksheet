@@ -1383,13 +1383,14 @@ weeksRouter.delete(
           id: schema.aiExtractSamplesTable.id,
           customer: schema.aiExtractSamplesTable.customer,
           fileName: schema.aiExtractSamplesTable.fileName,
+          weekStart: schema.aiExtractSamplesTable.weekStart,
         });
       const row = removed[0];
       if (!row) return null;
       await tx.insert(schema.userAuditLogTable).values({
         actorUserId,
         targetUserId: null,
-        targetEmail: `ai-sample:${row.id} ${row.customer} ${row.fileName}`,
+        targetEmail: `ai-sample:${row.id}|${row.weekStart}|${row.customer}|${row.fileName}`,
         action: "delete-ai-extract-sample",
       });
       return row;

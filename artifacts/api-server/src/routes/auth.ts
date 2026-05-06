@@ -1139,5 +1139,35 @@ authRouter.get("/auth/audit-log", requireAdmin, async (req, res) => {
   const rows = await (where ? baseQuery.where(where) : baseQuery)
     .orderBy(desc(schema.userAuditLogTable.createdAt))
     .limit(limit);
-  res.json(rows);
+  res.json(rows.map((r) => ({ ...r, aiSample: parseAiSampleTarget(r.action, r.targetEmail) })));
 });
+
+function parseAiSampleTarget(
+  action: string,
+  targetEmail: string | null,
+): { id: number; customer: string; fileName: string; weekStart: string } | null {
+  if (action !== "delete-ai-extract-sample" || !targetEmail) return null;
+  if (!targetEmail.startsWith("ai-sample:")) return null;
+  const rest = targetEmail.slice("ai-sample:".length);
+  // Newer rows use `id|weekStart|customer|fileName`; legacy rows used `id customer fileName`.
+  if (rest.includes("|")) {
+    const parts = rest.split("|");
+    if (parts.length < 4) return null;
+    const id = Number(parts[0]);
+    if (!Number.isFinite(id)) return null;
+    return {
+      id,
+      weekStart: parts[1] ?? "",
+      customer: parts[2] ?? "",
+      fileName: parts.slice(3).join("|"),
+    };
+  }
+  const m = rest.match(/^(\d+)\s+(\S+)\s+(.+)$/);
+  if (!m) return null;
+  return {
+    id: Number(m[1]),
+    weekStart: "",
+    customer: m[2] ?? "",
+    fileName: m[3] ?? "",
+  };
+}

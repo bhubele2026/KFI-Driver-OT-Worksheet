@@ -205,6 +205,17 @@ export interface RemoveIpBlocklistBody {
   ip: string;
 }
 
+/**
+ * Populated when `action` is `delete-ai-extract-sample`. Parsed from `targetEmail` so the UI can render a friendly label without re-parsing the synthetic string.
+ * @nullable
+ */
+export type UserAuditLogEntryAiSample = {
+  id: number;
+  customer: string;
+  fileName: string;
+  weekStart: string;
+} | null;
+
 export interface UserAuditLogEntry {
   id: number;
   action: string;
@@ -217,6 +228,11 @@ export interface UserAuditLogEntry {
   targetUserId?: number | null;
   /** @nullable */
   targetEmail?: string | null;
+  /**
+   * Populated when `action` is `delete-ai-extract-sample`. Parsed from `targetEmail` so the UI can render a friendly label without re-parsing the synthetic string.
+   * @nullable
+   */
+  aiSample?: UserAuditLogEntryAiSample;
 }
 
 export interface UpdateUserBody {
