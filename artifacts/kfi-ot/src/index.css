@@ -212,3 +212,34 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  @page {
+    margin: 0.5in;
+  }
+  .print-sheet {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .print-sheet * {
+    color: #000000 !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+  }
+  .print-sheet table,
+  .print-sheet th,
+  .print-sheet td {
+    border-color: #000000 !important;
+  }
+  .print-sheet thead {
+    display: table-header-group;
+  }
+  .print-sheet tr {
+    page-break-inside: avoid;
+  }
+}

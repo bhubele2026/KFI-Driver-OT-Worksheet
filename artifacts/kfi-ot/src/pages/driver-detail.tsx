@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, Save, X, RefreshCw, Keyboard } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, Save, X, RefreshCw, Keyboard, Printer } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -452,7 +452,7 @@ export default function DriverDetail() {
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
-      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-2.5 flex items-center justify-between shadow-sm">
+      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 py-2.5 flex items-center justify-between shadow-sm print:hidden">
         <div className="flex items-center gap-3">
           <DriversSidebarMobileTrigger
             weekStart={weekStart}
@@ -493,6 +493,17 @@ export default function DriverDetail() {
           </Button>
           <Button
             variant="ghost"
+            size="sm"
+            onClick={() => window.print()}
+            title="Print timesheet"
+            data-testid="button-print-timesheet"
+            className="text-sidebar-foreground hover:bg-sidebar-accent"
+          >
+            <Printer className="mr-2 h-4 w-4" />
+            Print
+          </Button>
+          <Button
+            variant="ghost"
             size="icon"
             onClick={() => setShortcutsOpen(true)}
             title="Keyboard shortcuts (?)"
@@ -505,14 +516,16 @@ export default function DriverDetail() {
       </header>
 
       <div className="flex-1 flex min-h-0">
-        <DriversSidebar
-          weekStart={weekStart}
-          selectedKfiId={kfiId}
-          collapsed={sidebarCollapsed}
-          onToggle={toggleSidebar}
-        />
+        <div className="print:hidden contents">
+          <DriversSidebar
+            weekStart={weekStart}
+            selectedKfiId={kfiId}
+            collapsed={sidebarCollapsed}
+            onToggle={toggleSidebar}
+          />
+        </div>
 
-        <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden">
+        <main className="print-sheet flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden print:p-0 print:max-w-none print:mx-0 print:overflow-visible print:space-y-4">
         {/* Title block */}
         <div className="space-y-2">
           <h1 className="font-display font-bold text-3xl tracking-tight leading-none">
@@ -522,8 +535,12 @@ export default function DriverDetail() {
             Customer: <span className="text-foreground">{customerLabel}</span>
             <span className="mx-2 text-muted-foreground/60">·</span>
             KFI ID: <span className="text-foreground">{data.driver.kfiId}</span>
+            <span className="hidden print:inline">
+              <span className="mx-2 text-muted-foreground/60">·</span>
+              Week of <span className="text-foreground">{weekStart}</span>
+            </span>
           </p>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground pt-1">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground pt-1 print:hidden">
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-blue-600 dark:bg-blue-400" />
               Driver (ConnectTeam)
@@ -599,7 +616,7 @@ export default function DriverDetail() {
                   <TableHead className="text-right uppercase text-[11px] tracking-wider w-[80px]">Hours</TableHead>
                   <TableHead className="uppercase text-[11px] tracking-wider min-w-[220px]">Running Total</TableHead>
                   <TableHead className="text-right uppercase text-[11px] tracking-wider w-[100px]">Type</TableHead>
-                  <TableHead className="text-right w-[90px]"></TableHead>
+                  <TableHead className="text-right w-[90px] print:hidden"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -676,7 +693,7 @@ export default function DriverDetail() {
                       <TableCell className="text-right font-mono font-medium">{p.hours.toFixed(2)}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <div className="relative h-1.5 flex-1 min-w-[120px] bg-muted rounded-full overflow-hidden">
+                          <div className="relative h-1.5 flex-1 min-w-[120px] bg-muted rounded-full overflow-hidden print:hidden">
                             {/* "Already accumulated" lighter base */}
                             {beforeRtPct > 0 && (
                               <div
@@ -736,7 +753,7 @@ export default function DriverDetail() {
                       >
                         {p.source}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right print:hidden">
                         {isEditing ? (
                           <div className="flex items-center justify-end gap-1">
                             <Button size="icon" variant="ghost" className="h-7 w-7 text-green-600" onClick={() => saveEdit(p.id)}>
