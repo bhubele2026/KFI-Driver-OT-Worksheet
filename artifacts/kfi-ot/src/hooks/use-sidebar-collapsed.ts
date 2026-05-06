@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-const STORAGE_KEY = "kfi-ot:drivers-sidebar-collapsed";
+const STORAGE_KEY = "kfi-ot:drivers-sidebar:collapsed:v1";
 const MOBILE_BREAKPOINT = 768;
 
 function readStored(): boolean | null {
