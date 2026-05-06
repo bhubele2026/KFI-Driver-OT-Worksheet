@@ -6,6 +6,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 
 - `pnpm --filter @workspace/api-server run dev` — API server (port wired by workflow). Routes mounted under `/api`.
 - `pnpm run test` — run cross-package tests: parser drift suite in `artifacts/api-server/src/lib/parsers/__tests__/` plus the kfi-ot Playwright e2e in `artifacts/kfi-ot/e2e/` (config: `artifacts/kfi-ot/playwright.config.ts`; honors `KFI_E2E_BASE_URL` default `http://localhost:80` and `KFI_E2E_API_DIRECT_URL` default `http://localhost:8080` — the latter bypasses the proxy when an e2e needs to forge `X-Forwarded-For`; needs `DATABASE_URL`).
+- `pnpm run e2e:setup` — one-shot Playwright browser setup. On Replit it just confirms the system Chromium pinned by `replit.nix` (exposed via `REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE`, which `playwright.config.ts` wires in as `launchOptions.executablePath`). Off-Replit it falls back to `playwright install --with-deps chromium`. Wired into `scripts/post-merge.sh` so a fresh clone can run `pnpm test` without manual Nix installs.
 - `pnpm --filter @workspace/kfi-ot run dev` — frontend (Vite).
 - `pnpm run typecheck` — full typecheck across all packages.
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate hooks + Zod from `lib/api-spec/openapi.yaml`.

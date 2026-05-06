@@ -2,6 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.KFI_E2E_BASE_URL ?? "http://localhost:80";
 
+const replitChromium = process.env.REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE;
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
@@ -18,7 +20,10 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(replitChromium ? { launchOptions: { executablePath: replitChromium } } : {}),
+      },
     },
   ],
 });

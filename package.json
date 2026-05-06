@@ -7,7 +7,8 @@
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
-    "test": "pnpm -r --filter \"./artifacts/**\" --filter \"./lib/**\" --if-present run test"
+    "test": "pnpm -r --filter \"./artifacts/**\" --filter \"./lib/**\" --if-present run test",
+    "e2e:setup": "sh -c 'if [ -x \"$REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE\" ]; then echo \"Using Replit-provided Chromium at $REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE\"; else pnpm --filter @workspace/kfi-ot exec playwright install --with-deps chromium; fi'"
   },
   "private": true,
   "devDependencies": {
