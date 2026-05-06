@@ -30,6 +30,7 @@ export * from "./healthStatus";
 export * from "./invite";
 export * from "./inviteWithLink";
 export * from "./loginCredentials";
+export * from "./mailerStatus";
 export * from "./manualPunchInput";
 export * from "./manualPunchInputSource";
 export * from "./passwordResetLink";

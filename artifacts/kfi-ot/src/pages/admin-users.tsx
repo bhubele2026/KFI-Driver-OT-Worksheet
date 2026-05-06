@@ -8,8 +8,10 @@ import {
   useUpdateUser,
   useCreatePasswordResetForUser,
   useGetMe,
+  useGetMailerStatus,
   getListUsersQueryKey,
   getListInvitesQueryKey,
+  getGetMailerStatusQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -25,6 +27,7 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import {
+  AlertTriangle,
   ArrowLeft,
   Copy,
   Loader2,
@@ -67,6 +70,17 @@ export default function AdminUsers() {
       queryKey: getListInvitesQueryKey(),
     },
   });
+  const { data: mailerStatus } = useGetMailerStatus({
+    query: {
+      enabled: !!me?.isAdmin,
+      queryKey: getGetMailerStatusQueryKey(),
+    },
+  });
+  const [mailerWarningDismissed, setMailerWarningDismissed] = useState(false);
+  const showMailerWarning =
+    !!me?.isAdmin &&
+    mailerStatus?.configured === false &&
+    !mailerWarningDismissed;
 
   const createInvite = useCreateInvite();
   const revokeInvite = useRevokeInvite();
@@ -194,6 +208,37 @@ export default function AdminUsers() {
       </header>
 
       <main className="flex-1 px-4 py-6 max-w-5xl w-full mx-auto space-y-6">
+        {showMailerWarning && (
+          <div
+            role="alert"
+            className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm flex items-start gap-3"
+          >
+            <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <div className="flex-1 space-y-1">
+              <div className="font-semibold">
+                Outgoing email is not configured.
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Invites and password resets will <strong>not</strong> be
+                emailed — you'll need to copy and share the links manually.
+                Set <code className="font-mono">SMTP_HOST</code>,{" "}
+                <code className="font-mono">SMTP_PORT</code>,{" "}
+                <code className="font-mono">SMTP_USER</code>,{" "}
+                <code className="font-mono">SMTP_PASS</code>, and{" "}
+                <code className="font-mono">MAIL_FROM</code> to enable email
+                delivery.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setMailerWarningDismissed(true)}
+            >
+              Dismiss
+            </Button>
+          </div>
+        )}
         <Card>
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">

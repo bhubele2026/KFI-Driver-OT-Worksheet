@@ -164,6 +164,13 @@ export const ResetPasswordResponse = zod.object({
 });
 
 /**
+ * @summary Whether outgoing email (SMTP) is configured (admin)
+ */
+export const GetMailerStatusResponse = zod.object({
+  configured: zod.boolean(),
+});
+
+/**
  * @summary List all dispatcher accounts (admin)
  */
 export const ListUsersResponseItem = zod.object({

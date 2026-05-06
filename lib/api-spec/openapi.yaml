@@ -195,6 +195,19 @@ paths:
         "400": { description: Invalid input }
         "404": { description: "Token not found, expired, or already used" }
 
+  /auth/mailer-status:
+    get:
+      operationId: getMailerStatus
+      tags: [auth]
+      summary: Whether outgoing email (SMTP) is configured (admin)
+      responses:
+        "200":
+          description: Mailer status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MailerStatus" }
+        "403": { description: Admin only }
+
   /auth/users:
     get:
       operationId: listUsers
@@ -554,6 +567,12 @@ components:
       required: [openRegistration]
       properties:
         openRegistration: { type: boolean }
+
+    MailerStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured: { type: boolean }
 
     Invite:
       type: object

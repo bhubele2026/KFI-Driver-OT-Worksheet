@@ -30,6 +30,7 @@ import type {
   Invite,
   InviteWithLink,
   LoginCredentials,
+  MailerStatus,
   ManualPunchInput,
   PasswordResetLink,
   PasswordResetRequestResult,
@@ -967,6 +968,81 @@ export const useResetPassword = <
 > => {
   return useMutation(getResetPasswordMutationOptions(options));
 };
+
+/**
+ * @summary Whether outgoing email (SMTP) is configured (admin)
+ */
+export const getGetMailerStatusUrl = () => {
+  return `/api/auth/mailer-status`;
+};
+
+export const getMailerStatus = async (
+  options?: RequestInit,
+): Promise<MailerStatus> => {
+  return customFetch<MailerStatus>(getGetMailerStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMailerStatusQueryKey = () => {
+  return [`/api/auth/mailer-status`] as const;
+};
+
+export const getGetMailerStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMailerStatus>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMailerStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMailerStatusQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMailerStatus>>> = ({
+    signal,
+  }) => getMailerStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMailerStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMailerStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMailerStatus>>
+>;
+export type GetMailerStatusQueryError = ErrorType<void>;
+
+/**
+ * @summary Whether outgoing email (SMTP) is configured (admin)
+ */
+
+export function useGetMailerStatus<
+  TData = Awaited<ReturnType<typeof getMailerStatus>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMailerStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMailerStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary List all dispatcher accounts (admin)

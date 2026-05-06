@@ -39,6 +39,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - Self-serve password reset: `/auth/request-password-reset` always returns 200 (no enumeration). When SMTP is configured the reset link is emailed; otherwise (dev only) the link is echoed in the response so local testing isn't blocked. Tokens are never logged in either case.
 - Invite/reset URLs are built from `APP_BASE_URL` (or `REPLIT_DOMAINS[0]`) — never from `Host` / `X-Forwarded-*` headers — to defend against host-header poisoning.
 - Admin-only `/auth/users` page (`/admin/users`) lists accounts and supports deactivate / reactivate / promote / demote / generate-reset-link. Guards prevent self-deactivation and removing the last active admin. Each row also shows `lastLoginAt` (stamped on `/auth/login`).
+- Admins see a dismissible warning banner on `/admin/users` when SMTP is not configured, driven by `GET /auth/mailer-status` (admin-only, returns `{ configured: boolean }`).
 - `requireAuth` re-loads the session user on every request and rejects if `isActive=false`.
 
 ## Activity attribution

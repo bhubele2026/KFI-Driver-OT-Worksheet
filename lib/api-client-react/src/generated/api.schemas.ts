@@ -35,6 +35,10 @@ export interface RegistrationStatus {
   openRegistration: boolean;
 }
 
+export interface MailerStatus {
+  configured: boolean;
+}
+
 export interface Invite {
   id: number;
   email: string;

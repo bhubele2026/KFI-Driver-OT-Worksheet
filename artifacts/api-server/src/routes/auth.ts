@@ -17,7 +17,7 @@ import {
   requireAdmin,
   verifyPassword,
 } from "../lib/auth.js";
-import { sendMail } from "../lib/mailer.js";
+import { isMailerConfigured, sendMail } from "../lib/mailer.js";
 import {
   checkLoginLimits,
   ipRateLimit,
@@ -457,6 +457,10 @@ authRouter.post("/auth/reset-password", tokenSubmitLimiter, async (req, res) => 
   }
   req.session.userId = result.user.id;
   res.json(publicUser(result.user));
+});
+
+authRouter.get("/auth/mailer-status", requireAdmin, (_req, res) => {
+  res.json({ configured: isMailerConfigured() });
 });
 
 // ----- Admin user management -----
