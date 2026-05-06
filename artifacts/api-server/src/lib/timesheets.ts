@@ -57,6 +57,12 @@ export interface BuildTimesheetsOptions {
   /** When set (non-empty string), only drivers whose customer key matches
    * this value are included (drives the per-customer print mode). */
   customerFilter?: string | null;
+  /** When true, only include drivers whose computed totals report > 0
+   * overtime hours (drives the "Overtime only" print mode). */
+  overtimeOnly?: boolean;
+  /** When true, only include drivers whose computeChecks() returned at
+   * least one validation alert (drives the "With alerts" print mode). */
+  alertsOnly?: boolean;
 }
 
 /**
@@ -99,6 +105,9 @@ export function buildTimesheets(
       );
       if (driverCustomerKey !== customerFilterKey) continue;
     }
+    const checks = computeChecks(ps);
+    if (options.overtimeOnly && totals.overtimeHours <= 0) continue;
+    if (options.alertsOnly && checks.length === 0) continue;
     const sortedPs = [...ps].sort((a, b) => {
       const ta = localStrToSortMs(a.clockIn) ?? isoDateToUtcMs(a.date);
       const tb = localStrToSortMs(b.clockIn) ?? isoDateToUtcMs(b.date);
@@ -137,7 +146,7 @@ export function buildTimesheets(
           : customer,
       totals,
       rows,
-      checks: computeChecks(ps),
+      checks,
     });
   }
 
@@ -175,6 +184,10 @@ export interface RenderTimesheetsOptions {
   lastRefreshedAt?: Date | string | null;
   /** "Reviewed only" print mode — annotates the title and the doc meta line. */
   reviewedOnly?: boolean;
+  /** "Overtime only" print mode — annotates the title and the doc meta line. */
+  overtimeOnly?: boolean;
+  /** "With alerts" print mode — annotates the title and the doc meta line. */
+  alertsOnly?: boolean;
   /** Per-customer print mode — annotates the title and the doc meta line. */
   customerFilter?: string | null;
 }
@@ -215,6 +228,8 @@ export function makeTimesheetsHandler(
         ? req.query.format.toLowerCase()
         : "";
     const reviewedOnly = filterParam === "reviewed";
+    const overtimeOnly = filterParam === "overtime";
+    const alertsOnly = filterParam === "alerts";
     const wantPdf = formatParam === "pdf";
     const week = await loaders.getWeek(weekStart);
     const endDate = week?.endDate ?? weekEndOf(weekStart);
@@ -228,6 +243,8 @@ export function makeTimesheetsHandler(
     const sheets = buildTimesheets(punches, drivers, {
       reviewedKfiIds,
       customerFilter: customerParam || null,
+      overtimeOnly,
+      alertsOnly,
     });
     if (wantPdf) {
       const filename = pdfFilename(weekStart, reviewedOnly, customerParam);
@@ -242,6 +259,8 @@ export function makeTimesheetsHandler(
         sheets,
         lastRefreshedAt: week?.lastRefreshedAt ?? null,
         reviewedOnly,
+        overtimeOnly,
+        alertsOnly,
         customerFilter: customerParam || null,
       });
       stream.pipe(res);
@@ -253,6 +272,8 @@ export function makeTimesheetsHandler(
       sheets,
       lastRefreshedAt: week?.lastRefreshedAt ?? null,
       reviewedOnly,
+      overtimeOnly,
+      alertsOnly,
       customerFilter: customerParam || null,
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -286,20 +307,30 @@ export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {
     sheets,
     lastRefreshedAt,
     reviewedOnly = false,
+    overtimeOnly = false,
+    alertsOnly = false,
     customerFilter = null,
   } = opts;
   const customerSuffix =
     customerFilter && customerFilter.trim().length > 0 ? customerFilter : "";
   const titleSuffix = reviewedOnly
     ? " (Reviewed only)"
-    : customerSuffix
-      ? ` (${customerSuffix})`
-      : "";
+    : overtimeOnly
+      ? " (Overtime only)"
+      : alertsOnly
+        ? " (With alerts)"
+        : customerSuffix
+          ? ` (${customerSuffix})`
+          : "";
   const filterMeta = reviewedOnly
     ? " &middot; <strong>reviewed only</strong>"
-    : customerSuffix
-      ? ` &middot; <strong>${esc(customerSuffix)}</strong> only`
-      : "";
+    : overtimeOnly
+      ? " &middot; <strong>overtime only</strong>"
+      : alertsOnly
+        ? " &middot; <strong>with alerts only</strong>"
+        : customerSuffix
+          ? ` &middot; <strong>${esc(customerSuffix)}</strong> only`
+          : "";
   const sheetsHtml = sheets
     .map((s, i) => {
       const checksHtml =

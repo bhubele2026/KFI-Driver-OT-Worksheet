@@ -96,6 +96,7 @@ export default function WeekSummary() {
 
   const allDrivers = summary?.customers.flatMap((c) => c.drivers) ?? [];
   const reviewedCount = allDrivers.filter((d) => d.reviewed).length;
+  const overtimeCount = allDrivers.filter((d) => d.overtimeHours > 0).length;
 
   const refreshCt = useRefreshConnecteam();
   const setReviewed = useSetReviewed();
@@ -185,7 +186,7 @@ export default function WeekSummary() {
   };
 
   const openTimesheets = (params?: {
-    filter?: "reviewed";
+    filter?: "reviewed" | "overtime" | "alerts";
     customer?: string;
     format?: "pdf";
   }) => {
@@ -365,6 +366,19 @@ export default function WeekSummary() {
                   >
                     Reviewed only ({reviewedCount})
                   </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => openTimesheets({ filter: "overtime" })}
+                    disabled={overtimeCount === 0}
+                    data-testid="menuitem-print-overtime-only"
+                  >
+                    Overtime only ({overtimeCount})
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => openTimesheets({ filter: "alerts" })}
+                    data-testid="menuitem-print-alerts-only"
+                  >
+                    With alerts
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel className="text-xs uppercase tracking-wide text-muted-foreground">
                     Download PDF
@@ -383,6 +397,23 @@ export default function WeekSummary() {
                     data-testid="menuitem-pdf-reviewed-only"
                   >
                     Reviewed only ({reviewedCount}) (PDF)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      openTimesheets({ filter: "overtime", format: "pdf" })
+                    }
+                    disabled={overtimeCount === 0}
+                    data-testid="menuitem-pdf-overtime-only"
+                  >
+                    Overtime only ({overtimeCount}) (PDF)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      openTimesheets({ filter: "alerts", format: "pdf" })
+                    }
+                    data-testid="menuitem-pdf-alerts-only"
+                  >
+                    With alerts (PDF)
                   </DropdownMenuItem>
                   {printableCustomers.length > 0 ? (
                     <>

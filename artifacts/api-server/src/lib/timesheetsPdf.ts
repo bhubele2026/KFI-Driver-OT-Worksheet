@@ -7,6 +7,8 @@ export interface RenderTimesheetsPdfOptions {
   sheets: TimesheetSheet[];
   lastRefreshedAt?: Date | string | null;
   reviewedOnly?: boolean;
+  overtimeOnly?: boolean;
+  alertsOnly?: boolean;
   customerFilter?: string | null;
 }
 
@@ -51,6 +53,8 @@ export function renderTimesheetsPdf(
     sheets,
     lastRefreshedAt = null,
     reviewedOnly = false,
+    overtimeOnly = false,
+    alertsOnly = false,
     customerFilter = null,
   } = opts;
 
@@ -68,9 +72,13 @@ export function renderTimesheetsPdf(
     customerFilter && customerFilter.trim().length > 0 ? customerFilter : "";
   const filterMeta = reviewedOnly
     ? " · reviewed only"
-    : customerSuffix
-      ? ` · ${customerSuffix} only`
-      : "";
+    : overtimeOnly
+      ? " · overtime only"
+      : alertsOnly
+        ? " · with alerts only"
+        : customerSuffix
+          ? ` · ${customerSuffix} only`
+          : "";
   const refreshedNote = lastRefreshedAt
     ? ` · last Connecteam refresh: ${formatRefreshedAt(lastRefreshedAt)}`
     : "";
