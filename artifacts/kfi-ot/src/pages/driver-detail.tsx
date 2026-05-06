@@ -800,10 +800,22 @@ export default function DriverDetail() {
                       <TableCell className="text-right print:hidden">
                         {isEditing ? (
                           <div className="flex items-center justify-end gap-1">
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-green-600" onClick={() => saveEdit(p.id)}>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-green-600"
+                              onClick={() => saveEdit(p.id)}
+                              data-testid={`button-save-punch-${p.id}`}
+                            >
                               <Save className="h-3 w-3" />
                             </Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={cancelEdit}>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-muted-foreground"
+                              onClick={cancelEdit}
+                              data-testid={`button-cancel-edit-punch-${p.id}`}
+                            >
                               <X className="h-3 w-3" />
                             </Button>
                           </div>
@@ -814,6 +826,7 @@ export default function DriverDetail() {
                               variant="ghost"
                               className="h-7 w-7 text-muted-foreground hover:text-foreground"
                               onClick={() => startEdit(p)}
+                              data-testid={`button-edit-punch-${p.id}`}
                             >
                               <Edit2 className="h-3 w-3" />
                             </Button>
@@ -822,6 +835,7 @@ export default function DriverDetail() {
                               variant="ghost"
                               className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
                               onClick={() => handleDelete(p.id)}
+                              data-testid={`button-delete-punch-${p.id}`}
                             >
                               <Trash2 className="h-3 w-3" />
                             </Button>
