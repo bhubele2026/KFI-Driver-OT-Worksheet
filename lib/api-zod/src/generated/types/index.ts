@@ -57,6 +57,7 @@ export * from "./rateLimitLockout";
 export * from "./rateLimitLockoutTimeseriesPoint";
 export * from "./refreshResult";
 export * from "./registrationStatus";
+export * from "./removeIpBlocklistBody";
 export * from "./requestPasswordResetBody";
 export * from "./resetPasswordBody";
 export * from "./setReviewed200";

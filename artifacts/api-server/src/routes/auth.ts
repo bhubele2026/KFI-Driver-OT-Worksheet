@@ -32,6 +32,8 @@ import {
 import { pool } from "../lib/db.js";
 import {
   addToBlocklist,
+  parseBlocklistEntry,
+  entryMatchesIp,
   clientIp,
   listBlocklist,
   removeFromBlocklist,
@@ -781,10 +783,20 @@ authRouter.post("/auth/ip-blocklist", requireAdmin, async (req, res) => {
     res.status(400).json({ error: "IP is required" });
     return;
   }
-  if (ip === clientIp(req)) {
-    res
-      .status(400)
-      .json({ error: "Refusing to block your own current IP address." });
+  const entry = parseBlocklistEntry(ip);
+  if (!entry) {
+    res.status(400).json({
+      error:
+        "Enter a valid IP (e.g. 203.0.113.7) or CIDR range (e.g. 203.0.113.0/24).",
+    });
+    return;
+  }
+  if (entryMatchesIp(entry, clientIp(req))) {
+    res.status(400).json({
+      error: entry.isCidr
+        ? "Refusing to block this range — it includes your own current IP address."
+        : "Refusing to block your own current IP address.",
+    });
     return;
   }
   const me = (req as { user?: { id: number } }).user!;
@@ -794,11 +806,17 @@ authRouter.post("/auth/ip-blocklist", requireAdmin, async (req, res) => {
   res.json({ ip, reason, createdByEmail: null, createdAt: new Date().toISOString() });
 });
 
-authRouter.delete(
-  "/auth/ip-blocklist/:ip",
+authRouter.post(
+  "/auth/ip-blocklist/remove",
   requireAdmin,
   async (req, res) => {
-    const ip = String(req.params.ip);
+    const body = (req.body ?? {}) as { ip?: unknown };
+    const ip =
+      typeof body.ip === "string" ? body.ip.trim() : "";
+    if (!ip) {
+      res.status(400).json({ error: "IP is required" });
+      return;
+    }
     await removeFromBlocklist(ip);
     req.log?.info({ ip }, "ip removed from blocklist");
     res.status(204).end();

@@ -151,7 +151,7 @@ export interface IpBlocklistEntry {
 
 export interface AddIpBlocklistBody {
   /**
-   * The client IP address to block. Compared verbatim against `req.ip`.
+   * A single IPv4/IPv6 address (e.g. `203.0.113.7`) or a CIDR range (e.g. `203.0.113.0/24`, `2001:db8::/32`). Incoming requests matching the entry are rejected.
    * @minLength 1
    */
   ip: string;
@@ -164,6 +164,14 @@ export interface RateLimitLockoutTimeseriesPoint {
   day: string;
   name: string;
   count: number;
+}
+
+export interface RemoveIpBlocklistBody {
+  /**
+   * The exact entry string (single IP or CIDR range) to remove from the blocklist.
+   * @minLength 1
+   */
+  ip: string;
 }
 
 export interface UserAuditLogEntry {

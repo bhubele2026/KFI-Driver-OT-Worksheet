@@ -54,6 +54,7 @@ import type {
   RateLimitLockoutTimeseriesPoint,
   RefreshResult,
   RegistrationStatus,
+  RemoveIpBlocklistBody,
   RequestPasswordResetBody,
   ResetPasswordBody,
   SetReviewed200,
@@ -1886,7 +1887,7 @@ export function useListIpBlocklist<
 }
 
 /**
- * @summary Add an IP to the blocklist (admin). Subsequent requests from this IP get a 403 before reaching the rate limiter.
+ * @summary Add an IP or CIDR range to the blocklist (admin). Subsequent requests matching this entry get a 403 before reaching the rate limiter.
  */
 export const getAddIpBlocklistUrl = () => {
   return `/api/auth/ip-blocklist`;
@@ -1949,7 +1950,7 @@ export type AddIpBlocklistMutationBody = BodyType<AddIpBlocklistBody>;
 export type AddIpBlocklistMutationError = ErrorType<void>;
 
 /**
- * @summary Add an IP to the blocklist (admin). Subsequent requests from this IP get a 403 before reaching the rate limiter.
+ * @summary Add an IP or CIDR range to the blocklist (admin). Subsequent requests matching this entry get a 403 before reaching the rate limiter.
  */
 export const useAddIpBlocklist = <
   TError = ErrorType<void>,
@@ -1972,19 +1973,22 @@ export const useAddIpBlocklist = <
 };
 
 /**
- * @summary Remove an IP from the blocklist (admin)
+ * Uses POST + body (rather than DELETE on a path param) because CIDR entries contain a forward slash which would otherwise be misinterpreted as a path segment.
+ * @summary Remove an IP or CIDR range from the blocklist (admin)
  */
-export const getRemoveIpBlocklistUrl = (ip: string) => {
-  return `/api/auth/ip-blocklist/${ip}`;
+export const getRemoveIpBlocklistUrl = () => {
+  return `/api/auth/ip-blocklist/remove`;
 };
 
 export const removeIpBlocklist = async (
-  ip: string,
+  removeIpBlocklistBody: RemoveIpBlocklistBody,
   options?: RequestInit,
 ): Promise<void> => {
-  return customFetch<void>(getRemoveIpBlocklistUrl(ip), {
+  return customFetch<void>(getRemoveIpBlocklistUrl(), {
     ...options,
-    method: "DELETE",
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(removeIpBlocklistBody),
   });
 };
 
@@ -1995,14 +1999,14 @@ export const getRemoveIpBlocklistMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof removeIpBlocklist>>,
     TError,
-    { ip: string },
+    { data: BodyType<RemoveIpBlocklistBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof removeIpBlocklist>>,
   TError,
-  { ip: string },
+  { data: BodyType<RemoveIpBlocklistBody> },
   TContext
 > => {
   const mutationKey = ["removeIpBlocklist"];
@@ -2016,11 +2020,11 @@ export const getRemoveIpBlocklistMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof removeIpBlocklist>>,
-    { ip: string }
+    { data: BodyType<RemoveIpBlocklistBody> }
   > = (props) => {
-    const { ip } = props ?? {};
+    const { data } = props ?? {};
 
-    return removeIpBlocklist(ip, requestOptions);
+    return removeIpBlocklist(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -2029,11 +2033,11 @@ export const getRemoveIpBlocklistMutationOptions = <
 export type RemoveIpBlocklistMutationResult = NonNullable<
   Awaited<ReturnType<typeof removeIpBlocklist>>
 >;
-
+export type RemoveIpBlocklistMutationBody = BodyType<RemoveIpBlocklistBody>;
 export type RemoveIpBlocklistMutationError = ErrorType<void>;
 
 /**
- * @summary Remove an IP from the blocklist (admin)
+ * @summary Remove an IP or CIDR range from the blocklist (admin)
  */
 export const useRemoveIpBlocklist = <
   TError = ErrorType<void>,
@@ -2042,14 +2046,14 @@ export const useRemoveIpBlocklist = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof removeIpBlocklist>>,
     TError,
-    { ip: string },
+    { data: BodyType<RemoveIpBlocklistBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof removeIpBlocklist>>,
   TError,
-  { ip: string },
+  { data: BodyType<RemoveIpBlocklistBody> },
   TContext
 > => {
   return useMutation(getRemoveIpBlocklistMutationOptions(options));

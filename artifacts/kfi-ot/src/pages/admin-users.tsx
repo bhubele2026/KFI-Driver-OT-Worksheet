@@ -78,6 +78,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { ipMatchesAny, isCidrEntry } from "@/lib/cidr";
 
 function copy(text: string, toast: ReturnType<typeof useToast>["toast"]) {
   navigator.clipboard
@@ -176,7 +177,7 @@ export default function AdminUsers() {
   });
   const addBlocklist = useAddIpBlocklist();
   const removeBlocklist = useRemoveIpBlocklist();
-  const blocklistedSet = new Set((ipBlocklist ?? []).map((b) => b.ip));
+  const blocklistedEntries = (ipBlocklist ?? []).map((b) => b.ip);
 
   const createInvite = useCreateInvite();
   const revokeInvite = useRevokeInvite();
@@ -224,17 +225,24 @@ export default function AdminUsers() {
     });
 
   const handleBlockIp = (ip: string, reasonHint: string) => {
+    const target = window.prompt(
+      `Block this address from the API?\n\nEnter a single IP (e.g. ${ip}) or a CIDR range to cover the whole subnet (e.g. ${ip.replace(/\.\d+$/, ".0")}/24):`,
+      ip,
+    );
+    if (target === null) return;
+    const trimmed = target.trim();
+    if (!trimmed) return;
     const reason = window.prompt(
-      `Block this IP from the API?\n\n${ip}\n\nOptional reason (will be saved with the entry):`,
+      `Optional reason (saved with the entry):`,
       reasonHint,
     );
     if (reason === null) return;
     addBlocklist.mutate(
-      { data: { ip, reason: reason.trim() || null } },
+      { data: { ip: trimmed, reason: reason.trim() || null } },
       {
         onSuccess: () => {
           refetchBlocklist();
-          toast({ title: "IP blocked", description: ip });
+          toast({ title: "Blocked", description: trimmed });
         },
         onError: (err) =>
           toast({
@@ -248,7 +256,7 @@ export default function AdminUsers() {
 
   const handleUnblockIp = (ip: string) => {
     removeBlocklist.mutate(
-      { ip },
+      { data: { ip } },
       {
         onSuccess: () => {
           refetchBlocklist();
@@ -842,7 +850,7 @@ export default function AdminUsers() {
                           ? e.key.slice(3)
                           : null;
                         const alreadyBlocked = ip
-                          ? blocklistedSet.has(ip)
+                          ? ipMatchesAny(ip, blocklistedEntries)
                           : false;
                         return (
                           <TableRow key={`${e.name}::${e.key}`}>
@@ -908,9 +916,12 @@ export default function AdminUsers() {
                 IP blocklist
               </h3>
               <p className="text-xs text-muted-foreground mb-3">
-                Requests from these addresses get a 403 before they reach the
-                rate limiter. Use the Block button on a row above to add a new
-                entry, or remove one here when the heat dies down.
+                Requests matching these addresses get a 403 before they reach
+                the rate limiter. Entries can be a single IP (e.g.{" "}
+                <code className="font-mono">203.0.113.7</code>) or a CIDR range
+                (e.g. <code className="font-mono">203.0.113.0/24</code>) to
+                cover a whole subnet. Use the Block button on a row above to
+                add an entry, or remove one here when the heat dies down.
               </p>
               {blocklistLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -929,7 +940,17 @@ export default function AdminUsers() {
                     {ipBlocklist.map((b) => (
                       <TableRow key={b.ip}>
                         <TableCell className="font-mono text-xs break-all">
-                          {b.ip}
+                          <span className="inline-flex items-center gap-2">
+                            {b.ip}
+                            {isCidrEntry(b.ip) && (
+                              <span
+                                className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-primary"
+                                title="CIDR range — blocks every address in this subnet"
+                              >
+                                Range
+                              </span>
+                            )}
+                          </span>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {b.reason ?? "—"}

@@ -392,7 +392,7 @@ paths:
     post:
       operationId: addIpBlocklist
       tags: [auth]
-      summary: Add an IP to the blocklist (admin). Subsequent requests from this IP get a 403 before reaching the rate limiter.
+      summary: Add an IP or CIDR range to the blocklist (admin). Subsequent requests matching this entry get a 403 before reaching the rate limiter.
       requestBody:
         required: true
         content:
@@ -407,18 +407,20 @@ paths:
         "400": { description: Invalid input or refusing to block caller's own IP }
         "403": { description: Admin only }
 
-  /auth/ip-blocklist/{ip}:
-    delete:
+  /auth/ip-blocklist/remove:
+    post:
       operationId: removeIpBlocklist
       tags: [auth]
-      summary: Remove an IP from the blocklist (admin)
-      parameters:
-        - name: ip
-          in: path
-          required: true
-          schema: { type: string }
+      summary: Remove an IP or CIDR range from the blocklist (admin)
+      description: Uses POST + body (rather than DELETE on a path param) because CIDR entries contain a forward slash which would otherwise be misinterpreted as a path segment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RemoveIpBlocklistBody" }
       responses:
         "204": { description: Removed (or no entry existed) }
+        "400": { description: Invalid input }
         "403": { description: Admin only }
 
   /auth/audit-log:
@@ -1046,7 +1048,7 @@ components:
         ip:
           type: string
           minLength: 1
-          description: The client IP address to block. Compared verbatim against `req.ip`.
+          description: A single IPv4/IPv6 address (e.g. `203.0.113.7`) or a CIDR range (e.g. `203.0.113.0/24`, `2001:db8::/32`). Incoming requests matching the entry are rejected.
         reason:
           type: ["string", "null"]
 
@@ -1059,6 +1061,15 @@ components:
           description: UTC day boundary as `YYYY-MM-DD`.
         name: { type: string }
         count: { type: integer }
+
+    RemoveIpBlocklistBody:
+      type: object
+      required: [ip]
+      properties:
+        ip:
+          type: string
+          minLength: 1
+          description: The exact entry string (single IP or CIDR range) to remove from the blocklist.
 
     UserAuditLogEntry:
       type: object

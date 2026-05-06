@@ -329,7 +329,7 @@ export const ListIpBlocklistResponseItem = zod.object({
 export const ListIpBlocklistResponse = zod.array(ListIpBlocklistResponseItem);
 
 /**
- * @summary Add an IP to the blocklist (admin). Subsequent requests from this IP get a 403 before reaching the rate limiter.
+ * @summary Add an IP or CIDR range to the blocklist (admin). Subsequent requests matching this entry get a 403 before reaching the rate limiter.
  */
 
 export const AddIpBlocklistBody = zod.object({
@@ -337,7 +337,7 @@ export const AddIpBlocklistBody = zod.object({
     .string()
     .min(1)
     .describe(
-      "The client IP address to block. Compared verbatim against `req.ip`.",
+      "A single IPv4\/IPv6 address (e.g. `203.0.113.7`) or a CIDR range (e.g. `203.0.113.0\/24`, `2001:db8::\/32`). Incoming requests matching the entry are rejected.",
     ),
   reason: zod.string().nullish(),
 });
@@ -350,10 +350,17 @@ export const AddIpBlocklistResponse = zod.object({
 });
 
 /**
- * @summary Remove an IP from the blocklist (admin)
+ * Uses POST + body (rather than DELETE on a path param) because CIDR entries contain a forward slash which would otherwise be misinterpreted as a path segment.
+ * @summary Remove an IP or CIDR range from the blocklist (admin)
  */
-export const RemoveIpBlocklistParams = zod.object({
-  ip: zod.coerce.string(),
+
+export const RemoveIpBlocklistBody = zod.object({
+  ip: zod
+    .string()
+    .min(1)
+    .describe(
+      "The exact entry string (single IP or CIDR range) to remove from the blocklist.",
+    ),
 });
 
 /**
