@@ -17,4 +17,8 @@ export interface DriverSummaryRow {
   overtimeHours: number;
   reviewed: boolean;
   hasOvertime: boolean;
+  /** @nullable */
+  lastTouchedByEmail?: string | null;
+  /** @nullable */
+  lastTouchedAt?: Date | null;
 }

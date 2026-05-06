@@ -317,6 +317,14 @@ export default function WeekSummary() {
                   <span className="font-mono">
                     {new Date(summary.lastRefreshedAt).toLocaleString()}
                   </span>
+                  {summary.lastRefreshedByEmail && (
+                    <span className="ml-2">
+                      by{" "}
+                      <span className="font-mono">
+                        {summary.lastRefreshedByEmail}
+                      </span>
+                    </span>
+                  )}
                 </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -472,6 +480,9 @@ export default function WeekSummary() {
                               <TableHead className="text-right">Diff</TableHead>
                               <TableHead className="text-right">Reg</TableHead>
                               <TableHead className="text-right">OT</TableHead>
+                              <TableHead className="text-xs">
+                                Last touched
+                              </TableHead>
                               <TableHead className="text-center w-[100px]">
                                 Reviewed
                               </TableHead>
@@ -534,6 +545,15 @@ export default function WeekSummary() {
                                       <span className="text-muted-foreground font-mono">
                                         -
                                       </span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-muted-foreground font-mono whitespace-nowrap">
+                                    {driver.lastTouchedByEmail ? (
+                                      <span title={driver.lastTouchedAt ? new Date(driver.lastTouchedAt).toLocaleString() : ""}>
+                                        {driver.lastTouchedByEmail}
+                                      </span>
+                                    ) : (
+                                      "—"
                                     )}
                                   </TableCell>
                                   <TableCell className="text-center">

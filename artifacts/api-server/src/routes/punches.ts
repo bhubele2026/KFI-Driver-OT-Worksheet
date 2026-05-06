@@ -38,6 +38,7 @@ punchesRouter.patch("/punches/:id", async (req, res) => {
       clockOut: newOut,
       hours: String(Math.round(hours * 1000) / 1000),
       edited: true,
+      updatedBy: req.session.userId ?? null,
     })
     .where(eq(schema.punchesTable.id, id))
     .returning();
@@ -50,6 +51,24 @@ punchesRouter.delete("/punches/:id", async (req, res) => {
     res.status(400).json({ error: "Invalid id" });
     return;
   }
-  await db.delete(schema.punchesTable).where(eq(schema.punchesTable.id, id));
+  // Record the delete in punch_deletions before hard-deleting so admins
+  // can still attribute the action during reconciliation disputes.
+  await db.transaction(async (tx) => {
+    const existing = await tx.query.punchesTable.findFirst({
+      where: eq(schema.punchesTable.id, id),
+    });
+    if (!existing) return;
+    await tx.insert(schema.punchDeletionsTable).values({
+      punchId: existing.id,
+      weekStart: existing.weekStart,
+      kfiId: existing.kfiId,
+      customer: existing.customer,
+      source: existing.source,
+      deletedBy: req.session.userId ?? null,
+    });
+    await tx
+      .delete(schema.punchesTable)
+      .where(eq(schema.punchesTable.id, id));
+  });
   res.status(204).end();
 });

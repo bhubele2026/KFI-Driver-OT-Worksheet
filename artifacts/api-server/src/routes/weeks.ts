@@ -1,6 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
   ConfirmNewCustomerFileBody,
   CreateManualPunchBody,
@@ -132,6 +132,18 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     .select()
     .from(schema.punchesTable)
     .where(eq(schema.punchesTable.weekStart, weekStart));
+  const deletions = await db
+    .select()
+    .from(schema.punchDeletionsTable)
+    .where(eq(schema.punchDeletionsTable.weekStart, weekStart));
+  const deletionsByKfi = new Map<string, (typeof deletions)[number]>();
+  // Keep only the most recent delete per driver for last-touched purposes.
+  for (const d of deletions) {
+    const cur = deletionsByKfi.get(d.kfiId);
+    if (!cur || new Date(d.deletedAt).getTime() > new Date(cur.deletedAt).getTime()) {
+      deletionsByKfi.set(d.kfiId, d);
+    }
+  }
   const drivers = await db.select().from(schema.driversTable);
   const driverById = new Map(drivers.map((d) => [d.kfiId, d]));
   const reviewed = new Set(
@@ -142,6 +154,31 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
         .where(eq(schema.reviewedDriversTable.weekStart, weekStart))
     ).map((r) => r.kfiId),
   );
+
+  // Resolve actor user emails for last-touched + last-refreshed surfacing.
+  const actorIds = new Set<number>();
+  if (week?.lastRefreshedBy) actorIds.add(week.lastRefreshedBy);
+  for (const p of punches) {
+    if (p.updatedBy) actorIds.add(p.updatedBy);
+    if (p.createdBy) actorIds.add(p.createdBy);
+  }
+  for (const d of deletions) {
+    if (d.deletedBy) actorIds.add(d.deletedBy);
+  }
+  const actorEmailById = new Map<number, string>();
+  if (actorIds.size > 0) {
+    const actorRows = await db
+      .select({
+        id: schema.usersTable.id,
+        email: schema.usersTable.email,
+      })
+      .from(schema.usersTable)
+      .where(inArray(schema.usersTable.id, [...actorIds]));
+    for (const r of actorRows) actorEmailById.set(r.id, r.email);
+  }
+  const lastRefreshedByEmail = week?.lastRefreshedBy
+    ? actorEmailById.get(week.lastRefreshedBy) ?? null
+    : null;
 
   const byKfi = new Map<string, typeof punches>();
   for (const p of punches) {
@@ -165,6 +202,8 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     overtimeHours: number;
     reviewed: boolean;
     hasOvertime: boolean;
+    lastTouchedByEmail: string | null;
+    lastTouchedAt: string | null;
   }
   const rows: SummaryRow[] = [];
   for (const [kfiId, ps] of byKfi.entries()) {
@@ -175,6 +214,34 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     totCust += t.totalCustomer;
     totRt += t.regularHours;
     totOt += t.overtimeHours;
+    // "Last touched" = the most recently updated punch row for this driver.
+    let mostRecent: (typeof ps)[number] | null = null;
+    for (const p of ps) {
+      if (
+        !mostRecent ||
+        new Date(p.updatedAt).getTime() >
+          new Date(mostRecent.updatedAt).getTime()
+      ) {
+        mostRecent = p;
+      }
+    }
+    let lastActorId =
+      mostRecent?.updatedBy ?? mostRecent?.createdBy ?? null;
+    let lastTouchedAt = mostRecent
+      ? new Date(mostRecent.updatedAt).toISOString()
+      : null;
+    // Fold in the most recent delete event so a "last touched" trail
+    // exists even after a manual punch is removed.
+    const lastDelete = deletionsByKfi.get(kfiId);
+    if (
+      lastDelete &&
+      (!lastTouchedAt ||
+        new Date(lastDelete.deletedAt).getTime() >
+          new Date(lastTouchedAt).getTime())
+    ) {
+      lastActorId = lastDelete.deletedBy ?? null;
+      lastTouchedAt = new Date(lastDelete.deletedAt).toISOString();
+    }
     rows.push({
       kfiId,
       name: meta?.name ?? `Driver ${kfiId}`,
@@ -186,6 +253,10 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       overtimeHours: t.overtimeHours,
       reviewed: reviewed.has(kfiId),
       hasOvertime: t.hasOvertime,
+      lastTouchedByEmail: lastActorId
+        ? actorEmailById.get(lastActorId) ?? null
+        : null,
+      lastTouchedAt,
     });
   }
   rows.sort(
@@ -203,6 +274,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     startDate: weekStart,
     endDate,
     lastRefreshedAt: week?.lastRefreshedAt ?? null,
+    lastRefreshedByEmail,
     totals: {
       activeDrivers: rows.length,
       driverHours: Math.round(totDriver * 1000) / 1000,
@@ -251,6 +323,22 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
       eq(schema.reviewedDriversTable.kfiId, kfiId),
     ),
   });
+  const actorIds = new Set<number>();
+  for (const p of punches) {
+    if (p.createdBy) actorIds.add(p.createdBy);
+    if (p.updatedBy) actorIds.add(p.updatedBy);
+  }
+  const actorEmailById = new Map<number, string>();
+  if (actorIds.size > 0) {
+    const actorRows = await db
+      .select({
+        id: schema.usersTable.id,
+        email: schema.usersTable.email,
+      })
+      .from(schema.usersTable)
+      .where(inArray(schema.usersTable.id, [...actorIds]));
+    for (const r of actorRows) actorEmailById.set(r.id, r.email);
+  }
   res.json({
     driver: {
       kfiId,
@@ -261,7 +349,7 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
     },
     weekStart,
     endDate,
-    punches: punches.map(serializePunch),
+    punches: punches.map((p) => serializePunch(p, actorEmailById)),
     dailyTotals: computeDailyTotals(punches, weekStart, endDate),
     totals: {
       driverHours: totals.totalDriver,
@@ -373,7 +461,10 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
       }
       await tx
         .update(schema.weeksTable)
-        .set({ lastRefreshedAt: refreshedAt })
+        .set({
+          lastRefreshedAt: refreshedAt,
+          lastRefreshedBy: req.session.userId ?? null,
+        })
         .where(eq(schema.weeksTable.startDate, startDate));
     });
     res.json({
@@ -819,7 +910,10 @@ weeksRouter.put("/weeks/:weekStart/reviewed/:kfiId", async (req, res) => {
   res.json({ reviewed: parsed.data.reviewed });
 });
 
-function serializePunch(p: typeof schema.punchesTable.$inferSelect) {
+function serializePunch(
+  p: typeof schema.punchesTable.$inferSelect,
+  emailById?: Map<number, string>,
+) {
   return {
     id: p.id,
     weekStart: p.weekStart,
@@ -834,6 +928,11 @@ function serializePunch(p: typeof schema.punchesTable.$inferSelect) {
     dispTz: p.dispTz,
     isManual: p.isManual,
     edited: p.edited,
+    createdByEmail:
+      p.createdBy && emailById ? emailById.get(p.createdBy) ?? null : null,
+    updatedByEmail:
+      p.updatedBy && emailById ? emailById.get(p.updatedBy) ?? null : null,
+    updatedAt: p.updatedAt ? new Date(p.updatedAt).toISOString() : null,
   };
 }
 

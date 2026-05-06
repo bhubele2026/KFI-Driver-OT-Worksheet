@@ -57,6 +57,7 @@ function publicUser(user: {
   createdAt: Date | string;
   isAdmin: boolean;
   isActive: boolean;
+  lastLoginAt?: Date | string | null;
 }) {
   return {
     id: user.id,
@@ -64,6 +65,7 @@ function publicUser(user: {
     createdAt: user.createdAt,
     isAdmin: user.isAdmin,
     isActive: user.isActive,
+    lastLoginAt: user.lastLoginAt ?? null,
   };
 }
 
@@ -150,8 +152,14 @@ authRouter.post("/auth/login", async (req, res) => {
     return;
   }
   recordLoginSuccess(req, email);
+  const now = new Date();
+  const [updated] = await db
+    .update(schema.usersTable)
+    .set({ lastLoginAt: now })
+    .where(eq(schema.usersTable.id, user.id))
+    .returning();
   req.session.userId = user.id;
-  res.json(publicUser(user));
+  res.json(publicUser(updated ?? { ...user, lastLoginAt: now }));
 });
 
 authRouter.post("/auth/logout", (req, res) => {

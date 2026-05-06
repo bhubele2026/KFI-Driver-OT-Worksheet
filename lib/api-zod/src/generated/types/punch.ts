@@ -23,4 +23,10 @@ export interface Punch {
   dispTz: string;
   isManual: boolean;
   edited?: boolean;
+  /** @nullable */
+  createdByEmail?: string | null;
+  /** @nullable */
+  updatedByEmail?: string | null;
+  /** @nullable */
+  updatedAt?: Date | null;
 }

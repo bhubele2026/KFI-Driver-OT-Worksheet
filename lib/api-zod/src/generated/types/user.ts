@@ -12,4 +12,6 @@ export interface User {
   createdAt: Date;
   isAdmin: boolean;
   isActive: boolean;
+  /** @nullable */
+  lastLoginAt?: Date | null;
 }

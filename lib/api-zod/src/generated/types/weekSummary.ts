@@ -14,6 +14,8 @@ export interface WeekSummary {
   endDate: string;
   /** @nullable */
   lastRefreshedAt: Date | null;
+  /** @nullable */
+  lastRefreshedByEmail?: string | null;
   totals: WeekSummaryTotals;
   rows: DriverSummaryRow[];
   customers: WeekSummaryCustomersItem[];

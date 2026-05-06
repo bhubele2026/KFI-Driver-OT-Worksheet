@@ -545,6 +545,9 @@ components:
         createdAt: { type: string, format: date-time }
         isAdmin: { type: boolean }
         isActive: { type: boolean }
+        lastLoginAt:
+          type: ["string", "null"]
+          format: date-time
 
     RegistrationStatus:
       type: object
@@ -684,6 +687,11 @@ components:
         overtimeHours: { type: number }
         reviewed: { type: boolean }
         hasOvertime: { type: boolean }
+        lastTouchedByEmail:
+          type: ["string", "null"]
+        lastTouchedAt:
+          type: ["string", "null"]
+          format: date-time
 
     WeekSummary:
       type: object
@@ -702,6 +710,8 @@ components:
         lastRefreshedAt:
           type: ["string", "null"]
           format: date-time
+        lastRefreshedByEmail:
+          type: ["string", "null"]
         totals:
           type: object
           required:
@@ -767,6 +777,13 @@ components:
         dispTz: { type: string }
         isManual: { type: boolean }
         edited: { type: boolean }
+        createdByEmail:
+          type: ["string", "null"]
+        updatedByEmail:
+          type: ["string", "null"]
+        updatedAt:
+          type: ["string", "null"]
+          format: date-time
 
     DailyTotals:
       type: object

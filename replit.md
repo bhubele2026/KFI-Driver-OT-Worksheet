@@ -38,8 +38,15 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - Admins (re)issue accounts via `/auth/invites` (single-use tokens, 7-day TTL). Acceptance happens at `/accept-invite/:token`.
 - Self-serve password reset: `/auth/request-password-reset` always returns 200 (no enumeration). When SMTP is configured the reset link is emailed; otherwise (dev only) the link is echoed in the response so local testing isn't blocked. Tokens are never logged in either case.
 - Invite/reset URLs are built from `APP_BASE_URL` (or `REPLIT_DOMAINS[0]`) — never from `Host` / `X-Forwarded-*` headers — to defend against host-header poisoning.
-- Admin-only `/auth/users` page (`/admin/users`) lists accounts and supports deactivate / reactivate / promote / demote / generate-reset-link. Guards prevent self-deactivation and removing the last active admin.
+- Admin-only `/auth/users` page (`/admin/users`) lists accounts and supports deactivate / reactivate / promote / demote / generate-reset-link. Guards prevent self-deactivation and removing the last active admin. Each row also shows `lastLoginAt` (stamped on `/auth/login`).
 - `requireAuth` re-loads the session user on every request and rejects if `isActive=false`.
+
+## Activity attribution
+
+- `users.lastLoginAt` is stamped on every successful `/auth/login` and surfaced in the admin users table.
+- `weeks.lastRefreshedBy` is stamped on every Connecteam refresh; the week summary returns `lastRefreshedByEmail` and the dashboard renders "by …" next to the timestamp.
+- `punches.createdBy` (already stored on Connecteam refresh, customer-file upload, and manual creation) and `punches.updatedBy` (stamped on `PATCH /punches/:id`) drive per-row attribution. The week summary computes a per-driver "last touched by" from the most-recently-updated punch in that driver's week. The driver-detail view renders the actor email under each punch's badges.
+- `DELETE /punches/:id` writes an append-only `punch_deletions` row (punchId, weekStart, kfiId, source, customer, deletedBy, deletedAt) inside the same transaction as the hard delete, so deletions are still attributable. The week summary folds the most recent delete per driver into the "last touched" calculation.
 
 ## Architecture decisions
 

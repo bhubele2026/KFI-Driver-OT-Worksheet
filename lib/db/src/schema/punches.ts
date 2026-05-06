@@ -38,6 +38,7 @@ export const punchesTable = pgTable(
     ctExternalKey: text("ct_external_key"), // userId:start:end for Connecteam dedupe
     fileOrigin: text("file_origin"),
     createdBy: integer("created_by"),
+    updatedBy: integer("updated_by"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

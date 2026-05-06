@@ -289,6 +289,18 @@ export default function DriverDetail() {
                             </Badge>
                             {p.isManual && <Badge variant="outline" className="ml-2 text-[10px] px-1 py-0 h-4">Manual</Badge>}
                             {p.edited && <Badge variant="outline" className="ml-2 text-[10px] px-1 py-0 h-4">Edited</Badge>}
+                            {(p.updatedByEmail || p.createdByEmail) && (
+                              <div
+                                className="text-[10px] font-mono text-muted-foreground mt-0.5"
+                                title={p.updatedAt ? new Date(p.updatedAt).toLocaleString() : ""}
+                              >
+                                {p.edited && p.updatedByEmail
+                                  ? `edited by ${p.updatedByEmail}`
+                                  : p.createdByEmail
+                                    ? `by ${p.createdByEmail}`
+                                    : ""}
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell className="font-mono">
                             {editingPunchId === p.id ? (

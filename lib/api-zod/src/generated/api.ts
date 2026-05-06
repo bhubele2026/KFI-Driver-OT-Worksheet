@@ -30,6 +30,7 @@ export const RegisterResponse = zod.object({
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  lastLoginAt: zod.coerce.date().nullish(),
 });
 
 /**
@@ -111,6 +112,7 @@ export const AcceptInviteResponse = zod.object({
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  lastLoginAt: zod.coerce.date().nullish(),
 });
 
 /**
@@ -158,6 +160,7 @@ export const ResetPasswordResponse = zod.object({
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  lastLoginAt: zod.coerce.date().nullish(),
 });
 
 /**
@@ -169,6 +172,7 @@ export const ListUsersResponseItem = zod.object({
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  lastLoginAt: zod.coerce.date().nullish(),
 });
 export const ListUsersResponse = zod.array(ListUsersResponseItem);
 
@@ -190,6 +194,7 @@ export const UpdateUserResponse = zod.object({
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  lastLoginAt: zod.coerce.date().nullish(),
 });
 
 /**
@@ -219,6 +224,7 @@ export const LoginResponse = zod.object({
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  lastLoginAt: zod.coerce.date().nullish(),
 });
 
 /**
@@ -231,6 +237,7 @@ export const GetMeResponse = zod.union([
     createdAt: zod.coerce.date(),
     isAdmin: zod.boolean(),
     isActive: zod.boolean(),
+    lastLoginAt: zod.coerce.date().nullish(),
   }),
   zod.null(),
 ]);
@@ -264,6 +271,7 @@ export const GetWeekSummaryResponse = zod.object({
   startDate: zod.string(),
   endDate: zod.string(),
   lastRefreshedAt: zod.coerce.date().nullable(),
+  lastRefreshedByEmail: zod.string().nullish(),
   totals: zod.object({
     activeDrivers: zod.number(),
     driverHours: zod.number(),
@@ -284,6 +292,8 @@ export const GetWeekSummaryResponse = zod.object({
       overtimeHours: zod.number(),
       reviewed: zod.boolean(),
       hasOvertime: zod.boolean(),
+      lastTouchedByEmail: zod.string().nullish(),
+      lastTouchedAt: zod.coerce.date().nullish(),
     }),
   ),
   customers: zod.array(
@@ -301,6 +311,8 @@ export const GetWeekSummaryResponse = zod.object({
           overtimeHours: zod.number(),
           reviewed: zod.boolean(),
           hasOvertime: zod.boolean(),
+          lastTouchedByEmail: zod.string().nullish(),
+          lastTouchedAt: zod.coerce.date().nullish(),
         }),
       ),
     }),
@@ -347,6 +359,9 @@ export const GetDriverWeekResponse = zod.object({
       dispTz: zod.string(),
       isManual: zod.boolean(),
       edited: zod.boolean().optional(),
+      createdByEmail: zod.string().nullish(),
+      updatedByEmail: zod.string().nullish(),
+      updatedAt: zod.coerce.date().nullish(),
     }),
   ),
   dailyTotals: zod.array(
@@ -588,6 +603,9 @@ export const CreateManualPunchResponse = zod.object({
   dispTz: zod.string(),
   isManual: zod.boolean(),
   edited: zod.boolean().optional(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+  updatedAt: zod.coerce.date().nullish(),
 });
 
 /**
@@ -616,6 +634,9 @@ export const EditPunchResponse = zod.object({
   dispTz: zod.string(),
   isManual: zod.boolean(),
   edited: zod.boolean().optional(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+  updatedAt: zod.coerce.date().nullish(),
 });
 
 /**

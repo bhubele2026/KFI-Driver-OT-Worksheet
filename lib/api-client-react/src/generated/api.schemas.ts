@@ -27,6 +27,8 @@ export interface User {
   createdAt: string;
   isAdmin: boolean;
   isActive: boolean;
+  /** @nullable */
+  lastLoginAt?: string | null;
 }
 
 export interface RegistrationStatus {
@@ -125,6 +127,10 @@ export interface DriverSummaryRow {
   overtimeHours: number;
   reviewed: boolean;
   hasOvertime: boolean;
+  /** @nullable */
+  lastTouchedByEmail?: string | null;
+  /** @nullable */
+  lastTouchedAt?: string | null;
 }
 
 export type WeekSummaryTotals = {
@@ -146,6 +152,8 @@ export interface WeekSummary {
   endDate: string;
   /** @nullable */
   lastRefreshedAt: string | null;
+  /** @nullable */
+  lastRefreshedByEmail?: string | null;
   totals: WeekSummaryTotals;
   rows: DriverSummaryRow[];
   customers: WeekSummaryCustomersItem[];
@@ -174,6 +182,12 @@ export interface Punch {
   dispTz: string;
   isManual: boolean;
   edited?: boolean;
+  /** @nullable */
+  createdByEmail?: string | null;
+  /** @nullable */
+  updatedByEmail?: string | null;
+  /** @nullable */
+  updatedAt?: string | null;
 }
 
 export interface DailyTotals {

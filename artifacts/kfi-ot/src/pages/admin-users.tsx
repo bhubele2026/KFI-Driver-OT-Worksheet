@@ -343,6 +343,7 @@ export default function AdminUsers() {
                     <TableHead>Email</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Last sign-in</TableHead>
                     <TableHead className="w-[1%]" />
                   </TableRow>
                 </TableHeader>
@@ -372,6 +373,11 @@ export default function AdminUsers() {
                           >
                             {u.isActive ? "ACTIVE" : "DEACTIVATED"}
                           </span>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {u.lastLoginAt
+                            ? format(new Date(u.lastLoginAt), "yyyy-MM-dd HH:mm")
+                            : "—"}
                         </TableCell>
                         <TableCell className="flex gap-1 justify-end">
                           <Button
