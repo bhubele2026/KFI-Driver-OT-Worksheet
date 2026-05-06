@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, Redirect } from "wouter";
 import {
   useListUsers,
@@ -1843,7 +1843,7 @@ export default function AdminUsers() {
                               )
                             </span>
                           </span>
-                        ) : (
+                        ) : renderParserSnoozeLabel(entry.action, entry.targetEmail) ?? (
                           <span className="font-mono">{entry.targetEmail ?? "—"}</span>
                         )}
                       </TableCell>
@@ -1930,15 +1930,66 @@ function UserAuditHistory({
                 {entry.actorEmail ?? "—"}
               </TableCell>
               <TableCell className="py-1.5">
-                <span className="text-xs font-mono uppercase tracking-wider text-primary">
-                  {entry.action}
-                </span>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs font-mono uppercase tracking-wider text-primary">
+                    {entry.action}
+                  </span>
+                  {(() => {
+                    const label = renderParserSnoozeLabel(
+                      entry.action,
+                      entry.targetEmail,
+                    );
+                    return label ? (
+                      <span className="text-xs text-muted-foreground">
+                        {label}
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
               </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+function renderParserSnoozeLabel(
+  action: string,
+  targetEmail: string | null | undefined,
+): ReactNode | null {
+  if (action !== "parser-snooze" && action !== "parser-snooze-lift") {
+    return null;
+  }
+  if (!targetEmail) return null;
+  const rest = targetEmail.startsWith("parser-snooze:")
+    ? targetEmail.slice("parser-snooze:".length)
+    : targetEmail;
+  const [customerRaw, ...metaParts] = rest.split("|");
+  const customer = customerRaw || "(unknown customer)";
+  if (action === "parser-snooze-lift") {
+    return (
+      <span>
+        Resumed <span className="font-mono">{customer}</span> parser nudge
+      </span>
+    );
+  }
+  const untilPart = metaParts.find((m) => m.startsWith("until="));
+  const untilValue = untilPart ? untilPart.slice("until=".length) : "";
+  let untilLabel = "forever";
+  if (untilValue && untilValue !== "forever") {
+    try {
+      untilLabel = `until ${format(parseISO(untilValue), "MMM d, yyyy")}`;
+    } catch {
+      untilLabel = `until ${untilValue}`;
+    }
+  }
+  return (
+    <span>
+      Snoozed <span className="font-mono">{customer}</span> parser nudge{" "}
+      {untilLabel}
+    </span>
   );
 }
 
