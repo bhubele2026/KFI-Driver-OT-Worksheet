@@ -91,27 +91,19 @@ test("admin can block an IP, the API rejects it with 403, and admin can unblock"
   const blockBtn = lockoutRow.getByRole("button", { name: /Block IP/ });
   await expect(blockBtn).toBeVisible();
 
-  // 3. Accept the two prompt() dialogs and click Block IP. The handler asks
-  //    first for the IP/CIDR target (defaulting to the offending IP) and
-  //    then for an optional reason — accept both with the test fixtures.
-  const dialogReplies = [TEST_IP, "e2e test block"];
-  const handleDialog = async (d: import("@playwright/test").Dialog) => {
-    expect(d.type()).toBe("prompt");
-    const reply = dialogReplies.shift();
-    if (reply === undefined) {
-      await d.dismiss();
-      return;
-    }
-    await d.accept(reply);
-  };
-  page.on("dialog", handleDialog);
-  try {
-    await blockBtn.click();
-    // Wait for both prompts to be consumed before asserting on the new row.
-    await expect.poll(() => dialogReplies.length).toBe(0);
-  } finally {
-    page.off("dialog", handleDialog);
-  }
+  // 3. Click Block IP, which opens the shadcn dialog with two fields
+  //    (target IP/CIDR pre-filled, optional reason). Fill the reason
+  //    and submit.
+  await blockBtn.click();
+  const blockDialogEl = page.getByRole("dialog", {
+    name: /Block IP from the API/,
+  });
+  await expect(blockDialogEl).toBeVisible();
+  const ipField = blockDialogEl.getByLabel(/IP or CIDR/i);
+  await expect(ipField).toHaveValue(TEST_IP);
+  await blockDialogEl.getByLabel(/Reason/i).fill("e2e test block");
+  await blockDialogEl.getByRole("button", { name: /^Block$/ }).click();
+  await expect(blockDialogEl).toBeHidden();
 
   // 4. The IP should now appear in the IP blocklist table, and the
   //    lockout row should flip to a "Blocked" badge.

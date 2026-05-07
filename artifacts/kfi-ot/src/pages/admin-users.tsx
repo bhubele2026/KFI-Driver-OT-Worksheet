@@ -37,6 +37,14 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -250,6 +258,12 @@ export default function AdminUsers() {
   const [manualBlockIp, setManualBlockIp] = useState("");
   const [manualBlockReason, setManualBlockReason] = useState("");
   const [manualBlockError, setManualBlockError] = useState<string | null>(null);
+  const [blockDialog, setBlockDialog] = useState<{
+    open: boolean;
+    ip: string;
+    reason: string;
+    error: string | null;
+  }>({ open: false, ip: "", reason: "", error: null });
   const [latestInvite, setLatestInvite] = useState<string | null>(null);
   const [latestReset, setLatestReset] = useState<{
     email: string;
@@ -396,32 +410,46 @@ export default function AdminUsers() {
   };
 
   const handleBlockIp = (ip: string, reasonHint: string) => {
-    const target = window.prompt(
-      `Block this address from the API?\n\nEnter a single IP (e.g. ${ip}) or a CIDR range to cover the whole subnet (e.g. ${ip.replace(/\.\d+$/, ".0")}/24):`,
-      ip,
-    );
-    if (target === null) return;
-    const trimmed = target.trim();
-    if (!trimmed) return;
-    const reason = window.prompt(
-      `Optional reason (saved with the entry):`,
-      reasonHint,
-    );
-    if (reason === null) return;
+    setBlockDialog({ open: true, ip, reason: reasonHint, error: null });
+  };
+
+  const submitBlockDialog = (e: FormEvent) => {
+    e.preventDefault();
+    const trimmed = blockDialog.ip.trim();
+    if (!trimmed) {
+      setBlockDialog((prev) => ({
+        ...prev,
+        error: "Enter an IP address or CIDR range.",
+      }));
+      return;
+    }
+    if (!looksLikeIpOrCidr(trimmed)) {
+      setBlockDialog((prev) => ({
+        ...prev,
+        error:
+          "That doesn't look like a valid IP (e.g. 203.0.113.7) or CIDR range (e.g. 203.0.113.0/24).",
+      }));
+      return;
+    }
+    const reason = blockDialog.reason.trim() || null;
     addBlocklist.mutate(
-      { data: { ip: trimmed, reason: reason.trim() || null } },
+      { data: { ip: trimmed, reason } },
       {
         onSuccess: () => {
           refetchBlocklist();
           refetchSuggestions();
+          setBlockDialog({ open: false, ip: "", reason: "", error: null });
           toast({ title: "Blocked", description: trimmed });
         },
-        onError: (err) =>
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Unknown error";
+          setBlockDialog((prev) => ({ ...prev, error: msg }));
           toast({
             title: "Couldn't block IP",
-            description: err instanceof Error ? err.message : "Unknown error",
+            description: msg,
             variant: "destructive",
-          }),
+          });
+        },
       },
     );
   };
@@ -1863,6 +1891,104 @@ export default function AdminUsers() {
           </CardContent>
         </Card>
       </main>
+
+      <Dialog
+        open={blockDialog.open}
+        onOpenChange={(open) => {
+          if (!open) {
+            setBlockDialog({ open: false, ip: "", reason: "", error: null });
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Block IP from the API</DialogTitle>
+            <DialogDescription>
+              Enter a single IP (e.g.{" "}
+              <code className="font-mono">203.0.113.7</code>) or a CIDR range
+              (e.g. <code className="font-mono">203.0.113.0/24</code>) to cover
+              the whole subnet.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={submitBlockDialog} className="space-y-3">
+            <div>
+              <label
+                htmlFor="block-dialog-ip"
+                className="block text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1"
+              >
+                IP or CIDR
+              </label>
+              <Input
+                id="block-dialog-ip"
+                autoFocus
+                value={blockDialog.ip}
+                onChange={(e) =>
+                  setBlockDialog((prev) => ({
+                    ...prev,
+                    ip: e.target.value,
+                    error: null,
+                  }))
+                }
+                placeholder="203.0.113.7 or 203.0.113.0/24"
+                className="font-mono text-sm"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="block-dialog-reason"
+                className="block text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1"
+              >
+                Reason (optional)
+              </label>
+              <Input
+                id="block-dialog-reason"
+                value={blockDialog.reason}
+                onChange={(e) =>
+                  setBlockDialog((prev) => ({
+                    ...prev,
+                    reason: e.target.value,
+                  }))
+                }
+                placeholder="Saved with the entry for later context"
+                className="text-sm"
+              />
+            </div>
+            {blockDialog.error && (
+              <p className="text-xs text-rose-600 dark:text-rose-400">
+                {blockDialog.error}
+              </p>
+            )}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() =>
+                  setBlockDialog({
+                    open: false,
+                    ip: "",
+                    reason: "",
+                    error: null,
+                  })
+                }
+                disabled={addBlocklist.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={addBlocklist.isPending || !blockDialog.ip.trim()}
+              >
+                {addBlocklist.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                ) : (
+                  <ShieldX className="h-3.5 w-3.5 mr-1" />
+                )}
+                Block
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
