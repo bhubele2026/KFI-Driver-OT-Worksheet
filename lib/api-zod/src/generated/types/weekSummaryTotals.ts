@@ -13,4 +13,7 @@ export type WeekSummaryTotals = {
   totalHours: number;
   regularHours: number;
   overtimeHours: number;
+  goodCount: number;
+  badCount: number;
+  lockedCount: number;
 };

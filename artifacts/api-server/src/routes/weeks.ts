@@ -11,7 +11,12 @@ import {
   UpdateDriverIdAliasBody,
 } from "@workspace/api-zod";
 import { db, schema } from "../lib/db.js";
-import { requireAuth, requireAdmin } from "../lib/auth.js";
+import {
+  requireAuth,
+  requireAdmin,
+  requireSupervisorOrAdmin,
+} from "../lib/auth.js";
+import { assertNotLocked, loadLockedKfiIds } from "../lib/locks.js";
 import {
   fetchAllTimeClocks,
   fetchAllUsers,
@@ -171,13 +176,43 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
   }
   const drivers = await db.select().from(schema.driversTable);
   const driverById = new Map(drivers.map((d) => [d.kfiId, d]));
+  const reviewedRows = await db
+    .select()
+    .from(schema.reviewedDriversTable)
+    .where(eq(schema.reviewedDriversTable.weekStart, weekStart));
+  const reviewByKfi = new Map<
+    string,
+    {
+      status: "good" | "bad" | null;
+      lockedAt: Date | null;
+      lockedByUserId: number | null;
+    }
+  >();
+  for (const r of reviewedRows) {
+    // Legacy back-compat: a row that exists with status NULL but no lock was
+    // historically a "reviewed=true" row — treat it as 'good'.
+    const status =
+      r.status === "good" || r.status === "bad"
+        ? r.status
+        : r.lockedAt
+          ? null
+          : "good";
+    reviewByKfi.set(r.kfiId, {
+      status,
+      lockedAt: r.lockedAt,
+      lockedByUserId: r.lockedByUserId,
+    });
+  }
   const reviewed = new Set(
-    (
-      await db
-        .select()
-        .from(schema.reviewedDriversTable)
-        .where(eq(schema.reviewedDriversTable.weekStart, weekStart))
-    ).map((r) => r.kfiId),
+    reviewedRows
+      .filter((r) =>
+        // "Reviewed" for the print-filter / pill includes both good and bad.
+        // (Treat any non-null status, OR a legacy null+unlocked row, as reviewed.)
+        r.status === "good" ||
+        r.status === "bad" ||
+        (r.status == null && r.lockedAt == null),
+      )
+      .map((r) => r.kfiId),
   );
 
   // Resolve actor user emails for last-touched + last-refreshed surfacing.
@@ -189,6 +224,9 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
   }
   for (const d of deletions) {
     if (d.deletedBy) actorIds.add(d.deletedBy);
+  }
+  for (const r of reviewByKfi.values()) {
+    if (r.lockedByUserId) actorIds.add(r.lockedByUserId);
   }
   const actorEmailById = new Map<number, string>();
   if (actorIds.size > 0) {
@@ -226,7 +264,10 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     regularHours: number;
     overtimeHours: number;
     reviewed: boolean;
+    reviewStatus: "good" | "bad" | null;
     hasOvertime: boolean;
+    locked: boolean;
+    lockedByEmail: string | null;
     lastTouchedByEmail: string | null;
     lastTouchedAt: string | null;
   }
@@ -267,6 +308,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       lastActorId = lastDelete.deletedBy ?? null;
       lastTouchedAt = new Date(lastDelete.deletedAt).toISOString();
     }
+    const rstate = reviewByKfi.get(kfiId);
     rows.push({
       kfiId,
       name: meta?.name ?? `Driver ${kfiId}`,
@@ -277,7 +319,12 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       regularHours: t.regularHours,
       overtimeHours: t.overtimeHours,
       reviewed: reviewed.has(kfiId),
+      reviewStatus: rstate?.status ?? null,
       hasOvertime: t.hasOvertime,
+      locked: !!rstate?.lockedAt,
+      lockedByEmail: rstate?.lockedByUserId
+        ? actorEmailById.get(rstate.lockedByUserId) ?? null
+        : null,
       lastTouchedByEmail: lastActorId
         ? actorEmailById.get(lastActorId) ?? null
         : null,
@@ -337,6 +384,9 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       totalHours: Math.round((totDriver + totCust) * 1000) / 1000,
       regularHours: Math.round(totRt * 100) / 100,
       overtimeHours: Math.round(totOt * 100) / 100,
+      goodCount: rows.filter((r) => r.reviewStatus === "good").length,
+      badCount: rows.filter((r) => r.reviewStatus === "bad").length,
+      lockedCount: rows.filter((r) => r.locked).length,
     },
     rows,
     customers,
@@ -383,6 +433,7 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
     if (p.createdBy) actorIds.add(p.createdBy);
     if (p.updatedBy) actorIds.add(p.updatedBy);
   }
+  if (reviewed?.lockedByUserId) actorIds.add(reviewed.lockedByUserId);
   const actorEmailById = new Map<number, string>();
   if (actorIds.size > 0) {
     const actorRows = await db
@@ -418,7 +469,24 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
       custOt: totals.custOt,
     },
     checks: computeChecks(punches),
-    reviewed: Boolean(reviewed),
+    reviewed: reviewed
+      ? reviewed.status === "good" ||
+        reviewed.status === "bad" ||
+        (reviewed.status == null && reviewed.lockedAt == null)
+      : false,
+    reviewStatus:
+      reviewed?.status === "good" || reviewed?.status === "bad"
+        ? reviewed.status
+        : reviewed && reviewed.lockedAt == null
+          ? "good"
+          : null,
+    locked: !!reviewed?.lockedAt,
+    lockedAt: reviewed?.lockedAt
+      ? new Date(reviewed.lockedAt).toISOString()
+      : null,
+    lockedByEmail: reviewed?.lockedByUserId
+      ? actorEmailById.get(reviewed.lockedByUserId) ?? null
+      : null,
   });
 });
 
@@ -493,21 +561,32 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
     const uniqByKey = new Map<string, (typeof punches)[number]>();
     for (const p of punches) uniqByKey.set(p.ctExternalKey, p);
     const dedupedPunches = [...uniqByKey.values()];
+    // Lock-gate: locked driver-weeks are frozen, so we never delete or
+    // re-insert their Driver-source rows. Refresh otherwise proceeds for the
+    // rest of the roster — locking one driver shouldn't block the week.
+    const lockedKfiIds = await loadLockedKfiIds(startDate);
+    const lockedSkipped: string[] = [];
     const refreshedAt = new Date();
     // Wrap delete + insert + week-update in a single transaction so a partial
     // failure never leaves the week with no driver punches.
     await db.transaction(async (tx) => {
       // Preserve manual rows AND any imported rows the dispatcher edited inline.
-      await tx
-        .delete(schema.punchesTable)
-        .where(
-          and(
-            eq(schema.punchesTable.weekStart, startDate),
-            eq(schema.punchesTable.source, "Driver"),
-            eq(schema.punchesTable.isManual, false),
-            ne(schema.punchesTable.edited, true),
-          ),
+      // Also preserve everything for any driver whose week is locked.
+      const deleteConds: SQL[] = [
+        eq(schema.punchesTable.weekStart, startDate),
+        eq(schema.punchesTable.source, "Driver"),
+        eq(schema.punchesTable.isManual, false),
+        ne(schema.punchesTable.edited, true),
+      ];
+      if (lockedKfiIds.size > 0) {
+        deleteConds.push(
+          sql`${schema.punchesTable.kfiId} NOT IN (${sql.join(
+            [...lockedKfiIds].map((k) => sql`${k}`),
+            sql`, `,
+          )})`,
         );
+      }
+      await tx.delete(schema.punchesTable).where(and(...deleteConds));
       // Skip any inbound row whose ctExternalKey was kept (because it was edited).
       const keptKeys = new Set(
         (
@@ -524,9 +603,14 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
           .map((r) => r.key)
           .filter((k): k is string => Boolean(k)),
       );
-      const toInsert = dedupedPunches.filter(
-        (p) => !keptKeys.has(p.ctExternalKey),
-      );
+      const toInsert = dedupedPunches.filter((p) => {
+        if (keptKeys.has(p.ctExternalKey)) return false;
+        if (lockedKfiIds.has(p.kfiId)) {
+          if (!lockedSkipped.includes(p.kfiId)) lockedSkipped.push(p.kfiId);
+          return false;
+        }
+        return true;
+      });
       if (toInsert.length > 0) {
         await tx.insert(schema.punchesTable).values(
           toInsert.map((p) => ({
@@ -557,6 +641,7 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
       driversFound: users.length,
       punchesUpserted: punches.length,
       refreshedAt: refreshedAt.toISOString(),
+      lockedSkipped,
     });
   } catch (err) {
     req.log.error({ err }, "Connecteam refresh failed");
@@ -621,24 +706,41 @@ weeksRouter.post(
       res.status(400).json({ error: msg });
       return;
     }
+    // Lock-gate: skip any rows belonging to a locked driver-week. Surface
+    // them in the response so the dispatcher knows the upload was partial.
+    const lockedKfiIds = await loadLockedKfiIds(startDate);
+    const lockedSkipped: string[] = [];
+    const insertablePunches = result.punches.filter((p) => {
+      if (lockedKfiIds.has(p.kfiId)) {
+        if (!lockedSkipped.includes(p.kfiId)) lockedSkipped.push(p.kfiId);
+        return false;
+      }
+      return true;
+    });
     // Transactional swap: delete the existing customer-source rows for this
     // (week, customer) and insert the new batch atomically.
     await db.transaction(async (tx) => {
       // Preserve manual rows AND inline-edited customer rows on re-upload.
-      await tx
-        .delete(schema.punchesTable)
-        .where(
-          and(
-            eq(schema.punchesTable.weekStart, startDate),
-            eq(schema.punchesTable.source, "Customer"),
-            eq(schema.punchesTable.customer, result.customer),
-            eq(schema.punchesTable.isManual, false),
-            ne(schema.punchesTable.edited, true),
-          ),
+      // Also preserve everything for locked driver-weeks.
+      const deleteConds: SQL[] = [
+        eq(schema.punchesTable.weekStart, startDate),
+        eq(schema.punchesTable.source, "Customer"),
+        eq(schema.punchesTable.customer, result.customer),
+        eq(schema.punchesTable.isManual, false),
+        ne(schema.punchesTable.edited, true),
+      ];
+      if (lockedKfiIds.size > 0) {
+        deleteConds.push(
+          sql`${schema.punchesTable.kfiId} NOT IN (${sql.join(
+            [...lockedKfiIds].map((k) => sql`${k}`),
+            sql`, `,
+          )})`,
         );
-      if (result.punches.length > 0) {
+      }
+      await tx.delete(schema.punchesTable).where(and(...deleteConds));
+      if (insertablePunches.length > 0) {
         await tx.insert(schema.punchesTable).values(
-          result.punches.map((p) => ({
+          insertablePunches.map((p) => ({
             weekStart: startDate,
             kfiId: p.kfiId,
             customer: result.customer,
@@ -677,8 +779,9 @@ weeksRouter.post(
     res.json({
       customer: result.customer,
       fileName,
-      punchesUpserted: result.punches.length,
+      punchesUpserted: insertablePunches.length,
       unmappedIds: result.unmappedIds,
+      lockedSkipped,
     });
   },
 );
@@ -1125,6 +1228,8 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
   }
 
   const unmappedNames = new Set<string>();
+  const lockedKfiIds = await loadLockedKfiIds(startDate);
+  const lockedSkipped: string[] = [];
   const toInsert: Array<{
     kfiId: string;
     date: string;
@@ -1142,6 +1247,11 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
     const kfiId = parsed.data.mapping[r.driverNameOnDoc] ?? null;
     if (!kfiId) {
       unmappedNames.add(r.driverNameOnDoc);
+      skipped++;
+      continue;
+    }
+    if (lockedKfiIds.has(kfiId)) {
+      if (!lockedSkipped.includes(kfiId)) lockedSkipped.push(kfiId);
       skipped++;
       continue;
     }
@@ -1178,17 +1288,22 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
   }
 
   await db.transaction(async (tx) => {
-    await tx
-      .delete(schema.punchesTable)
-      .where(
-        and(
-          eq(schema.punchesTable.weekStart, startDate),
-          eq(schema.punchesTable.source, "Customer"),
-          eq(schema.punchesTable.customer, customer),
-          eq(schema.punchesTable.isManual, false),
-          ne(schema.punchesTable.edited, true),
-        ),
+    const deleteConds: SQL[] = [
+      eq(schema.punchesTable.weekStart, startDate),
+      eq(schema.punchesTable.source, "Customer"),
+      eq(schema.punchesTable.customer, customer),
+      eq(schema.punchesTable.isManual, false),
+      ne(schema.punchesTable.edited, true),
+    ];
+    if (lockedKfiIds.size > 0) {
+      deleteConds.push(
+        sql`${schema.punchesTable.kfiId} NOT IN (${sql.join(
+          [...lockedKfiIds].map((k) => sql`${k}`),
+          sql`, `,
+        )})`,
       );
+    }
+    await tx.delete(schema.punchesTable).where(and(...deleteConds));
     if (toInsert.length > 0) {
       await tx.insert(schema.punchesTable).values(
         toInsert.map((p) => ({
@@ -1277,6 +1392,7 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
     imported: toInsert.length,
     skippedUnmapped: skipped,
     unmappedNames: [...unmappedNames],
+    lockedSkipped,
   });
 });
 
@@ -2067,6 +2183,7 @@ weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
     res.status(400).json({ error: "Date is outside the week" });
     return;
   }
+  if (!(await assertNotLocked(res, startDate, parsed.data.kfiId))) return;
   const dispTz = parsed.data.dispTz || defaultDispTz(parsed.data.kfiId);
   // Hours are computed client-side display, but we store the difference in
   // wall-clock so the engine can compute totals.
@@ -2107,33 +2224,247 @@ weeksRouter.put("/weeks/:weekStart/reviewed/:kfiId", async (req, res) => {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  if (parsed.data.reviewed) {
-    await db
-      .insert(schema.reviewedDriversTable)
-      .values({
+  // Tri-state: 'good' | 'bad' | null. Accept either:
+  //   - new shape: { status: 'good'|'bad'|null }
+  //   - legacy shape: { reviewed: boolean }  (true → 'good', false → null)
+  let status: "good" | "bad" | null;
+  if (parsed.data.status === "good" || parsed.data.status === "bad") {
+    status = parsed.data.status;
+  } else if (parsed.data.status === null) {
+    status = null;
+  } else if (typeof parsed.data.reviewed === "boolean") {
+    status = parsed.data.reviewed ? "good" : null;
+  } else {
+    res.status(400).json({ error: "Provide status: 'good'|'bad'|null" });
+    return;
+  }
+  const userId = req.session.userId ?? null;
+  await db.transaction(async (tx) => {
+    const existing = await tx.query.reviewedDriversTable.findFirst({
+      where: and(
+        eq(schema.reviewedDriversTable.weekStart, weekStart),
+        eq(schema.reviewedDriversTable.kfiId, kfiId),
+      ),
+    });
+    if (status === null) {
+      // Clearing review. If the row is still locked, keep it but null out
+      // the review fields. Otherwise delete the row entirely.
+      if (existing?.lockedAt) {
+        await tx
+          .update(schema.reviewedDriversTable)
+          .set({ status: null, reviewedBy: userId, reviewedAt: new Date() })
+          .where(
+            and(
+              eq(schema.reviewedDriversTable.weekStart, weekStart),
+              eq(schema.reviewedDriversTable.kfiId, kfiId),
+            ),
+          );
+      } else if (existing) {
+        await tx
+          .delete(schema.reviewedDriversTable)
+          .where(
+            and(
+              eq(schema.reviewedDriversTable.weekStart, weekStart),
+              eq(schema.reviewedDriversTable.kfiId, kfiId),
+            ),
+          );
+      }
+    } else {
+      await tx
+        .insert(schema.reviewedDriversTable)
+        .values({
+          weekStart,
+          kfiId,
+          status,
+          reviewedBy: userId,
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.reviewedDriversTable.weekStart,
+            schema.reviewedDriversTable.kfiId,
+          ],
+          set: { status, reviewedBy: userId, reviewedAt: new Date() },
+        });
+    }
+    await tx.insert(schema.driverWeekAuditLogTable).values({
+      weekStart,
+      kfiId,
+      actorUserId: userId,
+      action:
+        status === "good"
+          ? "review-good"
+          : status === "bad"
+            ? "review-bad"
+            : "review-clear",
+    });
+  });
+  res.json({ reviewed: status !== null, status });
+});
+
+// ---------------------------------------------------------------------------
+// Lock / unlock a driver-week (supervisor or admin only) and audit trail.
+// ---------------------------------------------------------------------------
+
+async function readLockState(weekStart: string, kfiId: string) {
+  const row = await db
+    .select({
+      lockedAt: schema.reviewedDriversTable.lockedAt,
+      lockedByUserId: schema.reviewedDriversTable.lockedByUserId,
+      email: schema.usersTable.email,
+    })
+    .from(schema.reviewedDriversTable)
+    .leftJoin(
+      schema.usersTable,
+      eq(schema.usersTable.id, schema.reviewedDriversTable.lockedByUserId),
+    )
+    .where(
+      and(
+        eq(schema.reviewedDriversTable.weekStart, weekStart),
+        eq(schema.reviewedDriversTable.kfiId, kfiId),
+      ),
+    )
+    .limit(1);
+  const r = row[0];
+  return {
+    locked: !!r?.lockedAt,
+    lockedAt: r?.lockedAt ? new Date(r.lockedAt).toISOString() : null,
+    lockedByEmail: r?.lockedAt ? r.email ?? null : null,
+  };
+}
+
+weeksRouter.post(
+  "/weeks/:weekStart/drivers/:kfiId/lock",
+  requireSupervisorOrAdmin,
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    const kfiId = String(req.params.kfiId ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    const userId = req.session.userId ?? null;
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      await tx
+        .insert(schema.reviewedDriversTable)
+        .values({
+          weekStart,
+          kfiId,
+          status: null,
+          lockedAt: now,
+          lockedByUserId: userId,
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.reviewedDriversTable.weekStart,
+            schema.reviewedDriversTable.kfiId,
+          ],
+          set: { lockedAt: now, lockedByUserId: userId },
+        });
+      await tx.insert(schema.driverWeekAuditLogTable).values({
         weekStart,
         kfiId,
-        reviewedBy: req.session.userId ?? null,
-      })
-      .onConflictDoUpdate({
-        target: [
-          schema.reviewedDriversTable.weekStart,
-          schema.reviewedDriversTable.kfiId,
-        ],
-        set: { reviewedBy: req.session.userId ?? null, reviewedAt: new Date() },
+        actorUserId: userId,
+        action: "lock",
       });
-  } else {
-    await db
-      .delete(schema.reviewedDriversTable)
-      .where(
-        and(
+    });
+    res.json(await readLockState(weekStart, kfiId));
+  },
+);
+
+weeksRouter.delete(
+  "/weeks/:weekStart/drivers/:kfiId/lock",
+  requireSupervisorOrAdmin,
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    const kfiId = String(req.params.kfiId ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    const userId = req.session.userId ?? null;
+    await db.transaction(async (tx) => {
+      const existing = await tx.query.reviewedDriversTable.findFirst({
+        where: and(
           eq(schema.reviewedDriversTable.weekStart, weekStart),
           eq(schema.reviewedDriversTable.kfiId, kfiId),
         ),
-      );
-  }
-  res.json({ reviewed: parsed.data.reviewed });
-});
+      });
+      if (!existing) return;
+      // If review status is also null, drop the row entirely. Otherwise
+      // keep the row and just clear the lock columns.
+      if (existing.status === null) {
+        await tx
+          .delete(schema.reviewedDriversTable)
+          .where(
+            and(
+              eq(schema.reviewedDriversTable.weekStart, weekStart),
+              eq(schema.reviewedDriversTable.kfiId, kfiId),
+            ),
+          );
+      } else {
+        await tx
+          .update(schema.reviewedDriversTable)
+          .set({ lockedAt: null, lockedByUserId: null })
+          .where(
+            and(
+              eq(schema.reviewedDriversTable.weekStart, weekStart),
+              eq(schema.reviewedDriversTable.kfiId, kfiId),
+            ),
+          );
+      }
+      await tx.insert(schema.driverWeekAuditLogTable).values({
+        weekStart,
+        kfiId,
+        actorUserId: userId,
+        action: "unlock",
+      });
+    });
+    res.json(await readLockState(weekStart, kfiId));
+  },
+);
+
+weeksRouter.get(
+  "/weeks/:weekStart/drivers/:kfiId/audit",
+  async (req, res) => {
+    const weekStart = req.params.weekStart;
+    const kfiId = req.params.kfiId;
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    const rows = await db
+      .select({
+        id: schema.driverWeekAuditLogTable.id,
+        action: schema.driverWeekAuditLogTable.action,
+        createdAt: schema.driverWeekAuditLogTable.createdAt,
+        actorUserId: schema.driverWeekAuditLogTable.actorUserId,
+        actorEmail: schema.usersTable.email,
+      })
+      .from(schema.driverWeekAuditLogTable)
+      .leftJoin(
+        schema.usersTable,
+        eq(schema.usersTable.id, schema.driverWeekAuditLogTable.actorUserId),
+      )
+      .where(
+        and(
+          eq(schema.driverWeekAuditLogTable.weekStart, weekStart),
+          eq(schema.driverWeekAuditLogTable.kfiId, kfiId),
+        ),
+      )
+      .orderBy(desc(schema.driverWeekAuditLogTable.createdAt))
+      .limit(50);
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        action: r.action,
+        createdAt: new Date(r.createdAt).toISOString(),
+        actorUserId: r.actorUserId,
+        actorEmail: r.actorEmail ?? null,
+      })),
+    );
+  },
+);
 
 function serializePunch(
   p: typeof schema.punchesTable.$inferSelect,

@@ -35,6 +35,8 @@ import type {
   DriverIdAlias,
   DriverIdAliasList,
   DriverWeek,
+  DriverWeekAuditEntry,
+  DriverWeekLockState,
   EditPunchInput,
   EmailDeliveryResult,
   ForgetCustomerNameAliasParams,
@@ -4962,7 +4964,10 @@ export const useDeletePunch = <
 };
 
 /**
- * @summary Toggle the "reviewed" state for a driver in a week
+ * Pass either `{ status: 'good' | 'bad' | null }` (preferred) or the
+legacy `{ reviewed: boolean }` (true → good, false → null).
+
+ * @summary Set the tri-state review status for a driver in a week
  */
 export const getSetReviewedUrl = (weekStart: string, kfiId: string) => {
   return `/api/weeks/${weekStart}/reviewed/${kfiId}`;
@@ -5027,7 +5032,7 @@ export type SetReviewedMutationBody = BodyType<SetReviewedBody>;
 export type SetReviewedMutationError = ErrorType<unknown>;
 
 /**
- * @summary Toggle the "reviewed" state for a driver in a week
+ * @summary Set the tri-state review status for a driver in a week
  */
 export const useSetReviewed = <
   TError = ErrorType<unknown>,
@@ -5048,3 +5053,281 @@ export const useSetReviewed = <
 > => {
   return useMutation(getSetReviewedMutationOptions(options));
 };
+
+/**
+ * @summary Lock a driver-week (supervisor or admin only)
+ */
+export const getLockDriverWeekUrl = (weekStart: string, kfiId: string) => {
+  return `/api/weeks/${weekStart}/drivers/${kfiId}/lock`;
+};
+
+export const lockDriverWeek = async (
+  weekStart: string,
+  kfiId: string,
+  options?: RequestInit,
+): Promise<DriverWeekLockState> => {
+  return customFetch<DriverWeekLockState>(
+    getLockDriverWeekUrl(weekStart, kfiId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getLockDriverWeekMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof lockDriverWeek>>,
+    TError,
+    { weekStart: string; kfiId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof lockDriverWeek>>,
+  TError,
+  { weekStart: string; kfiId: string },
+  TContext
+> => {
+  const mutationKey = ["lockDriverWeek"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof lockDriverWeek>>,
+    { weekStart: string; kfiId: string }
+  > = (props) => {
+    const { weekStart, kfiId } = props ?? {};
+
+    return lockDriverWeek(weekStart, kfiId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type LockDriverWeekMutationResult = NonNullable<
+  Awaited<ReturnType<typeof lockDriverWeek>>
+>;
+
+export type LockDriverWeekMutationError = ErrorType<void>;
+
+/**
+ * @summary Lock a driver-week (supervisor or admin only)
+ */
+export const useLockDriverWeek = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof lockDriverWeek>>,
+    TError,
+    { weekStart: string; kfiId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof lockDriverWeek>>,
+  TError,
+  { weekStart: string; kfiId: string },
+  TContext
+> => {
+  return useMutation(getLockDriverWeekMutationOptions(options));
+};
+
+/**
+ * @summary Unlock a driver-week (supervisor or admin only)
+ */
+export const getUnlockDriverWeekUrl = (weekStart: string, kfiId: string) => {
+  return `/api/weeks/${weekStart}/drivers/${kfiId}/lock`;
+};
+
+export const unlockDriverWeek = async (
+  weekStart: string,
+  kfiId: string,
+  options?: RequestInit,
+): Promise<DriverWeekLockState> => {
+  return customFetch<DriverWeekLockState>(
+    getUnlockDriverWeekUrl(weekStart, kfiId),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getUnlockDriverWeekMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unlockDriverWeek>>,
+    TError,
+    { weekStart: string; kfiId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unlockDriverWeek>>,
+  TError,
+  { weekStart: string; kfiId: string },
+  TContext
+> => {
+  const mutationKey = ["unlockDriverWeek"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unlockDriverWeek>>,
+    { weekStart: string; kfiId: string }
+  > = (props) => {
+    const { weekStart, kfiId } = props ?? {};
+
+    return unlockDriverWeek(weekStart, kfiId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnlockDriverWeekMutationResult = NonNullable<
+  Awaited<ReturnType<typeof unlockDriverWeek>>
+>;
+
+export type UnlockDriverWeekMutationError = ErrorType<void>;
+
+/**
+ * @summary Unlock a driver-week (supervisor or admin only)
+ */
+export const useUnlockDriverWeek = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unlockDriverWeek>>,
+    TError,
+    { weekStart: string; kfiId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof unlockDriverWeek>>,
+  TError,
+  { weekStart: string; kfiId: string },
+  TContext
+> => {
+  return useMutation(getUnlockDriverWeekMutationOptions(options));
+};
+
+/**
+ * @summary Recent review/lock audit trail for a driver-week
+ */
+export const getGetDriverWeekAuditUrl = (weekStart: string, kfiId: string) => {
+  return `/api/weeks/${weekStart}/drivers/${kfiId}/audit`;
+};
+
+export const getDriverWeekAudit = async (
+  weekStart: string,
+  kfiId: string,
+  options?: RequestInit,
+): Promise<DriverWeekAuditEntry[]> => {
+  return customFetch<DriverWeekAuditEntry[]>(
+    getGetDriverWeekAuditUrl(weekStart, kfiId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetDriverWeekAuditQueryKey = (
+  weekStart: string,
+  kfiId: string,
+) => {
+  return [`/api/weeks/${weekStart}/drivers/${kfiId}/audit`] as const;
+};
+
+export const getGetDriverWeekAuditQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDriverWeekAudit>>,
+  TError = ErrorType<unknown>,
+>(
+  weekStart: string,
+  kfiId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDriverWeekAudit>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetDriverWeekAuditQueryKey(weekStart, kfiId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDriverWeekAudit>>
+  > = ({ signal }) =>
+    getDriverWeekAudit(weekStart, kfiId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!(weekStart && kfiId),
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDriverWeekAudit>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDriverWeekAuditQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDriverWeekAudit>>
+>;
+export type GetDriverWeekAuditQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Recent review/lock audit trail for a driver-week
+ */
+
+export function useGetDriverWeekAudit<
+  TData = Awaited<ReturnType<typeof getDriverWeekAudit>>,
+  TError = ErrorType<unknown>,
+>(
+  weekStart: string,
+  kfiId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDriverWeekAudit>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDriverWeekAuditQueryOptions(
+    weekStart,
+    kfiId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

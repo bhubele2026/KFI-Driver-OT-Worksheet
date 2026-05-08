@@ -5,6 +5,7 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { DriverSummaryRowReviewStatus } from "./driverSummaryRowReviewStatus";
 
 export interface DriverSummaryRow {
   kfiId: string;
@@ -16,7 +17,12 @@ export interface DriverSummaryRow {
   regularHours: number;
   overtimeHours: number;
   reviewed: boolean;
+  /** @nullable */
+  reviewStatus?: DriverSummaryRowReviewStatus;
   hasOvertime: boolean;
+  locked: boolean;
+  /** @nullable */
+  lockedByEmail?: string | null;
   /** @nullable */
   lastTouchedByEmail?: string | null;
   /** @nullable */

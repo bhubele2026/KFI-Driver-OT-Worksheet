@@ -5,6 +5,10 @@ export const usersTable = pgTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   isAdmin: boolean("is_admin").notNull().default(false),
+  // 'reviewer' (default) or 'supervisor'. Orthogonal to isAdmin: an admin
+  // can have either role. Supervisors (and admins) can lock/unlock a
+  // driver-week to freeze it from further edits.
+  role: text("role").notNull().default("reviewer"),
   isActive: boolean("is_active").notNull().default(true),
   failedLoginCount: integer("failed_login_count").notNull().default(0),
   lockedAt: timestamp("locked_at", { withTimezone: true }),

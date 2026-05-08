@@ -8,15 +8,20 @@ import {
   useDeletePunch,
   useSetReviewed,
   useRefreshConnecteam,
+  useLockDriverWeek,
+  useUnlockDriverWeek,
+  useGetDriverWeekAudit,
+  useGetMe,
   getGetDriverWeekQueryKey,
   getGetWeekSummaryQueryKey,
+  getGetDriverWeekAuditQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, Lock, LockOpen, ThumbsDown } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -102,6 +107,100 @@ export default function DriverDetail() {
 
   const { data, isLoading, isError } = useGetDriverWeek(weekStart, kfiId);
   const { data: weekSummary } = useGetWeekSummary(weekStart);
+  const { data: me } = useGetMe();
+  const meRole = (me as { role?: string } | undefined)?.role;
+  const canLock = !!me?.isAdmin || meRole === "supervisor";
+  const { data: auditLog } = useGetDriverWeekAudit(weekStart, kfiId);
+  const lockMutation = useLockDriverWeek();
+  const unlockMutation = useUnlockDriverWeek();
+  const driverLocked = !!(data as { locked?: boolean } | undefined)?.locked;
+  const driverStatus =
+    ((data as { reviewStatus?: string } | undefined)?.reviewStatus ?? null) as
+      | "good"
+      | "bad"
+      | null;
+
+  const handleLockedError = (err: unknown, fallback: string) => {
+    const msg = err instanceof Error ? err.message : fallback;
+    if (/423|locked/i.test(msg)) {
+      toast({
+        title: "Driver-week is locked",
+        description:
+          "A supervisor has locked this driver-week. Unlock it to make changes.",
+        variant: "destructive",
+      });
+      queryClient.invalidateQueries({
+        queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: getGetWeekSummaryQueryKey(weekStart),
+      });
+      return;
+    }
+    toast({ title: "Error", description: msg, variant: "destructive" });
+  };
+
+  const refreshAfterLockChange = () => {
+    queryClient.invalidateQueries({
+      queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
+    });
+    queryClient.invalidateQueries({
+      queryKey: getGetWeekSummaryQueryKey(weekStart),
+    });
+    queryClient.invalidateQueries({
+      queryKey: getGetDriverWeekAuditQueryKey(weekStart, kfiId),
+    });
+  };
+
+  const handleToggleLock = () => {
+    if (!canLock) return;
+    if (driverLocked) {
+      unlockMutation.mutate(
+        { weekStart, kfiId },
+        {
+          onSuccess: () => {
+            refreshAfterLockChange();
+            toast({ title: "Driver-week unlocked" });
+          },
+          onError: (err) =>
+            toast({
+              title: "Couldn't unlock",
+              description: errMsg(err, "Unlock failed"),
+              variant: "destructive",
+            }),
+        },
+      );
+    } else {
+      lockMutation.mutate(
+        { weekStart, kfiId },
+        {
+          onSuccess: () => {
+            refreshAfterLockChange();
+            toast({ title: "Driver-week locked" });
+          },
+          onError: (err) =>
+            toast({
+              title: "Couldn't lock",
+              description: errMsg(err, "Lock failed"),
+              variant: "destructive",
+            }),
+        },
+      );
+    }
+  };
+
+  const setStatus = (next: "good" | "bad" | null) => {
+    setReviewed.mutate(
+      { weekStart, kfiId, data: { status: next } },
+      {
+        onSuccess: () => {
+          refreshAfterLockChange();
+          if (next === "good" && autoAdvance) advanceToNextUnreviewed();
+        },
+        onError: (err) => handleLockedError(err, "Failed to update review"),
+      },
+    );
+  };
   const [sidebarCollapsed, , toggleSidebar] = useSidebarCollapsed();
   const [autoAdvance, setAutoAdvance] = useAutoAdvancePref();
 
@@ -135,9 +234,7 @@ export default function DriverDetail() {
           queryClient.invalidateQueries({ queryKey: getGetWeekSummaryQueryKey(weekStart) });
           toast({ title: "Refreshed from Connecteam", description: `${res.punchesUpserted} punches across ${res.driversFound} drivers.` });
         },
-        onError: (err) => {
-          toast({ title: "Refresh failed", description: errMsg(err, "Connecteam refresh failed"), variant: "destructive" });
-        },
+        onError: (err) => handleLockedError(err, "Connecteam refresh failed"),
       },
     );
   };
@@ -335,9 +432,7 @@ export default function DriverDetail() {
           setManualClockOut("");
           toast({ title: "Punch added" });
         },
-        onError: (err) => {
-          toast({ title: "Error", description: errMsg(err, "Failed to add punch"), variant: "destructive" });
-        },
+        onError: (err) => handleLockedError(err, "Failed to add punch"),
       },
     );
   };
@@ -361,9 +456,7 @@ export default function DriverDetail() {
           setEditingPunchId(null);
           toast({ title: "Punch updated" });
         },
-        onError: (err) => {
-          toast({ title: "Error", description: errMsg(err, "Failed to update punch"), variant: "destructive" });
-        },
+        onError: (err) => handleLockedError(err, "Failed to update punch"),
       },
     );
   };
@@ -377,9 +470,7 @@ export default function DriverDetail() {
           queryClient.invalidateQueries({ queryKey: getGetDriverWeekQueryKey(weekStart, kfiId) });
           toast({ title: "Punch deleted" });
         },
-        onError: (err) => {
-          toast({ title: "Error", description: errMsg(err, "Failed to delete punch"), variant: "destructive" });
-        },
+        onError: (err) => handleLockedError(err, "Failed to delete punch"),
       },
     );
   };
@@ -479,12 +570,77 @@ export default function DriverDetail() {
             total={flatDrivers.length}
             testId="pill-reviewed-progress"
           />
-          <div className="flex items-center space-x-2 bg-sidebar-accent/40 px-3 py-1.5 rounded-md">
-            <Checkbox id="reviewed" checked={data.reviewed} onCheckedChange={toggleReviewed} />
-            <label htmlFor="reviewed" className="text-sm font-medium leading-none cursor-pointer">
-              Reviewed
-            </label>
+          <div
+            className="inline-flex items-center gap-2"
+            data-testid="status-tristate"
+          >
+            <Checkbox
+              id="reviewed"
+              checked={driverStatus === "good"}
+              onCheckedChange={(v) => setStatus(v ? "good" : null)}
+              disabled={driverLocked || setReviewed.isPending}
+              data-testid="checkbox-status-good"
+              aria-label="Mark Good (reviewed)"
+            />
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-sidebar-foreground">
+              <CheckIcon className="h-3.5 w-3.5 text-emerald-500" />
+              Good
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setStatus(driverStatus === "bad" ? null : "bad")
+              }
+              disabled={driverLocked || setReviewed.isPending}
+              data-testid="button-status-bad"
+              title="Mark Bad (reviewed but flagged)"
+              className={cn(
+                "px-2.5 py-1 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border transition-colors",
+                driverStatus === "bad"
+                  ? "bg-rose-600 text-white border-rose-700"
+                  : "bg-sidebar-accent/40 hover:bg-sidebar-accent text-sidebar-foreground border-sidebar-border/60",
+              )}
+            >
+              <ThumbsDown className="h-3.5 w-3.5" /> Bad
+            </button>
           </div>
+          {canLock && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleToggleLock}
+              disabled={lockMutation.isPending || unlockMutation.isPending}
+              data-testid="button-toggle-lock"
+              title={driverLocked ? "Unlock driver-week" : "Lock driver-week"}
+              className={cn(
+                "text-sidebar-foreground hover:bg-sidebar-accent",
+                driverLocked && "text-amber-300",
+              )}
+            >
+              {driverLocked ? (
+                <>
+                  <Lock className="mr-2 h-4 w-4" /> Locked
+                </>
+              ) : (
+                <>
+                  <LockOpen className="mr-2 h-4 w-4" /> Lock
+                </>
+              )}
+            </Button>
+          )}
+          {!canLock && driverLocked && (
+            <span
+              className="inline-flex items-center gap-1.5 text-xs font-mono text-amber-300"
+              data-testid="badge-locked-readonly"
+              title={
+                data.lockedByEmail
+                  ? `Locked by ${data.lockedByEmail}`
+                  : "Locked"
+              }
+            >
+              <Lock className="h-3.5 w-3.5" /> Locked
+            </span>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -568,6 +724,71 @@ export default function DriverDetail() {
           </div>
         </div>
 
+
+        {driverLocked && (
+          <Card
+            className="border-amber-500/40 bg-amber-50/40 dark:bg-amber-950/20"
+            data-testid="card-locked-banner"
+          >
+            <CardContent className="flex items-center gap-3 px-4 py-3 text-sm">
+              <Lock className="h-4 w-4 text-amber-700 dark:text-amber-400" />
+              <span className="text-amber-900 dark:text-amber-200">
+                This driver-week is locked
+                {data.lockedByEmail ? ` by ${data.lockedByEmail}` : ""}
+                {data.lockedAt
+                  ? ` at ${new Date(data.lockedAt).toLocaleString()}`
+                  : ""}
+                . Punches, refreshes, and customer-file uploads are blocked
+                until it's unlocked.
+              </span>
+            </CardContent>
+          </Card>
+        )}
+
+        {auditLog && auditLog.length > 0 && (
+          <Card data-testid="card-driver-week-audit">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-display tracking-tight">
+                Recent activity
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <ul className="space-y-1 text-xs font-mono">
+                {auditLog.slice(0, 20).map((entry) => (
+                  <li
+                    key={entry.id}
+                    className="flex items-center gap-3 py-0.5"
+                    data-testid={`audit-row-${entry.id}`}
+                  >
+                    <span className="text-muted-foreground w-40 shrink-0">
+                      {new Date(entry.createdAt).toLocaleString()}
+                    </span>
+                    <span
+                      className={cn(
+                        "uppercase tracking-wider px-1.5 py-0.5 rounded text-[10px] font-semibold",
+                        entry.action === "lock" &&
+                          "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+                        entry.action === "unlock" &&
+                          "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+                        entry.action === "review-good" &&
+                          "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+                        entry.action === "review-bad" &&
+                          "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+                        entry.action === "review-clear" &&
+                          "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {entry.action}
+                    </span>
+                    <span className="text-foreground">
+                      {entry.actorEmail ?? "—"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
 
         {data.checks.length > 0 && (
           <Card className="border-warning bg-warning/5">

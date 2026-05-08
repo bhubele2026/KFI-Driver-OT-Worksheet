@@ -5,10 +5,12 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { UpdateUserBodyRole } from "./updateUserBodyRole";
 
 export interface UpdateUserBody {
   isActive?: boolean;
   isAdmin?: boolean;
+  role?: UpdateUserBodyRole;
   /** Set false to clear an account lockout (admin unlock). */
   locked?: boolean;
 }

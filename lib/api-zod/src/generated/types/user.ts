@@ -5,12 +5,14 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { UserRole } from "./userRole";
 
 export interface User {
   id: number;
   email: string;
   createdAt: Date;
   isAdmin: boolean;
+  role: UserRole;
   isActive: boolean;
   failedLoginCount: number;
   /** @nullable */

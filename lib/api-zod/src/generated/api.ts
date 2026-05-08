@@ -29,6 +29,7 @@ export const RegisterResponse = zod.object({
   email: zod.string(),
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
+  role: zod.enum(["reviewer", "supervisor"]),
   isActive: zod.boolean(),
   failedLoginCount: zod.number(),
   lockedAt: zod.coerce.date().nullish(),
@@ -142,6 +143,7 @@ export const AcceptInviteResponse = zod.object({
   email: zod.string(),
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
+  role: zod.enum(["reviewer", "supervisor"]),
   isActive: zod.boolean(),
   failedLoginCount: zod.number(),
   lockedAt: zod.coerce.date().nullish(),
@@ -198,6 +200,7 @@ export const ResetPasswordResponse = zod.object({
   email: zod.string(),
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
+  role: zod.enum(["reviewer", "supervisor"]),
   isActive: zod.boolean(),
   failedLoginCount: zod.number(),
   lockedAt: zod.coerce.date().nullish(),
@@ -225,6 +228,7 @@ export const ListUsersResponseItem = zod.object({
   email: zod.string(),
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
+  role: zod.enum(["reviewer", "supervisor"]),
   isActive: zod.boolean(),
   failedLoginCount: zod.number(),
   lockedAt: zod.coerce.date().nullish(),
@@ -248,6 +252,7 @@ export const UpdateUserParams = zod.object({
 export const UpdateUserBody = zod.object({
   isActive: zod.boolean().optional(),
   isAdmin: zod.boolean().optional(),
+  role: zod.enum(["reviewer", "supervisor"]).optional(),
   locked: zod
     .boolean()
     .optional()
@@ -259,6 +264,7 @@ export const UpdateUserResponse = zod.object({
   email: zod.string(),
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
+  role: zod.enum(["reviewer", "supervisor"]),
   isActive: zod.boolean(),
   failedLoginCount: zod.number(),
   lockedAt: zod.coerce.date().nullish(),
@@ -515,6 +521,7 @@ export const LoginResponse = zod.object({
   email: zod.string(),
   createdAt: zod.coerce.date(),
   isAdmin: zod.boolean(),
+  role: zod.enum(["reviewer", "supervisor"]),
   isActive: zod.boolean(),
   failedLoginCount: zod.number(),
   lockedAt: zod.coerce.date().nullish(),
@@ -536,6 +543,7 @@ export const GetMeResponse = zod.union([
     email: zod.string(),
     createdAt: zod.coerce.date(),
     isAdmin: zod.boolean(),
+    role: zod.enum(["reviewer", "supervisor"]),
     isActive: zod.boolean(),
     failedLoginCount: zod.number(),
     lockedAt: zod.coerce.date().nullish(),
@@ -587,6 +595,9 @@ export const GetWeekSummaryResponse = zod.object({
     totalHours: zod.number(),
     regularHours: zod.number(),
     overtimeHours: zod.number(),
+    goodCount: zod.number(),
+    badCount: zod.number(),
+    lockedCount: zod.number(),
   }),
   rows: zod.array(
     zod.object({
@@ -599,7 +610,12 @@ export const GetWeekSummaryResponse = zod.object({
       regularHours: zod.number(),
       overtimeHours: zod.number(),
       reviewed: zod.boolean(),
+      reviewStatus: zod
+        .union([zod.literal("good"), zod.literal("bad"), zod.literal(null)])
+        .nullish(),
       hasOvertime: zod.boolean(),
+      locked: zod.boolean(),
+      lockedByEmail: zod.string().nullish(),
       lastTouchedByEmail: zod.string().nullish(),
       lastTouchedAt: zod.coerce.date().nullish(),
     }),
@@ -618,7 +634,12 @@ export const GetWeekSummaryResponse = zod.object({
           regularHours: zod.number(),
           overtimeHours: zod.number(),
           reviewed: zod.boolean(),
+          reviewStatus: zod
+            .union([zod.literal("good"), zod.literal("bad"), zod.literal(null)])
+            .nullish(),
           hasOvertime: zod.boolean(),
+          locked: zod.boolean(),
+          lockedByEmail: zod.string().nullish(),
           lastTouchedByEmail: zod.string().nullish(),
           lastTouchedAt: zod.coerce.date().nullish(),
         }),
@@ -701,6 +722,12 @@ export const GetDriverWeekResponse = zod.object({
     }),
   ),
   reviewed: zod.boolean(),
+  reviewStatus: zod
+    .union([zod.literal("good"), zod.literal("bad"), zod.literal(null)])
+    .nullish(),
+  locked: zod.boolean().optional(),
+  lockedAt: zod.coerce.date().nullish(),
+  lockedByEmail: zod.string().nullish(),
 });
 
 /**
@@ -1457,7 +1484,10 @@ export const DeletePunchParams = zod.object({
 });
 
 /**
- * @summary Toggle the "reviewed" state for a driver in a week
+ * Pass either `{ status: 'good' | 'bad' | null }` (preferred) or the
+legacy `{ reviewed: boolean }` (true → good, false → null).
+
+ * @summary Set the tri-state review status for a driver in a week
  */
 export const setReviewedPathWeekStartRegExp = new RegExp(
   "^\\d{4}-\\d{2}-\\d{2}$",
@@ -1472,9 +1502,85 @@ export const SetReviewedParams = zod.object({
 });
 
 export const SetReviewedBody = zod.object({
-  reviewed: zod.boolean(),
+  reviewed: zod.boolean().optional(),
+  status: zod.string().nullish(),
 });
 
 export const SetReviewedResponse = zod.object({
   reviewed: zod.boolean(),
+  status: zod.string().nullable(),
 });
+
+/**
+ * @summary Lock a driver-week (supervisor or admin only)
+ */
+export const lockDriverWeekPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const LockDriverWeekParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(lockDriverWeekPathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+  kfiId: zod.coerce.string(),
+});
+
+export const LockDriverWeekResponse = zod.object({
+  locked: zod.boolean(),
+  lockedAt: zod.coerce.date().nullish(),
+  lockedByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Unlock a driver-week (supervisor or admin only)
+ */
+export const unlockDriverWeekPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const UnlockDriverWeekParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(unlockDriverWeekPathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+  kfiId: zod.coerce.string(),
+});
+
+export const UnlockDriverWeekResponse = zod.object({
+  locked: zod.boolean(),
+  lockedAt: zod.coerce.date().nullish(),
+  lockedByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Recent review/lock audit trail for a driver-week
+ */
+export const getDriverWeekAuditPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const GetDriverWeekAuditParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(getDriverWeekAuditPathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+  kfiId: zod.coerce.string(),
+});
+
+export const GetDriverWeekAuditResponseItem = zod.object({
+  id: zod.number(),
+  action: zod.enum([
+    "lock",
+    "unlock",
+    "review-good",
+    "review-bad",
+    "review-clear",
+  ]),
+  createdAt: zod.coerce.date(),
+  actorUserId: zod.number().nullish(),
+  actorEmail: zod.string().nullish(),
+});
+export const GetDriverWeekAuditResponse = zod.array(
+  GetDriverWeekAuditResponseItem,
+);

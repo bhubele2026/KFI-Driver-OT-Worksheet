@@ -21,11 +21,19 @@ export interface LoginCredentials {
   password: string;
 }
 
+export type UserRole = (typeof UserRole)[keyof typeof UserRole];
+
+export const UserRole = {
+  reviewer: "reviewer",
+  supervisor: "supervisor",
+} as const;
+
 export interface User {
   id: number;
   email: string;
   createdAt: string;
   isAdmin: boolean;
+  role: UserRole;
   isActive: boolean;
   failedLoginCount: number;
   /** @nullable */
@@ -235,11 +243,49 @@ export interface UserAuditLogEntry {
   aiSample?: UserAuditLogEntryAiSample;
 }
 
+export type UpdateUserBodyRole =
+  (typeof UpdateUserBodyRole)[keyof typeof UpdateUserBodyRole];
+
+export const UpdateUserBodyRole = {
+  reviewer: "reviewer",
+  supervisor: "supervisor",
+} as const;
+
 export interface UpdateUserBody {
   isActive?: boolean;
   isAdmin?: boolean;
+  role?: UpdateUserBodyRole;
   /** Set false to clear an account lockout (admin unlock). */
   locked?: boolean;
+}
+
+export interface DriverWeekLockState {
+  locked: boolean;
+  /** @nullable */
+  lockedAt?: string | null;
+  /** @nullable */
+  lockedByEmail?: string | null;
+}
+
+export type DriverWeekAuditEntryAction =
+  (typeof DriverWeekAuditEntryAction)[keyof typeof DriverWeekAuditEntryAction];
+
+export const DriverWeekAuditEntryAction = {
+  lock: "lock",
+  unlock: "unlock",
+  "review-good": "review-good",
+  "review-bad": "review-bad",
+  "review-clear": "review-clear",
+} as const;
+
+export interface DriverWeekAuditEntry {
+  id: number;
+  action: DriverWeekAuditEntryAction;
+  createdAt: string;
+  /** @nullable */
+  actorUserId?: number | null;
+  /** @nullable */
+  actorEmail?: string | null;
 }
 
 export interface Week {
@@ -259,6 +305,18 @@ export interface DriverInfo {
   isDriver: boolean;
 }
 
+/**
+ * @nullable
+ */
+export type DriverSummaryRowReviewStatus =
+  | (typeof DriverSummaryRowReviewStatus)[keyof typeof DriverSummaryRowReviewStatus]
+  | null;
+
+export const DriverSummaryRowReviewStatus = {
+  good: "good",
+  bad: "bad",
+} as const;
+
 export interface DriverSummaryRow {
   kfiId: string;
   name: string;
@@ -269,7 +327,12 @@ export interface DriverSummaryRow {
   regularHours: number;
   overtimeHours: number;
   reviewed: boolean;
+  /** @nullable */
+  reviewStatus?: DriverSummaryRowReviewStatus;
   hasOvertime: boolean;
+  locked: boolean;
+  /** @nullable */
+  lockedByEmail?: string | null;
   /** @nullable */
   lastTouchedByEmail?: string | null;
   /** @nullable */
@@ -283,6 +346,9 @@ export type WeekSummaryTotals = {
   totalHours: number;
   regularHours: number;
   overtimeHours: number;
+  goodCount: number;
+  badCount: number;
+  lockedCount: number;
 };
 
 export type WeekSummaryCustomersItem = {
@@ -369,6 +435,18 @@ export type DriverWeekTotals = {
   custOt: number;
 };
 
+/**
+ * @nullable
+ */
+export type DriverWeekReviewStatus =
+  | (typeof DriverWeekReviewStatus)[keyof typeof DriverWeekReviewStatus]
+  | null;
+
+export const DriverWeekReviewStatus = {
+  good: "good",
+  bad: "bad",
+} as const;
+
 export interface DriverWeek {
   driver: DriverInfo;
   weekStart: string;
@@ -378,6 +456,13 @@ export interface DriverWeek {
   totals: DriverWeekTotals;
   checks: Check[];
   reviewed: boolean;
+  /** @nullable */
+  reviewStatus?: DriverWeekReviewStatus;
+  locked?: boolean;
+  /** @nullable */
+  lockedAt?: string | null;
+  /** @nullable */
+  lockedByEmail?: string | null;
 }
 
 export type ManualPunchInputSource =
@@ -787,9 +872,13 @@ export type RemoveParserPromotionSnoozeParams = {
 };
 
 export type SetReviewedBody = {
-  reviewed: boolean;
+  reviewed?: boolean;
+  /** @nullable */
+  status?: string | null;
 };
 
 export type SetReviewed200 = {
   reviewed: boolean;
+  /** @nullable */
+  status: string | null;
 };

@@ -95,17 +95,20 @@ function publicUser(user: {
   email: string;
   createdAt: Date | string;
   isAdmin: boolean;
+  role?: string | null;
   isActive: boolean;
   failedLoginCount: number;
   lockedAt: Date | string | null;
   lastLoginAt?: Date | string | null;
   passwordResetLastSentAt?: Date | string | null;
 }) {
+  const role = user.role === "supervisor" ? "supervisor" : "reviewer";
   return {
     id: user.id,
     email: user.email,
     createdAt: user.createdAt,
     isAdmin: user.isAdmin,
+    role,
     isActive: user.isActive,
     failedLoginCount: user.failedLoginCount,
     lockedAt: user.lockedAt,
@@ -142,6 +145,8 @@ type AuditAction =
   | "reactivate"
   | "promote"
   | "demote"
+  | "set-role-supervisor"
+  | "set-role-reviewer"
   | "create-reset-link"
   | "create-invite"
   | "revoke-invite"
@@ -914,11 +919,15 @@ authRouter.patch("/auth/users/:id", requireAdmin, async (req, res) => {
   const patch: {
     isActive?: boolean;
     isAdmin?: boolean;
+    role?: "reviewer" | "supervisor";
     lockedAt?: Date | null;
     failedLoginCount?: number;
   } = {};
   if (typeof parsed.data.isActive === "boolean") patch.isActive = parsed.data.isActive;
   if (typeof parsed.data.isAdmin === "boolean") patch.isAdmin = parsed.data.isAdmin;
+  if (parsed.data.role === "reviewer" || parsed.data.role === "supervisor") {
+    patch.role = parsed.data.role;
+  }
   if (parsed.data.locked === false) {
     patch.lockedAt = null;
     patch.failedLoginCount = 0;
@@ -934,7 +943,7 @@ authRouter.patch("/auth/users/:id", requireAdmin, async (req, res) => {
     patch.failedLoginCount = 0;
   }
   if (Object.keys(patch).length === 0) {
-    res.status(400).json({ error: "No updatable fields provided (isActive, isAdmin, locked)." });
+    res.status(400).json({ error: "No updatable fields provided (isActive, isAdmin, role, locked)." });
     return;
   }
 
@@ -970,6 +979,9 @@ authRouter.patch("/auth/users/:id", requireAdmin, async (req, res) => {
     }
     if (typeof patch.isAdmin === "boolean" && patch.isAdmin !== target.isAdmin) {
       actions.push(patch.isAdmin ? "promote" : "demote");
+    }
+    if (patch.role && patch.role !== (target.role === "supervisor" ? "supervisor" : "reviewer")) {
+      actions.push(patch.role === "supervisor" ? "set-role-supervisor" : "set-role-reviewer");
     }
     for (const action of actions) {
       await writeAudit(tx, {

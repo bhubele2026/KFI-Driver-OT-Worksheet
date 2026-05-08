@@ -67,7 +67,7 @@ async function seed(): Promise<void> {
          (week_start, customer, last_attempt_at, last_success_at,
           last_file_name, last_error, last_source, last_unmapped_ids)
        VALUES ($1::date, $2, NOW(), NOW(),
-               $3, NULL, 'ai', ARRAY[]::text[])
+               $3, NULL, 'ai', '[]'::jsonb)
        ON CONFLICT (week_start, customer) DO UPDATE
          SET last_attempt_at = EXCLUDED.last_attempt_at,
              last_success_at = EXCLUDED.last_success_at,

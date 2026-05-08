@@ -7,5 +7,7 @@
  */
 
 export type SetReviewedBody = {
-  reviewed: boolean;
+  reviewed?: boolean;
+  /** @nullable */
+  status?: string | null;
 };

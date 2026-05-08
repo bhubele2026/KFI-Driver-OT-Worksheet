@@ -52,6 +52,8 @@ import {
   ChevronRight,
   ChevronLeft,
   Printer,
+  Lock,
+  XCircle,
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
 import { Logo } from "@/components/logo";
@@ -559,6 +561,35 @@ export default function WeekSummary() {
                 </Card>
               </div>
 
+              <div
+                className="flex flex-wrap items-center gap-2"
+                data-testid="review-totals-chips"
+              >
+                <span
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-medium border bg-card text-foreground border-border"
+                  data-testid="chip-review-totals"
+                >
+                  <span className="text-emerald-700 dark:text-emerald-300">
+                    {(summary.totals as { goodCount?: number }).goodCount ?? 0} good
+                  </span>
+                  <span className="text-muted-foreground">/</span>
+                  <span className="text-rose-700 dark:text-rose-300">
+                    {(summary.totals as { badCount?: number }).badCount ?? 0} bad
+                  </span>
+                  <span className="text-muted-foreground">/</span>
+                  <span>
+                    {summary.totals.activeDrivers} total
+                  </span>
+                </span>
+                <span
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-medium border bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
+                  data-testid="chip-locked-count"
+                >
+                  <Lock className="h-3 w-3" />
+                  {(summary.totals as { lockedCount?: number }).lockedCount ?? 0} locked
+                </span>
+              </div>
+
               <CustomerUploadPanel weekStart={weekStart} />
 
               <div className="space-y-6">
@@ -682,15 +713,55 @@ export default function WeekSummary() {
                                     )}
                                   </TableCell>
                                   <TableCell className="text-center">
-                                    <Checkbox
-                                      checked={driver.reviewed}
-                                      onCheckedChange={() =>
-                                        toggleReviewed(
-                                          driver.kfiId,
-                                          driver.reviewed,
-                                        )
-                                      }
-                                    />
+                                    <div
+                                      className="inline-flex items-center justify-center gap-1.5"
+                                      data-testid={`driver-status-${driver.kfiId}`}
+                                    >
+                                      {driver.reviewStatus === "bad" ? (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            toggleReviewed(driver.kfiId, true)
+                                          }
+                                          title="Marked Bad — click to clear"
+                                          data-testid={`status-bad-${driver.kfiId}`}
+                                          className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 rounded px-1.5 py-0.5"
+                                        >
+                                          <XCircle className="h-4 w-4" />
+                                          <span className="text-[10px] font-mono uppercase">
+                                            bad
+                                          </span>
+                                        </button>
+                                      ) : (
+                                        <Checkbox
+                                          checked={driver.reviewed}
+                                          onCheckedChange={() =>
+                                            toggleReviewed(
+                                              driver.kfiId,
+                                              driver.reviewed,
+                                            )
+                                          }
+                                          aria-label={
+                                            driver.reviewed
+                                              ? "Marked Good — click to clear"
+                                              : "Mark Good"
+                                          }
+                                        />
+                                      )}
+                                      {driver.locked && (
+                                        <span
+                                          className="inline-flex items-center text-amber-600 dark:text-amber-400"
+                                          data-testid={`status-locked-${driver.kfiId}`}
+                                          title={
+                                            driver.lockedByEmail
+                                              ? `Locked by ${driver.lockedByEmail}`
+                                              : "Locked"
+                                          }
+                                        >
+                                          <Lock className="h-3.5 w-3.5" />
+                                        </span>
+                                      )}
+                                    </div>
                                   </TableCell>
                                   <TableCell>
                                     <Link

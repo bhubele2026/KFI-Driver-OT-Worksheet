@@ -11,11 +11,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   Circle,
+  Lock,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
   X,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -215,12 +217,33 @@ function DriversList({
                         : "hover:bg-accent hover:text-accent-foreground",
                     )}
                   >
-                    {driver.reviewed ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    ) : (
-                      <Circle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
-                    )}
+                    {(() => {
+                      const status = (driver as { reviewStatus?: string })
+                        .reviewStatus;
+                      if (status === "bad") {
+                        return (
+                          <XCircle
+                            className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400 shrink-0"
+                            data-testid={`sidebar-status-bad-${driver.kfiId}`}
+                          />
+                        );
+                      }
+                      if (driver.reviewed || status === "good") {
+                        return (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        );
+                      }
+                      return (
+                        <Circle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+                      );
+                    })()}
                     <span className="flex-1 truncate">{driver.name}</span>
+                    {(driver as { locked?: boolean }).locked && (
+                      <Lock
+                        className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0"
+                        data-testid={`sidebar-locked-${driver.kfiId}`}
+                      />
+                    )}
                     {driver.overtimeHours > 0 && (
                       <span className="text-[10px] font-mono font-semibold text-warning bg-warning/10 px-1 rounded">
                         OT

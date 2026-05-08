@@ -1680,11 +1680,46 @@ export default function AdminUsers() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <span
-                            className={`text-xs font-mono ${u.isAdmin ? "text-primary" : "text-muted-foreground"}`}
-                          >
-                            {u.isAdmin ? "ADMIN" : "DISPATCHER"}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span
+                              className={`text-xs font-mono ${u.isAdmin ? "text-primary" : "text-muted-foreground"}`}
+                            >
+                              {u.isAdmin ? "ADMIN" : "DISPATCHER"}
+                            </span>
+                            <select
+                              data-testid={`select-role-${u.id}`}
+                              className="text-[11px] font-mono border border-border bg-background rounded px-1 py-0.5"
+                              value={(u as { role?: string }).role ?? "reviewer"}
+                              disabled={updateUser.isPending}
+                              onChange={(e) => {
+                                const role = e.target.value as
+                                  | "reviewer"
+                                  | "supervisor";
+                                updateUser.mutate(
+                                  { id: u.id, data: { role } },
+                                  {
+                                    onSuccess: () => {
+                                      refetchUsers();
+                                      refetchAudit();
+                                      refetchUserAudit(u.id);
+                                    },
+                                    onError: (err) =>
+                                      toast({
+                                        title: "Couldn't update role",
+                                        description:
+                                          err instanceof Error
+                                            ? err.message
+                                            : "Unknown error",
+                                        variant: "destructive",
+                                      }),
+                                  },
+                                );
+                              }}
+                            >
+                              <option value="reviewer">Reviewer</option>
+                              <option value="supervisor">Supervisor</option>
+                            </select>
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-0.5">

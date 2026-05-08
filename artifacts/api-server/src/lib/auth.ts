@@ -87,3 +87,22 @@ export const requireAdmin: RequestHandler = async (req, res, next) => {
   (req as Request & { user?: typeof user }).user = user;
   next();
 };
+
+// Lock/unlock on a driver-week is a "supervisor" action; admins inherit it.
+// Reviewers can mark drivers good/bad but cannot lock or unlock.
+export const requireSupervisorOrAdmin: RequestHandler = async (req, res, next) => {
+  const user = await loadSessionUser(req);
+  if (!user) {
+    if (req.session?.userId) {
+      req.session.destroy(() => {});
+    }
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  if (!user.isAdmin && user.role !== "supervisor") {
+    res.status(403).json({ error: "Supervisor or admin access required" });
+    return;
+  }
+  (req as Request & { user?: typeof user }).user = user;
+  next();
+};

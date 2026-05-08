@@ -8,4 +8,6 @@
 
 export type SetReviewed200 = {
   reviewed: boolean;
+  /** @nullable */
+  status: string | null;
 };

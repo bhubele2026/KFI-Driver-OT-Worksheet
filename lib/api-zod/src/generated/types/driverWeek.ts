@@ -8,6 +8,7 @@
 import type { Check } from "./check";
 import type { DailyTotals } from "./dailyTotals";
 import type { DriverInfo } from "./driverInfo";
+import type { DriverWeekReviewStatus } from "./driverWeekReviewStatus";
 import type { DriverWeekTotals } from "./driverWeekTotals";
 import type { Punch } from "./punch";
 
@@ -20,4 +21,11 @@ export interface DriverWeek {
   totals: DriverWeekTotals;
   checks: Check[];
   reviewed: boolean;
+  /** @nullable */
+  reviewStatus?: DriverWeekReviewStatus;
+  locked?: boolean;
+  /** @nullable */
+  lockedAt?: Date | null;
+  /** @nullable */
+  lockedByEmail?: string | null;
 }
