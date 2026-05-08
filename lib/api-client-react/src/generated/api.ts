@@ -56,6 +56,8 @@ import type {
   PasswordResetLink,
   PasswordResetRequestResult,
   PinAiExtractSampleBody,
+  PreviewPunchInput,
+  PreviewPunchResult,
   PublicInvite,
   PublicPasswordReset,
   Punch,
@@ -4790,6 +4792,101 @@ export const useCreateManualPunch = <
   TContext
 > => {
   return useMutation(getCreateManualPunchMutationOptions(options));
+};
+
+/**
+ * @summary Compute the projected daily / weekly RT/OT split for a draft (or
+edited) punch without persisting anything. Powers the live preview
+block in the Add-Manual-Punch dialog and the inline-edit recompute,
+so dispatchers see exactly what totals will become before saving.
+
+ */
+export const getPreviewPunchUrl = (weekStart: string) => {
+  return `/api/weeks/${weekStart}/preview-punch`;
+};
+
+export const previewPunch = async (
+  weekStart: string,
+  previewPunchInput: PreviewPunchInput,
+  options?: RequestInit,
+): Promise<PreviewPunchResult> => {
+  return customFetch<PreviewPunchResult>(getPreviewPunchUrl(weekStart), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(previewPunchInput),
+  });
+};
+
+export const getPreviewPunchMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewPunch>>,
+    TError,
+    { weekStart: string; data: BodyType<PreviewPunchInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewPunch>>,
+  TError,
+  { weekStart: string; data: BodyType<PreviewPunchInput> },
+  TContext
+> => {
+  const mutationKey = ["previewPunch"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewPunch>>,
+    { weekStart: string; data: BodyType<PreviewPunchInput> }
+  > = (props) => {
+    const { weekStart, data } = props ?? {};
+
+    return previewPunch(weekStart, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewPunchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewPunch>>
+>;
+export type PreviewPunchMutationBody = BodyType<PreviewPunchInput>;
+export type PreviewPunchMutationError = ErrorType<void>;
+
+/**
+ * @summary Compute the projected daily / weekly RT/OT split for a draft (or
+edited) punch without persisting anything. Powers the live preview
+block in the Add-Manual-Punch dialog and the inline-edit recompute,
+so dispatchers see exactly what totals will become before saving.
+
+ */
+export const usePreviewPunch = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewPunch>>,
+    TError,
+    { weekStart: string; data: BodyType<PreviewPunchInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof previewPunch>>,
+  TError,
+  { weekStart: string; data: BodyType<PreviewPunchInput> },
+  TContext
+> => {
+  return useMutation(getPreviewPunchMutationOptions(options));
 };
 
 /**

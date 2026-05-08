@@ -1446,6 +1446,84 @@ export const CreateManualPunchResponse = zod.object({
 });
 
 /**
+ * @summary Compute the projected daily / weekly RT/OT split for a draft (or
+edited) punch without persisting anything. Powers the live preview
+block in the Add-Manual-Punch dialog and the inline-edit recompute,
+so dispatchers see exactly what totals will become before saving.
+
+ */
+export const previewPunchPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const PreviewPunchParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(previewPunchPathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+});
+
+export const previewPunchBodyDateRegExp = new RegExp("^\\d{4}-\\d{2}-\\d{2}$");
+
+export const PreviewPunchBody = zod
+  .object({
+    kfiId: zod.string(),
+    source: zod.enum(["Driver", "Customer"]),
+    customer: zod.string().nullish(),
+    date: zod.string().regex(previewPunchBodyDateRegExp),
+    clockIn: zod.string(),
+    clockOut: zod.string(),
+    excludePunchId: zod.number().nullish(),
+    dispTz: zod.string().nullish(),
+  })
+  .describe(
+    'Draft punch the dispatcher is about to add or edit. Treated as a\n\"what-if\" — no DB writes happen. When `excludePunchId` is set, the\nexisting punch with that id is removed from the punch list before\nthe preview is folded in (i.e. inline-edit recompute).\n',
+  );
+
+export const PreviewPunchResponse = zod.object({
+  valid: zod
+    .boolean()
+    .describe(
+      "True when both clock-in and clock-out parsed and clockOut > clockIn.",
+    ),
+  invalidReason: zod.string().nullish(),
+  normalizedClockIn: zod.string(),
+  normalizedClockOut: zod.string(),
+  hours: zod.number(),
+  dailyTotalAfter: zod.object({
+    date: zod.string(),
+    driverHours: zod.number(),
+    customerHours: zod.number(),
+    totalHours: zod.number(),
+  }),
+  weekly: zod.object({
+    driverHours: zod.number(),
+    customerHours: zod.number(),
+    totalHours: zod.number(),
+    regularHours: zod.number(),
+    overtimeHours: zod.number(),
+    driverRt: zod.number(),
+    driverOt: zod.number(),
+    custRt: zod.number(),
+    custOt: zod.number(),
+  }),
+  overlaps: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        source: zod.enum(["Driver", "Customer"]),
+        date: zod.string(),
+        clockIn: zod.string(),
+        clockOut: zod.string(),
+        overlapMinutes: zod.number(),
+      }),
+    )
+    .describe(
+      'Existing same-source punches whose [clockIn, clockOut] window\nintersects the preview by more than 10 minutes. Surfaced as a\nwarning in the dialog with a \"View overlap\" link.\n',
+    ),
+});
+
+/**
  * @summary Edit clock-in / clock-out / hours of an existing punch
  */
 export const EditPunchParams = zod.object({

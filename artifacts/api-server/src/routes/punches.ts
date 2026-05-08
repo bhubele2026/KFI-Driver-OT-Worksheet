@@ -30,8 +30,17 @@ punchesRouter.patch("/punches/:id", async (req, res) => {
     return;
   }
   if (!(await assertNotLocked(res, existing.weekStart, existing.kfiId))) return;
-  const newIn = parsed.data.clockIn ?? existing.clockIn;
-  const newOut = parsed.data.clockOut ?? existing.clockOut;
+  // Inline-edit on the driver page sends just a time ("7:30 AM"); the
+  // dialog and tests send a fully-prefixed wall-clock string. Either way,
+  // re-anchor against the existing punch's date so we always store a
+  // string the hours engine can parse.
+  const prefix = (s: string | null | undefined): string => {
+    if (!s) return s ?? "";
+    if (/^\d{4}-\d{2}-\d{2}\s/.test(s)) return s;
+    return `${existing.date} ${s.trim()}`;
+  };
+  const newIn = prefix(parsed.data.clockIn ?? existing.clockIn);
+  const newOut = prefix(parsed.data.clockOut ?? existing.clockOut);
   const hours = diffHours(newIn, newOut);
   const [row] = await db
     .update(schema.punchesTable)

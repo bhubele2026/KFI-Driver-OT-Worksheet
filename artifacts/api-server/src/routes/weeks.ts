@@ -37,7 +37,7 @@ import {
 import { detectCustomerFromFileName } from "../lib/parsers/customers.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { topMatches } from "../lib/parsers/fuzzy.js";
-import { mondayOf, weekEndOf } from "../lib/time.js";
+import { diffHours, localStrToSortMs, mondayOf, weekEndOf } from "../lib/time.js";
 import { makeTimesheetsHandler } from "../lib/timesheets.js";
 
 async function loadMergedIdMap(): Promise<Record<string, string>> {
@@ -2185,13 +2185,19 @@ weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
   }
   if (!(await assertNotLocked(res, startDate, parsed.data.kfiId))) return;
   const dispTz = parsed.data.dispTz || defaultDispTz(parsed.data.kfiId);
-  // Hours are computed client-side display, but we store the difference in
-  // wall-clock so the engine can compute totals.
-  const ms =
-    new Date(`${parsed.data.date} ${parsed.data.clockOut}`).getTime() -
-    new Date(`${parsed.data.date} ${parsed.data.clockIn}`).getTime();
-  let hours = 0;
-  if (!isNaN(ms) && ms > 0) hours = Math.round((ms / 3_600_000) * 1000) / 1000;
+  // Always store clock-in/out as a fully-prefixed wall-clock string
+  // ("YYYY-MM-DD H:MM AM"), and compute hours via the same `localStrToSortMs`
+  // parser the hours engine uses. Using `new Date()` here previously made
+  // the duration math depend on the *server*'s local tz, which on a server
+  // observing DST could shift the implied offset for times near a DST
+  // transition (or, for inputs the JS Date parser couldn't read, silently
+  // produce 0 hours). Going through `diffHours` keeps every step of the
+  // pipeline (storage, sort, engine) on the same tz-agnostic parser, so a
+  // punch the dispatcher entered as Wednesday 7:30am – 5:30pm always lands
+  // on Wednesday with 10.0h regardless of the box this code runs on.
+  const clockIn = `${parsed.data.date} ${parsed.data.clockIn}`;
+  const clockOut = `${parsed.data.date} ${parsed.data.clockOut}`;
+  const hours = Math.round(diffHours(clockIn, clockOut) * 1000) / 1000;
   const [row] = await db
     .insert(schema.punchesTable)
     .values({
@@ -2200,8 +2206,8 @@ weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
       customer: parsed.data.customer ?? null,
       source: parsed.data.source,
       date: parsed.data.date,
-      clockIn: `${parsed.data.date} ${parsed.data.clockIn}`,
-      clockOut: `${parsed.data.date} ${parsed.data.clockOut}`,
+      clockIn,
+      clockOut,
       hours: String(hours),
       payType: parsed.data.payType ?? null,
       dispTz,
@@ -2210,6 +2216,192 @@ weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
     })
     .returning();
   res.json(serializePunch(row));
+});
+
+/**
+ * Compute a "what-if" preview of a draft (or edited) punch without writing
+ * anything. Powers the live preview block in the Add-Manual-Punch dialog
+ * and the inline-edit recompute. Mirrors the same hours engine the server
+ * uses on `/weeks/:weekStart/drivers/:kfiId`, so the preview matches what
+ * the dispatcher will see post-save to the decimal.
+ */
+weeksRouter.post("/weeks/:weekStart/preview-punch", async (req, res) => {
+  const weekStart = req.params.weekStart;
+  if (!isWeek(weekStart)) {
+    res.status(400).json({ error: "Invalid week" });
+    return;
+  }
+  const body = req.body as {
+    kfiId?: unknown;
+    source?: unknown;
+    customer?: unknown;
+    date?: unknown;
+    clockIn?: unknown;
+    clockOut?: unknown;
+    excludePunchId?: unknown;
+    dispTz?: unknown;
+  };
+  const kfiId = typeof body.kfiId === "string" ? body.kfiId : "";
+  const source =
+    body.source === "Driver" || body.source === "Customer"
+      ? body.source
+      : null;
+  const date = typeof body.date === "string" ? body.date : "";
+  const rawIn = typeof body.clockIn === "string" ? body.clockIn.trim() : "";
+  const rawOut = typeof body.clockOut === "string" ? body.clockOut.trim() : "";
+  const excludePunchId =
+    typeof body.excludePunchId === "number" && Number.isFinite(body.excludePunchId)
+      ? body.excludePunchId
+      : null;
+  if (
+    !kfiId ||
+    !source ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(date)
+  ) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const { startDate, endDate } = await ensureWeek(weekStart);
+
+  // Strip any leading date if the dispatcher pasted a fully-qualified
+  // wall-clock string; we always re-anchor against the form's date so the
+  // preview matches what we'd actually persist.
+  const stripDate = (s: string): string =>
+    s.replace(/^\d{4}-\d{2}-\d{2}\s+/, "").trim();
+  const normalizedClockIn = rawIn ? `${date} ${stripDate(rawIn)}` : "";
+  const normalizedClockOut = rawOut ? `${date} ${stripDate(rawOut)}` : "";
+
+  const inMs = localStrToSortMs(normalizedClockIn);
+  const outMs = localStrToSortMs(normalizedClockOut);
+  let valid = false;
+  let invalidReason: string | null = null;
+  let hours = 0;
+  if (!normalizedClockIn || inMs === null) {
+    invalidReason = "Clock-in is missing or unparseable";
+  } else if (!normalizedClockOut || outMs === null) {
+    invalidReason = "Clock-out is missing or unparseable";
+  } else if (outMs <= inMs) {
+    invalidReason = "Clock-out must be after clock-in";
+  } else {
+    valid = true;
+    hours = Math.round(((outMs - inMs) / 3_600_000) * 1000) / 1000;
+  }
+  if (date < startDate || date > endDate) {
+    valid = false;
+    invalidReason = "Date is outside the week";
+  }
+
+  // Pull the existing punches so we can splice the draft in.
+  const existing = await db
+    .select()
+    .from(schema.punchesTable)
+    .where(
+      and(
+        eq(schema.punchesTable.weekStart, startDate),
+        eq(schema.punchesTable.kfiId, kfiId),
+      ),
+    );
+
+  const dispTz =
+    (typeof body.dispTz === "string" && body.dispTz) || defaultDispTz(kfiId);
+
+  const filtered = excludePunchId
+    ? existing.filter((p) => p.id !== excludePunchId)
+    : existing;
+
+  // Build a synthetic Punch for the preview. Only fields the engine reads
+  // need to be accurate — id is a placeholder that will never collide with
+  // a real row.
+  const draft = {
+    id: -1,
+    weekStart: startDate,
+    kfiId,
+    customer:
+      typeof body.customer === "string" && body.customer ? body.customer : null,
+    source,
+    date,
+    clockIn: normalizedClockIn,
+    clockOut: normalizedClockOut,
+    hours: String(hours),
+    payType: null,
+    dispTz,
+    isManual: true,
+    edited: false,
+    createdBy: null,
+    updatedBy: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ctExternalKey: null,
+    fileOrigin: null,
+  } as unknown as typeof schema.punchesTable.$inferSelect;
+
+  const projected = valid ? [...filtered, draft] : filtered;
+  const totals = computeDriverTotals(projected);
+  const daily = computeDailyTotals(projected, startDate, endDate);
+  const day = daily.find((d) => d.date === date) ?? {
+    date,
+    driverHours: 0,
+    customerHours: 0,
+    totalHours: 0,
+    regularHours: 0,
+    overtimeHours: 0,
+  };
+
+  // Find same-source existing punches that overlap the preview window by
+  // more than 10 minutes (the same threshold `computeChecks` uses).
+  const overlaps: Array<{
+    id: number;
+    source: "Driver" | "Customer";
+    date: string;
+    clockIn: string;
+    clockOut: string;
+    overlapMinutes: number;
+  }> = [];
+  if (valid && inMs !== null && outMs !== null) {
+    for (const p of filtered) {
+      if (p.source !== source) continue;
+      const pi = localStrToSortMs(p.clockIn);
+      const po = localStrToSortMs(p.clockOut);
+      if (pi === null || po === null) continue;
+      const overlapMs = Math.min(outMs, po) - Math.max(inMs, pi);
+      if (overlapMs > 10 * 60 * 1000) {
+        overlaps.push({
+          id: p.id,
+          source: p.source as "Driver" | "Customer",
+          date: p.date,
+          clockIn: p.clockIn,
+          clockOut: p.clockOut,
+          overlapMinutes: Math.round(overlapMs / 60000),
+        });
+      }
+    }
+  }
+
+  res.json({
+    valid,
+    invalidReason,
+    normalizedClockIn,
+    normalizedClockOut,
+    hours,
+    dailyTotalAfter: {
+      date,
+      driverHours: day.driverHours,
+      customerHours: day.customerHours,
+      totalHours: day.totalHours,
+    },
+    weekly: {
+      driverHours: totals.totalDriver,
+      customerHours: totals.totalCustomer,
+      totalHours: totals.totalHours,
+      regularHours: totals.regularHours,
+      overtimeHours: totals.overtimeHours,
+      driverRt: totals.driverRt,
+      driverOt: totals.driverOt,
+      custRt: totals.custRt,
+      custOt: totals.custOt,
+    },
+    overlaps,
+  });
 });
 
 weeksRouter.put("/weeks/:weekStart/reviewed/:kfiId", async (req, res) => {

@@ -465,6 +465,89 @@ export interface DriverWeek {
   lockedByEmail?: string | null;
 }
 
+export type PreviewPunchInputSource =
+  (typeof PreviewPunchInputSource)[keyof typeof PreviewPunchInputSource];
+
+export const PreviewPunchInputSource = {
+  Driver: "Driver",
+  Customer: "Customer",
+} as const;
+
+/**
+ * Draft punch the dispatcher is about to add or edit. Treated as a
+"what-if" — no DB writes happen. When `excludePunchId` is set, the
+existing punch with that id is removed from the punch list before
+the preview is folded in (i.e. inline-edit recompute).
+
+ */
+export interface PreviewPunchInput {
+  kfiId: string;
+  source: PreviewPunchInputSource;
+  /** @nullable */
+  customer?: string | null;
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
+  date: string;
+  clockIn: string;
+  clockOut: string;
+  /** @nullable */
+  excludePunchId?: number | null;
+  /** @nullable */
+  dispTz?: string | null;
+}
+
+export type PreviewPunchResultDailyTotalAfter = {
+  date: string;
+  driverHours: number;
+  customerHours: number;
+  totalHours: number;
+};
+
+export type PreviewPunchResultWeekly = {
+  driverHours: number;
+  customerHours: number;
+  totalHours: number;
+  regularHours: number;
+  overtimeHours: number;
+  driverRt: number;
+  driverOt: number;
+  custRt: number;
+  custOt: number;
+};
+
+export type PreviewPunchResultOverlapsItemSource =
+  (typeof PreviewPunchResultOverlapsItemSource)[keyof typeof PreviewPunchResultOverlapsItemSource];
+
+export const PreviewPunchResultOverlapsItemSource = {
+  Driver: "Driver",
+  Customer: "Customer",
+} as const;
+
+export type PreviewPunchResultOverlapsItem = {
+  id: number;
+  source: PreviewPunchResultOverlapsItemSource;
+  date: string;
+  clockIn: string;
+  clockOut: string;
+  overlapMinutes: number;
+};
+
+export interface PreviewPunchResult {
+  /** True when both clock-in and clock-out parsed and clockOut > clockIn. */
+  valid: boolean;
+  /** @nullable */
+  invalidReason?: string | null;
+  normalizedClockIn: string;
+  normalizedClockOut: string;
+  hours: number;
+  dailyTotalAfter: PreviewPunchResultDailyTotalAfter;
+  weekly: PreviewPunchResultWeekly;
+  /** Existing same-source punches whose [clockIn, clockOut] window
+intersects the preview by more than 10 minutes. Surfaced as a
+warning in the dialog with a "View overlap" link.
+ */
+  overlaps: PreviewPunchResultOverlapsItem[];
+}
+
 export type ManualPunchInputSource =
   (typeof ManualPunchInputSource)[keyof typeof ManualPunchInputSource];
 

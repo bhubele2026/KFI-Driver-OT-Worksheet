@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useParams, Link } from "wouter";
 import {
   useGetDriverWeek,
@@ -6,6 +6,8 @@ import {
   useCreateManualPunch,
   useEditPunch,
   useDeletePunch,
+  usePreviewPunch,
+  previewPunch,
   useSetReviewed,
   useRefreshConnecteam,
   useLockDriverWeek,
@@ -21,9 +23,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, Lock, LockOpen, ThumbsDown } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, Lock, LockOpen, ThumbsDown, Undo2 } from "lucide-react";
+import { ToastAction } from "@/components/ui/toast";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -216,6 +219,7 @@ export default function DriverDetail() {
     );
   }, [weekSummary]);
   type Punch = NonNullable<typeof data>["punches"][number];
+  type PreviewResult = Awaited<ReturnType<typeof previewPunch>>;
 
   const errMsg = (err: unknown, fallback: string) =>
     err instanceof Error ? err.message : fallback;
@@ -253,7 +257,118 @@ export default function DriverDetail() {
   const [editingPunchId, setEditingPunchId] = useState<number | null>(null);
   const [editClockIn, setEditClockIn] = useState("");
   const [editClockOut, setEditClockOut] = useState("");
+  const [editPreview, setEditPreview] = useState<PreviewResult | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  // What the server thinks the punch list will look like once we save the
+  // dialog draft. Recomputed via `/preview-punch` whenever any input changes
+  // (debounced) so the dispatcher sees the same RT/OT split they'll get
+  // post-save. `null` means "not yet computed for the current inputs".
+  const [dialogPreview, setDialogPreview] = useState<PreviewResult | null>(null);
+  const previewMutation = usePreviewPunch();
+
+  // Debounce raw preview calls so a fast typist doesn't spam the API. Each
+  // call carries a monotonically-increasing seq so an out-of-order response
+  // can't clobber a fresher result.
+  const previewSeq = useRef(0);
+  const runPreview = (
+    args: {
+      kfiId: string;
+      source: "Driver" | "Customer";
+      customer: string | null;
+      date: string;
+      clockIn: string;
+      clockOut: string;
+      excludePunchId: number | null;
+    },
+    onResult: (r: PreviewResult | null) => void,
+  ) => {
+    if (!args.kfiId || !args.date || !args.clockIn || !args.clockOut) {
+      onResult(null);
+      return;
+    }
+    const seq = ++previewSeq.current;
+    previewMutation.mutate(
+      { weekStart, data: args },
+      {
+        onSuccess: (r) => {
+          if (seq === previewSeq.current) onResult(r);
+        },
+        onError: () => {
+          if (seq === previewSeq.current) onResult(null);
+        },
+      },
+    );
+  };
+
+  useEffect(() => {
+    if (!isManualModalOpen) {
+      setDialogPreview(null);
+      return;
+    }
+    // CRITICAL: invalidate the previous preview synchronously the moment any
+    // input changes, so the Save button (gated on `dialogPreview !== null`)
+    // disables instantly and the dispatcher cannot submit a stale draft
+    // before the debounced refresh lands.
+    setDialogPreview(null);
+    // Bump the seq even before the debounced call fires so any in-flight
+    // request from the previous keystroke is dropped on arrival.
+    previewSeq.current += 1;
+    const handle = setTimeout(() => {
+      runPreview(
+        {
+          kfiId,
+          source: manualSource,
+          customer: manualSource === "Customer" ? manualCustomer : null,
+          date: manualDate,
+          clockIn: manualClockIn,
+          clockOut: manualClockOut,
+          excludePunchId: null,
+        },
+        setDialogPreview,
+      );
+    }, 250);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isManualModalOpen,
+    kfiId,
+    manualSource,
+    manualCustomer,
+    manualDate,
+    manualClockIn,
+    manualClockOut,
+  ]);
+
+  useEffect(() => {
+    if (editingPunchId === null) {
+      setEditPreview(null);
+      return;
+    }
+    const p = data?.punches.find((x) => x.id === editingPunchId);
+    if (!p) return;
+    // Same gating discipline as the dialog: drop the stale preview the
+    // instant any input changes so the inline-edit row never shows totals
+    // for the previous keystroke.
+    setEditPreview(null);
+    previewSeq.current += 1;
+    const handle = setTimeout(() => {
+      runPreview(
+        {
+          kfiId,
+          source: p.source,
+          customer: p.customer ?? null,
+          date: p.date,
+          clockIn: editClockIn,
+          clockOut: editClockOut,
+          excludePunchId: p.id,
+        },
+        setEditPreview,
+      );
+    }, 250);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingPunchId, editClockIn, editClockOut]);
 
   // Keyboard shortcuts: j/ArrowDown = next driver, k/ArrowUp = previous driver,
   // r = toggle reviewed, ? = show help. Skipped while typing in inputs/textareas
@@ -412,6 +527,17 @@ export default function DriverDetail() {
       toast({ title: "Validation", description: "Pick a customer for a Customer-source punch.", variant: "destructive" });
       return;
     }
+    // Fail-safe: never submit before the dispatcher has seen a valid preview.
+    // The Save button is also disabled in this state, but a stale/loading
+    // preview could still race a fast double-click.
+    if (!dialogPreview || !dialogPreview.valid) {
+      toast({
+        title: "Preview not ready",
+        description: dialogPreview?.invalidReason || "Wait for the preview to load before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
     createPunch.mutate(
       {
         weekStart,
@@ -425,12 +551,43 @@ export default function DriverDetail() {
         },
       },
       {
-        onSuccess: () => {
+        onSuccess: (created) => {
           queryClient.invalidateQueries({ queryKey: getGetDriverWeekQueryKey(weekStart, kfiId) });
           setIsManualModalOpen(false);
           setManualClockIn("");
           setManualClockOut("");
-          toast({ title: "Punch added" });
+          // ~10s undo: hits DELETE /punches/:id with the row we just
+          // created. We don't dismiss the toast on click — the auto-timeout
+          // closes it like any other.
+          const t = toast({
+            title: "Manual punch added",
+            description: `${created.date} · ${created.clockIn} – ${created.clockOut}`,
+            action: (
+              <ToastAction
+                altText="Undo"
+                onClick={() => {
+                  deletePunch.mutate(
+                    { id: created.id },
+                    {
+                      onSuccess: () => {
+                        queryClient.invalidateQueries({
+                          queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
+                        });
+                        toast({ title: "Punch reverted" });
+                      },
+                      onError: (err) =>
+                        handleLockedError(err, "Undo failed"),
+                    },
+                  );
+                  t.dismiss();
+                }}
+              >
+                <Undo2 className="h-3 w-3 mr-1" />
+                Undo
+              </ToastAction>
+            ),
+          });
+          setTimeout(() => t.dismiss(), 10_000);
         },
         onError: (err) => handleLockedError(err, "Failed to add punch"),
       },
@@ -898,7 +1055,12 @@ export default function DriverDetail() {
                   return (
                     <TableRow
                       key={p.id}
-                      className={cn(isOt && "bg-warning/10 hover:bg-warning/15")}
+                      id={`punch-row-${p.id}`}
+                      data-testid={`row-punch-${p.id}`}
+                      className={cn(
+                        isOt && "bg-warning/10 hover:bg-warning/15",
+                        "scroll-mt-24 transition-colors",
+                      )}
                     >
                       <TableCell className="font-mono text-sm whitespace-nowrap">{p.date}</TableCell>
                       <TableCell>
@@ -950,7 +1112,26 @@ export default function DriverDetail() {
                           formatClockCell(p.clockOut)
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-mono font-medium">{p.hours.toFixed(2)}</TableCell>
+                      <TableCell className="text-right font-mono font-medium">
+                        {isEditing && editPreview
+                          ? editPreview.hours.toFixed(2)
+                          : p.hours.toFixed(2)}
+                        {isEditing && editPreview && (
+                          <div
+                            className="text-[10px] font-normal text-muted-foreground mt-0.5 leading-tight"
+                            data-testid={`edit-preview-${p.id}`}
+                          >
+                            <div>day {editPreview.dailyTotalAfter.totalHours.toFixed(2)}h</div>
+                            <div>
+                              wk RT {editPreview.weekly.regularHours.toFixed(2)}h ·
+                              {" "}
+                              <span className={editPreview.weekly.overtimeHours > 0.005 ? "text-warning font-semibold" : ""}>
+                                OT {editPreview.weekly.overtimeHours.toFixed(2)}h
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <TooltipProvider delayDuration={150}>
                           <Tooltip>
@@ -1112,9 +1293,15 @@ export default function DriverDetail() {
       </Dialog>
 
       <Dialog open={isManualModalOpen} onOpenChange={setIsManualModalOpen}>
-        <DialogContent>
+        <DialogContent data-testid="dialog-add-manual-punch">
           <DialogHeader>
             <DialogTitle>Add Manual Punch</DialogTitle>
+            <DialogDescription>
+              Adds a new punch alongside the driver's existing entries. It
+              never overwrites or replaces a Connecteam or customer-file
+              punch — both will count toward the day. Manual punches are
+              also preserved across the next Connecteam refresh.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
@@ -1153,20 +1340,46 @@ export default function DriverDetail() {
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Clock In</Label>
-                <Input placeholder="7:30 AM" value={manualClockIn} onChange={(e) => setManualClockIn(e.target.value)} />
+                <Input placeholder="7:30 AM" value={manualClockIn} onChange={(e) => setManualClockIn(e.target.value)} data-testid="input-manual-clock-in" />
               </div>
               <div className="grid gap-2">
                 <Label>Clock Out</Label>
-                <Input placeholder="3:45 PM" value={manualClockOut} onChange={(e) => setManualClockOut(e.target.value)} />
+                <Input placeholder="3:45 PM" value={manualClockOut} onChange={(e) => setManualClockOut(e.target.value)} data-testid="input-manual-clock-out" />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">Format as "H:MM AM/PM" (e.g. "8:00 AM")</p>
+            <p className="text-xs text-muted-foreground">Format as "H:MM AM/PM" (e.g. "8:00 AM"). The date is stored in this driver's display timezone, so what you see here is what payroll sees.</p>
+
+            <PreviewPanel
+              preview={dialogPreview}
+              onViewOverlap={(id) => {
+                setIsManualModalOpen(false);
+                // Wait for the dialog close animation so the row is in view
+                // and focusable when we scroll to it.
+                setTimeout(() => {
+                  const el = document.getElementById(`punch-row-${id}`);
+                  if (!el) return;
+                  el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  el.classList.add("ring-2", "ring-warning");
+                  setTimeout(() => {
+                    el.classList.remove("ring-2", "ring-warning");
+                  }, 2000);
+                }, 200);
+              }}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsManualModalOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreateManual} disabled={createPunch.isPending}>
+            <Button
+              onClick={handleCreateManual}
+              disabled={
+                createPunch.isPending ||
+                dialogPreview === null ||
+                !dialogPreview.valid
+              }
+              data-testid="button-save-manual-punch"
+            >
               {createPunch.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save Punch
             </Button>
@@ -1403,5 +1616,134 @@ function SourceBadge({ source }: { source: "Driver" | "Customer" | string }) {
     >
       {source}
     </span>
+  );
+}
+
+/**
+ * Live "what-if" panel rendered inside the Add-Manual-Punch dialog. Shows
+ * the duration this draft will land at, the new daily total, and the new
+ * weekly RT/OT split — all computed by the server's hours engine via
+ * `/preview-punch` so the numbers match the post-save dashboard exactly.
+ *
+ * The overlap warning surfaces same-source punches whose [in, out] window
+ * intersects the draft by more than 10 minutes. This makes the
+ * "supplements, never overwrites" promise concrete: the dispatcher sees
+ * the conflicting row before they save, with full date/time context.
+ */
+function PreviewPanel({
+  preview,
+  onViewOverlap,
+}: {
+  onViewOverlap?: (id: number) => void;
+  preview: {
+    valid: boolean;
+    invalidReason?: string | null;
+    hours: number;
+    dailyTotalAfter: { date: string; totalHours: number };
+    weekly: {
+      totalHours: number;
+      regularHours: number;
+      overtimeHours: number;
+    };
+    overlaps: Array<{
+      id: number;
+      source: "Driver" | "Customer";
+      date: string;
+      clockIn: string;
+      clockOut: string;
+      overlapMinutes: number;
+    }>;
+  } | null;
+}) {
+  if (!preview) {
+    return (
+      <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+        Fill in date, clock in, and clock out to preview the impact on this driver's day and week.
+      </div>
+    );
+  }
+  if (!preview.valid) {
+    return (
+      <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive flex items-start gap-2">
+        <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+        <span>{preview.invalidReason || "Invalid punch"}</span>
+      </div>
+    );
+  }
+  const ot = preview.weekly.overtimeHours;
+  return (
+    <div className="space-y-2">
+      <div
+        className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs"
+        data-testid="preview-panel"
+      >
+        <div className="font-display font-semibold text-foreground mb-1">Preview</div>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono">
+          <dt className="text-muted-foreground">Duration</dt>
+          <dd className="text-right" data-testid="preview-hours">
+            {preview.hours.toFixed(2)}h
+          </dd>
+          <dt className="text-muted-foreground">New daily total ({preview.dailyTotalAfter.date})</dt>
+          <dd className="text-right" data-testid="preview-daily-total">
+            {preview.dailyTotalAfter.totalHours.toFixed(2)}h
+          </dd>
+          <dt className="text-muted-foreground">New weekly RT</dt>
+          <dd className="text-right" data-testid="preview-weekly-rt">
+            {preview.weekly.regularHours.toFixed(2)}h
+          </dd>
+          <dt className="text-muted-foreground">New weekly OT</dt>
+          <dd
+            className={cn(
+              "text-right",
+              ot > 0.005 ? "text-warning font-semibold" : undefined,
+            )}
+            data-testid="preview-weekly-ot"
+          >
+            {ot.toFixed(2)}h
+          </dd>
+        </dl>
+      </div>
+      {preview.overlaps.length > 0 && (
+        <div
+          className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-xs"
+          data-testid="preview-overlap-warning"
+        >
+          <div className="flex items-start gap-2 text-warning-foreground">
+            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-warning" />
+            <div className="flex-1">
+              <div className="font-semibold text-foreground">
+                Overlaps {preview.overlaps.length} existing {preview.overlaps[0].source.toLowerCase()} punch{preview.overlaps.length === 1 ? "" : "es"}
+              </div>
+              <div className="text-muted-foreground mt-0.5">
+                Saving will keep both — review the times below to make sure that's intentional.
+              </div>
+              <ul className="mt-1.5 space-y-0.5 font-mono text-[11px]">
+                {preview.overlaps.slice(0, 3).map((o) => (
+                  <li key={o.id} className="text-foreground flex items-center gap-2">
+                    <span>
+                      {o.date} · {o.clockIn.replace(/^\d{4}-\d{2}-\d{2}\s+/, "")} – {o.clockOut.replace(/^\d{4}-\d{2}-\d{2}\s+/, "")}
+                      <span className="text-muted-foreground"> ({o.overlapMinutes}m overlap)</span>
+                    </span>
+                    {onViewOverlap && (
+                      <button
+                        type="button"
+                        onClick={() => onViewOverlap(o.id)}
+                        className="text-[10px] uppercase tracking-wider text-primary hover:underline focus:outline-none focus:underline"
+                        data-testid={`view-overlap-${o.id}`}
+                      >
+                        View
+                      </button>
+                    )}
+                  </li>
+                ))}
+                {preview.overlaps.length > 3 && (
+                  <li className="text-muted-foreground">…and {preview.overlaps.length - 3} more</li>
+                )}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
