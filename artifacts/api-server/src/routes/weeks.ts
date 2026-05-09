@@ -3145,6 +3145,37 @@ weeksRouter.get(
         .where(eq(schema.reviewedDriversTable.weekStart, weekStart));
       return new Set(rows.map((r) => r.kfiId));
     },
+    getNoteSummaries: async (weekStart) => {
+      // Pull every non-deleted note for the week (row-level + week-level)
+      // in one query, then fold into per-driver { count, weekNoteBodies }.
+      // Hidden / soft-deleted notes are excluded by the deleted_at filter.
+      const rows = await db
+        .select({
+          kfiId: schema.driverNotesTable.kfiId,
+          punchId: schema.driverNotesTable.punchId,
+          body: schema.driverNotesTable.body,
+          createdAt: schema.driverNotesTable.createdAt,
+        })
+        .from(schema.driverNotesTable)
+        .where(
+          and(
+            eq(schema.driverNotesTable.weekStart, weekStart),
+            sql`${schema.driverNotesTable.deletedAt} IS NULL`,
+          ),
+        )
+        .orderBy(asc(schema.driverNotesTable.createdAt));
+      const byKfi = new Map<
+        string,
+        { count: number; weekNoteBodies: string[] }
+      >();
+      for (const r of rows) {
+        const entry = byKfi.get(r.kfiId) ?? { count: 0, weekNoteBodies: [] };
+        entry.count += 1;
+        if (r.punchId === null) entry.weekNoteBodies.push(r.body);
+        byKfi.set(r.kfiId, entry);
+      }
+      return byKfi;
+    },
   }),
 );
 

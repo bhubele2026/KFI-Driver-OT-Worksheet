@@ -35,6 +35,18 @@ export interface TimesheetSheet {
   totals: ReturnType<typeof computeDriverTotals>;
   rows: TimesheetRow[];
   checks: PunchCheck[];
+  /** Total non-deleted notes (row-level + week-level) for this driver-week. */
+  noteCount: number;
+  /** Bodies of week-level (punch_id IS NULL) non-deleted notes, oldest first. */
+  weekNoteBodies: string[];
+}
+
+/** Summary of non-deleted notes for a single driver-week. Row-level and
+ * week-level notes are folded into `count`; week-level note bodies are
+ * surfaced verbatim under the driver header. */
+export interface DriverNoteSummary {
+  count: number;
+  weekNoteBodies: string[];
 }
 
 const customerKey = (c: string | null | undefined): string => {
@@ -63,6 +75,9 @@ export interface BuildTimesheetsOptions {
   /** When true, only include drivers whose computeChecks() returned at
    * least one validation alert (drives the "With alerts" print mode). */
   alertsOnly?: boolean;
+  /** Per-driver note summary keyed by kfiId. Drivers without an entry render
+   * with `noteCount: 0` and no week-level note bodies. */
+  noteSummariesByKfi?: ReadonlyMap<string, DriverNoteSummary> | null;
 }
 
 /**
@@ -136,6 +151,7 @@ export function buildTimesheets(
       };
     });
     const customer = meta?.customer ?? ps[0]?.customer ?? "Unknown";
+    const noteSummary = options.noteSummariesByKfi?.get(kfiId) ?? null;
     sheets.push({
       kfiId,
       name: meta?.name ?? `Driver ${kfiId}`,
@@ -147,6 +163,8 @@ export function buildTimesheets(
       totals,
       rows,
       checks,
+      noteCount: noteSummary?.count ?? 0,
+      weekNoteBodies: noteSummary?.weekNoteBodies ?? [],
     });
   }
 
@@ -204,6 +222,12 @@ export interface TimesheetLoaders {
   /** Optional loader that returns the set of reviewed driver kfiIds for a
    * given week. When omitted, the `?filter=reviewed` query param is ignored. */
   getReviewedKfiIds?: (weekStart: string) => Promise<ReadonlySet<string>>;
+  /** Optional loader that returns per-driver note summaries for a given
+   * week. When omitted, the printable timesheet renders without note
+   * indicators (no count badge, no week-level note bodies). */
+  getNoteSummaries?: (
+    weekStart: string,
+  ) => Promise<ReadonlyMap<string, DriverNoteSummary>>;
 }
 
 /** Build the Express request handler for `GET /weeks/:weekStart/timesheets`.
@@ -233,18 +257,23 @@ export function makeTimesheetsHandler(
     const wantPdf = formatParam === "pdf";
     const week = await loaders.getWeek(weekStart);
     const endDate = week?.endDate ?? weekEndOf(weekStart);
-    const [punches, drivers, reviewedKfiIds] = await Promise.all([
-      loaders.getPunches(weekStart),
-      loaders.getDrivers(),
-      reviewedOnly && loaders.getReviewedKfiIds
-        ? loaders.getReviewedKfiIds(weekStart)
-        : Promise.resolve(null),
-    ]);
+    const [punches, drivers, reviewedKfiIds, noteSummariesByKfi] =
+      await Promise.all([
+        loaders.getPunches(weekStart),
+        loaders.getDrivers(),
+        reviewedOnly && loaders.getReviewedKfiIds
+          ? loaders.getReviewedKfiIds(weekStart)
+          : Promise.resolve(null),
+        loaders.getNoteSummaries
+          ? loaders.getNoteSummaries(weekStart)
+          : Promise.resolve(null),
+      ]);
     const sheets = buildTimesheets(punches, drivers, {
       reviewedKfiIds,
       customerFilter: customerParam || null,
       overtimeOnly,
       alertsOnly,
+      noteSummariesByKfi,
     });
     if (wantPdf) {
       const filename = pdfFilename(weekStart, reviewedOnly, customerParam);
@@ -333,6 +362,16 @@ export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {
           : "";
   const sheetsHtml = sheets
     .map((s, i) => {
+      const noteBadgeHtml =
+        s.noteCount > 0
+          ? ` <span class="note-badge">${s.noteCount} note${s.noteCount === 1 ? "" : "s"}</span>`
+          : "";
+      const weekNotesHtml =
+        s.weekNoteBodies.length > 0
+          ? `<div class="week-notes"><div class="week-notes-title">Week notes</div><ul>${s.weekNoteBodies
+              .map((b) => `<li>${esc(b)}</li>`)
+              .join("")}</ul></div>`
+          : "";
       const checksHtml =
         s.checks.length > 0
           ? `<div class="alerts"><div class="alerts-title">Validation Alerts</div><ul>${s.checks
@@ -368,7 +407,7 @@ export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {
       return `<section class="sheet${i > 0 ? " page-break" : ""}">
   <header class="sheet-head">
     <div>
-      <h2>${esc(s.name)}</h2>
+      <h2>${esc(s.name)}${noteBadgeHtml}</h2>
       <div class="sheet-meta mono">
         Customer: <strong>${esc(s.customerLabel)}</strong>
         &middot; KFI ID: <strong>${esc(s.kfiId)}</strong>
@@ -376,6 +415,7 @@ export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {
       </div>
     </div>
   </header>
+  ${weekNotesHtml}
   <div class="stats">
     <div><span>Driver Hrs</span><strong class="src-driver">${s.totals.totalDriver.toFixed(2)}</strong></div>
     <div><span>Customer Hrs</span><strong class="src-cust">${s.totals.totalCustomer.toFixed(2)}</strong></div>
@@ -419,6 +459,11 @@ export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {
   .stats { display: flex; gap: 18px; flex-wrap: wrap; padding: 10px 14px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; margin: 12px 0; }
   .stats div { font-size: 11px; text-transform: uppercase; color: #475569; letter-spacing: 0.04em; }
   .stats strong { display: block; font-size: 18px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: #0f172a; margin-top: 2px; font-weight: 700; }
+  .note-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; margin-left: 8px; border-radius: 999px; background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; vertical-align: middle; }
+  .week-notes { margin: 8px 0 12px; padding: 8px 12px; border: 1px solid #c7d2fe; background: #eef2ff; border-radius: 4px; }
+  .week-notes-title { font-size: 11px; font-weight: 600; text-transform: uppercase; color: #3730a3; letter-spacing: 0.04em; margin-bottom: 4px; }
+  .week-notes ul { margin: 0; padding: 0 0 0 16px; }
+  .week-notes li { font-size: 12px; color: #312e81; padding: 1px 0; }
   .alerts { margin: 8px 0 12px; padding: 8px 12px; border: 1px solid #f59e0b; background: #fffbeb; border-radius: 4px; }
   .alerts-title { font-size: 11px; font-weight: 600; text-transform: uppercase; color: #b45309; letter-spacing: 0.04em; margin-bottom: 4px; }
   .alerts ul { margin: 0; padding: 0; list-style: none; }

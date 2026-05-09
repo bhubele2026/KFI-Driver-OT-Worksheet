@@ -102,7 +102,13 @@ function buildFixture(): Fixture {
 
 async function startServer(
   fixture: Fixture,
-  options: { reviewedKfiIds?: ReadonlySet<string> } = {},
+  options: {
+    reviewedKfiIds?: ReadonlySet<string>;
+    noteSummaries?: ReadonlyMap<
+      string,
+      { count: number; weekNoteBodies: string[] }
+    >;
+  } = {},
 ): Promise<{
   url: string;
   close: () => Promise<void>;
@@ -120,6 +126,9 @@ async function startServer(
       getDrivers: async () => fixture.drivers,
       getReviewedKfiIds: options.reviewedKfiIds
         ? async () => options.reviewedKfiIds!
+        : undefined,
+      getNoteSummaries: options.noteSummaries
+        ? async () => options.noteSummaries!
         : undefined,
     }),
   );
@@ -248,6 +257,57 @@ test("GET /weeks/:weekStart/timesheets?format=pdf&filter=reviewed names the file
     assert.match(cd, /kfi-timesheets-2026-04-27-reviewed\.pdf/);
     const buf = Buffer.from(await res.arrayBuffer());
     assert.equal(buf.subarray(0, 5).toString("ascii"), "%PDF-");
+  } finally {
+    await close();
+  }
+});
+
+test("GET /weeks/:weekStart/timesheets renders note-count badge and week-level note bodies in HTML and PDF", async () => {
+  const fixture = buildFixture();
+  const noteSummaries = new Map<
+    string,
+    { count: number; weekNoteBodies: string[] }
+  >([
+    [
+      "D-ADIENT-1",
+      {
+        count: 2,
+        weekNoteBodies: ["Confirmed dock hours w/ Adient on Friday"],
+      },
+    ],
+    ["D-ADIENT-2", { count: 1, weekNoteBodies: [] }],
+  ]);
+  const { url, close } = await startServer(fixture, { noteSummaries });
+  try {
+    const htmlRes = await fetch(`${url}/weeks/${WEEK_START}/timesheets`);
+    assert.equal(htmlRes.status, 200);
+    const html = await htmlRes.text();
+    const aliceSection = html
+      .split("<h2>Alice Adient")[1]
+      .split("</section>")[0];
+    assert.match(aliceSection, /<span class="note-badge">2 notes<\/span>/);
+    assert.match(aliceSection, /Confirmed dock hours w\/ Adient on Friday/);
+    const samSection = html
+      .split("<h2>Sam Splitter")[1]
+      .split("</section>")[0];
+    assert.match(samSection, /<span class="note-badge">1 note<\/span>/);
+    assert.doesNotMatch(samSection, /class="week-notes"/);
+    const owenSection = html
+      .split("<h2>Owen Orphan</h2>")[1]
+      .split("</section>")[0];
+    assert.doesNotMatch(owenSection, /class="note-badge"/);
+
+    // PDF still streams as a real PDF when notes are present (pdfkit
+    // compresses streams so we can't grep the text content here — the HTML
+    // assertions above plus the unit tests in lib/__tests__/timesheets.test.ts
+    // cover the rendered "N notes" badge and week-notes block).
+    const pdfRes = await fetch(
+      `${url}/weeks/${WEEK_START}/timesheets?format=pdf`,
+    );
+    assert.equal(pdfRes.status, 200);
+    const pdfBuf = Buffer.from(await pdfRes.arrayBuffer());
+    assert.equal(pdfBuf.subarray(0, 5).toString("ascii"), "%PDF-");
+    assert.match(pdfBuf.subarray(-10).toString("ascii"), /%%EOF\s*$/);
   } finally {
     await close();
   }
