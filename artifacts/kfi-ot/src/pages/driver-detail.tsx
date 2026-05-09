@@ -14,16 +14,22 @@ import {
   useUnlockDriverWeek,
   useGetDriverWeekAudit,
   useGetMe,
+  useListDriverNotes,
+  useCreateDriverNote,
+  useSoftDeleteDriverNote,
   getGetDriverWeekQueryKey,
   getGetWeekSummaryQueryKey,
   getGetDriverWeekAuditQueryKey,
+  getListDriverNotesQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, Lock, LockOpen, ThumbsDown, Undo2 } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, Lock, LockOpen, ThumbsDown, Undo2, MessageSquare, MessageSquarePlus } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Fragment } from "react";
 import { ToastAction } from "@/components/ui/toast";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -259,6 +265,74 @@ export default function DriverDetail() {
   const [editClockOut, setEditClockOut] = useState("");
   const [editPreview, setEditPreview] = useState<PreviewResult | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  // Notes ------------------------------------------------------------------
+  const { data: notes } = useListDriverNotes(weekStart, kfiId);
+  const createNote = useCreateDriverNote();
+  const softDeleteNote = useSoftDeleteDriverNote();
+  const [weekNoteDraft, setWeekNoteDraft] = useState("");
+  const [openNoteForPunch, setOpenNoteForPunch] = useState<number | null>(null);
+  const [punchNoteDraft, setPunchNoteDraft] = useState("");
+  const refreshNotes = () => {
+    queryClient.invalidateQueries({
+      queryKey: getListDriverNotesQueryKey(weekStart, kfiId),
+    });
+    queryClient.invalidateQueries({
+      queryKey: getGetWeekSummaryQueryKey(weekStart),
+    });
+  };
+  const submitNote = (body: string, punchId: number | null, onDone?: () => void) => {
+    const trimmed = body.trim();
+    if (!trimmed) return;
+    createNote.mutate(
+      { weekStart, kfiId, data: { body: trimmed, punchId } },
+      {
+        onSuccess: () => {
+          refreshNotes();
+          onDone?.();
+        },
+        onError: (err) =>
+          toast({
+            title: "Couldn't save note",
+            description: errMsg(err, "Save failed"),
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+  const handleSoftDeleteNote = (id: number) => {
+    if (!confirm("Hide this note? The row is preserved for audit.")) return;
+    softDeleteNote.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          refreshNotes();
+          toast({ title: "Note hidden" });
+        },
+        onError: (err) =>
+          toast({
+            title: "Couldn't hide note",
+            description: errMsg(err, "Delete failed"),
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+  type DriverNote = NonNullable<typeof notes>[number];
+  const weekLevelNotes = useMemo<DriverNote[]>(
+    () => (notes ?? []).filter((n) => n.punchId == null),
+    [notes],
+  );
+  const notesByPunch = useMemo(() => {
+    const m = new Map<number, DriverNote[]>();
+    for (const n of notes ?? []) {
+      if (n.punchId == null) continue;
+      const arr = m.get(n.punchId) ?? [];
+      arr.push(n);
+      m.set(n.punchId, arr);
+    }
+    return m;
+  }, [notes]);
 
   // What the server thinks the punch list will look like once we save the
   // dialog draft. Recomputed via `/preview-punch` whenever any input changes
@@ -1008,6 +1082,65 @@ export default function DriverDetail() {
         />
 
         {/* Punch table */}
+        <Card data-testid="card-driver-notes">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-display tracking-tight flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              Notes
+              {weekLevelNotes.length > 0 && (
+                <span className="text-[11px] font-mono text-muted-foreground">
+                  {weekLevelNotes.length}
+                </span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-3">
+            <div className="space-y-2">
+              <Textarea
+                value={weekNoteDraft}
+                onChange={(e) => setWeekNoteDraft(e.target.value)}
+                placeholder="Add a note about this driver-week (visible to all dispatchers)…"
+                className="min-h-[60px] text-sm"
+                maxLength={5000}
+                data-testid="input-week-note"
+              />
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    submitNote(weekNoteDraft, null, () => setWeekNoteDraft(""))
+                  }
+                  disabled={!weekNoteDraft.trim() || createNote.isPending}
+                  data-testid="button-submit-week-note"
+                >
+                  {createNote.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  ) : (
+                    <Plus className="h-3 w-3 mr-1" />
+                  )}
+                  Add note
+                </Button>
+              </div>
+            </div>
+            {weekLevelNotes.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">
+                No week-level notes yet. Per-row notes appear under each punch below.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {weekLevelNotes.map((n) => (
+                  <NoteItem
+                    key={n.id}
+                    note={n}
+                    canDelete={!!me?.isAdmin}
+                    onDelete={() => handleSoftDeleteNote(n.id)}
+                  />
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <div className="overflow-x-auto">
             <Table>
@@ -1062,9 +1195,11 @@ export default function DriverDetail() {
                       : remaining < -0.0001
                         ? `${Math.abs(remaining).toFixed(2)}h over OT`
                         : `at the 40h OT line`;
+                  const punchNotes = notesByPunch.get(p.id) ?? [];
+                  const noteOpen = openNoteForPunch === p.id;
                   return (
+                    <Fragment key={p.id}>
                     <TableRow
-                      key={p.id}
                       id={`punch-row-${p.id}`}
                       data-testid={`row-punch-${p.id}`}
                       className={cn(
@@ -1264,6 +1399,33 @@ export default function DriverDetail() {
                             <Button
                               size="icon"
                               variant="ghost"
+                              className={cn(
+                                "h-7 w-7 hover:text-foreground",
+                                punchNotes.length > 0 || noteOpen
+                                  ? "text-primary"
+                                  : "text-muted-foreground",
+                              )}
+                              onClick={() => {
+                                setPunchNoteDraft("");
+                                setOpenNoteForPunch(noteOpen ? null : p.id);
+                              }}
+                              title={
+                                punchNotes.length > 0
+                                  ? `${punchNotes.length} note${punchNotes.length === 1 ? "" : "s"}`
+                                  : "Add a note"
+                              }
+                              data-testid={`button-toggle-note-punch-${p.id}`}
+                            >
+                              <MessageSquarePlus className="h-3 w-3" />
+                              {punchNotes.length > 0 && (
+                                <span className="ml-0.5 text-[9px] font-mono">
+                                  {punchNotes.length}
+                                </span>
+                              )}
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
                               className="h-7 w-7 text-muted-foreground hover:text-foreground"
                               onClick={() => startEdit(p)}
                               data-testid={`button-edit-punch-${p.id}`}
@@ -1283,6 +1445,75 @@ export default function DriverDetail() {
                         )}
                       </TableCell>
                     </TableRow>
+                    {(punchNotes.length > 0 || noteOpen) && (
+                      <TableRow
+                        className="bg-muted/30 hover:bg-muted/30"
+                        data-testid={`row-punch-notes-${p.id}`}
+                      >
+                        <TableCell colSpan={8} className="px-4 py-3">
+                          <div className="space-y-2">
+                            {punchNotes.length > 0 && (
+                              <ul className="space-y-2">
+                                {punchNotes.map((n) => (
+                                  <NoteItem
+                                    key={n.id}
+                                    note={n}
+                                    canDelete={!!me?.isAdmin}
+                                    onDelete={() => handleSoftDeleteNote(n.id)}
+                                  />
+                                ))}
+                              </ul>
+                            )}
+                            {noteOpen && (
+                              <div className="flex items-start gap-2">
+                                <Textarea
+                                  autoFocus
+                                  value={punchNoteDraft}
+                                  onChange={(e) => setPunchNoteDraft(e.target.value)}
+                                  placeholder="Add a note about this punch…"
+                                  className="min-h-[44px] text-sm flex-1"
+                                  maxLength={5000}
+                                  data-testid={`input-punch-note-${p.id}`}
+                                />
+                                <div className="flex flex-col gap-1">
+                                  <Button
+                                    size="sm"
+                                    onClick={() =>
+                                      submitNote(punchNoteDraft, p.id, () => {
+                                        setPunchNoteDraft("");
+                                        setOpenNoteForPunch(null);
+                                      })
+                                    }
+                                    disabled={
+                                      !punchNoteDraft.trim() || createNote.isPending
+                                    }
+                                    data-testid={`button-submit-punch-note-${p.id}`}
+                                  >
+                                    {createNote.isPending ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <Save className="h-3 w-3" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setOpenNoteForPunch(null);
+                                      setPunchNoteDraft("");
+                                    }}
+                                    data-testid={`button-cancel-punch-note-${p.id}`}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    </Fragment>
                   );
                 })}
               </TableBody>
@@ -1678,6 +1909,86 @@ function StatCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function NoteItem({
+  note,
+  canDelete,
+  onDelete,
+}: {
+  note: {
+    id: number;
+    body: string;
+    authorEmail?: string | null;
+    authorRole: string;
+    createdAt: string;
+    punchExists: boolean;
+    punchId?: number | null;
+  };
+  canDelete: boolean;
+  onDelete: () => void;
+}) {
+  const roleLabel =
+    note.authorRole === "admin"
+      ? "Admin"
+      : note.authorRole === "supervisor"
+        ? "Supervisor"
+        : "Reviewer";
+  const roleClass =
+    note.authorRole === "admin"
+      ? "bg-warning/15 text-warning border-warning/40"
+      : note.authorRole === "supervisor"
+        ? "bg-primary/15 text-primary border-primary/40"
+        : "bg-muted text-muted-foreground border-border";
+  return (
+    <li
+      className="rounded border border-border bg-card px-3 py-2 text-sm"
+      data-testid={`note-item-${note.id}`}
+    >
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <div className="flex items-center gap-2 flex-wrap text-[11px]">
+          <span
+            className={cn(
+              "uppercase tracking-wider px-1.5 py-0 rounded border font-display",
+              roleClass,
+            )}
+          >
+            {roleLabel}
+          </span>
+          <span className="font-mono text-muted-foreground">
+            {note.authorEmail ?? "(deleted user)"}
+          </span>
+          <span className="text-muted-foreground">·</span>
+          <span
+            className="font-mono text-muted-foreground"
+            title={new Date(note.createdAt).toLocaleString()}
+          >
+            {new Date(note.createdAt).toLocaleString()}
+          </span>
+          {note.punchId != null && !note.punchExists && (
+            <span className="text-[10px] uppercase tracking-wider px-1 py-0 rounded border border-warning/40 bg-warning/10 text-warning">
+              orphaned punch
+            </span>
+          )}
+        </div>
+        {canDelete && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
+            onClick={onDelete}
+            title="Hide note (admin only)"
+            data-testid={`button-delete-note-${note.id}`}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        )}
+      </div>
+      <p className="whitespace-pre-wrap text-foreground/90 leading-snug">
+        {note.body}
+      </p>
+    </li>
   );
 }
 

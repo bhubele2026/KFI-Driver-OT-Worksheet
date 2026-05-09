@@ -337,6 +337,8 @@ export interface DriverSummaryRow {
   lastTouchedByEmail?: string | null;
   /** @nullable */
   lastTouchedAt?: string | null;
+  /** Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context. */
+  noteCount: number;
 }
 
 export type WeekSummaryTotals = {
@@ -912,6 +914,40 @@ export interface UpdateDriverIdAliasBody {
   sampleName?: string | null;
   /** @nullable */
   note?: string | null;
+}
+
+export interface DriverNote {
+  id: number;
+  weekStart: string;
+  kfiId: string;
+  /**
+   * Null = week-level note. Otherwise references the punch this note is attached to. Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an "(orphaned punch)" tag so context isn't lost.
+   * @nullable
+   */
+  punchId?: number | null;
+  /** False when `punchId` is set but the punch row has been deleted. The frontend uses this to render an "(orphaned punch)" tag. */
+  punchExists: boolean;
+  body: string;
+  /** @nullable */
+  authorUserId?: number | null;
+  /** @nullable */
+  authorEmail?: string | null;
+  /** Snapshot of the author's role at write-time ("reviewer" / "supervisor" / "admin"). Denormalized so changing the author's role later doesn't retroactively rewrite history. */
+  authorRole: string;
+  createdAt: string;
+}
+
+export interface CreateDriverNoteInput {
+  /**
+   * @minLength 1
+   * @maxLength 5000
+   */
+  body: string;
+  /**
+   * Optional. When set, the note is attached to that specific punch row. When omitted/null, the note is week-level.
+   * @nullable
+   */
+  punchId?: number | null;
 }
 
 export interface CustomerAliasAuditLogEntry {

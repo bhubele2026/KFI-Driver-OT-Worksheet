@@ -1,8 +1,9 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import multer from "multer";
 import { and, asc, desc, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
 import {
   ConfirmNewCustomerFileBody,
+  CreateDriverNoteBody,
   CreateManualPunchBody,
   CreateParserPromotionSnoozeBody,
   CreateDriverIdAliasBody,
@@ -229,6 +230,25 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
   for (const r of reviewByKfi.values()) {
     if (r.lockedByUserId) actorIds.add(r.lockedByUserId);
   }
+
+  // Note-count per driver for the week summary badge. Only non-deleted notes
+  // count; both row-level (punch_id IS NOT NULL) and week-level (punch_id IS
+  // NULL) are folded into a single per-driver tally.
+  const noteCountRows = await db
+    .select({
+      kfiId: schema.driverNotesTable.kfiId,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(schema.driverNotesTable)
+    .where(
+      and(
+        eq(schema.driverNotesTable.weekStart, weekStart),
+        sql`${schema.driverNotesTable.deletedAt} IS NULL`,
+      ),
+    )
+    .groupBy(schema.driverNotesTable.kfiId);
+  const noteCountByKfi = new Map<string, number>();
+  for (const r of noteCountRows) noteCountByKfi.set(r.kfiId, Number(r.count));
   const actorEmailById = new Map<number, string>();
   if (actorIds.size > 0) {
     const actorRows = await db
@@ -271,6 +291,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     lockedByEmail: string | null;
     lastTouchedByEmail: string | null;
     lastTouchedAt: string | null;
+    noteCount: number;
   }
   const rows: SummaryRow[] = [];
   for (const [kfiId, ps] of byKfi.entries()) {
@@ -330,6 +351,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
         ? actorEmailById.get(lastActorId) ?? null
         : null,
       lastTouchedAt,
+      noteCount: noteCountByKfi.get(kfiId) ?? 0,
     });
   }
   rows.sort(
@@ -2755,6 +2777,201 @@ weeksRouter.get(
     );
   },
 );
+
+// ---------------------------------------------------------------------------
+// Driver-week notes (per-row + per-week, append-only, admin soft-delete)
+// ---------------------------------------------------------------------------
+
+async function loadNotesForDriverWeek(weekStart: string, kfiId: string) {
+  const rows = await db
+    .select({
+      id: schema.driverNotesTable.id,
+      weekStart: schema.driverNotesTable.weekStart,
+      kfiId: schema.driverNotesTable.kfiId,
+      punchId: schema.driverNotesTable.punchId,
+      body: schema.driverNotesTable.body,
+      authorUserId: schema.driverNotesTable.authorUserId,
+      authorEmail: schema.usersTable.email,
+      authorRole: schema.driverNotesTable.authorRole,
+      createdAt: schema.driverNotesTable.createdAt,
+    })
+    .from(schema.driverNotesTable)
+    .leftJoin(
+      schema.usersTable,
+      eq(schema.usersTable.id, schema.driverNotesTable.authorUserId),
+    )
+    .where(
+      and(
+        eq(schema.driverNotesTable.weekStart, weekStart),
+        eq(schema.driverNotesTable.kfiId, kfiId),
+        sql`${schema.driverNotesTable.deletedAt} IS NULL`,
+      ),
+    )
+    .orderBy(desc(schema.driverNotesTable.createdAt));
+
+  // Resolve punchExists in a single round-trip: any row whose punch_id is
+  // still present in `punches` is "live"; the rest get tagged "(orphaned
+  // punch)" by the UI so deleting a punch doesn't lose context.
+  const punchIds = [
+    ...new Set(rows.map((r) => r.punchId).filter((x): x is number => x != null)),
+  ];
+  const livePunchIds = new Set<number>();
+  if (punchIds.length > 0) {
+    const live = await db
+      .select({ id: schema.punchesTable.id })
+      .from(schema.punchesTable)
+      .where(inArray(schema.punchesTable.id, punchIds));
+    for (const p of live) livePunchIds.add(p.id);
+  }
+  return rows.map((r) => ({
+    id: r.id,
+    weekStart: r.weekStart,
+    kfiId: r.kfiId,
+    punchId: r.punchId,
+    punchExists: r.punchId == null ? true : livePunchIds.has(r.punchId),
+    body: r.body,
+    authorUserId: r.authorUserId,
+    authorEmail: r.authorEmail ?? null,
+    authorRole: r.authorRole,
+    createdAt: new Date(r.createdAt).toISOString(),
+  }));
+}
+
+weeksRouter.get(
+  "/weeks/:weekStart/drivers/:kfiId/notes",
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    const kfiId = String(req.params.kfiId ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    res.json(await loadNotesForDriverWeek(weekStart, kfiId));
+  },
+);
+
+weeksRouter.post(
+  "/weeks/:weekStart/drivers/:kfiId/notes",
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    const kfiId = String(req.params.kfiId ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    const parsed = CreateDriverNoteBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const user = (req as Request & { user?: typeof schema.usersTable.$inferSelect }).user;
+    if (!user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    // Author role is denormalized at write-time so changing the user's role
+    // later doesn't retroactively rewrite history. Admins are tagged 'admin'
+    // even when their underlying `role` column says 'reviewer' /
+    // 'supervisor', so the UI can render an Admin badge.
+    const authorRole = user.isAdmin
+      ? "admin"
+      : user.role === "supervisor"
+        ? "supervisor"
+        : "reviewer";
+    const punchId =
+      typeof parsed.data.punchId === "number" && Number.isFinite(parsed.data.punchId)
+        ? parsed.data.punchId
+        : null;
+    if (punchId != null) {
+      const owner = await db
+        .select({ id: schema.punchesTable.id })
+        .from(schema.punchesTable)
+        .where(
+          and(
+            eq(schema.punchesTable.id, punchId),
+            eq(schema.punchesTable.weekStart, weekStart),
+            eq(schema.punchesTable.kfiId, kfiId),
+          ),
+        )
+        .limit(1);
+      if (owner.length === 0) {
+        res
+          .status(400)
+          .json({ error: "punchId does not belong to this driver-week" });
+        return;
+      }
+    }
+    const inserted = await db
+      .insert(schema.driverNotesTable)
+      .values({
+        weekStart,
+        kfiId,
+        punchId,
+        body: parsed.data.body,
+        authorUserId: user.id,
+        authorRole,
+      })
+      .returning();
+    const row = inserted[0];
+    let punchExists = true;
+    if (row.punchId != null) {
+      const live = await db
+        .select({ id: schema.punchesTable.id })
+        .from(schema.punchesTable)
+        .where(eq(schema.punchesTable.id, row.punchId))
+        .limit(1);
+      punchExists = live.length > 0;
+    }
+    res.json({
+      id: row.id,
+      weekStart: row.weekStart,
+      kfiId: row.kfiId,
+      punchId: row.punchId,
+      punchExists,
+      body: row.body,
+      authorUserId: row.authorUserId,
+      authorEmail: user.email,
+      authorRole: row.authorRole,
+      createdAt: new Date(row.createdAt).toISOString(),
+    });
+  },
+);
+
+weeksRouter.delete("/notes/:id", requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  const userId = req.session.userId ?? null;
+  await db.transaction(async (tx) => {
+    const existing = await tx.query.driverNotesTable.findFirst({
+      where: eq(schema.driverNotesTable.id, id),
+    });
+    if (!existing) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (existing.deletedAt) {
+      res.status(204).end();
+      return;
+    }
+    await tx
+      .update(schema.driverNotesTable)
+      .set({ deletedAt: new Date(), deletedByUserId: userId })
+      .where(eq(schema.driverNotesTable.id, id));
+    // Audit the soft-delete on the user_audit_log so admin actions on notes
+    // are append-only attributable. targetUserId is the note's author so the
+    // admin users page surfaces "your note was hidden by …" in context.
+    await tx.insert(schema.userAuditLogTable).values({
+      actorUserId: userId,
+      targetUserId: existing.authorUserId ?? null,
+      targetEmail: null,
+      action: "soft-delete-note",
+    });
+  });
+  if (!res.headersSent) res.status(204).end();
+});
 
 function serializePunch(
   p: typeof schema.punchesTable.$inferSelect,

@@ -54,6 +54,7 @@ import {
   Printer,
   Lock,
   XCircle,
+  StickyNote,
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
 import { Logo } from "@/components/logo";
@@ -659,8 +660,18 @@ export default function WeekSummary() {
                                 <TableRow key={driver.kfiId} className="group">
                                   <TableCell className="font-medium">
                                     <div className="flex flex-col">
-                                      <span className="truncate">
+                                      <span className="truncate flex items-center gap-1.5">
                                         {driver.name}
+                                        {driver.noteCount > 0 && (
+                                          <span
+                                            className="inline-flex items-center gap-0.5 text-[10px] font-mono text-primary bg-primary/10 px-1 py-0.5 rounded"
+                                            title={`${driver.noteCount} note${driver.noteCount === 1 ? "" : "s"}`}
+                                            data-testid={`badge-note-count-${driver.kfiId}`}
+                                          >
+                                            <StickyNote className="h-2.5 w-2.5" />
+                                            {driver.noteCount}
+                                          </span>
+                                        )}
                                       </span>
                                       <span className="text-xs text-muted-foreground font-mono">
                                         {driver.kfiId}

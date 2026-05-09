@@ -1085,6 +1085,57 @@ paths:
               schema: { $ref: "#/components/schemas/DriverWeekLockState" }
         "403": { description: Not a supervisor or admin }
 
+  /weeks/{weekStart}/drivers/{kfiId}/notes:
+    get:
+      operationId: listDriverNotes
+      tags: [drivers]
+      summary: List notes for a driver-week (newest first, excludes soft-deleted)
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - $ref: "#/components/parameters/KfiId"
+      responses:
+        "200":
+          description: Notes for this driver-week
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DriverNote" }
+    post:
+      operationId: createDriverNote
+      tags: [drivers]
+      summary: Append a new note to a driver-week (optionally tied to a punch)
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - $ref: "#/components/parameters/KfiId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateDriverNoteInput" }
+      responses:
+        "200":
+          description: Created note
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DriverNote" }
+        "400": { description: Invalid input }
+
+  /notes/{id}:
+    delete:
+      operationId: softDeleteDriverNote
+      tags: [drivers]
+      summary: Soft-delete a note (admin only). The row is kept for audit.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Soft-deleted }
+        "403": { description: Admin access required }
+        "404": { description: Not found }
+
   /weeks/{weekStart}/drivers/{kfiId}/audit:
     get:
       operationId: getDriverWeekAudit
@@ -1481,6 +1532,7 @@ components:
           reviewed,
           hasOvertime,
           locked,
+          noteCount,
         ]
       properties:
         kfiId: { type: string }
@@ -1504,6 +1556,9 @@ components:
         lastTouchedAt:
           type: ["string", "null"]
           format: date-time
+        noteCount:
+          type: integer
+          description: Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context.
 
     WeekSummary:
       type: object
@@ -2192,6 +2247,47 @@ components:
           type: ["string", "null"]
         note:
           type: ["string", "null"]
+
+    DriverNote:
+      type: object
+      required:
+        [
+          id,
+          weekStart,
+          kfiId,
+          body,
+          authorRole,
+          createdAt,
+          punchExists,
+        ]
+      properties:
+        id: { type: integer }
+        weekStart: { type: string }
+        kfiId: { type: string }
+        punchId:
+          type: ["integer", "null"]
+          description: Null = week-level note. Otherwise references the punch this note is attached to. Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an "(orphaned punch)" tag so context isn't lost.
+        punchExists:
+          type: boolean
+          description: False when `punchId` is set but the punch row has been deleted. The frontend uses this to render an "(orphaned punch)" tag.
+        body: { type: string }
+        authorUserId:
+          type: ["integer", "null"]
+        authorEmail:
+          type: ["string", "null"]
+        authorRole:
+          type: string
+          description: Snapshot of the author's role at write-time ("reviewer" / "supervisor" / "admin"). Denormalized so changing the author's role later doesn't retroactively rewrite history.
+        createdAt: { type: string, format: date-time }
+
+    CreateDriverNoteInput:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 5000 }
+        punchId:
+          type: ["integer", "null"]
+          description: Optional. When set, the note is attached to that specific punch row. When omitted/null, the note is week-level.
 
     CustomerAliasAuditLogEntry:
       type: object

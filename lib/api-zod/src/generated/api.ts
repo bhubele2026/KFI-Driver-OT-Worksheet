@@ -618,6 +618,11 @@ export const GetWeekSummaryResponse = zod.object({
       lockedByEmail: zod.string().nullish(),
       lastTouchedByEmail: zod.string().nullish(),
       lastTouchedAt: zod.coerce.date().nullish(),
+      noteCount: zod
+        .number()
+        .describe(
+          "Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context.",
+        ),
     }),
   ),
   customers: zod.array(
@@ -642,6 +647,11 @@ export const GetWeekSummaryResponse = zod.object({
           lockedByEmail: zod.string().nullish(),
           lastTouchedByEmail: zod.string().nullish(),
           lastTouchedAt: zod.coerce.date().nullish(),
+          noteCount: zod
+            .number()
+            .describe(
+              "Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context.",
+            ),
         }),
       ),
     }),
@@ -1647,6 +1657,108 @@ export const UnlockDriverWeekResponse = zod.object({
   locked: zod.boolean(),
   lockedAt: zod.coerce.date().nullish(),
   lockedByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary List notes for a driver-week (newest first, excludes soft-deleted)
+ */
+export const listDriverNotesPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const ListDriverNotesParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(listDriverNotesPathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+  kfiId: zod.coerce.string(),
+});
+
+export const ListDriverNotesResponseItem = zod.object({
+  id: zod.number(),
+  weekStart: zod.string(),
+  kfiId: zod.string(),
+  punchId: zod
+    .number()
+    .nullish()
+    .describe(
+      'Null = week-level note. Otherwise references the punch this note is attached to. Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an \"(orphaned punch)\" tag so context isn\'t lost.',
+    ),
+  punchExists: zod
+    .boolean()
+    .describe(
+      'False when `punchId` is set but the punch row has been deleted. The frontend uses this to render an \"(orphaned punch)\" tag.',
+    ),
+  body: zod.string(),
+  authorUserId: zod.number().nullish(),
+  authorEmail: zod.string().nullish(),
+  authorRole: zod
+    .string()
+    .describe(
+      'Snapshot of the author\'s role at write-time (\"reviewer\" \/ \"supervisor\" \/ \"admin\"). Denormalized so changing the author\'s role later doesn\'t retroactively rewrite history.',
+    ),
+  createdAt: zod.coerce.date(),
+});
+export const ListDriverNotesResponse = zod.array(ListDriverNotesResponseItem);
+
+/**
+ * @summary Append a new note to a driver-week (optionally tied to a punch)
+ */
+export const createDriverNotePathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const CreateDriverNoteParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(createDriverNotePathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+  kfiId: zod.coerce.string(),
+});
+
+export const createDriverNoteBodyBodyMax = 5000;
+
+export const CreateDriverNoteBody = zod.object({
+  body: zod.string().min(1).max(createDriverNoteBodyBodyMax),
+  punchId: zod
+    .number()
+    .nullish()
+    .describe(
+      "Optional. When set, the note is attached to that specific punch row. When omitted\/null, the note is week-level.",
+    ),
+});
+
+export const CreateDriverNoteResponse = zod.object({
+  id: zod.number(),
+  weekStart: zod.string(),
+  kfiId: zod.string(),
+  punchId: zod
+    .number()
+    .nullish()
+    .describe(
+      'Null = week-level note. Otherwise references the punch this note is attached to. Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an \"(orphaned punch)\" tag so context isn\'t lost.',
+    ),
+  punchExists: zod
+    .boolean()
+    .describe(
+      'False when `punchId` is set but the punch row has been deleted. The frontend uses this to render an \"(orphaned punch)\" tag.',
+    ),
+  body: zod.string(),
+  authorUserId: zod.number().nullish(),
+  authorEmail: zod.string().nullish(),
+  authorRole: zod
+    .string()
+    .describe(
+      'Snapshot of the author\'s role at write-time (\"reviewer\" \/ \"supervisor\" \/ \"admin\"). Denormalized so changing the author\'s role later doesn\'t retroactively rewrite history.',
+    ),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Soft-delete a note (admin only). The row is kept for audit.
+ */
+export const SoftDeleteDriverNoteParams = zod.object({
+  id: zod.coerce.number(),
 });
 
 /**

@@ -27,4 +27,6 @@ export interface DriverSummaryRow {
   lastTouchedByEmail?: string | null;
   /** @nullable */
   lastTouchedAt?: Date | null;
+  /** Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context. */
+  noteCount: number;
 }

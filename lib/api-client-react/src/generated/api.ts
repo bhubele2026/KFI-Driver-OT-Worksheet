@@ -26,6 +26,7 @@ import type {
   ConfirmNewCustomerResult,
   ConnecteamClocksAudit,
   CreateDriverIdAliasBody,
+  CreateDriverNoteInput,
   CreateInviteBody,
   CreateParserPromotionSnoozeBody,
   CustomerAliasAuditLogEntry,
@@ -34,6 +35,7 @@ import type {
   CustomerUploadStatus,
   DriverIdAlias,
   DriverIdAliasList,
+  DriverNote,
   DriverWeek,
   DriverWeekAuditEntry,
   DriverWeekLockState,
@@ -5325,6 +5327,276 @@ export const useUnlockDriverWeek = <
   TContext
 > => {
   return useMutation(getUnlockDriverWeekMutationOptions(options));
+};
+
+/**
+ * @summary List notes for a driver-week (newest first, excludes soft-deleted)
+ */
+export const getListDriverNotesUrl = (weekStart: string, kfiId: string) => {
+  return `/api/weeks/${weekStart}/drivers/${kfiId}/notes`;
+};
+
+export const listDriverNotes = async (
+  weekStart: string,
+  kfiId: string,
+  options?: RequestInit,
+): Promise<DriverNote[]> => {
+  return customFetch<DriverNote[]>(getListDriverNotesUrl(weekStart, kfiId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListDriverNotesQueryKey = (
+  weekStart: string,
+  kfiId: string,
+) => {
+  return [`/api/weeks/${weekStart}/drivers/${kfiId}/notes`] as const;
+};
+
+export const getListDriverNotesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listDriverNotes>>,
+  TError = ErrorType<unknown>,
+>(
+  weekStart: string,
+  kfiId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listDriverNotes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListDriverNotesQueryKey(weekStart, kfiId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listDriverNotes>>> = ({
+    signal,
+  }) => listDriverNotes(weekStart, kfiId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!(weekStart && kfiId),
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listDriverNotes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListDriverNotesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listDriverNotes>>
+>;
+export type ListDriverNotesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List notes for a driver-week (newest first, excludes soft-deleted)
+ */
+
+export function useListDriverNotes<
+  TData = Awaited<ReturnType<typeof listDriverNotes>>,
+  TError = ErrorType<unknown>,
+>(
+  weekStart: string,
+  kfiId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listDriverNotes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListDriverNotesQueryOptions(
+    weekStart,
+    kfiId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Append a new note to a driver-week (optionally tied to a punch)
+ */
+export const getCreateDriverNoteUrl = (weekStart: string, kfiId: string) => {
+  return `/api/weeks/${weekStart}/drivers/${kfiId}/notes`;
+};
+
+export const createDriverNote = async (
+  weekStart: string,
+  kfiId: string,
+  createDriverNoteInput: CreateDriverNoteInput,
+  options?: RequestInit,
+): Promise<DriverNote> => {
+  return customFetch<DriverNote>(getCreateDriverNoteUrl(weekStart, kfiId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createDriverNoteInput),
+  });
+};
+
+export const getCreateDriverNoteMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createDriverNote>>,
+    TError,
+    { weekStart: string; kfiId: string; data: BodyType<CreateDriverNoteInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createDriverNote>>,
+  TError,
+  { weekStart: string; kfiId: string; data: BodyType<CreateDriverNoteInput> },
+  TContext
+> => {
+  const mutationKey = ["createDriverNote"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createDriverNote>>,
+    { weekStart: string; kfiId: string; data: BodyType<CreateDriverNoteInput> }
+  > = (props) => {
+    const { weekStart, kfiId, data } = props ?? {};
+
+    return createDriverNote(weekStart, kfiId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateDriverNoteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createDriverNote>>
+>;
+export type CreateDriverNoteMutationBody = BodyType<CreateDriverNoteInput>;
+export type CreateDriverNoteMutationError = ErrorType<void>;
+
+/**
+ * @summary Append a new note to a driver-week (optionally tied to a punch)
+ */
+export const useCreateDriverNote = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createDriverNote>>,
+    TError,
+    { weekStart: string; kfiId: string; data: BodyType<CreateDriverNoteInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createDriverNote>>,
+  TError,
+  { weekStart: string; kfiId: string; data: BodyType<CreateDriverNoteInput> },
+  TContext
+> => {
+  return useMutation(getCreateDriverNoteMutationOptions(options));
+};
+
+/**
+ * @summary Soft-delete a note (admin only). The row is kept for audit.
+ */
+export const getSoftDeleteDriverNoteUrl = (id: number) => {
+  return `/api/notes/${id}`;
+};
+
+export const softDeleteDriverNote = async (
+  id: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getSoftDeleteDriverNoteUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getSoftDeleteDriverNoteMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof softDeleteDriverNote>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof softDeleteDriverNote>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["softDeleteDriverNote"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof softDeleteDriverNote>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return softDeleteDriverNote(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SoftDeleteDriverNoteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof softDeleteDriverNote>>
+>;
+
+export type SoftDeleteDriverNoteMutationError = ErrorType<void>;
+
+/**
+ * @summary Soft-delete a note (admin only). The row is kept for audit.
+ */
+export const useSoftDeleteDriverNote = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof softDeleteDriverNote>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof softDeleteDriverNote>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getSoftDeleteDriverNoteMutationOptions(options));
 };
 
 /**
