@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 import multer from "multer";
-import { and, asc, desc, eq, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   ConfirmNewCustomerFileBody,
@@ -3021,12 +3021,71 @@ weeksRouter.post("/notes/:id/restore", requireAdmin, async (req, res) => {
   res.json(row);
 });
 
+async function markHiddenNotesSeenFor(userId: number | null | undefined) {
+  if (!userId) return;
+  // Stamp the requesting admin's "last viewed" timestamp so the unseen-count
+  // badge resets to zero. Idempotent and racy-safe — losing the race just
+  // means a slightly older timestamp wins and a small badge re-appears.
+  await db
+    .update(schema.usersTable)
+    .set({ notesHiddenLastSeenAt: new Date() })
+    .where(eq(schema.usersTable.id, userId));
+}
+
+async function unseenHiddenNotesCountFor(userId: number | null | undefined) {
+  if (!userId) return { count: 0, lastSeenAt: null as string | null };
+  const me = await db.query.usersTable.findFirst({
+    where: eq(schema.usersTable.id, userId),
+    columns: { notesHiddenLastSeenAt: true },
+  });
+  const lastSeenAt = me?.notesHiddenLastSeenAt ?? null;
+  // Only count notes still soft-deleted and hidden after `lastSeenAt`. If the
+  // admin has never opened the page, every currently-hidden note counts.
+  const whereClause = lastSeenAt
+    ? and(
+        isNotNull(schema.driverNotesTable.deletedAt),
+        gt(schema.driverNotesTable.deletedAt, lastSeenAt),
+      )
+    : isNotNull(schema.driverNotesTable.deletedAt);
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(schema.driverNotesTable)
+    .where(whereClause);
+  return {
+    count: row?.count ?? 0,
+    lastSeenAt: lastSeenAt ? new Date(lastSeenAt).toISOString() : null,
+  };
+}
+
+weeksRouter.get(
+  "/admin/notes/hidden-unseen-count",
+  requireAdmin,
+  async (req, res) => {
+    const result = await unseenHiddenNotesCountFor(req.session.userId);
+    res.json(result);
+  },
+);
+
+weeksRouter.post(
+  "/admin/notes/mark-hidden-seen",
+  requireAdmin,
+  async (req, res) => {
+    await markHiddenNotesSeenFor(req.session.userId);
+    const result = await unseenHiddenNotesCountFor(req.session.userId);
+    res.json(result);
+  },
+);
+
 weeksRouter.get("/admin/notes/deleted", requireAdmin, async (req, res) => {
   const limitParam = Number(req.query.limit);
   const limit =
     Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 500
       ? limitParam
       : 100;
+  // Visiting the page is treated as acknowledgement: stamp last-seen so the
+  // badge resets. Doing it here (rather than only on an explicit POST) means
+  // the existing admin page Just Works without a separate mutation.
+  await markHiddenNotesSeenFor(req.session.userId);
   const author = alias(schema.usersTable, "author");
   const deleter = alias(schema.usersTable, "deleter");
   const rows = await db

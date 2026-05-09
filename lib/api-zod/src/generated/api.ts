@@ -1831,6 +1831,40 @@ export const ListDeletedDriverNotesResponse = zod.array(
 );
 
 /**
+ * @summary Number of notes hidden since this admin last viewed `/admin/notes`. Drives the "recently hidden" badge.
+ */
+export const GetHiddenNotesUnseenCountResponse = zod.object({
+  count: zod
+    .number()
+    .describe(
+      'Number of currently-hidden notes whose `deleted_at` is newer than this admin\'s `notes_hidden_last_seen_at`. Drives the \"recently hidden\" badge.',
+    ),
+  lastSeenAt: zod.coerce
+    .date()
+    .nullable()
+    .describe(
+      "When this admin last viewed the hidden-notes page (or null if they never have).",
+    ),
+});
+
+/**
+ * @summary Stamp `notes_hidden_last_seen_at = now()` for the requesting admin so the unseen-count badge resets to zero.
+ */
+export const MarkHiddenNotesSeenResponse = zod.object({
+  count: zod
+    .number()
+    .describe(
+      'Number of currently-hidden notes whose `deleted_at` is newer than this admin\'s `notes_hidden_last_seen_at`. Drives the \"recently hidden\" badge.',
+    ),
+  lastSeenAt: zod.coerce
+    .date()
+    .nullable()
+    .describe(
+      "When this admin last viewed the hidden-notes page (or null if they never have).",
+    ),
+});
+
+/**
  * @summary Recent review/lock audit trail for a driver-week
  */
 export const getDriverWeekAuditPathWeekStartRegExp = new RegExp(

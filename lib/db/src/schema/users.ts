@@ -22,6 +22,12 @@ export const usersTable = pgTable("users", {
   passwordResetLastSentAt: timestamp("password_reset_last_sent_at", {
     withTimezone: true,
   }),
+  // Last time this admin viewed (or explicitly acknowledged) the hidden-notes
+  // page. Used to compute the "recently hidden" badge count surfaced near the
+  // Hidden notes link so admins notice when dispatchers' notes get hidden.
+  notesHiddenLastSeenAt: timestamp("notes_hidden_last_seen_at", {
+    withTimezone: true,
+  }),
 });
 
 export type User = typeof usersTable.$inferSelect;

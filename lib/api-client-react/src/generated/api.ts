@@ -44,6 +44,7 @@ import type {
   EmailDeliveryResult,
   ForgetCustomerNameAliasParams,
   HealthStatus,
+  HiddenNotesUnseenCount,
   Invite,
   InviteWithLink,
   IpBlocklistEntry,
@@ -5787,6 +5788,166 @@ export function useListDeletedDriverNotes<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Number of notes hidden since this admin last viewed `/admin/notes`. Drives the "recently hidden" badge.
+ */
+export const getGetHiddenNotesUnseenCountUrl = () => {
+  return `/api/admin/notes/hidden-unseen-count`;
+};
+
+export const getHiddenNotesUnseenCount = async (
+  options?: RequestInit,
+): Promise<HiddenNotesUnseenCount> => {
+  return customFetch<HiddenNotesUnseenCount>(
+    getGetHiddenNotesUnseenCountUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetHiddenNotesUnseenCountQueryKey = () => {
+  return [`/api/admin/notes/hidden-unseen-count`] as const;
+};
+
+export const getGetHiddenNotesUnseenCountQueryOptions = <
+  TData = Awaited<ReturnType<typeof getHiddenNotesUnseenCount>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getHiddenNotesUnseenCount>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetHiddenNotesUnseenCountQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getHiddenNotesUnseenCount>>
+  > = ({ signal }) => getHiddenNotesUnseenCount({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getHiddenNotesUnseenCount>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetHiddenNotesUnseenCountQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getHiddenNotesUnseenCount>>
+>;
+export type GetHiddenNotesUnseenCountQueryError = ErrorType<void>;
+
+/**
+ * @summary Number of notes hidden since this admin last viewed `/admin/notes`. Drives the "recently hidden" badge.
+ */
+
+export function useGetHiddenNotesUnseenCount<
+  TData = Awaited<ReturnType<typeof getHiddenNotesUnseenCount>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getHiddenNotesUnseenCount>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetHiddenNotesUnseenCountQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Stamp `notes_hidden_last_seen_at = now()` for the requesting admin so the unseen-count badge resets to zero.
+ */
+export const getMarkHiddenNotesSeenUrl = () => {
+  return `/api/admin/notes/mark-hidden-seen`;
+};
+
+export const markHiddenNotesSeen = async (
+  options?: RequestInit,
+): Promise<HiddenNotesUnseenCount> => {
+  return customFetch<HiddenNotesUnseenCount>(getMarkHiddenNotesSeenUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getMarkHiddenNotesSeenMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markHiddenNotesSeen>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markHiddenNotesSeen>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["markHiddenNotesSeen"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markHiddenNotesSeen>>,
+    void
+  > = () => {
+    return markHiddenNotesSeen(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkHiddenNotesSeenMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markHiddenNotesSeen>>
+>;
+
+export type MarkHiddenNotesSeenMutationError = ErrorType<void>;
+
+/**
+ * @summary Stamp `notes_hidden_last_seen_at = now()` for the requesting admin so the unseen-count badge resets to zero.
+ */
+export const useMarkHiddenNotesSeen = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markHiddenNotesSeen>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markHiddenNotesSeen>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getMarkHiddenNotesSeenMutationOptions(options));
+};
 
 /**
  * @summary Recent review/lock audit trail for a driver-week

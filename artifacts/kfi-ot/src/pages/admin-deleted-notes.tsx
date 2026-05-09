@@ -1,4 +1,5 @@
 import { Link, Redirect } from "wouter";
+import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetMe,
@@ -6,6 +7,7 @@ import {
   useRestoreDriverNote,
   getListDeletedDriverNotesQueryKey,
   getListDriverNotesQueryKey,
+  getGetHiddenNotesUnseenCountQueryKey,
   type DeletedDriverNote,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -37,7 +39,7 @@ export default function AdminDeletedNotes() {
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe();
 
-  const { data, isLoading } = useListDeletedDriverNotes(
+  const { data, isLoading, isSuccess } = useListDeletedDriverNotes(
     { limit: LIMIT },
     {
       query: {
@@ -46,6 +48,13 @@ export default function AdminDeletedNotes() {
       },
     },
   );
+
+  // The list endpoint stamps `notes_hidden_last_seen_at` server-side. Once the
+  // list lands, refresh the unseen-count query so the badge in the nav clears.
+  useEffect(() => {
+    if (!isSuccess) return;
+    qc.invalidateQueries({ queryKey: getGetHiddenNotesUnseenCountQueryKey() });
+  }, [isSuccess, qc]);
 
   const restoreNote = useRestoreDriverNote();
 

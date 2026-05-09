@@ -92,6 +92,7 @@ import {
 } from "recharts";
 import { ipMatchesAny, isCidrEntry } from "@/lib/cidr";
 import { Logo } from "@/components/logo";
+import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
 
 function copy(text: string, toast: ReturnType<typeof useToast>["toast"]) {
   navigator.clipboard
@@ -783,15 +784,8 @@ export default function AdminUsers() {
               Driver-ID mappings
             </Button>
           </Link>
-          <Link href="/admin/notes">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
-            >
-              Hidden notes
-            </Button>
-          </Link>
+          <HiddenNotesBadge />
+
         </div>
       </header>
 

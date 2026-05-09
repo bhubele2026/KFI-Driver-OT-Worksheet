@@ -51,6 +51,7 @@ export * from "./editPunchInput";
 export * from "./emailDeliveryResult";
 export * from "./forgetCustomerNameAliasParams";
 export * from "./healthStatus";
+export * from "./hiddenNotesUnseenCount";
 export * from "./invite";
 export * from "./inviteWithLink";
 export * from "./ipBlocklistEntry";

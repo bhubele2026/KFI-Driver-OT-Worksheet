@@ -57,6 +57,7 @@ import {
   StickyNote,
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
+import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
 import { Logo } from "@/components/logo";
 import {
   format,
@@ -280,6 +281,7 @@ export default function WeekSummary() {
         </div>
 
         <div className="flex items-center gap-3">
+          <HiddenNotesBadge variant="compact" />
           <AdminLink />
           <Button
             variant="ghost"

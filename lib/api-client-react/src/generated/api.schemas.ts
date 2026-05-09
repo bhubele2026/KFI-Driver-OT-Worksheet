@@ -972,6 +972,16 @@ export interface DeletedDriverNote {
   deletedByEmail?: string | null;
 }
 
+export interface HiddenNotesUnseenCount {
+  /** Number of currently-hidden notes whose `deleted_at` is newer than this admin's `notes_hidden_last_seen_at`. Drives the "recently hidden" badge. */
+  count: number;
+  /**
+   * When this admin last viewed the hidden-notes page (or null if they never have).
+   * @nullable
+   */
+  lastSeenAt: string | null;
+}
+
 export interface CustomerAliasAuditLogEntry {
   id: number;
   /** One of `remap` (driver re-assigned) or `forget` (alias deleted). */
