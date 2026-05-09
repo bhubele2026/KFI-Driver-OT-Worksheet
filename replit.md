@@ -11,7 +11,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - `pnpm --filter @workspace/kfi-ot run dev` — frontend (Vite).
 - `pnpm run typecheck` — full typecheck across all packages.
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate hooks + Zod from `lib/api-spec/openapi.yaml`.
-- `pnpm --filter @workspace/db run push` — push DB schema (dev only).
+- `pnpm --filter @workspace/db run push` — sync the dev DB schema to match the Drizzle code (runs `lib/db/src/preMigrate.ts` for any non-trivial type changes drizzle-kit can't auto-cast, then `drizzle-kit push --force`). Idempotent; runs automatically from `scripts/post-merge.sh` so a fresh clone or long-lived dev DB stays current. Use `pnpm --filter @workspace/db run push-interactive` if you want drizzle's destructive-change prompts. If push fails on a future ALTER COLUMN cast, add an idempotent fixup to `FIXUPS` in `lib/db/src/preMigrate.ts` (detect-then-apply pattern) and re-run.
 - Required env: `DATABASE_URL`, `SESSION_SECRET`, `CONNECTEAM_API_TOKEN`.
 - Optional env: `APP_BASE_URL` (origin used in invite/reset links — falls back to `https://${REPLIT_DOMAINS[0]}`; required in prod if neither is set), `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` (when set, invites and password resets are emailed via nodemailer).
 

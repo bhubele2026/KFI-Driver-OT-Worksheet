@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 pnpm install --frozen-lockfile
-pnpm --filter db push
+pnpm --filter @workspace/db run push
 # Ensure the Playwright browser used by the kfi-ot e2e suite is available.
 # On Replit the system Chromium is provided via $REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE
 # (and the matching system libs are pinned in replit.nix); elsewhere fall back
