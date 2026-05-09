@@ -47,7 +47,7 @@ punchesRouter.patch("/punches/:id", async (req, res) => {
     .set({
       clockIn: newIn,
       clockOut: newOut,
-      hours: String(Math.round(hours * 1000) / 1000),
+      hours: String(Math.round(hours * 100) / 100),
       edited: true,
       updatedBy: req.session.userId ?? null,
     })

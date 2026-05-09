@@ -8,6 +8,7 @@
 import type { Check } from "./check";
 import type { DailyTotals } from "./dailyTotals";
 import type { DriverInfo } from "./driverInfo";
+import type { DriverWeekConnecteamParity } from "./driverWeekConnecteamParity";
 import type { DriverWeekReviewStatus } from "./driverWeekReviewStatus";
 import type { DriverWeekTotals } from "./driverWeekTotals";
 import type { Punch } from "./punch";
@@ -28,4 +29,12 @@ export interface DriverWeek {
   lockedAt?: Date | null;
   /** @nullable */
   lockedByEmail?: string | null;
+  /** Per-day comparison of the engine's daily totals against the
+Connecteam-side daily totals snapshotted at the most recent
+/refresh-connecteam call for this driver-week. `status` is
+`unknown` when no snapshot exists yet (driver-week never
+refreshed), `match` when every snapshotted day reconciles
+within 0.005h, and `differ` otherwise.
+ */
+  connecteamParity?: DriverWeekConnecteamParity;
 }

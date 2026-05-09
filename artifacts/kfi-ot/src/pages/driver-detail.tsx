@@ -594,10 +594,17 @@ export default function DriverDetail() {
     );
   };
 
+  // Strip the stored "YYYY-MM-DD " prefix so the dispatcher only has to type
+  // the time. The server's PATCH /punches/:id route auto-anchors a bare time
+  // back against the existing punch's date, so a one-click save with just
+  // "7:32 AM" round-trips as a fully-prefixed wall-clock string.
+  const stripDatePrefix = (s: string): string =>
+    s.replace(/^\d{4}-\d{2}-\d{2}\s+/, "").trim();
+
   const startEdit = (p: Punch) => {
     setEditingPunchId(p.id);
-    setEditClockIn(p.clockIn);
-    setEditClockOut(p.clockOut);
+    setEditClockIn(stripDatePrefix(p.clockIn));
+    setEditClockOut(stripDatePrefix(p.clockOut));
   };
 
   const cancelEdit = () => {
@@ -995,7 +1002,10 @@ export default function DriverDetail() {
 
         {/* Summary + Checks panels — surface the per-source RT/OT split and an
             independent re-derivation, so any divergence is obvious. */}
-        <SummaryAndChecks totals={data.totals} />
+        <SummaryAndChecks
+          totals={data.totals}
+          connecteamParity={data.connecteamParity ?? null}
+        />
 
         {/* Punch table */}
         <Card>
@@ -1093,9 +1103,21 @@ export default function DriverDetail() {
                       <TableCell className="font-mono text-sm whitespace-nowrap">
                         {isEditing ? (
                           <Input
-                            className="h-8 w-40 font-mono text-sm"
+                            autoFocus
+                            className="h-8 w-28 font-mono text-sm"
+                            placeholder="7:30 AM"
                             value={editClockIn}
                             onChange={(e) => setEditClockIn(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                saveEdit(p.id);
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                cancelEdit();
+                              }
+                            }}
+                            data-testid={`input-edit-clock-in-${p.id}`}
                           />
                         ) : (
                           formatClockCell(p.clockIn)
@@ -1104,9 +1126,20 @@ export default function DriverDetail() {
                       <TableCell className="font-mono text-sm whitespace-nowrap">
                         {isEditing ? (
                           <Input
-                            className="h-8 w-40 font-mono text-sm"
+                            className="h-8 w-28 font-mono text-sm"
+                            placeholder="3:45 PM"
                             value={editClockOut}
                             onChange={(e) => setEditClockOut(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                saveEdit(p.id);
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                cancelEdit();
+                              }
+                            }}
+                            data-testid={`input-edit-clock-out-${p.id}`}
                           />
                         ) : (
                           formatClockCell(p.clockOut)
@@ -1404,6 +1437,7 @@ export default function DriverDetail() {
  */
 function SummaryAndChecks({
   totals,
+  connecteamParity,
 }: {
   totals: {
     driverHours: number;
@@ -1414,7 +1448,42 @@ function SummaryAndChecks({
     driverRt: number;
     driverOt: number;
   };
+  connecteamParity: {
+    status: "match" | "differ" | "unknown" | string;
+    diffCount: number;
+    lastRefreshedAt?: string | null;
+    days: Array<{
+      date: string;
+      engineHours: number;
+      connecteamHours: number | null;
+      matches: boolean | null;
+    }>;
+  } | null;
 }) {
+  // Connecteam parity badge driven by a real numeric comparison: each
+  // /refresh-connecteam call snapshots the per-day Connecteam-side total
+  // for this driver-week into `connecteam_daily_snapshots`, and the API
+  // compares the live engine totals against that snapshot (within 0.005h).
+  // - `match`   → every snapshotted day reconciles
+  // - `differ`  → at least one day diverges (edits, manual punches on a day
+  //               Connecteam doesn't know about, or new Connecteam shifts
+  //               since the last refresh)
+  // - `unknown` → no snapshot yet (driver-week never refreshed)
+  const parityStatus = connecteamParity?.status ?? "unknown";
+  const diffCount = connecteamParity?.diffCount ?? 0;
+  const lastRefreshedAt = connecteamParity?.lastRefreshedAt ?? null;
+  const refreshedNote = lastRefreshedAt
+    ? ` Baseline refreshed ${new Date(lastRefreshedAt).toLocaleString()}.`
+    : "";
+  const diffDayList = (connecteamParity?.days ?? [])
+    .filter((d) => d.matches === false)
+    .map(
+      (d) =>
+        `${d.date}: dashboard ${d.engineHours.toFixed(2)}h vs Connecteam ${
+          d.connecteamHours == null ? "—" : `${d.connecteamHours.toFixed(2)}h`
+        }`,
+    )
+    .join("\n");
   const totDriver = Number(totals.driverHours) || 0;
   const totCust = Number(totals.customerHours) || 0;
   const total = Number(totals.totalHours) || 0;
@@ -1450,8 +1519,35 @@ function SummaryAndChecks({
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <Card data-testid="card-summary">
         <CardHeader className="pb-2 pt-4 px-4">
-          <CardTitle className="text-sm font-display tracking-tight">
-            Summary
+          <CardTitle className="text-sm font-display tracking-tight flex items-center justify-between gap-2">
+            <span>Summary</span>
+            {parityStatus === "match" ? (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                data-testid="badge-ct-parity-match"
+                title={`Every day's dashboard total reconciles to the Connecteam baseline within 0.005h.${refreshedNote}`}
+              >
+                <CheckIcon className="h-3 w-3" />
+                Matches Connecteam
+              </span>
+            ) : parityStatus === "differ" ? (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-warning/15 text-warning border border-warning/40"
+                data-testid="badge-ct-parity-diff"
+                title={`${diffCount} day${diffCount === 1 ? "" : "s"} diverge from the Connecteam baseline.${refreshedNote}${diffDayList ? `\n\n${diffDayList}` : ""}`}
+              >
+                <AlertTriangle className="h-3 w-3" />
+                Differs from Connecteam ({diffCount})
+              </span>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-muted text-muted-foreground border border-border"
+                data-testid="badge-ct-parity-unknown"
+                title="No Connecteam baseline yet — refresh from Connecteam to enable parity comparison."
+              >
+                Connecteam: not yet refreshed
+              </span>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4">

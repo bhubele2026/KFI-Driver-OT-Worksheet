@@ -447,6 +447,41 @@ export const DriverWeekReviewStatus = {
   bad: "bad",
 } as const;
 
+export type DriverWeekConnecteamParityStatus =
+  (typeof DriverWeekConnecteamParityStatus)[keyof typeof DriverWeekConnecteamParityStatus];
+
+export const DriverWeekConnecteamParityStatus = {
+  match: "match",
+  differ: "differ",
+  unknown: "unknown",
+} as const;
+
+export type DriverWeekConnecteamParityDaysItem = {
+  date: string;
+  engineHours: number;
+  /** @nullable */
+  connecteamHours: number | null;
+  /** @nullable */
+  matches: boolean | null;
+};
+
+/**
+ * Per-day comparison of the engine's daily totals against the
+Connecteam-side daily totals snapshotted at the most recent
+/refresh-connecteam call for this driver-week. `status` is
+`unknown` when no snapshot exists yet (driver-week never
+refreshed), `match` when every snapshotted day reconciles
+within 0.005h, and `differ` otherwise.
+
+ */
+export type DriverWeekConnecteamParity = {
+  status: DriverWeekConnecteamParityStatus;
+  diffCount: number;
+  /** @nullable */
+  lastRefreshedAt?: string | null;
+  days: DriverWeekConnecteamParityDaysItem[];
+};
+
 export interface DriverWeek {
   driver: DriverInfo;
   weekStart: string;
@@ -463,6 +498,14 @@ export interface DriverWeek {
   lockedAt?: string | null;
   /** @nullable */
   lockedByEmail?: string | null;
+  /** Per-day comparison of the engine's daily totals against the
+Connecteam-side daily totals snapshotted at the most recent
+/refresh-connecteam call for this driver-week. `status` is
+`unknown` when no snapshot exists yet (driver-week never
+refreshed), `match` when every snapshotted day reconciles
+within 0.005h, and `differ` otherwise.
+ */
+  connecteamParity?: DriverWeekConnecteamParity;
 }
 
 export type PreviewPunchInputSource =

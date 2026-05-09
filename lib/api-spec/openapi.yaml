@@ -1693,6 +1693,36 @@ components:
           format: date-time
         lockedByEmail:
           type: ["string", "null"]
+        connecteamParity:
+          type: object
+          description: |
+            Per-day comparison of the engine's daily totals against the
+            Connecteam-side daily totals snapshotted at the most recent
+            /refresh-connecteam call for this driver-week. `status` is
+            `unknown` when no snapshot exists yet (driver-week never
+            refreshed), `match` when every snapshotted day reconciles
+            within 0.005h, and `differ` otherwise.
+          required: [status, diffCount, days]
+          properties:
+            status:
+              type: string
+              enum: [match, differ, unknown]
+            diffCount: { type: integer }
+            lastRefreshedAt:
+              type: ["string", "null"]
+              format: date-time
+            days:
+              type: array
+              items:
+                type: object
+                required: [date, engineHours, connecteamHours, matches]
+                properties:
+                  date: { type: string }
+                  engineHours: { type: number }
+                  connecteamHours:
+                    type: ["number", "null"]
+                  matches:
+                    type: ["boolean", "null"]
 
     PreviewPunchInput:
       type: object

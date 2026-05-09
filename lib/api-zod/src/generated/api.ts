@@ -728,6 +728,24 @@ export const GetDriverWeekResponse = zod.object({
   locked: zod.boolean().optional(),
   lockedAt: zod.coerce.date().nullish(),
   lockedByEmail: zod.string().nullish(),
+  connecteamParity: zod
+    .object({
+      status: zod.enum(["match", "differ", "unknown"]),
+      diffCount: zod.number(),
+      lastRefreshedAt: zod.coerce.date().nullish(),
+      days: zod.array(
+        zod.object({
+          date: zod.string(),
+          engineHours: zod.number(),
+          connecteamHours: zod.number().nullable(),
+          matches: zod.boolean().nullable(),
+        }),
+      ),
+    })
+    .optional()
+    .describe(
+      "Per-day comparison of the engine's daily totals against the\nConnecteam-side daily totals snapshotted at the most recent\n\/refresh-connecteam call for this driver-week. `status` is\n`unknown` when no snapshot exists yet (driver-week never\nrefreshed), `match` when every snapshotted day reconciles\nwithin 0.005h, and `differ` otherwise.\n",
+    ),
 });
 
 /**

@@ -230,8 +230,17 @@ export async function fetchPunchesForWeek(
         const startTs = s.start?.timestamp;
         const endTs = s.end?.timestamp;
         if (!startTs || !endTs) continue;
-        const startMs = startTs * 1000 + shiftFix;
-        const endMs = endTs * 1000 + shiftFix;
+        const rawStartMs = startTs * 1000 + shiftFix;
+        const rawEndMs = endTs * 1000 + shiftFix;
+        if (rawEndMs <= rawStartMs) continue;
+        // Round each end to the nearest minute before computing duration so
+        // the stored hours match what the dispatcher (and Connecteam itself)
+        // sees on the minute-resolution wall-clock display. Computing hours
+        // from second-precision raw timestamps used to drift by ~0.01–0.04
+        // hours per shift versus what Connecteam shows the driver (e.g.
+        // 5.43 vs 5.47), and the dashboard had no way to reconcile.
+        const startMs = Math.round(rawStartMs / 60_000) * 60_000;
+        const endMs = Math.round(rawEndMs / 60_000) * 60_000;
         if (endMs <= startMs) continue;
         const date = msToLocalDate(startMs, dispTz);
         // Skip anything that fell outside the requested window after tz-conv.
@@ -242,9 +251,17 @@ export async function fetchPunchesForWeek(
           date,
           clockIn: msToLocalStr(startMs, dispTz),
           clockOut: msToLocalStr(endMs, dispTz),
-          hours: Math.round(((endMs - startMs) / 3_600_000) * 1000) / 1000,
+          // Store as 2 decimals to match Connecteam's display rounding.
+          hours: Math.round(((endMs - startMs) / 3_600_000) * 100) / 100,
           dispTz,
-          ctExternalKey: `${ctUserId}:${startMs}:${endMs}`,
+          // IMPORTANT: key on the RAW (second-precision) timestamps, not the
+          // minute-rounded ones used for display/duration. Connecteam
+          // returns the same raw values on every poll for the same shift,
+          // so this key is stable. Anchoring it on the rounded values
+          // would re-key existing rows the moment we changed the rounding
+          // strategy, and the refresh-preserve-edited-rows logic would
+          // see the new key as a different shift and insert a duplicate.
+          ctExternalKey: `${ctUserId}:${rawStartMs}:${rawEndMs}`,
         });
       }
     }

@@ -30,6 +30,7 @@ import {
   computeDriverTotals,
   defaultDispTz,
 } from "../lib/hoursEngine.js";
+import { buildDailyParity, summarizeParity } from "../lib/connecteamParity.js";
 import {
   KNOWN_CUSTOMERS,
   detectAndParseFile,
@@ -422,6 +423,33 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
     return;
   }
   const totals = computeDriverTotals(punches);
+  const dailyTotals = computeDailyTotals(punches, weekStart, endDate);
+  // Pull the snapshotted Connecteam-side per-day totals so we can serve a
+  // real numeric parity comparison (not just an edit-flag heuristic).
+  const ctSnapshotRows = await db
+    .select({
+      date: schema.connecteamDailySnapshotsTable.date,
+      hours: schema.connecteamDailySnapshotsTable.hours,
+    })
+    .from(schema.connecteamDailySnapshotsTable)
+    .where(
+      and(
+        eq(schema.connecteamDailySnapshotsTable.weekStart, weekStart),
+        eq(schema.connecteamDailySnapshotsTable.kfiId, kfiId),
+      ),
+    );
+  // Baseline existence is driven by whether the WEEK has been refreshed,
+  // not by whether any snapshot rows exist for this driver. A driver who
+  // logged zero shifts in Connecteam still has a valid baseline (zero on
+  // every day) once the week has been refreshed — and any manual punch
+  // the dispatcher adds to that driver-week must surface as a diff.
+  const baselineExists = week?.lastRefreshedAt != null;
+  const dailyParity = buildDailyParity(
+    dailyTotals,
+    ctSnapshotRows,
+    baselineExists,
+  );
+  const paritySummary = summarizeParity(dailyParity);
   const reviewed = await db.query.reviewedDriversTable.findFirst({
     where: and(
       eq(schema.reviewedDriversTable.weekStart, weekStart),
@@ -456,7 +484,15 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
     weekStart,
     endDate,
     punches: punches.map((p) => serializePunch(p, actorEmailById)),
-    dailyTotals: computeDailyTotals(punches, weekStart, endDate),
+    dailyTotals,
+    connecteamParity: {
+      status: paritySummary.status,
+      diffCount: paritySummary.diffCount,
+      lastRefreshedAt: week?.lastRefreshedAt
+        ? new Date(week.lastRefreshedAt).toISOString()
+        : null,
+      days: dailyParity,
+    },
     totals: {
       driverHours: totals.totalDriver,
       customerHours: totals.totalCustomer,
@@ -628,6 +664,68 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
             createdBy: req.session.userId ?? null,
           })),
         );
+      }
+      // Snapshot Connecteam-side per-day totals so the driver-detail page can
+      // render a real "matches Connecteam" parity badge (not just an
+      // edit-flag heuristic). We use `dedupedPunches` — the raw Connecteam
+      // payload — rather than what landed in the DB, because dispatcher
+      // edits to imported rows are preserved on refresh and we want the
+      // baseline to remain "what payroll would see if they pulled
+      // Connecteam right now". Locked drivers are skipped: if their week is
+      // frozen we don't update their baseline either.
+      const snapshotByKey = new Map<
+        string,
+        { weekStart: string; kfiId: string; date: string; hours: number }
+      >();
+      for (const p of dedupedPunches) {
+        if (lockedKfiIds.has(p.kfiId)) continue;
+        const key = `${p.kfiId}|${p.date}`;
+        const prev = snapshotByKey.get(key);
+        if (prev) {
+          prev.hours = Math.round((prev.hours + p.hours) * 100) / 100;
+        } else {
+          snapshotByKey.set(key, {
+            weekStart: startDate,
+            kfiId: p.kfiId,
+            date: p.date,
+            hours: Math.round(p.hours * 100) / 100,
+          });
+        }
+      }
+      // Wipe ALL prior snapshots for this week (except locked drivers, whose
+      // baseline is frozen with their punches). This is intentionally
+      // broader than `refreshedKfiIds` would be: a driver who used to have
+      // Connecteam shifts but logged none in this refresh must have their
+      // stale snapshot rows deleted, otherwise parity would compare the
+      // dashboard against an outdated baseline. The re-insert below covers
+      // every driver who DID have shifts; everyone else legitimately has no
+      // baseline rows for this week and parity falls through to "Connecteam
+      // = 0 for every day" (driven by week.lastRefreshedAt being non-null).
+      const snapshotDeleteConds: SQL[] = [
+        eq(schema.connecteamDailySnapshotsTable.weekStart, startDate),
+      ];
+      if (lockedKfiIds.size > 0) {
+        snapshotDeleteConds.push(
+          sql`${schema.connecteamDailySnapshotsTable.kfiId} NOT IN (${sql.join(
+            [...lockedKfiIds].map((k) => sql`${k}`),
+            sql`, `,
+          )})`,
+        );
+      }
+      await tx
+        .delete(schema.connecteamDailySnapshotsTable)
+        .where(and(...snapshotDeleteConds));
+      const snapshotRows = [...snapshotByKey.values()].map((r) => ({
+        weekStart: r.weekStart,
+        kfiId: r.kfiId,
+        date: r.date,
+        hours: String(r.hours),
+        refreshedAt,
+      }));
+      if (snapshotRows.length > 0) {
+        await tx
+          .insert(schema.connecteamDailySnapshotsTable)
+          .values(snapshotRows);
       }
       await tx
         .update(schema.weeksTable)
@@ -2197,7 +2295,7 @@ weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
   // on Wednesday with 10.0h regardless of the box this code runs on.
   const clockIn = `${parsed.data.date} ${parsed.data.clockIn}`;
   const clockOut = `${parsed.data.date} ${parsed.data.clockOut}`;
-  const hours = Math.round(diffHours(clockIn, clockOut) * 1000) / 1000;
+  const hours = Math.round(diffHours(clockIn, clockOut) * 100) / 100;
   const [row] = await db
     .insert(schema.punchesTable)
     .values({

@@ -5,7 +5,6 @@ import { CT_TZ, localStrToSortMs, isoDateToUtcMs, listDates } from "./time.js";
 export const OT_THRESHOLD = 40;
 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
-const r3 = (n: number): number => Math.round(n * 1000) / 1000;
 
 interface MergedPunch {
   punch: Punch;
@@ -16,6 +15,22 @@ interface MergedPunch {
 /**
  * Split per-driver punches chronologically into RT (up to 40h/week) and OT
  * (anything over 40). Splits a punch that crosses the 40-hour boundary.
+ *
+ * Rounding: every public number is 2 decimals (matches what Connecteam shows
+ * to the driver). Independent rounding of the four chronological buckets
+ * (driverRt, driverOt, custRt, custOt) used to drift by ±0.01 from the
+ * 2-decimal `regularHours`/`overtimeHours` totals — all of which then
+ * landed in OT, so a clean reconciliation looked like a payroll error.
+ * To keep everything reconciled exactly we:
+ *   1. Sum each source first (`totalDriver`, `totalCustomer`) and round to 2dp.
+ *   2. `totalHours = round(totalDriver + totalCustomer, 2)` — single rounding.
+ *   3. `regularHours = min(totalHours, 40)`, `overtimeHours = totalHours - regularHours`.
+ *      Guarantees `regularHours + overtimeHours === totalHours`.
+ *   4. For per-source RT/OT, round one bucket from the raw chronological
+ *      split, then back the other out by subtraction (driverOt = totalDriver
+ *      - driverRt; custRt = regularHours - driverRt; custOt = overtimeHours
+ *      - driverOt). Any rounding delta is distributed across both buckets
+ *      proportionally rather than dumped into OT.
  */
 export function computeDriverTotals(punches: Punch[]): {
   totalDriver: number;
@@ -29,13 +44,18 @@ export function computeDriverTotals(punches: Punch[]): {
   overtimeHours: number;
   hasOvertime: boolean;
 } {
-  let totalDriver = 0;
-  let totalCustomer = 0;
+  let rawDriver = 0;
+  let rawCustomer = 0;
   for (const p of punches) {
     const h = Number(p.hours);
-    if (p.source === "Driver") totalDriver += h;
-    else totalCustomer += h;
+    if (p.source === "Driver") rawDriver += h;
+    else rawCustomer += h;
   }
+  const totalDriver = r2(rawDriver);
+  const totalCustomer = r2(rawCustomer);
+  const totalHours = r2(totalDriver + totalCustomer);
+  const regularHours = Math.min(totalHours, OT_THRESHOLD);
+  const overtimeHours = r2(totalHours - regularHours);
 
   const sorted: MergedPunch[] = [...punches]
     .map((punch) => ({
@@ -50,39 +70,36 @@ export function computeDriverTotals(punches: Punch[]): {
     });
 
   let running = 0;
-  let driverRt = 0;
-  let driverOt = 0;
-  let custRt = 0;
-  let custOt = 0;
-
+  let rawDriverRt = 0;
   for (const m of sorted) {
     const h = m.hours;
     const rtPortion = Math.max(0, Math.min(h, OT_THRESHOLD - running));
-    const otPortion = h - rtPortion;
     running += h;
-    if (m.source === "Driver") {
-      driverRt += rtPortion;
-      driverOt += otPortion;
-    } else {
-      custRt += rtPortion;
-      custOt += otPortion;
-    }
+    if (m.source === "Driver") rawDriverRt += rtPortion;
   }
 
-  const total = totalDriver + totalCustomer;
-  const rt = driverRt + custRt;
-  const ot = driverOt + custOt;
+  // Anchor on driverRt (the chronological bucket the engine actually
+  // computes), then derive the other three by subtraction so the four
+  // numbers always reconcile to totalDriver / totalCustomer / regularHours
+  // / overtimeHours without rounding artifacts.
+  let driverRt = r2(rawDriverRt);
+  if (driverRt > totalDriver) driverRt = totalDriver;
+  if (driverRt > regularHours) driverRt = regularHours;
+  const driverOt = r2(totalDriver - driverRt);
+  const custRt = r2(regularHours - driverRt);
+  const custOt = r2(overtimeHours - driverOt);
+
   return {
-    totalDriver: r3(totalDriver),
-    totalCustomer: r3(totalCustomer),
-    driverRt: r2(driverRt),
-    driverOt: r2(driverOt),
-    custRt: r2(custRt),
-    custOt: r2(custOt),
-    totalHours: r3(total),
-    regularHours: r2(rt),
-    overtimeHours: r2(ot),
-    hasOvertime: ot > 0.005,
+    totalDriver,
+    totalCustomer,
+    driverRt,
+    driverOt,
+    custRt,
+    custOt,
+    totalHours,
+    regularHours: r2(regularHours),
+    overtimeHours,
+    hasOvertime: overtimeHours > 0.005,
   };
 }
 
@@ -135,14 +152,24 @@ export function computeDailyTotals(
     }
   }
 
-  return [...byDate.entries()].map(([date, v]) => ({
-    date,
-    driverHours: r3(v.d),
-    customerHours: r3(v.c),
-    totalHours: r3(v.d + v.c),
-    regularHours: r2(v.rt),
-    overtimeHours: r2(v.ot),
-  }));
+  return [...byDate.entries()].map(([date, v]) => {
+    // Same anchor-and-subtract trick as the weekly totals: round the day
+    // total once, then back overtimeHours out so rt+ot===total per day.
+    const driverHours = r2(v.d);
+    const customerHours = r2(v.c);
+    const totalHours = r2(driverHours + customerHours);
+    const overtimeHours = r2(Math.max(0, v.ot));
+    let regularHours = r2(totalHours - overtimeHours);
+    if (regularHours < 0) regularHours = 0;
+    return {
+      date,
+      driverHours,
+      customerHours,
+      totalHours,
+      regularHours,
+      overtimeHours,
+    };
+  });
 }
 
 export interface PunchCheck {
