@@ -760,29 +760,24 @@ export default function DriverDetail() {
     return ta - tb;
   });
 
-  // Client-side running totals + OT split, mirroring hoursEngine.computeDriverTotals.
+  // Client-side running totals + OT flag, mirroring hoursEngine.computeDriverTotals.
+  // The OT flag drives the running-cell color rule (warning past 40h).
   let running = 0;
   const rows = sortedPunches.map((p) => {
     const before = running;
     const h = Number(p.hours) || 0;
     running = before + h;
-    // Per-row split: OT for this row = OT cumulative-after minus OT cumulative-before.
     const otBefore = Math.max(0, before - OT_THRESHOLD);
     const otAfter = Math.max(0, running - OT_THRESHOLD);
     const otPortion = otAfter - otBefore;
-    const rtPortion = h - otPortion;
     // Highlight rows whose cumulative hours cross or sit at/past the 40h line.
     const isOt = otPortion > 0.0001 || running >= OT_THRESHOLD - 0.0001;
-    return { p, before, after: running, hours: h, rtPortion, otPortion, isOt };
+    return { p, after: running, isOt };
   });
 
   const customerLabel = isCustomerNameUseful(data.driver.customer)
     ? data.driver.customer
     : "Needs roster cleanup";
-
-  // Bar scale: 40 + a buffer so OT shows as visibly past the line.
-  const scaleMax = Math.max(OT_THRESHOLD * 1.1, running * 1.02, OT_THRESHOLD + 4);
-  const otLinePct = (OT_THRESHOLD / scaleMax) * 100;
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
@@ -948,11 +943,11 @@ export default function DriverDetail() {
           </p>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground pt-1 print:hidden">
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-blue-600 dark:bg-blue-400" />
+              <span className="h-2 w-2 rounded-full bg-sidebar" />
               Driver (ConnectTeam)
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-emerald-600 dark:bg-emerald-400" />
+              <span className="h-2 w-2 rounded-full bg-primary" />
               Customer (Timesheet)
             </span>
             <span className="inline-flex items-center gap-1.5">
@@ -1048,32 +1043,6 @@ export default function DriverDetail() {
           </Card>
         )}
 
-        {/* Compact stat cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-          <StatCard
-            label="Driver Hours"
-            value={data.totals.driverHours}
-            valueClass="text-blue-600 dark:text-blue-400"
-          />
-          <StatCard
-            label="Customer Hours"
-            value={data.totals.customerHours}
-            valueClass="text-emerald-600 dark:text-emerald-400"
-          />
-          <StatCard label="Total Hours" value={data.totals.totalHours} />
-          <StatCard
-            label="Regular (RT)"
-            value={data.totals.regularHours}
-            valueClass="text-emerald-700 dark:text-emerald-400"
-          />
-          <StatCard
-            label="Overtime (OT)"
-            value={data.totals.overtimeHours}
-            valueClass="text-warning"
-            cardClass="border-warning/40"
-          />
-        </div>
-
         {/* Summary + Checks panels — surface the per-source RT/OT split and an
             independent re-derivation, so any divergence is obvious. */}
         <SummaryAndChecks
@@ -1151,23 +1120,7 @@ export default function DriverDetail() {
                   <TableHead className="uppercase text-[11px] tracking-wider">Clock In</TableHead>
                   <TableHead className="uppercase text-[11px] tracking-wider">Clock Out</TableHead>
                   <TableHead className="text-right uppercase text-[11px] tracking-wider w-[80px]">Hours</TableHead>
-                  <TableHead className="uppercase text-[11px] tracking-wider min-w-[220px]">
-                    <div className="flex items-center gap-2">
-                      <div className="relative flex-1 min-w-[120px] h-4">
-                        <div
-                          className="absolute top-0 bottom-0 w-px bg-warning/70"
-                          style={{ left: `${otLinePct}%` }}
-                        />
-                        <span
-                          className="absolute -top-0.5 text-[9px] font-mono font-semibold text-warning tracking-tight whitespace-nowrap -translate-x-1/2"
-                          style={{ left: `${otLinePct}%` }}
-                        >
-                          40h OT
-                        </span>
-                      </div>
-                      <span className="w-12 text-right normal-case tracking-wider">Running</span>
-                    </div>
-                  </TableHead>
+                  <TableHead className="text-right uppercase text-[11px] tracking-wider w-[90px]">Running</TableHead>
                   <TableHead className="text-right uppercase text-[11px] tracking-wider w-[100px]">Type</TableHead>
                   <TableHead className="text-right w-[90px] print:hidden"></TableHead>
                 </TableRow>
@@ -1180,15 +1133,16 @@ export default function DriverDetail() {
                     </TableCell>
                   </TableRow>
                 )}
-                {rows.map(({ p, before, after, isOt, rtPortion, otPortion }) => {
+                {rows.map(({ p, after, isOt }) => {
                   const isEditing = editingPunchId === p.id;
                   const isDriver = p.source === "Driver";
-                  const rtPctOfRow = (rtPortion / scaleMax) * 100;
-                  const otPctOfRow = (otPortion / scaleMax) * 100;
-                  // Within "before", how much was already RT vs OT (for the lighter "completed" portion).
-                  const beforeRtPct = (Math.min(before, OT_THRESHOLD) / scaleMax) * 100;
-                  const beforeOtPct = (Math.max(0, before - OT_THRESHOLD) / scaleMax) * 100;
                   const remaining = OT_THRESHOLD - after;
+                  // Source-driven faint bg wash on time cells: navy for Driver,
+                  // teal for Customer. Subtle, but unmistakable at a glance and
+                  // still readable on top of the OT highlight (bg-warning/10).
+                  const sourceCellTint = isDriver
+                    ? "bg-sidebar/[0.06] dark:bg-sidebar-accent/30"
+                    : "bg-primary/[0.07] dark:bg-primary/15";
                   const tooltipLine =
                     remaining > 0.0001
                       ? `${remaining.toFixed(2)}h until OT`
@@ -1235,7 +1189,7 @@ export default function DriverDetail() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className="font-mono text-sm whitespace-nowrap">
+                      <TableCell className={cn("font-mono text-base whitespace-nowrap", sourceCellTint)}>
                         {isEditing ? (
                           <Input
                             autoFocus
@@ -1258,7 +1212,7 @@ export default function DriverDetail() {
                           formatClockCell(p.clockIn)
                         )}
                       </TableCell>
-                      <TableCell className="font-mono text-sm whitespace-nowrap">
+                      <TableCell className={cn("font-mono text-base whitespace-nowrap", sourceCellTint)}>
                         {isEditing ? (
                           <Input
                             className="h-8 w-28 font-mono text-sm"
@@ -1280,7 +1234,7 @@ export default function DriverDetail() {
                           formatClockCell(p.clockOut)
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-mono font-medium">
+                      <TableCell className={cn("text-right font-mono font-medium text-base", sourceCellTint)}>
                         {isEditing && editPreview
                           ? editPreview.hours.toFixed(2)
                           : p.hours.toFixed(2)}
@@ -1300,60 +1254,18 @@ export default function DriverDetail() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-right">
                         <TooltipProvider delayDuration={150}>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <div className="flex items-center gap-2 cursor-help">
-                                <div className="relative h-1.5 flex-1 min-w-[120px] bg-muted rounded-full overflow-hidden print:hidden">
-                                  {/* "Already accumulated" lighter base */}
-                                  {beforeRtPct > 0 && (
-                                    <div
-                                      className="absolute top-0 left-0 h-full bg-blue-300/60 dark:bg-blue-400/30"
-                                      style={{ width: `${beforeRtPct}%` }}
-                                    />
-                                  )}
-                                  {beforeOtPct > 0 && (
-                                    <div
-                                      className="absolute top-0 h-full bg-warning/40"
-                                      style={{ left: `${otLinePct}%`, width: `${beforeOtPct}%` }}
-                                    />
-                                  )}
-                                  {/* This-row RT portion */}
-                                  {rtPctOfRow > 0 && (
-                                    <div
-                                      className={cn(
-                                        "absolute top-0 h-full",
-                                        isDriver ? "bg-blue-700 dark:bg-blue-400" : "bg-emerald-600 dark:bg-emerald-400",
-                                      )}
-                                      style={{ left: `${beforeRtPct}%`, width: `${rtPctOfRow}%` }}
-                                    />
-                                  )}
-                                  {/* This-row OT portion */}
-                                  {otPctOfRow > 0 && (
-                                    <div
-                                      className="absolute top-0 h-full bg-warning"
-                                      style={{
-                                        left: `${otLinePct + beforeOtPct}%`,
-                                        width: `${otPctOfRow}%`,
-                                      }}
-                                    />
-                                  )}
-                                  {/* OT threshold marker */}
-                                  <div
-                                    className="absolute top-0 h-full w-px bg-warning/70"
-                                    style={{ left: `${otLinePct}%` }}
-                                  />
-                                </div>
-                                <span
-                                  className={cn(
-                                    "font-mono text-xs tabular-nums w-12 text-right",
-                                    isOt ? "text-warning" : "text-muted-foreground",
-                                  )}
-                                >
-                                  {after.toFixed(2)}
-                                </span>
-                              </div>
+                              <span
+                                className={cn(
+                                  "font-mono text-base tabular-nums cursor-help",
+                                  isOt ? "text-warning font-semibold" : "text-muted-foreground",
+                                )}
+                              >
+                                {after.toFixed(2)}
+                              </span>
                             </TooltipTrigger>
                             <TooltipContent side="top" className="font-mono text-[11px] leading-relaxed">
                               <div>Cumulative: {after.toFixed(2)}h</div>
@@ -1365,9 +1277,7 @@ export default function DriverDetail() {
                       <TableCell
                         className={cn(
                           "text-right font-medium text-sm",
-                          isDriver
-                            ? "text-blue-600 dark:text-blue-400"
-                            : "text-emerald-600 dark:text-emerald-400",
+                          isDriver ? "text-sidebar dark:text-sidebar-foreground" : "text-primary",
                         )}
                       >
                         {p.source}
@@ -1785,6 +1695,7 @@ function SummaryAndChecks({
           <dl className="divide-y divide-border">
             <SummaryRow label="Total Driver" value={totDriver} testId="row-summary-total-driver" />
             <SummaryRow label="Total Customer" value={totCust} testId="row-summary-total-customer" />
+            <SummaryRow label="Total Hours" value={total} testId="row-summary-total-hours" />
             <SummaryRow label="RT" value={rt} testId="row-summary-rt" />
             <SummaryRow
               label="OT"
@@ -1884,31 +1795,6 @@ function SummaryRow({
         {value.toFixed(2)}
       </dd>
     </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  valueClass,
-  cardClass,
-}: {
-  label: string;
-  value: number;
-  valueClass?: string;
-  cardClass?: string;
-}) {
-  return (
-    <Card className={cn("py-0", cardClass)}>
-      <CardContent className="px-4 py-3">
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-          {label}
-        </div>
-        <div className={cn("text-2xl font-mono font-bold leading-tight mt-1 tabular-nums", valueClass)}>
-          {value.toFixed(2)}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -2015,10 +1901,10 @@ function SourceBadge({ source }: { source: "Driver" | "Customer" | string }) {
   return (
     <span
       className={cn(
-        "inline-block text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-sm",
+        "inline-block text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-sm border",
         isDriver
-          ? "bg-sidebar text-sidebar-foreground"
-          : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+          ? "bg-sidebar text-sidebar-foreground border-sidebar"
+          : "bg-primary text-primary-foreground border-primary",
       )}
     >
       {source}
