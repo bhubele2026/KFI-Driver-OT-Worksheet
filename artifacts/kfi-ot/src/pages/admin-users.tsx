@@ -783,6 +783,15 @@ export default function AdminUsers() {
               Driver-ID mappings
             </Button>
           </Link>
+          <Link href="/admin/notes">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
+            >
+              Hidden notes
+            </Button>
+          </Link>
         </div>
       </header>
 

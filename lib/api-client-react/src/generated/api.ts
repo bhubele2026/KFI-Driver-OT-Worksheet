@@ -33,6 +33,7 @@ import type {
   CustomerNameAlias,
   CustomerNameAliasList,
   CustomerUploadStatus,
+  DeletedDriverNote,
   DriverIdAlias,
   DriverIdAliasList,
   DriverNote,
@@ -48,6 +49,7 @@ import type {
   IpBlocklistEntry,
   ListAiExtractSamplesParams,
   ListCustomerAliasAuditLogParams,
+  ListDeletedDriverNotesParams,
   ListRateLimitEventTimeseriesParams,
   ListRateLimitEventTopOffendersParams,
   ListUserAuditLogParams,
@@ -5598,6 +5600,193 @@ export const useSoftDeleteDriverNote = <
 > => {
   return useMutation(getSoftDeleteDriverNoteMutationOptions(options));
 };
+
+/**
+ * @summary Restore a soft-deleted note (admin only). Clears `deleted_at` / `deleted_by_user_id` so the driver-detail page treats the note as live again. Recorded in `user_audit_log` as `restore-note`.
+ */
+export const getRestoreDriverNoteUrl = (id: number) => {
+  return `/api/notes/${id}/restore`;
+};
+
+export const restoreDriverNote = async (
+  id: number,
+  options?: RequestInit,
+): Promise<DriverNote> => {
+  return customFetch<DriverNote>(getRestoreDriverNoteUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRestoreDriverNoteMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof restoreDriverNote>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof restoreDriverNote>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["restoreDriverNote"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof restoreDriverNote>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return restoreDriverNote(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RestoreDriverNoteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof restoreDriverNote>>
+>;
+
+export type RestoreDriverNoteMutationError = ErrorType<void>;
+
+/**
+ * @summary Restore a soft-deleted note (admin only). Clears `deleted_at` / `deleted_by_user_id` so the driver-detail page treats the note as live again. Recorded in `user_audit_log` as `restore-note`.
+ */
+export const useRestoreDriverNote = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof restoreDriverNote>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof restoreDriverNote>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getRestoreDriverNoteMutationOptions(options));
+};
+
+/**
+ * @summary List soft-deleted driver-week notes (admin only), newest first.
+ */
+export const getListDeletedDriverNotesUrl = (
+  params?: ListDeletedDriverNotesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/notes/deleted?${stringifiedParams}`
+    : `/api/admin/notes/deleted`;
+};
+
+export const listDeletedDriverNotes = async (
+  params?: ListDeletedDriverNotesParams,
+  options?: RequestInit,
+): Promise<DeletedDriverNote[]> => {
+  return customFetch<DeletedDriverNote[]>(
+    getListDeletedDriverNotesUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListDeletedDriverNotesQueryKey = (
+  params?: ListDeletedDriverNotesParams,
+) => {
+  return [`/api/admin/notes/deleted`, ...(params ? [params] : [])] as const;
+};
+
+export const getListDeletedDriverNotesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listDeletedDriverNotes>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListDeletedDriverNotesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listDeletedDriverNotes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListDeletedDriverNotesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listDeletedDriverNotes>>
+  > = ({ signal }) =>
+    listDeletedDriverNotes(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listDeletedDriverNotes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListDeletedDriverNotesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listDeletedDriverNotes>>
+>;
+export type ListDeletedDriverNotesQueryError = ErrorType<void>;
+
+/**
+ * @summary List soft-deleted driver-week notes (admin only), newest first.
+ */
+
+export function useListDeletedDriverNotes<
+  TData = Awaited<ReturnType<typeof listDeletedDriverNotes>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListDeletedDriverNotesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listDeletedDriverNotes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListDeletedDriverNotesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Recent review/lock audit trail for a driver-week

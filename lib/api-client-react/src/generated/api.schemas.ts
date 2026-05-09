@@ -950,6 +950,28 @@ export interface CreateDriverNoteInput {
   punchId?: number | null;
 }
 
+export interface DeletedDriverNote {
+  id: number;
+  weekStart: string;
+  kfiId: string;
+  /** @nullable */
+  punchId?: number | null;
+  /** False when `punchId` is set but the punch row has been deleted. */
+  punchExists: boolean;
+  body: string;
+  /** @nullable */
+  authorUserId?: number | null;
+  /** @nullable */
+  authorEmail?: string | null;
+  authorRole: string;
+  createdAt: string;
+  deletedAt: string;
+  /** @nullable */
+  deletedByUserId?: number | null;
+  /** @nullable */
+  deletedByEmail?: string | null;
+}
+
 export interface CustomerAliasAuditLogEntry {
   id: number;
   /** One of `remap` (driver re-assigned) or `forget` (alias deleted). */
@@ -1043,4 +1065,12 @@ export type SetReviewed200 = {
   reviewed: boolean;
   /** @nullable */
   status: string | null;
+};
+
+export type ListDeletedDriverNotesParams = {
+  /**
+   * @minimum 1
+   * @maximum 500
+   */
+  limit?: number;
 };

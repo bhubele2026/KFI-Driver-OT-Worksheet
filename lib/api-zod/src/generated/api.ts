@@ -1762,6 +1762,75 @@ export const SoftDeleteDriverNoteParams = zod.object({
 });
 
 /**
+ * @summary Restore a soft-deleted note (admin only). Clears `deleted_at` / `deleted_by_user_id` so the driver-detail page treats the note as live again. Recorded in `user_audit_log` as `restore-note`.
+ */
+export const RestoreDriverNoteParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const RestoreDriverNoteResponse = zod.object({
+  id: zod.number(),
+  weekStart: zod.string(),
+  kfiId: zod.string(),
+  punchId: zod
+    .number()
+    .nullish()
+    .describe(
+      'Null = week-level note. Otherwise references the punch this note is attached to. Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an \"(orphaned punch)\" tag so context isn\'t lost.',
+    ),
+  punchExists: zod
+    .boolean()
+    .describe(
+      'False when `punchId` is set but the punch row has been deleted. The frontend uses this to render an \"(orphaned punch)\" tag.',
+    ),
+  body: zod.string(),
+  authorUserId: zod.number().nullish(),
+  authorEmail: zod.string().nullish(),
+  authorRole: zod
+    .string()
+    .describe(
+      'Snapshot of the author\'s role at write-time (\"reviewer\" \/ \"supervisor\" \/ \"admin\"). Denormalized so changing the author\'s role later doesn\'t retroactively rewrite history.',
+    ),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary List soft-deleted driver-week notes (admin only), newest first.
+ */
+export const listDeletedDriverNotesQueryLimitMax = 500;
+
+export const ListDeletedDriverNotesQueryParams = zod.object({
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listDeletedDriverNotesQueryLimitMax)
+    .optional(),
+});
+
+export const ListDeletedDriverNotesResponseItem = zod.object({
+  id: zod.number(),
+  weekStart: zod.string(),
+  kfiId: zod.string(),
+  punchId: zod.number().nullish(),
+  punchExists: zod
+    .boolean()
+    .describe(
+      "False when `punchId` is set but the punch row has been deleted.",
+    ),
+  body: zod.string(),
+  authorUserId: zod.number().nullish(),
+  authorEmail: zod.string().nullish(),
+  authorRole: zod.string(),
+  createdAt: zod.coerce.date(),
+  deletedAt: zod.coerce.date(),
+  deletedByUserId: zod.number().nullish(),
+  deletedByEmail: zod.string().nullish(),
+});
+export const ListDeletedDriverNotesResponse = zod.array(
+  ListDeletedDriverNotesResponseItem,
+);
+
+/**
  * @summary Recent review/lock audit trail for a driver-week
  */
 export const getDriverWeekAuditPathWeekStartRegExp = new RegExp(

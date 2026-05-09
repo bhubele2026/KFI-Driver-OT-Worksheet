@@ -1136,6 +1136,46 @@ paths:
         "403": { description: Admin access required }
         "404": { description: Not found }
 
+  /notes/{id}/restore:
+    post:
+      operationId: restoreDriverNote
+      tags: [drivers]
+      summary: Restore a soft-deleted note (admin only). Clears `deleted_at` / `deleted_by_user_id` so the driver-detail page treats the note as live again. Recorded in `user_audit_log` as `restore-note`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Restored note
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DriverNote" }
+        "403": { description: Admin access required }
+        "404": { description: Not found }
+        "409": { description: Note is not currently soft-deleted }
+
+  /admin/notes/deleted:
+    get:
+      operationId: listDeletedDriverNotes
+      tags: [drivers]
+      summary: List soft-deleted driver-week notes (admin only), newest first.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500 }
+      responses:
+        "200":
+          description: Hidden notes with author, hide-actor, and hide-time.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DeletedDriverNote" }
+        "403": { description: Admin access required }
+
   /weeks/{weekStart}/drivers/{kfiId}/audit:
     get:
       operationId: getDriverWeekAudit
@@ -2288,6 +2328,42 @@ components:
         punchId:
           type: ["integer", "null"]
           description: Optional. When set, the note is attached to that specific punch row. When omitted/null, the note is week-level.
+
+    DeletedDriverNote:
+      type: object
+      required:
+        [
+          id,
+          weekStart,
+          kfiId,
+          body,
+          authorRole,
+          createdAt,
+          deletedAt,
+          punchExists,
+        ]
+      properties:
+        id: { type: integer }
+        weekStart: { type: string }
+        kfiId: { type: string }
+        punchId:
+          type: ["integer", "null"]
+        punchExists:
+          type: boolean
+          description: False when `punchId` is set but the punch row has been deleted.
+        body: { type: string }
+        authorUserId:
+          type: ["integer", "null"]
+        authorEmail:
+          type: ["string", "null"]
+        authorRole:
+          type: string
+        createdAt: { type: string, format: date-time }
+        deletedAt: { type: string, format: date-time }
+        deletedByUserId:
+          type: ["integer", "null"]
+        deletedByEmail:
+          type: ["string", "null"]
 
     CustomerAliasAuditLogEntry:
       type: object

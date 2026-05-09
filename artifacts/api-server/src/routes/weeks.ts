@@ -1,6 +1,7 @@
 import { Router, type Request } from "express";
 import multer from "multer";
-import { and, asc, desc, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   ConfirmNewCustomerFileBody,
   CreateDriverNoteBody,
@@ -2971,6 +2972,115 @@ weeksRouter.delete("/notes/:id", requireAdmin, async (req, res) => {
     });
   });
   if (!res.headersSent) res.status(204).end();
+});
+
+weeksRouter.post("/notes/:id/restore", requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  const userId = req.session.userId ?? null;
+  let restored: { weekStart: string; kfiId: string } | null = null as { weekStart: string; kfiId: string } | null;
+  await db.transaction(async (tx) => {
+    const existing = await tx.query.driverNotesTable.findFirst({
+      where: eq(schema.driverNotesTable.id, id),
+    });
+    if (!existing) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (!existing.deletedAt) {
+      res.status(409).json({ error: "Note is not currently soft-deleted" });
+      return;
+    }
+    await tx
+      .update(schema.driverNotesTable)
+      .set({ deletedAt: null, deletedByUserId: null })
+      .where(eq(schema.driverNotesTable.id, id));
+    // Mirror the soft-delete audit pattern: targetUserId is the note's
+    // original author so the admin users page surfaces "your note was
+    // restored by …" alongside the hide entry.
+    await tx.insert(schema.userAuditLogTable).values({
+      actorUserId: userId,
+      targetUserId: existing.authorUserId ?? null,
+      targetEmail: null,
+      action: "restore-note",
+    });
+    restored = { weekStart: existing.weekStart, kfiId: existing.kfiId };
+  });
+  if (res.headersSent || restored == null) return;
+  // Re-load via the existing helper so the response shape matches the
+  // driver-detail "live" notes payload exactly.
+  const rows = await loadNotesForDriverWeek(restored.weekStart, restored.kfiId);
+  const row = rows.find((r) => r.id === id);
+  if (!row) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json(row);
+});
+
+weeksRouter.get("/admin/notes/deleted", requireAdmin, async (req, res) => {
+  const limitParam = Number(req.query.limit);
+  const limit =
+    Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 500
+      ? limitParam
+      : 100;
+  const author = alias(schema.usersTable, "author");
+  const deleter = alias(schema.usersTable, "deleter");
+  const rows = await db
+    .select({
+      id: schema.driverNotesTable.id,
+      weekStart: schema.driverNotesTable.weekStart,
+      kfiId: schema.driverNotesTable.kfiId,
+      punchId: schema.driverNotesTable.punchId,
+      body: schema.driverNotesTable.body,
+      authorUserId: schema.driverNotesTable.authorUserId,
+      authorEmail: author.email,
+      authorRole: schema.driverNotesTable.authorRole,
+      createdAt: schema.driverNotesTable.createdAt,
+      deletedAt: schema.driverNotesTable.deletedAt,
+      deletedByUserId: schema.driverNotesTable.deletedByUserId,
+      deletedByEmail: deleter.email,
+    })
+    .from(schema.driverNotesTable)
+    .leftJoin(author, eq(author.id, schema.driverNotesTable.authorUserId))
+    .leftJoin(deleter, eq(deleter.id, schema.driverNotesTable.deletedByUserId))
+    .where(isNotNull(schema.driverNotesTable.deletedAt))
+    .orderBy(desc(schema.driverNotesTable.deletedAt))
+    .limit(limit);
+
+  // Resolve punchExists in one round-trip so the UI can render an
+  // "(orphaned punch)" tag when the underlying punch row is gone.
+  const punchIds = [
+    ...new Set(rows.map((r) => r.punchId).filter((x): x is number => x != null)),
+  ];
+  const livePunchIds = new Set<number>();
+  if (punchIds.length > 0) {
+    const live = await db
+      .select({ id: schema.punchesTable.id })
+      .from(schema.punchesTable)
+      .where(inArray(schema.punchesTable.id, punchIds));
+    for (const p of live) livePunchIds.add(p.id);
+  }
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      weekStart: r.weekStart,
+      kfiId: r.kfiId,
+      punchId: r.punchId,
+      punchExists: r.punchId == null ? true : livePunchIds.has(r.punchId),
+      body: r.body,
+      authorUserId: r.authorUserId,
+      authorEmail: r.authorEmail ?? null,
+      authorRole: r.authorRole,
+      createdAt: new Date(r.createdAt).toISOString(),
+      deletedAt: r.deletedAt ? new Date(r.deletedAt).toISOString() : null,
+      deletedByUserId: r.deletedByUserId,
+      deletedByEmail: r.deletedByEmail ?? null,
+    })),
+  );
 });
 
 function serializePunch(
