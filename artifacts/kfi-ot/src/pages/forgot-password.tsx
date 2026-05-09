@@ -14,11 +14,14 @@ import {
 } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import { Logo } from "@/components/logo";
+import { LanguageToggle } from "@/components/language-toggle";
+import { useTranslation } from "react-i18next";
 
 export default function ForgotPassword() {
   const request = useRequestPasswordReset();
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const { t } = useTranslation();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,24 +38,22 @@ export default function ForgotPassword() {
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-sm">
+        <div className="flex justify-end mb-2"><LanguageToggle /></div>
         <Logo variant="auth" />
         <Card className="shadow-lg border-border/50">
         <CardHeader>
           <CardTitle className="text-2xl font-bold font-display tracking-tight">
-            Reset password
+            {t("forgotPassword.title")}
           </CardTitle>
           <CardDescription>
-            Enter your email and we&apos;ll send you a reset link.
+            {t("forgotPassword.description")}
           </CardDescription>
         </CardHeader>
         {submitted ? (
           <>
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                If an account exists for{" "}
-                <span className="font-mono text-foreground">{email}</span>,
-                you&apos;ll receive a reset link shortly. The link expires in 1
-                hour.
+                {t("forgotPassword.submittedBody", { email })}
               </p>
             </CardContent>
             <CardFooter>
@@ -60,7 +61,7 @@ export default function ForgotPassword() {
                 href="/login"
                 className="text-sm text-primary hover:underline underline-offset-4"
               >
-                Back to sign in
+                {t("common.backToSignIn")}
               </Link>
             </CardFooter>
           </>
@@ -68,7 +69,7 @@ export default function ForgotPassword() {
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t("common.email")}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -87,13 +88,13 @@ export default function ForgotPassword() {
                 {request.isPending && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                Send reset link
+                {t("forgotPassword.submit")}
               </Button>
               <Link
                 href="/login"
                 className="text-sm text-primary hover:underline underline-offset-4"
               >
-                Back to sign in
+                {t("common.backToSignIn")}
               </Link>
             </CardFooter>
           </form>

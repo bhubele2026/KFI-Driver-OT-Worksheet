@@ -45,6 +45,8 @@ export interface User {
    * @nullable
    */
   passwordResetLastSentAt?: string | null;
+  /** BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'. */
+  preferredLanguage: string;
 }
 
 export interface RegistrationStatus {
@@ -241,6 +243,18 @@ export interface UserAuditLogEntry {
    * @nullable
    */
   aiSample?: UserAuditLogEntryAiSample;
+}
+
+export type UpdateLanguageBodyPreferredLanguage =
+  (typeof UpdateLanguageBodyPreferredLanguage)[keyof typeof UpdateLanguageBodyPreferredLanguage];
+
+export const UpdateLanguageBodyPreferredLanguage = {
+  en: "en",
+  es: "es",
+} as const;
+
+export interface UpdateLanguageBody {
+  preferredLanguage: UpdateLanguageBodyPreferredLanguage;
 }
 
 export type UpdateUserBodyRole =

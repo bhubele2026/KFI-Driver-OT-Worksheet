@@ -20,6 +20,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Logo } from "@/components/logo";
+import { LanguageToggle } from "@/components/language-toggle";
+import { useTranslation } from "react-i18next";
 
 export default function ResetPassword() {
   const params = useParams<{ token: string }>();
@@ -31,11 +33,12 @@ export default function ResetPassword() {
   const reset = useResetPassword();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const { t } = useTranslation();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirm) {
-      toast({ title: "Passwords don't match", variant: "destructive" });
+      toast({ title: t("resetPassword.passwordsMismatch"), variant: "destructive" });
       return;
     }
     reset.mutate(
@@ -43,14 +46,14 @@ export default function ResetPassword() {
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-          toast({ title: "Password updated" });
+          toast({ title: t("resetPassword.successTitle") });
           setLocation("/");
         },
         onError: (err) => {
           toast({
-            title: "Reset failed",
+            title: t("resetPassword.failedTitle"),
             description:
-              err instanceof Error ? err.message : "Try requesting a new link",
+              err instanceof Error ? err.message : t("resetPassword.failedFallback"),
             variant: "destructive",
           });
         },
@@ -70,14 +73,15 @@ export default function ResetPassword() {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
         <div className="w-full max-w-sm">
+          <div className="flex justify-end mb-2"><LanguageToggle /></div>
           <Logo variant="auth" />
           <Card className="shadow-lg border-border/50">
           <CardHeader>
             <CardTitle className="text-xl font-display">
-              Reset link invalid
+              {t("resetPassword.invalidTitle")}
             </CardTitle>
             <CardDescription>
-              This password reset link has expired, been used, or never existed.
+              {t("resetPassword.invalidDescription")}
             </CardDescription>
           </CardHeader>
           <CardFooter className="flex flex-col items-start space-y-2">
@@ -85,13 +89,13 @@ export default function ResetPassword() {
               href="/forgot-password"
               className="text-sm text-primary hover:underline underline-offset-4"
             >
-              Request a new reset link
+              {t("resetPassword.requestNew")}
             </Link>
             <Link
               href="/login"
               className="text-sm text-primary hover:underline underline-offset-4"
             >
-              Back to sign in
+              {t("common.backToSignIn")}
             </Link>
           </CardFooter>
           </Card>
@@ -103,21 +107,21 @@ export default function ResetPassword() {
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-sm">
+        <div className="flex justify-end mb-2"><LanguageToggle /></div>
         <Logo variant="auth" />
         <Card className="shadow-lg border-border/50">
         <CardHeader>
           <CardTitle className="text-2xl font-bold font-display tracking-tight">
-            Set new password
+            {t("resetPassword.title")}
           </CardTitle>
           <CardDescription>
-            Resetting password for{" "}
-            <span className="font-mono text-foreground">{data.email}</span>.
+            {t("resetPassword.description", { email: data.email })}
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="password">New password</Label>
+              <Label htmlFor="password">{t("common.newPassword")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -128,7 +132,7 @@ export default function ResetPassword() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm">Confirm password</Label>
+              <Label htmlFor="confirm">{t("common.confirmPassword")}</Label>
               <Input
                 id="confirm"
                 type="password"
@@ -148,7 +152,7 @@ export default function ResetPassword() {
               {reset.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
-              Update password
+              {t("resetPassword.submit")}
             </Button>
           </CardFooter>
         </form>

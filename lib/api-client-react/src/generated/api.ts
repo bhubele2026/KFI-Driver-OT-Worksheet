@@ -82,6 +82,7 @@ import type {
   UpdateCustomerNameAliasBody,
   UpdateCustomerNameAliasParams,
   UpdateDriverIdAliasBody,
+  UpdateLanguageBody,
   UpdateUserBody,
   UploadResult,
   User,
@@ -2588,6 +2589,92 @@ export function useGetMe<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Update the signed-in user's preferred UI language
+ */
+export const getUpdateMyLanguageUrl = () => {
+  return `/api/auth/me/language`;
+};
+
+export const updateMyLanguage = async (
+  updateLanguageBody: UpdateLanguageBody,
+  options?: RequestInit,
+): Promise<User> => {
+  return customFetch<User>(getUpdateMyLanguageUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateLanguageBody),
+  });
+};
+
+export const getUpdateMyLanguageMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMyLanguage>>,
+    TError,
+    { data: BodyType<UpdateLanguageBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateMyLanguage>>,
+  TError,
+  { data: BodyType<UpdateLanguageBody> },
+  TContext
+> => {
+  const mutationKey = ["updateMyLanguage"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateMyLanguage>>,
+    { data: BodyType<UpdateLanguageBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateMyLanguage(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateMyLanguageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateMyLanguage>>
+>;
+export type UpdateMyLanguageMutationBody = BodyType<UpdateLanguageBody>;
+export type UpdateMyLanguageMutationError = ErrorType<void>;
+
+/**
+ * @summary Update the signed-in user's preferred UI language
+ */
+export const useUpdateMyLanguage = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMyLanguage>>,
+    TError,
+    { data: BodyType<UpdateLanguageBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateMyLanguage>>,
+  TError,
+  { data: BodyType<UpdateLanguageBody> },
+  TContext
+> => {
+  return useMutation(getUpdateMyLanguageMutationOptions(options));
+};
 
 /**
  * @summary List weeks that have ingested data

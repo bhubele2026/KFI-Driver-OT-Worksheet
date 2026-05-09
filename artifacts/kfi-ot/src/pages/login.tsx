@@ -13,6 +13,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Logo } from "@/components/logo";
+import { LanguageToggle } from "@/components/language-toggle";
+import { useTranslation } from "react-i18next";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -20,7 +22,8 @@ export default function Login() {
   const queryClient = useQueryClient();
   const login = useLogin();
   const { data: regStatus } = useGetRegistrationStatus();
-  
+  const { t } = useTranslation();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -35,8 +38,8 @@ export default function Login() {
         },
         onError: (err) => {
           toast({
-            title: "Login failed",
-            description: err instanceof Error ? err.message : "Invalid credentials",
+            title: t("login.failedTitle"),
+            description: err instanceof Error ? err.message : t("login.failedFallback"),
             variant: "destructive",
           });
         },
@@ -47,27 +50,30 @@ export default function Login() {
   return (
     <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-sm">
+        <div className="flex justify-end mb-2">
+          <LanguageToggle />
+        </div>
         <Logo variant="auth" />
         <Card className="shadow-lg border-border/50">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold tracking-tight font-display">Driver OT Worksheet</CardTitle>
-          <CardDescription>Sign in to reconcile this week's punches.</CardDescription>
+          <CardTitle className="text-2xl font-bold tracking-tight font-display">{t("login.title")}</CardTitle>
+          <CardDescription>{t("login.description")}</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t("common.email")}</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="dispatcher@kfi.com"
+                placeholder={t("login.emailPlaceholder")}
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t("common.password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -78,30 +84,31 @@ export default function Login() {
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button 
-              type="submit" 
-              className="w-full" 
+            <Button
+              type="submit"
+              className="w-full"
               disabled={login.isPending}
+              data-testid="button-login-submit"
             >
               {login.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Sign In
+              {t("login.submit")}
             </Button>
             <div className="text-center text-sm">
               <Link
                 href="/forgot-password"
                 className="text-primary hover:underline underline-offset-4"
               >
-                Forgot your password?
+                {t("login.forgot")}
               </Link>
             </div>
             {regStatus?.openRegistration && (
               <div className="text-center text-sm text-muted-foreground">
-                First-time setup?{" "}
+                {t("login.firstTime")}{" "}
                 <Link
                   href="/register"
                   className="text-primary hover:underline underline-offset-4"
                 >
-                  Create the admin account
+                  {t("login.createAdmin")}
                 </Link>
               </div>
             )}

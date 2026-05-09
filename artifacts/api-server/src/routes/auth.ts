@@ -8,6 +8,7 @@ import {
   RegisterBody,
   RequestPasswordResetBody,
   ResetPasswordBody,
+  UpdateMyLanguageBody,
   UpdateUserBody,
 } from "@workspace/api-zod";
 import { db, schema } from "../lib/db.js";
@@ -101,8 +102,10 @@ function publicUser(user: {
   lockedAt: Date | string | null;
   lastLoginAt?: Date | string | null;
   passwordResetLastSentAt?: Date | string | null;
+  preferredLanguage?: string | null;
 }) {
   const role = user.role === "supervisor" ? "supervisor" : "reviewer";
+  const lang = user.preferredLanguage === "es" ? "es" : "en";
   return {
     id: user.id,
     email: user.email,
@@ -114,6 +117,7 @@ function publicUser(user: {
     lockedAt: user.lockedAt,
     lastLoginAt: user.lastLoginAt ?? null,
     passwordResetLastSentAt: user.passwordResetLastSentAt ?? null,
+    preferredLanguage: lang,
   };
 }
 
@@ -354,6 +358,28 @@ authRouter.get("/auth/me", async (req, res) => {
     return;
   }
   res.json(publicUser(user));
+});
+
+authRouter.patch("/auth/me/language", async (req, res) => {
+  const user = await loadSessionUser(req);
+  if (!user) {
+    if (req.session?.userId) req.session.destroy(() => {});
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  const parsed = UpdateMyLanguageBody.safeParse(req.body);
+  if (!parsed.success) {
+    res
+      .status(400)
+      .json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+  const [updated] = await db
+    .update(schema.usersTable)
+    .set({ preferredLanguage: parsed.data.preferredLanguage })
+    .where(eq(schema.usersTable.id, user.id))
+    .returning();
+  res.json(publicUser(updated ?? { ...user, preferredLanguage: parsed.data.preferredLanguage }));
 });
 
 // ----- Invites -----

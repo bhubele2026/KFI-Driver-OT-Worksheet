@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link, Redirect } from "wouter";
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -35,6 +36,7 @@ function roleBadgeVariant(role: string): "default" | "secondary" | "outline" {
 }
 
 export default function AdminDeletedNotes() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -108,11 +110,11 @@ export default function AdminDeletedNotes() {
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to users
+              {t("common.backToUsers")}
             </Button>
           </Link>
           <h1 className="font-display font-bold text-lg tracking-tight">
-            Admin · Hidden notes
+            {t("adminDeletedNotes.title")}
           </h1>
         </div>
       </header>

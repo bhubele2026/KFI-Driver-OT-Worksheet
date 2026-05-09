@@ -20,6 +20,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Logo } from "@/components/logo";
+import { LanguageToggle } from "@/components/language-toggle";
+import { useTranslation } from "react-i18next";
 
 export default function AcceptInvite() {
   const params = useParams<{ token: string }>();
@@ -31,12 +33,13 @@ export default function AcceptInvite() {
   const accept = useAcceptInvite();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const { t } = useTranslation();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirm) {
       toast({
-        title: "Passwords don't match",
+        title: t("acceptInvite.passwordsMismatch"),
         variant: "destructive",
       });
       return;
@@ -50,9 +53,9 @@ export default function AcceptInvite() {
         },
         onError: (err) => {
           toast({
-            title: "Could not create account",
+            title: t("acceptInvite.failedTitle"),
             description:
-              err instanceof Error ? err.message : "Try requesting a new invite",
+              err instanceof Error ? err.message : t("acceptInvite.failedFallback"),
             variant: "destructive",
           });
         },
@@ -72,15 +75,15 @@ export default function AcceptInvite() {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
         <div className="w-full max-w-sm">
+          <div className="flex justify-end mb-2"><LanguageToggle /></div>
           <Logo variant="auth" />
           <Card className="shadow-lg border-border/50">
           <CardHeader>
             <CardTitle className="text-xl font-display">
-              Invite invalid
+              {t("acceptInvite.invalidTitle")}
             </CardTitle>
             <CardDescription>
-              This invite link has expired, been used, or never existed. Ask an
-              admin to send a fresh one.
+              {t("acceptInvite.invalidDescription")}
             </CardDescription>
           </CardHeader>
           <CardFooter>
@@ -88,7 +91,7 @@ export default function AcceptInvite() {
               href="/login"
               className="text-sm text-primary hover:underline underline-offset-4"
             >
-              Back to sign in
+              {t("common.backToSignIn")}
             </Link>
           </CardFooter>
           </Card>
@@ -100,21 +103,21 @@ export default function AcceptInvite() {
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-sm">
+        <div className="flex justify-end mb-2"><LanguageToggle /></div>
         <Logo variant="auth" />
         <Card className="shadow-lg border-border/50">
         <CardHeader>
           <CardTitle className="text-2xl font-bold font-display tracking-tight">
-            Accept Invite
+            {t("acceptInvite.title")}
           </CardTitle>
           <CardDescription>
-            Set a password for{" "}
-            <span className="font-mono text-foreground">{invite.email}</span>.
+            {t("acceptInvite.description", { email: invite.email })}
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t("common.password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -125,7 +128,7 @@ export default function AcceptInvite() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm">Confirm password</Label>
+              <Label htmlFor="confirm">{t("common.confirmPassword")}</Label>
               <Input
                 id="confirm"
                 type="password"
@@ -145,7 +148,7 @@ export default function AcceptInvite() {
               {accept.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
-              Create account
+              {t("acceptInvite.submit")}
             </Button>
           </CardFooter>
         </form>

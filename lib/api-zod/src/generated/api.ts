@@ -40,6 +40,11 @@ export const RegisterResponse = zod.object({
     .describe(
       "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
     ),
+  preferredLanguage: zod
+    .string()
+    .describe(
+      "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
+    ),
 });
 
 /**
@@ -154,6 +159,11 @@ export const AcceptInviteResponse = zod.object({
     .describe(
       "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
     ),
+  preferredLanguage: zod
+    .string()
+    .describe(
+      "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
+    ),
 });
 
 /**
@@ -211,6 +221,11 @@ export const ResetPasswordResponse = zod.object({
     .describe(
       "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
     ),
+  preferredLanguage: zod
+    .string()
+    .describe(
+      "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
+    ),
 });
 
 /**
@@ -238,6 +253,11 @@ export const ListUsersResponseItem = zod.object({
     .nullish()
     .describe(
       "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
+    ),
+  preferredLanguage: zod
+    .string()
+    .describe(
+      "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
     ),
 });
 export const ListUsersResponse = zod.array(ListUsersResponseItem);
@@ -274,6 +294,11 @@ export const UpdateUserResponse = zod.object({
     .nullish()
     .describe(
       "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
+    ),
+  preferredLanguage: zod
+    .string()
+    .describe(
+      "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
     ),
 });
 
@@ -532,6 +557,11 @@ export const LoginResponse = zod.object({
     .describe(
       "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
     ),
+  preferredLanguage: zod
+    .string()
+    .describe(
+      "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
+    ),
 });
 
 /**
@@ -554,9 +584,44 @@ export const GetMeResponse = zod.union([
       .describe(
         "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
       ),
+    preferredLanguage: zod
+      .string()
+      .describe(
+        "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
+      ),
   }),
   zod.null(),
 ]);
+
+/**
+ * @summary Update the signed-in user's preferred UI language
+ */
+export const UpdateMyLanguageBody = zod.object({
+  preferredLanguage: zod.enum(["en", "es"]),
+});
+
+export const UpdateMyLanguageResponse = zod.object({
+  id: zod.number(),
+  email: zod.string(),
+  createdAt: zod.coerce.date(),
+  isAdmin: zod.boolean(),
+  role: zod.enum(["reviewer", "supervisor"]),
+  isActive: zod.boolean(),
+  failedLoginCount: zod.number(),
+  lockedAt: zod.coerce.date().nullish(),
+  lastLoginAt: zod.coerce.date().nullish(),
+  passwordResetLastSentAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.",
+    ),
+  preferredLanguage: zod
+    .string()
+    .describe(
+      "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
+    ),
+});
 
 /**
  * @summary List weeks that have ingested data

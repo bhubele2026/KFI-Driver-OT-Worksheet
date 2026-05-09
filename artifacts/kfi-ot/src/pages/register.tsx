@@ -20,6 +20,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Logo } from "@/components/logo";
+import { LanguageToggle } from "@/components/language-toggle";
+import { useTranslation } from "react-i18next";
 
 export default function Register() {
   const [, setLocation] = useLocation();
@@ -27,6 +29,7 @@ export default function Register() {
   const queryClient = useQueryClient();
   const register = useRegister();
   const { data: status, isLoading } = useGetRegistrationStatus();
+  const { t } = useTranslation();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -42,11 +45,11 @@ export default function Register() {
         },
         onError: (err) => {
           toast({
-            title: "Registration failed",
+            title: t("register.failedTitle"),
             description:
               err instanceof Error
                 ? err.message
-                : "Could not create account",
+                : t("register.failedFallback"),
             variant: "destructive",
           });
         },
@@ -66,15 +69,15 @@ export default function Register() {
     return (
       <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted/30 p-4">
         <div className="w-full max-w-sm">
+          <div className="flex justify-end mb-2"><LanguageToggle /></div>
           <Logo variant="auth" />
           <Card className="shadow-lg border-border/50">
             <CardHeader className="space-y-1">
               <CardTitle className="text-2xl font-bold tracking-tight font-display">
-                Invite required
+                {t("register.inviteRequiredTitle")}
               </CardTitle>
               <CardDescription>
-                KFI Dispatch is invite-only. Ask an admin to send you an invite
-                link.
+                {t("register.inviteRequiredDescription")}
               </CardDescription>
             </CardHeader>
             <CardFooter>
@@ -82,7 +85,7 @@ export default function Register() {
                 href="/login"
                 className="text-sm text-primary hover:underline underline-offset-4"
               >
-                Back to sign in
+                {t("common.backToSignIn")}
               </Link>
             </CardFooter>
           </Card>
@@ -94,20 +97,21 @@ export default function Register() {
   return (
     <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-sm">
+        <div className="flex justify-end mb-2"><LanguageToggle /></div>
         <Logo variant="auth" />
         <Card className="shadow-lg border-border/50">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold tracking-tight font-display">
-            Create First Admin
+            {t("register.title")}
           </CardTitle>
           <CardDescription>
-            No accounts exist yet. The first account becomes the admin.
+            {t("register.description")}
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t("common.email")}</Label>
               <Input
                 id="email"
                 type="email"
@@ -118,7 +122,7 @@ export default function Register() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t("common.password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -138,15 +142,15 @@ export default function Register() {
               {register.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
-              Create Admin Account
+              {t("register.submit")}
             </Button>
             <div className="text-center text-sm">
-              Already have an account?{" "}
+              {t("register.alreadyHaveAccount")}{" "}
               <Link
                 href="/login"
                 className="text-primary hover:underline underline-offset-4"
               >
-                Sign in
+                {t("common.signIn")}
               </Link>
             </div>
           </CardFooter>

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, Redirect, useSearch } from "wouter";
 import {
   useGetMe,
@@ -45,6 +46,7 @@ import { format } from "date-fns";
 type EditState = { externalId: string; kfiId: string } | null;
 
 export default function AdminDriverIdAliases() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -189,11 +191,11 @@ export default function AdminDriverIdAliases() {
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to users
+              {t("common.backToUsers")}
             </Button>
           </Link>
           <h1 className="font-display font-bold text-lg tracking-tight">
-            Admin · Driver-ID mappings
+            {t("adminDriverIds.title")}
           </h1>
         </div>
       </header>

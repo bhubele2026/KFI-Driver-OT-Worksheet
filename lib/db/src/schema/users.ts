@@ -28,6 +28,10 @@ export const usersTable = pgTable("users", {
   notesHiddenLastSeenAt: timestamp("notes_hidden_last_seen_at", {
     withTimezone: true,
   }),
+  // BCP-47 language tag the UI should default to for this user. Currently
+  // 'en' or 'es'; the client falls back to 'en' for any unknown value so
+  // future locales added on the client don't break older accounts.
+  preferredLanguage: text("preferred_language").notNull().default("en"),
 });
 
 export type User = typeof usersTable.$inferSelect;

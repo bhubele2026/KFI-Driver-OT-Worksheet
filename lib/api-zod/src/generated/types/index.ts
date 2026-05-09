@@ -97,6 +97,8 @@ export * from "./unmappedId";
 export * from "./updateCustomerNameAliasBody";
 export * from "./updateCustomerNameAliasParams";
 export * from "./updateDriverIdAliasBody";
+export * from "./updateLanguageBody";
+export * from "./updateLanguageBodyPreferredLanguage";
 export * from "./updateUserBody";
 export * from "./updateUserBodyRole";
 export * from "./uploadResult";

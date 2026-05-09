@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, Redirect } from "wouter";
 import {
   useGetMe,
@@ -53,6 +54,7 @@ type EditState = {
 } | null;
 
 export default function AdminCustomerAliases() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -178,11 +180,11 @@ export default function AdminCustomerAliases() {
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to users
+              {t("common.backToUsers")}
             </Button>
           </Link>
           <h1 className="font-display font-bold text-lg tracking-tight">
-            Admin · Customer-driver mappings
+            {t("adminAliases.title")}
           </h1>
         </div>
       </header>

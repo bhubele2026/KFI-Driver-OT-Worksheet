@@ -527,6 +527,25 @@ paths:
                   - $ref: "#/components/schemas/User"
                   - type: "null"
 
+  /auth/me/language:
+    patch:
+      operationId: updateMyLanguage
+      tags: [auth]
+      summary: Update the signed-in user's preferred UI language
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateLanguageBody" }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { description: Invalid input }
+        "401": { description: Not signed in }
+
   /weeks:
     get:
       operationId: listWeeks
@@ -1255,7 +1274,7 @@ components:
 
     User:
       type: object
-      required: [id, email, createdAt, isAdmin, role, isActive, failedLoginCount]
+      required: [id, email, createdAt, isAdmin, role, isActive, failedLoginCount, preferredLanguage]
       properties:
         id: { type: integer }
         email: { type: string }
@@ -1276,6 +1295,9 @@ components:
           type: ["string", "null"]
           format: date-time
           description: When the most recent admin-triggered password-reset email was sent. Drives the per-row Send-reset cooldown countdown in the admin UI.
+        preferredLanguage:
+          type: string
+          description: BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.
 
     RegistrationStatus:
       type: object
@@ -1523,6 +1545,14 @@ components:
             customer: { type: string }
             fileName: { type: string }
             weekStart: { type: string, format: date }
+
+    UpdateLanguageBody:
+      type: object
+      required: [preferredLanguage]
+      properties:
+        preferredLanguage:
+          type: string
+          enum: [en, es]
 
     UpdateUserBody:
       type: object

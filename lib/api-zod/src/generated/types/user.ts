@@ -24,4 +24,6 @@ export interface User {
    * @nullable
    */
   passwordResetLastSentAt?: Date | null;
+  /** BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'. */
+  preferredLanguage: string;
 }

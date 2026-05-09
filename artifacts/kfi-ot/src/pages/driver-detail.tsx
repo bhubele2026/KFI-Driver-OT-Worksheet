@@ -41,6 +41,8 @@ import { cn } from "@/lib/utils";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
 import { ReviewedPill } from "@/components/reviewed-pill";
 import { Logo } from "@/components/logo";
+import { LanguageToggle } from "@/components/language-toggle";
+import { useTranslation } from "react-i18next";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useAutoAdvancePref } from "@/hooks/use-auto-advance";
 
@@ -107,6 +109,7 @@ function isCustomerNameUseful(name: string | null | undefined): boolean {
 }
 
 export default function DriverDetail() {
+  const { t } = useTranslation();
   const params = useParams();
   const weekStart = params.weekStart!;
   const kfiId = params.kfiId!;
@@ -242,7 +245,7 @@ export default function DriverDetail() {
         onSuccess: (res) => {
           queryClient.invalidateQueries({ queryKey: getGetDriverWeekQueryKey(weekStart, kfiId) });
           queryClient.invalidateQueries({ queryKey: getGetWeekSummaryQueryKey(weekStart) });
-          toast({ title: "Refreshed from Connecteam", description: `${res.punchesUpserted} punches across ${res.driversFound} drivers.` });
+          toast({ title: t("weekSummary.refreshSuccessTitle"), description: t("weekSummary.refreshSuccessDesc", { drivers: res.driversFound, punches: res.punchesUpserted }) });
         },
         onError: (err) => handleLockedError(err, "Connecteam refresh failed"),
       },
@@ -744,7 +747,7 @@ export default function DriverDetail() {
             {isLoading ? (
               <Loader2 className="h-8 w-8 animate-spin" />
             ) : (
-              <p className="text-destructive">Failed to load driver data.</p>
+              <p className="text-destructive">{t("driverDetail.loadFailed")}</p>
             )}
           </main>
         </div>
@@ -777,7 +780,7 @@ export default function DriverDetail() {
 
   const customerLabel = isCustomerNameUseful(data.driver.customer)
     ? data.driver.customer
-    : "Needs roster cleanup";
+    : t("driverDetail.needsRosterCleanup");
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
@@ -793,11 +796,12 @@ export default function DriverDetail() {
           <Link href={`/weeks/${weekStart}`}>
             <Button variant="ghost" size="sm" className="h-8 text-sidebar-foreground hover:bg-sidebar-accent gap-2">
               <ArrowLeft className="h-4 w-4" />
-              Back
+              {t("driverDetail.back")}
             </Button>
           </Link>
         </div>
         <div className="flex items-center gap-3">
+          <LanguageToggle />
           <ReviewedPill
             reviewed={flatDrivers.filter((d) => d.reviewed).length}
             total={flatDrivers.length}
@@ -813,11 +817,11 @@ export default function DriverDetail() {
               onCheckedChange={(v) => setStatus(v ? "good" : null)}
               disabled={driverLocked || setReviewed.isPending}
               data-testid="checkbox-status-good"
-              aria-label="Mark Good (reviewed)"
+              aria-label={t("driverDetail.markGoodAria")}
             />
             <span className="inline-flex items-center gap-1 text-xs font-medium text-sidebar-foreground">
               <CheckIcon className="h-3.5 w-3.5 text-emerald-500" />
-              Good
+              {t("driverDetail.good")}
             </span>
             <button
               type="button"
@@ -826,7 +830,7 @@ export default function DriverDetail() {
               }
               disabled={driverLocked || setReviewed.isPending}
               data-testid="button-status-bad"
-              title="Mark Bad (reviewed but flagged)"
+              title={t("driverDetail.markBadTitleShort")}
               className={cn(
                 "px-2.5 py-1 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border transition-colors",
                 driverStatus === "bad"
@@ -844,7 +848,7 @@ export default function DriverDetail() {
               onClick={handleToggleLock}
               disabled={lockMutation.isPending || unlockMutation.isPending}
               data-testid="button-toggle-lock"
-              title={driverLocked ? "Unlock driver-week" : "Lock driver-week"}
+              title={driverLocked ? t("driverDetail.unlockTitle") : t("driverDetail.lockTitle")}
               className={cn(
                 "text-sidebar-foreground hover:bg-sidebar-accent",
                 driverLocked && "text-amber-300",
@@ -852,11 +856,11 @@ export default function DriverDetail() {
             >
               {driverLocked ? (
                 <>
-                  <Lock className="mr-2 h-4 w-4" /> Locked
+                  <Lock className="mr-2 h-4 w-4" /> {t("driverDetail.locked")}
                 </>
               ) : (
                 <>
-                  <LockOpen className="mr-2 h-4 w-4" /> Lock
+                  <LockOpen className="mr-2 h-4 w-4" /> {t("driverDetail.lock")}
                 </>
               )}
             </Button>
@@ -867,11 +871,11 @@ export default function DriverDetail() {
               data-testid="badge-locked-readonly"
               title={
                 data.lockedByEmail
-                  ? `Locked by ${data.lockedByEmail}`
-                  : "Locked"
+                  ? t("weekSummary.status.lockedBy", { email: data.lockedByEmail })
+                  : t("weekSummary.status.lockedShort")
               }
             >
-              <Lock className="h-3.5 w-3.5" /> Locked
+              <Lock className="h-3.5 w-3.5" /> {t("driverDetail.locked")}
             </span>
           )}
           <Button
@@ -886,28 +890,28 @@ export default function DriverDetail() {
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            Refresh
+            {t("common.refresh")}
           </Button>
           <Button variant="secondary" size="sm" onClick={() => setIsManualModalOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
-            Add Punch
+            {t("driverDetail.addPunch")}
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => window.print()}
-            title="Print timesheet"
+            title={t("driverDetail.printTimesheet")}
             data-testid="button-print-timesheet"
             className="text-sidebar-foreground hover:bg-sidebar-accent"
           >
             <Printer className="mr-2 h-4 w-4" />
-            Print
+            {t("common.print")}
           </Button>
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setShortcutsOpen(true)}
-            title="Keyboard shortcuts (?)"
+            title={t("driverDetail.shortcuts")}
             data-testid="button-show-shortcuts"
             className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent"
           >
@@ -933,26 +937,26 @@ export default function DriverDetail() {
             {data.driver.name}
           </h1>
           <p className="text-sm text-muted-foreground font-mono">
-            Customer: <span className="text-foreground">{customerLabel}</span>
+            {t("driverDetail.customer")} <span className="text-foreground">{customerLabel}</span>
             <span className="mx-2 text-muted-foreground/60">·</span>
-            KFI ID: <span className="text-foreground">{data.driver.kfiId}</span>
+            {t("driverDetail.kfiId")} <span className="text-foreground">{data.driver.kfiId}</span>
             <span className="hidden print:inline">
               <span className="mx-2 text-muted-foreground/60">·</span>
-              Week of <span className="text-foreground">{weekStart}</span>
+              {t("common.weekOf", { week: weekStart })}
             </span>
           </p>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground pt-1 print:hidden">
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-sidebar" />
-              Driver (ConnectTeam)
+              {t("driverDetail.driverConnect")}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-primary" />
-              Customer (Timesheet)
+              {t("driverDetail.customerSource")}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-warning" />
-              Overtime threshold
+              {t("driverDetail.overtimeThreshold")}
             </span>
           </div>
         </div>
@@ -966,13 +970,10 @@ export default function DriverDetail() {
             <CardContent className="flex items-center gap-3 px-4 py-3 text-sm">
               <Lock className="h-4 w-4 text-amber-700 dark:text-amber-400" />
               <span className="text-amber-900 dark:text-amber-200">
-                This driver-week is locked
-                {data.lockedByEmail ? ` by ${data.lockedByEmail}` : ""}
-                {data.lockedAt
-                  ? ` at ${new Date(data.lockedAt).toLocaleString()}`
-                  : ""}
-                . Punches, refreshes, and customer-file uploads are blocked
-                until it's unlocked.
+                {t("driverDetail.lockedBanner", {
+                  by: data.lockedByEmail ? t("driverDetail.lockedBannerBy", { email: data.lockedByEmail }) : "",
+                  at: data.lockedAt ? t("driverDetail.lockedBannerAt", { time: new Date(data.lockedAt).toLocaleString() }) : "",
+                })}
               </span>
             </CardContent>
           </Card>
@@ -982,7 +983,7 @@ export default function DriverDetail() {
           <Card data-testid="card-driver-week-audit">
             <CardHeader className="pb-2 pt-4 px-4">
               <CardTitle className="text-sm font-display tracking-tight">
-                Recent activity
+                {t("driverDetail.recentActivity")}
               </CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-4">

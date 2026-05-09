@@ -58,7 +58,9 @@ import {
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
 import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
+import { LanguageToggle } from "@/components/language-toggle";
 import { Logo } from "@/components/logo";
+import { useTranslation } from "react-i18next";
 import {
   format,
   parseISO,
@@ -81,7 +83,10 @@ function errMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+function useT() { return useTranslation().t; }
+
 export default function WeekSummary() {
+  const t = useT();
   const params = useParams();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -124,14 +129,14 @@ export default function WeekSummary() {
             queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
           });
           toast({
-            title: "Connecteam Refreshed",
-            description: `Found ${data.driversFound} drivers, updated ${data.punchesUpserted} punches.`,
+            title: t("weekSummary.refreshSuccessTitle"),
+            description: t("weekSummary.refreshSuccessDesc", { drivers: data.driversFound, punches: data.punchesUpserted }),
           });
         },
         onError: (err) => {
           toast({
-            title: "Refresh failed",
-            description: errMessage(err, "Failed to pull from Connecteam"),
+            title: t("weekSummary.refreshFailedTitle"),
+            description: errMessage(err, t("weekSummary.refreshFailedDesc")),
             variant: "destructive",
           });
         },
@@ -150,8 +155,8 @@ export default function WeekSummary() {
         },
         onError: () => {
           toast({
-            title: "Error",
-            description: "Failed to update review status",
+            title: t("weekSummary.errorTitle"),
+            description: t("weekSummary.updateReviewFailed"),
             variant: "destructive",
           });
         },
@@ -224,11 +229,11 @@ export default function WeekSummary() {
           <Link
             href="/"
             className="flex items-center gap-2.5 no-underline"
-            title="KFI Staffing — Driver OT Worksheet"
+            title={`KFI Staffing — ${t("header.appTitle")}`}
           >
             <Logo />
             <span className="hidden lg:inline text-[11px] uppercase tracking-[0.18em] text-sidebar-foreground/60 font-display">
-              Driver OT Worksheet
+              {t("header.appTitle")}
             </span>
           </Link>
           <div className="h-5 w-px bg-sidebar-border/60" />
@@ -237,7 +242,7 @@ export default function WeekSummary() {
               variant="ghost"
               size="icon"
               onClick={() => goWeek(-1)}
-              title="Previous week"
+              title={t("header.previousWeek")}
               className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -246,14 +251,14 @@ export default function WeekSummary() {
               variant="ghost"
               size="icon"
               onClick={() => goWeek(1)}
-              title="Next week"
+              title={t("header.nextWeek")}
               className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
             <Select value={weekStart} onValueChange={handleWeekChange}>
               <SelectTrigger className="w-[200px] h-8 bg-sidebar-accent border-sidebar-accent-border text-sidebar-accent-foreground text-sm font-mono">
-                <SelectValue placeholder="Select week" />
+                <SelectValue placeholder={t("header.selectWeek")} />
               </SelectTrigger>
               <SelectContent>
                 {weeksList?.map((w) => (
@@ -269,7 +274,7 @@ export default function WeekSummary() {
             </Select>
             <div className="flex items-center gap-2">
               <span className="text-xs text-sidebar-foreground/60">
-                Or jump to:
+                {t("header.jumpTo")}
               </span>
               <Input
                 type="date"
@@ -282,6 +287,7 @@ export default function WeekSummary() {
 
         <div className="flex items-center gap-3">
           <HiddenNotesBadge variant="compact" />
+          <LanguageToggle />
           <AdminLink />
           <Button
             variant="ghost"
@@ -290,7 +296,7 @@ export default function WeekSummary() {
             className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
           >
             <LogOut className="h-4 w-4 mr-2" />
-            Sign Out
+            {t("common.signOut")}
           </Button>
         </div>
       </header>
@@ -319,13 +325,13 @@ export default function WeekSummary() {
               </div>
               {summary?.lastRefreshedAt ? (
                 <p className="text-sm text-muted-foreground">
-                  Last CT Refresh:{" "}
+                  {t("weekSummary.lastRefresh")}{" "}
                   <span className="font-mono">
                     {new Date(summary.lastRefreshedAt).toLocaleString()}
                   </span>
                   {summary.lastRefreshedByEmail && (
                     <span className="ml-2">
-                      by{" "}
+                      {t("weekSummary.lastRefreshBy")}{" "}
                       <span className="font-mono">
                         {summary.lastRefreshedByEmail}
                       </span>
@@ -334,7 +340,7 @@ export default function WeekSummary() {
                 </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  No Connecteam data yet for this week.
+                  {t("weekSummary.noData")}
                 </p>
               )}
             </div>
@@ -342,7 +348,7 @@ export default function WeekSummary() {
             <div className="flex items-center gap-3 flex-wrap">
               <Button variant="outline" onClick={openReport}>
                 <Printer className="mr-2 h-4 w-4" />
-                Download Report
+                {t("weekSummary.downloadReport")}
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -351,48 +357,48 @@ export default function WeekSummary() {
                     data-testid="button-print-week-timesheets"
                   >
                     <Printer className="mr-2 h-4 w-4" />
-                    Print Week Timesheets
+                    {t("weekSummary.printTimesheets")}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64">
                   <DropdownMenuLabel className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Print preview (HTML)
+                    {t("weekSummary.printPreviewHtml")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem
                     onSelect={() => openTimesheets()}
                     data-testid="menuitem-print-all-drivers"
                   >
-                    All drivers
+                    {t("weekSummary.allDrivers")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => openTimesheets({ filter: "reviewed" })}
                     disabled={reviewedCount === 0}
                     data-testid="menuitem-print-reviewed-only"
                   >
-                    Reviewed only ({reviewedCount})
+                    {t("weekSummary.reviewedOnly", { count: reviewedCount })}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => openTimesheets({ filter: "overtime" })}
                     disabled={overtimeCount === 0}
                     data-testid="menuitem-print-overtime-only"
                   >
-                    Overtime only ({overtimeCount})
+                    {t("weekSummary.overtimeOnly", { count: overtimeCount })}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => openTimesheets({ filter: "alerts" })}
                     data-testid="menuitem-print-alerts-only"
                   >
-                    With alerts
+                    {t("weekSummary.withAlerts")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Download PDF
+                    {t("weekSummary.downloadPdf")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem
                     onSelect={() => openTimesheets({ format: "pdf" })}
                     data-testid="menuitem-pdf-all-drivers"
                   >
-                    All drivers (PDF)
+                    {t("weekSummary.allDriversPdf")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() =>
@@ -401,7 +407,7 @@ export default function WeekSummary() {
                     disabled={reviewedCount === 0}
                     data-testid="menuitem-pdf-reviewed-only"
                   >
-                    Reviewed only ({reviewedCount}) (PDF)
+                    {t("weekSummary.reviewedOnlyPdf", { count: reviewedCount })}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() =>
@@ -410,7 +416,7 @@ export default function WeekSummary() {
                     disabled={overtimeCount === 0}
                     data-testid="menuitem-pdf-overtime-only"
                   >
-                    Overtime only ({overtimeCount}) (PDF)
+                    {t("weekSummary.overtimeOnlyPdf", { count: overtimeCount })}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() =>
@@ -418,13 +424,13 @@ export default function WeekSummary() {
                     }
                     data-testid="menuitem-pdf-alerts-only"
                   >
-                    With alerts (PDF)
+                    {t("weekSummary.withAlertsPdf")}
                   </DropdownMenuItem>
                   {printableCustomers.length > 0 ? (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuLabel className="text-xs uppercase tracking-wide text-muted-foreground">
-                        By customer
+                        {t("weekSummary.byCustomer")}
                       </DropdownMenuLabel>
                       {printableCustomers.map((c) => (
                         <DropdownMenuItem
@@ -467,7 +473,7 @@ export default function WeekSummary() {
                 ) : (
                   <RefreshCw className="mr-2 h-4 w-4" />
                 )}
-                Refresh Connecteam
+                {t("weekSummary.refreshConnecteam")}
               </Button>
             </div>
           </div>
@@ -493,7 +499,7 @@ export default function WeekSummary() {
                 <Card>
                   <CardHeader className="pb-2 pt-4 px-4">
                     <CardTitle className="text-xs text-muted-foreground uppercase font-semibold">
-                      Active Drivers
+                      {t("weekSummary.stats.activeDrivers")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-4">
@@ -505,7 +511,7 @@ export default function WeekSummary() {
                 <Card>
                   <CardHeader className="pb-2 pt-4 px-4">
                     <CardTitle className="text-xs text-muted-foreground uppercase font-semibold">
-                      Total Hours
+                      {t("weekSummary.stats.totalHours")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-4">
@@ -517,7 +523,7 @@ export default function WeekSummary() {
                 <Card>
                   <CardHeader className="pb-2 pt-4 px-4">
                     <CardTitle className="text-xs text-muted-foreground uppercase font-semibold">
-                      Driver Source
+                      {t("weekSummary.stats.driverSource")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-4">
@@ -529,7 +535,7 @@ export default function WeekSummary() {
                 <Card>
                   <CardHeader className="pb-2 pt-4 px-4">
                     <CardTitle className="text-xs text-muted-foreground uppercase font-semibold">
-                      Customer Source
+                      {t("weekSummary.stats.customerSource")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-4">
@@ -541,7 +547,7 @@ export default function WeekSummary() {
                 <Card>
                   <CardHeader className="pb-2 pt-4 px-4">
                     <CardTitle className="text-xs text-muted-foreground uppercase font-semibold">
-                      Regular
+                      {t("weekSummary.stats.regular")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-4">
@@ -553,7 +559,7 @@ export default function WeekSummary() {
                 <Card className="border-warning/50 bg-warning/5">
                   <CardHeader className="pb-2 pt-4 px-4">
                     <CardTitle className="text-xs text-warning uppercase font-semibold">
-                      Overtime
+                      {t("weekSummary.stats.overtime")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-4">
@@ -573,15 +579,15 @@ export default function WeekSummary() {
                   data-testid="chip-review-totals"
                 >
                   <span className="text-emerald-700 dark:text-emerald-300">
-                    {(summary.totals as { goodCount?: number }).goodCount ?? 0} good
+                    {t("weekSummary.totals.good", { count: (summary.totals as { goodCount?: number }).goodCount ?? 0 })}
                   </span>
                   <span className="text-muted-foreground">/</span>
                   <span className="text-rose-700 dark:text-rose-300">
-                    {(summary.totals as { badCount?: number }).badCount ?? 0} bad
+                    {t("weekSummary.totals.bad", { count: (summary.totals as { badCount?: number }).badCount ?? 0 })}
                   </span>
                   <span className="text-muted-foreground">/</span>
                   <span>
-                    {summary.totals.activeDrivers} total
+                    {t("weekSummary.totals.total", { count: summary.totals.activeDrivers })}
                   </span>
                 </span>
                 <span
@@ -589,7 +595,7 @@ export default function WeekSummary() {
                   data-testid="chip-locked-count"
                 >
                   <Lock className="h-3 w-3" />
-                  {(summary.totals as { lockedCount?: number }).lockedCount ?? 0} locked
+                  {t("weekSummary.totals.locked", { count: (summary.totals as { lockedCount?: number }).lockedCount ?? 0 })}
                 </span>
               </div>
 
@@ -599,7 +605,7 @@ export default function WeekSummary() {
                 {summary.customers.length === 0 ? (
                   <Card>
                     <CardContent className="py-12 text-center text-muted-foreground">
-                      No active drivers found for this week.
+                      {t("weekSummary.noActiveDrivers")}
                     </CardContent>
                   </Card>
                 ) : (
@@ -612,7 +618,7 @@ export default function WeekSummary() {
                         <h3 className="font-display font-semibold text-lg flex items-center gap-2 flex-wrap">
                           {group.customer}
                           <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                            {group.drivers.length} drivers
+                            {t("weekSummary.table.drivers", { count: group.drivers.length })}
                           </span>
                           <ReviewedPill
                             reviewed={
@@ -628,22 +634,22 @@ export default function WeekSummary() {
                           <TableHeader>
                             <TableRow className="bg-muted/10 hover:bg-muted/10">
                               <TableHead className="w-[200px]">
-                                Driver
+                                {t("weekSummary.table.driver")}
                               </TableHead>
                               <TableHead className="text-right">
-                                Driver Hrs
+                                {t("weekSummary.table.driverHrs")}
                               </TableHead>
                               <TableHead className="text-right">
-                                Cust Hrs
+                                {t("weekSummary.table.custHrs")}
                               </TableHead>
-                              <TableHead className="text-right">Diff</TableHead>
-                              <TableHead className="text-right">Reg</TableHead>
-                              <TableHead className="text-right">OT</TableHead>
+                              <TableHead className="text-right">{t("weekSummary.table.diff")}</TableHead>
+                              <TableHead className="text-right">{t("weekSummary.table.reg")}</TableHead>
+                              <TableHead className="text-right">{t("weekSummary.table.ot")}</TableHead>
                               <TableHead className="text-xs">
-                                Last touched
+                                {t("weekSummary.table.lastTouched")}
                               </TableHead>
                               <TableHead className="text-center w-[100px]">
-                                Reviewed
+                                {t("weekSummary.table.reviewed")}
                               </TableHead>
                               <TableHead className="w-[50px]"></TableHead>
                             </TableRow>
@@ -667,7 +673,7 @@ export default function WeekSummary() {
                                         {driver.noteCount > 0 && (
                                           <span
                                             className="inline-flex items-center gap-0.5 text-[10px] font-mono text-primary bg-primary/10 px-1 py-0.5 rounded"
-                                            title={`${driver.noteCount} note${driver.noteCount === 1 ? "" : "s"}`}
+                                            title={t("weekSummary.table.noteCount", { count: driver.noteCount })}
                                             data-testid={`badge-note-count-${driver.kfiId}`}
                                           >
                                             <StickyNote className="h-2.5 w-2.5" />
@@ -736,13 +742,13 @@ export default function WeekSummary() {
                                           onClick={() =>
                                             toggleReviewed(driver.kfiId, true)
                                           }
-                                          title="Marked Bad — click to clear"
+                                          title={t("weekSummary.status.markedBadClear")}
                                           data-testid={`status-bad-${driver.kfiId}`}
                                           className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 rounded px-1.5 py-0.5"
                                         >
                                           <XCircle className="h-4 w-4" />
                                           <span className="text-[10px] font-mono uppercase">
-                                            bad
+                                            {t("weekSummary.status.bad")}
                                           </span>
                                         </button>
                                       ) : (
@@ -756,8 +762,8 @@ export default function WeekSummary() {
                                           }
                                           aria-label={
                                             driver.reviewed
-                                              ? "Marked Good — click to clear"
-                                              : "Mark Good"
+                                              ? t("weekSummary.status.markedGoodClear")
+                                              : t("weekSummary.status.markGood")
                                           }
                                         />
                                       )}
@@ -767,8 +773,8 @@ export default function WeekSummary() {
                                           data-testid={`status-locked-${driver.kfiId}`}
                                           title={
                                             driver.lockedByEmail
-                                              ? `Locked by ${driver.lockedByEmail}`
-                                              : "Locked"
+                                              ? t("weekSummary.status.lockedBy", { email: driver.lockedByEmail })
+                                              : t("weekSummary.status.lockedShort")
                                           }
                                         >
                                           <Lock className="h-3.5 w-3.5" />

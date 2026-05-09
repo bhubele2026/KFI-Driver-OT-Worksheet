@@ -93,21 +93,28 @@ import {
 import { ipMatchesAny, isCidrEntry } from "@/lib/cidr";
 import { Logo } from "@/components/logo";
 import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
+import { useTranslation } from "react-i18next";
+import { LanguageToggle } from "@/components/language-toggle";
 
-function copy(text: string, toast: ReturnType<typeof useToast>["toast"]) {
+function copy(
+  text: string,
+  toast: ReturnType<typeof useToast>["toast"],
+  t: (key: string) => string,
+) {
   navigator.clipboard
     .writeText(text)
-    .then(() => toast({ title: "Copied to clipboard" }))
+    .then(() => toast({ title: t("adminUsers.toasts.copied") }))
     .catch(() =>
       toast({
-        title: "Couldn't copy",
-        description: "Copy the link manually.",
+        title: t("adminUsers.toasts.copyFailedTitle"),
+        description: t("adminUsers.toasts.copyFailedDesc"),
         variant: "destructive",
       }),
     );
 }
 
 export default function AdminUsers() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -641,7 +648,7 @@ export default function AdminUsers() {
         onSuccess: () => {
           refetchInvites();
           refetchAudit();
-          toast({ title: "Invite revoked" });
+          toast({ title: t("adminUsers.toasts.inviteRevoked") });
         },
       },
     );
@@ -673,7 +680,7 @@ export default function AdminUsers() {
       {
         onSuccess: () => {
           refetchUsers();
-          toast({ title: "Account unlocked" });
+          toast({ title: t("adminUsers.toasts.accountUnlocked") });
         },
         onError: (err) =>
           toast({
@@ -739,14 +746,15 @@ export default function AdminUsers() {
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
+              {t("common.back")}
             </Button>
           </Link>
           <h1 className="font-display font-bold text-lg tracking-tight">
-            Admin · Users
+            {t("adminUsers.title")}
           </h1>
         </div>
         <div className="flex items-center gap-1">
+          <LanguageToggle />
           <Link href="/admin/ai-samples">
             <Button
               variant="ghost"
@@ -754,7 +762,7 @@ export default function AdminUsers() {
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
               <Sparkles className="h-4 w-4 mr-2" />
-              AI samples
+              {t("adminNav.aiSamples")}
             </Button>
           </Link>
           <Link href="/admin/customer-aliases">
@@ -763,7 +771,7 @@ export default function AdminUsers() {
               size="sm"
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
-              Customer-driver mappings
+              {t("adminNav.customerAliases")}
             </Button>
           </Link>
           <Link href="/admin/parser-snoozes">
@@ -772,7 +780,7 @@ export default function AdminUsers() {
               size="sm"
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
-              Parser snoozes
+              {t("adminNav.parserSnoozes")}
             </Button>
           </Link>
           <Link href="/admin/driver-id-aliases">
@@ -781,10 +789,19 @@ export default function AdminUsers() {
               size="sm"
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
-              Driver-ID mappings
+              {t("adminNav.driverIds")}
             </Button>
           </Link>
           <HiddenNotesBadge />
+          <Link href="/admin/i18n">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
+            >
+              {t("adminNav.translations")}
+            </Button>
+          </Link>
 
         </div>
       </header>
@@ -798,7 +815,7 @@ export default function AdminUsers() {
             <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
             <div className="flex-1 space-y-1">
               <div className="font-semibold">
-                Outgoing email is not configured.
+                {t("adminUsers.smtpWarning")}
               </div>
               <p className="text-xs text-muted-foreground">
                 Invites and password resets will <strong>not</strong> be
@@ -817,7 +834,7 @@ export default function AdminUsers() {
               variant="ghost"
               onClick={() => setMailerWarningDismissed(true)}
             >
-              Dismiss
+              {t("adminUsers.dismiss")}
             </Button>
           </div>
         )}
@@ -825,7 +842,7 @@ export default function AdminUsers() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <Mail className="h-4 w-4" />
-              Invite a dispatcher
+              {t("adminUsers.inviteCardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -835,12 +852,12 @@ export default function AdminUsers() {
             >
               <div className="flex-1 space-y-1">
                 <label className="text-xs uppercase tracking-wider text-muted-foreground">
-                  Email
+                  {t("adminUsers.emailHeader")}
                 </label>
                 <Input
                   type="email"
                   required
-                  placeholder="new-dispatcher@kfi.com"
+                  placeholder={t("adminUsers.inviteEmailPlaceholder")}
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
                 />
@@ -849,13 +866,13 @@ export default function AdminUsers() {
                 {createInvite.isPending && (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 )}
-                Generate invite
+                {t("adminUsers.generateInvite")}
               </Button>
             </form>
             {latestInvite && (
               <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs space-y-2">
                 <div className="font-semibold">
-                  Share this link with the new dispatcher (valid for 7 days):
+                  {t("adminUsers.shareLink")}
                 </div>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 font-mono break-all">
@@ -865,17 +882,17 @@ export default function AdminUsers() {
                     type="button"
                     size="sm"
                     variant="outline"
-                    onClick={() => copy(latestInvite, toast)}
+                    onClick={() => copy(latestInvite, toast, t)}
                   >
                     <Copy className="h-3 w-3 mr-1" />
-                    Copy
+                    {t("adminUsers.copy")}
                   </Button>
                 </div>
               </div>
             )}
             <div>
               <h3 className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
-                Outstanding invites
+                {t("adminUsers.outstandingInvites")}
               </h3>
               {invitesLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -883,8 +900,8 @@ export default function AdminUsers() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Expires</TableHead>
+                      <TableHead>{t("adminUsers.emailHeader")}</TableHead>
+                      <TableHead>{t("adminUsers.expiresHeader")}</TableHead>
                       <TableHead className="w-[1%]" />
                     </TableRow>
                   </TableHeader>
@@ -912,14 +929,14 @@ export default function AdminUsers() {
                             disabled={resendInvite.isPending || onCooldown}
                             title={
                               onCooldown
-                                ? `You can resend this invite in ${resendRemaining}s`
-                                : "Re-email this invite link to the recipient"
+                                ? t("adminUsers.resendCooldown", { seconds: resendRemaining })
+                                : t("adminUsers.resendTitle")
                             }
                           >
                             <Send className="h-3 w-3 mr-1" />
                             {onCooldown
-                              ? `Try again in ${resendRemaining}s`
-                              : "Resend"}
+                              ? t("adminUsers.tryAgainIn", { seconds: resendRemaining })
+                              : t("adminUsers.resend")}
                           </Button>
                           <Button
                             type="button"
@@ -929,11 +946,12 @@ export default function AdminUsers() {
                               copy(
                                 `${window.location.origin}/accept-invite/${inv.token}`,
                                 toast,
+                                t,
                               )
                             }
                           >
                             <Copy className="h-3 w-3 mr-1" />
-                            Link
+                            {t("adminUsers.link")}
                           </Button>
                           <Button
                             type="button"
@@ -1241,7 +1259,7 @@ export default function AdminUsers() {
                                 size="sm"
                                 variant="ghost"
                                 className="h-6 px-2 text-[11px]"
-                                onClick={() => copy(o.key, toast)}
+                                onClick={() => copy(o.key, toast, t)}
                                 title="Copy the key (e.g. for blocklisting)"
                               >
                                 <Copy className="h-3 w-3 mr-1" />
@@ -1626,7 +1644,7 @@ export default function AdminUsers() {
                     type="button"
                     size="sm"
                     variant="outline"
-                    onClick={() => copy(latestReset.url, toast)}
+                    onClick={() => copy(latestReset.url, toast, t)}
                   >
                     <Copy className="h-3 w-3 mr-1" />
                     Copy
