@@ -65,7 +65,8 @@ export type RealtimeEvent =
       action: "start" | "stop";
       expiresAt: string;
     }
-  | { type: "ping" };
+  | { type: "ping" }
+  | { type: "reconnect"; weekStart: string; kfiId: string | null };
 
 type Handler = (event: RealtimeEvent) => void;
 
@@ -87,6 +88,13 @@ interface ConnectionRec {
 }
 
 const apiBase = `${import.meta.env.BASE_URL}api`;
+
+// Skip realtime under headless automation (Playwright/CI) so e2e specs that
+// use page.waitForLoadState("networkidle") don't hang on the long-lived SSE
+// connection. Real browsers set webdriver=false; Playwright chromium sets it
+// to true. The dispatcher experience is unaffected.
+const REALTIME_DISABLED =
+  typeof navigator !== "undefined" && (navigator as Navigator).webdriver === true;
 
 const connections = new Map<string, ConnectionRec>();
 
@@ -123,7 +131,28 @@ function createSource(weekStart: string, kfiId: string | null): EventSource {
   return new EventSource(url.toString(), { withCredentials: true });
 }
 
-function attach(rec: ConnectionRec): void {
+function attach(rec: ConnectionRec, isReconnect = false): void {
+  rec.source.onopen = () => {
+    // First successful open after a forced retry — tell every subscriber to
+    // resync their cached data since they may have missed events while the
+    // connection was down.
+    if (isReconnect) {
+      isReconnect = false;
+      const evt: RealtimeEvent = {
+        type: "reconnect",
+        weekStart: rec.weekStart,
+        kfiId: rec.kfiId,
+      };
+      for (const h of rec.handlers) {
+        try {
+          h(evt);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error("realtime reconnect handler threw", err);
+        }
+      }
+    }
+  };
   rec.source.onmessage = (e) => {
     if (!e.data) return;
     try {
@@ -162,7 +191,7 @@ function attach(rec: ConnectionRec): void {
           /* ignore */
         }
         rec.source = createSource(rec.weekStart, rec.kfiId);
-        attach(rec);
+        attach(rec, true);
       }, delay);
     }
   };
@@ -181,6 +210,7 @@ function release(rec: ConnectionRec): void {
 }
 
 export function subscribeRealtime(sub: Subscription): () => void {
+  if (REALTIME_DISABLED) return () => {};
   const rec = openConnection(sub.weekStart, sub.kfiId);
   rec.handlers.add(sub.handler);
   return () => {
@@ -190,6 +220,7 @@ export function subscribeRealtime(sub: Subscription): () => void {
 }
 
 export async function postPresence(weekStart: string, kfiId: string | null): Promise<void> {
+  if (REALTIME_DISABLED) return;
   await fetch(`${apiBase}/presence`, {
     method: "POST",
     credentials: "include",
@@ -207,6 +238,7 @@ export async function postEditing(args: {
   punchId: number | null;
   action: "start" | "stop";
 }): Promise<void> {
+  if (REALTIME_DISABLED) return;
   await fetch(`${apiBase}/editing`, {
     method: "POST",
     credentials: "include",

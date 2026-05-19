@@ -1188,6 +1188,7 @@ export default function DriverDetail() {
                         : `at the 40h OT line`;
                   const punchNotes = notesByPunch.get(p.id) ?? [];
                   const noteOpen = openNoteForPunch === p.id;
+                  const rowEditors = editorsForPunch(p.id);
                   return (
                     <Fragment key={p.id}>
                     <TableRow
@@ -1370,6 +1371,9 @@ export default function DriverDetail() {
                                 </span>
                               )}
                             </Button>
+                            {rowEditors.length > 0 && (
+                              <EditingIndicator emails={rowEditors} />
+                            )}
                             <Button
                               size="icon"
                               variant="ghost"

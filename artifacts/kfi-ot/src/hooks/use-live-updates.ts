@@ -133,6 +133,29 @@ export function useLiveUpdates({
             });
             break;
 
+          case "reconnect":
+            // SSE went down and came back; we may have missed events.
+            // Invalidate every cache surface this hook owns so the page
+            // resyncs against the server source of truth.
+            qc.invalidateQueries({
+              queryKey: getGetWeekSummaryQueryKey(event.weekStart),
+            });
+            if (event.kfiId) {
+              qc.invalidateQueries({
+                queryKey: getGetDriverWeekQueryKey(event.weekStart, event.kfiId),
+              });
+              qc.invalidateQueries({
+                queryKey: getGetDriverWeekAuditQueryKey(event.weekStart, event.kfiId),
+              });
+              qc.invalidateQueries({
+                queryKey: getListDriverNotesQueryKey(event.weekStart, event.kfiId),
+              });
+            }
+            qc.invalidateQueries({
+              queryKey: getGetCustomerUploadStatusQueryKey(event.weekStart),
+            });
+            break;
+
           // presence / editing / ping are consumed by dedicated hooks below.
           default:
             break;
