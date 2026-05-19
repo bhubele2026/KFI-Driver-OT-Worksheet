@@ -70,8 +70,7 @@ export interface CustomerPreviewData {
   unmappedIds: CustomerPreviewUnmappedId[];
   autoIgnoredIds?: CustomerPreviewUnmappedId[];
   existingPunchCount: number;
-  aiFallback?: boolean;
-  aiFallbackReason?: string | null;
+  extractSource?: "legacy-parser" | "cache" | "ai";
 }
 
 function errMessage(err: unknown, fallback: string): string {
@@ -277,22 +276,30 @@ export function CustomerPreviewDialog({
         </DialogHeader>
 
         <div className="space-y-2">
-          {preview.aiFallback ? (
+          {preview.extractSource ? (
             <div
-              className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-100/70 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200"
-              data-testid="text-ai-fallback-warning"
+              className="flex items-center gap-2 text-xs text-muted-foreground"
+              data-testid="text-extract-source"
             >
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-              <span>
-                <strong>AI fallback used.</strong> The built-in parser for{" "}
-                {preview.customer} returned no rows
-                {preview.aiFallbackReason
-                  ? ` (${preview.aiFallbackReason})`
-                  : ""}
-                , so the file was read by AI instead. The format has likely
-                changed — review every row carefully before confirming and
-                flag the change to engineering so the parser can be updated.
+              <span>Read by:</span>
+              <span
+                className={
+                  preview.extractSource === "ai"
+                    ? "inline-flex items-center rounded border border-amber-500/40 bg-amber-50/60 dark:bg-amber-950/20 px-2 py-0.5 font-medium text-amber-900 dark:text-amber-200"
+                    : "inline-flex items-center rounded border border-border bg-muted/40 px-2 py-0.5 font-medium"
+                }
+              >
+                {preview.extractSource === "ai"
+                  ? "AI"
+                  : preview.extractSource === "cache"
+                    ? "Learned schema"
+                    : "Built-in parser"}
               </span>
+              {preview.extractSource === "ai" ? (
+                <span className="text-muted-foreground/80">
+                  · Review every row before confirming.
+                </span>
+              ) : null}
             </div>
           ) : null}
           {preview.existingPunchCount > 0 ? (

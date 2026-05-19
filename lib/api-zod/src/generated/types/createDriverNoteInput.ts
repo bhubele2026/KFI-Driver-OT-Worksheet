@@ -13,7 +13,7 @@ export interface CreateDriverNoteInput {
    */
   body: string;
   /**
-   * Optional. When set, the note is attached to that specific punch row. When omitted/null, the note is week-level.
+   * Required (non-null) — the note must be attached to a specific punch row. The server rejects requests with a null/omitted `punchId` with a 400; week-level notes are no longer supported.
    * @nullable
    */
   punchId?: number | null;

@@ -36,6 +36,7 @@ export * from "./createInviteBody";
 export * from "./createParserPromotionSnoozeBody";
 export * from "./customerAliasAuditLogEntry";
 export * from "./customerExtractPreview";
+export * from "./customerExtractPreviewExtractSource";
 export * from "./customerExtractRow";
 export * from "./customerIgnoredExternal";
 export * from "./customerNameAlias";

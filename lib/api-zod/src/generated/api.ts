@@ -732,7 +732,7 @@ export const GetWeekSummaryResponse = zod.object({
       noteCount: zod
         .number()
         .describe(
-          "Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context.",
+          "Number of non-deleted per-punch notes attached to this driver-week. Surfaced as a small badge so a Supervisor can scan for context.",
         ),
       hasOverriddenDay: zod
         .boolean()
@@ -815,7 +815,7 @@ export const GetWeekSummaryResponse = zod.object({
           noteCount: zod
             .number()
             .describe(
-              "Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context.",
+              "Number of non-deleted per-punch notes attached to this driver-week. Surfaced as a small badge so a Supervisor can scan for context.",
             ),
           hasOverriddenDay: zod
             .boolean()
@@ -1455,17 +1455,11 @@ export const ExtractCustomerFileResponse = zod.object({
     .describe(
       "Number of existing Customer-source punches for `(week, customer)` that this confirm would actually replace — i.e. excluding manual rows, inline-edited rows, and any rows belonging to a locked driver-week (all of which the wipe preserves).",
     ),
-  aiFallback: zod
-    .boolean()
+  extractSource: zod
+    .enum(["legacy-parser", "cache", "ai"])
     .optional()
     .describe(
-      "True when the deterministic parser for this customer returned zero punches and the server fell back to AI extraction (Gemini) to recover rows. Indicates the source file format has likely drifted from what the parser expects — the dispatcher should review every row carefully before confirming, and engineering should update the deterministic parser (or promote the AI fallback to a parser; see `docs\/promote-ai-customer-to-parser.md`).",
-    ),
-  aiFallbackReason: zod
-    .string()
-    .nullish()
-    .describe(
-      'When `aiFallback` is true, the human-readable reason the deterministic parser failed (e.g. \"parsed 0 punches\" or \"missing Transaction Apply Date header\"). Null otherwise.',
+      "Which extraction strategy the uniform per-row pipeline used:\n- `legacy-parser`: the schema cache routed to a hand-written\n  parser (fast, deterministic).\n- `cache`: an AI-discovered column-roles row was found and a\n  generic role-based reader produced the rows (fast).\n- `ai`: fell through to Gemini extraction (slow, but uniform).\n  For known-customer rows this signals format drift —\n  consider updating the deterministic parser or promoting\n  the AI extraction (see `docs\/promote-ai-customer-to-parser.md`).\n",
     ),
 });
 
@@ -2886,7 +2880,7 @@ export const ListDriverNotesResponseItem = zod.object({
     .number()
     .nullish()
     .describe(
-      'Null = week-level note. Otherwise references the punch this note is attached to. Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an \"(orphaned punch)\" tag so context isn\'t lost.',
+      'References the punch this note is attached to. Null only on historical week-level notes (no longer creatable; preserved for the admin audit screen). Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an \"(orphaned punch)\" tag so context isn\'t lost.',
     ),
   punchExists: zod
     .boolean()
@@ -2940,7 +2934,7 @@ export const CreateDriverNoteBody = zod.object({
     .number()
     .nullish()
     .describe(
-      "Optional. When set, the note is attached to that specific punch row. When omitted\/null, the note is week-level.",
+      "Required (non-null) — the note must be attached to a specific punch row. The server rejects requests with a null\/omitted `punchId` with a 400; week-level notes are no longer supported.",
     ),
 });
 
@@ -2952,7 +2946,7 @@ export const CreateDriverNoteResponse = zod.object({
     .number()
     .nullish()
     .describe(
-      'Null = week-level note. Otherwise references the punch this note is attached to. Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an \"(orphaned punch)\" tag so context isn\'t lost.',
+      'References the punch this note is attached to. Null only on historical week-level notes (no longer creatable; preserved for the admin audit screen). Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an \"(orphaned punch)\" tag so context isn\'t lost.',
     ),
   punchExists: zod
     .boolean()
@@ -3004,7 +2998,7 @@ export const RestoreDriverNoteResponse = zod.object({
     .number()
     .nullish()
     .describe(
-      'Null = week-level note. Otherwise references the punch this note is attached to. Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an \"(orphaned punch)\" tag so context isn\'t lost.',
+      'References the punch this note is attached to. Null only on historical week-level notes (no longer creatable; preserved for the admin audit screen). Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an \"(orphaned punch)\" tag so context isn\'t lost.',
     ),
   punchExists: zod
     .boolean()

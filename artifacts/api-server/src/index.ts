@@ -16,6 +16,7 @@ import { startHiddenNotesDigest } from "./lib/hiddenNotesDigest";
 import { initIpBlocklist } from "./lib/ipBlocklist";
 import { startRealtimeHeartbeat } from "./lib/realtime";
 import { seedDriverPayrollProfiles } from "@workspace/db/seedDriverPayrollProfiles";
+import { seedLegacyParserSchemas } from "./lib/parsers/schemaLookup";
 
 if (process.env.NODE_ENV === "production") {
   if (!process.env.APP_BASE_URL && !process.env.REPLIT_DOMAINS) {
@@ -80,6 +81,23 @@ async function main() {
   startAiExtractSampleCleanup();
   startHiddenNotesDigest();
   startRealtimeHeartbeat();
+
+  // Seed the per-customer parser registry that drives the uniform
+  // per-row upload pipeline (see Task #250). Idempotent: re-running on
+  // every boot is a no-op once the rows exist.
+  try {
+    const seedResult = await seedLegacyParserSchemas();
+    if (seedResult.inserted > 0) {
+      logger.info(
+        { inserted: seedResult.inserted },
+        "seedLegacyParserSchemas seeded customer_column_schemas",
+      );
+    }
+  } catch (err) {
+    // Never crash boot on seed failure — every per-row upload still
+    // works via the AI path, the cache just doesn't fast-path them.
+    logger.warn({ err }, "seedLegacyParserSchemas failed");
+  }
 
   void (async () => {
     const client = await pool.connect();

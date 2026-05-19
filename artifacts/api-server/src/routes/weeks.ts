@@ -51,11 +51,12 @@ import {
 } from "../lib/connecteamParity.js";
 import {
   KNOWN_CUSTOMERS,
-  canDeterministicallyParse,
   detectAndParseFile,
 } from "../lib/parsers/index.js";
 import { detectCustomerFromFileName } from "../lib/parsers/customers.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
+import { lookupSchema } from "../lib/parsers/schemaLookup.js";
+import { dispatchLegacyParser } from "../lib/parsers/parserDispatch.js";
 import type {
   ExtractDiagnostics,
   UnmappedIdEntry,
@@ -1471,37 +1472,86 @@ weeksRouter.post(
     > | null = null;
     let stashedImageMime = req.file.mimetype || "application/octet-stream";
     let stashedImageBuffer: Buffer = req.file.buffer;
-    // Track whether we fell back to AI extraction so the preview dialog can
-    // warn the dispatcher and so /confirm-customer-file knows to replay the
-    // stashed rows instead of re-running the deterministic parser.
-    let aiFallback = false;
-    let aiFallbackReason: string | null = null;
-    // Decide whether to run the deterministic parser or fall straight
-    // through to AI. Images always go to AI. Non-image files go to AI when
-    // the dispatcher named a customer whose deterministic parser doesn't
-    // accept this extension (e.g. dropping a CSV on the Adient row), and
-    // otherwise use the deterministic parser.
-    const useAiUpfront =
-      isImage ||
-      (explicitCustomer !== null &&
-        !canDeterministicallyParse(fileName, explicitCustomer));
-    if (useAiUpfront) {
-      if (isImage && req.file.size > MAX_IMAGE_BYTES) {
-        res.status(400).json({
-          error: `Image is ${(req.file.size / (1024 * 1024)).toFixed(1)} MB. Photos must be ${MAX_IMAGE_BYTES / (1024 * 1024)} MB or smaller.`,
-        });
-        return;
+    // Track which extraction strategy ran. Drives the preview dialog's
+    // neutral source chip + the customer_upload_attempts.last_source
+    // audit value. One of:
+    //   - 'legacy-parser': cache pointed at a hand-written parser (fast).
+    //   - 'cache': AI-discovered column roles fed a generic reader (fast).
+    //   - 'ai': fell through to Gemini (slow, but uniform).
+    let extractSource: "legacy-parser" | "cache" | "ai" = "ai";
+
+    // ---- Uniform per-row pipeline (Task #250) -------------------------
+    // Every per-row upload (`explicitCustomer` set, including drag-drop
+    // and the per-row picker) starts with the same single lookup against
+    // `customer_column_schemas`:
+    //   1. Cache hit (exact header signature) → generic role-based reader.
+    //   2. Legacy-parser sentinel (customer-level `'*'` row, seeded at
+    //      boot for every KNOWN_CUSTOMERS entry) → delegate to the
+    //      hand-written parser.
+    //   3. Miss → AI extraction.
+    // The bulk filename-routed `/upload-customer-file` path is untouched.
+    // Images and the no-explicit-customer (filename-detection) path also
+    // route here so the behavior tree is one shape regardless of input.
+    const detectedCustomer =
+      explicitCustomer ?? detectCustomerFromFileName(fileName);
+    if (isImage && req.file.size > MAX_IMAGE_BYTES) {
+      res.status(400).json({
+        error: `Image is ${(req.file.size / (1024 * 1024)).toFixed(1)} MB. Photos must be ${MAX_IMAGE_BYTES / (1024 * 1024)} MB or smaller.`,
+      });
+      return;
+    }
+    if (!detectedCustomer) {
+      res.status(400).json({
+        error: isImage
+          ? "Could not detect customer from filename. Rename the photo to include the customer name (e.g. adient-week.jpg), or use the New customer file… flow."
+          : "Could not detect customer from filename. Drop the file onto a specific customer row, or rename it to include the customer name.",
+      });
+      return;
+    }
+
+    // Step 1+2: schema cache lookup. Skipped for images (always AI).
+    const schemaHit = isImage
+      ? { kind: "miss" as const }
+      : await lookupSchema(
+          detectedCustomer,
+          fileName,
+          req.file.buffer,
+          isImage,
+        );
+
+    if (schemaHit.kind === "legacy-parser") {
+      try {
+        const idMap = await loadMergedIdMap();
+        const parsed = await dispatchLegacyParser(
+          schemaHit.parserName,
+          fileName,
+          req.file.buffer,
+          kfiSet,
+          startDate,
+          idMap,
+        );
+        if (parsed) {
+          result = parsed;
+          extractSource = "legacy-parser";
+        }
+      } catch (err) {
+        // Legacy parser threw (e.g. Adient's "header missing" guard).
+        // Don't bubble — fall through to AI so the dispatcher still gets
+        // a preview rather than a hard 400. Log so engineering sees the
+        // drift signal in audit attempts.
+        req.log.warn(
+          { err, fileName, customer: detectedCustomer, parser: schemaHit.parserName },
+          "Legacy parser threw — falling through to AI",
+        );
       }
-      const detected =
-        explicitCustomer ?? detectCustomerFromFileName(fileName);
-      if (!detected) {
-        res.status(400).json({
-          error: isImage
-            ? "Could not detect customer from filename. Rename the photo to include the customer name (e.g. adient-week.jpg), or use the New customer file… flow."
-            : "Could not detect customer from filename. Drop the file onto a specific customer row, or rename it to include the customer name.",
-        });
-        return;
-      }
+    }
+
+    // Step 3: AI extraction. Triggered when the cache missed, when the
+    // legacy parser returned 0 rows (format drift), or when an image.
+    const needsAi =
+      !result ||
+      (extractSource === "legacy-parser" && result.punches.length === 0);
+    if (needsAi) {
       try {
         let bufferForAi = req.file.buffer;
         let mimeForAi = req.file.mimetype || "application/octet-stream";
@@ -1517,12 +1567,12 @@ weeksRouter.post(
         stashedImageBuffer = bufferForAi;
         stashedImageMime = mimeForAi;
         const idMap = await loadMergedIdMap();
-        const nameAliasMap = await loadCustomerNameAliasMap(detected);
-        result = await extractImageForKnownCustomer({
+        const nameAliasMap = await loadCustomerNameAliasMap(detectedCustomer);
+        const aiResult = await extractImageForKnownCustomer({
           fileName,
           buffer: bufferForAi,
           mimeType: mimeForAi,
-          customer: detected,
+          customer: detectedCustomer,
           weekStart: startDate,
           weekEnd: endDate,
           idMap,
@@ -1531,73 +1581,14 @@ weeksRouter.post(
           nameAliasMap,
           log: req.log,
         });
-        stashedImageRows = imagePunchesForStash(result.punches);
-        aiFallback = !isImage;
-        if (aiFallback) {
-          const isKnown = KNOWN_CUSTOMERS.some(
-            (c) => c.displayName.toLowerCase() === detected.toLowerCase(),
-          );
-          aiFallbackReason = isKnown
-            ? `${fileName.split(".").pop()?.toLowerCase() || "this file"} format isn't supported by the built-in ${detected} parser`
-            : `no built-in parser for "${detected}" — used AI extraction`;
-        }
+        result = aiResult;
+        stashedImageRows = imagePunchesForStash(aiResult.punches);
+        extractSource = "ai";
       } catch (err) {
         req.log.error({ err, fileName }, "AI extract error");
         const msg =
           err instanceof Error ? err.message : "Could not extract rows";
-        await recordAttempt(startDate, detected, fileName, msg, "ai");
-        res.status(400).json({ error: msg });
-        return;
-      }
-    } else {
-      try {
-        const idMap = await loadMergedIdMap();
-        result = await detectAndParseFile(
-          fileName,
-          req.file.buffer,
-          kfiSet,
-          startDate,
-          idMap,
-          // When the dispatcher named a customer, force the parser to that
-          // customer — never let filename keywords mis-route the file to
-          // another known customer's parser (e.g. a "kronos-week.xlsx"
-          // dropped on Penda must parse as Penda, not whatever the
-          // keywords happen to hit).
-          explicitCustomer ?? undefined,
-        );
-        // The deterministic parser couldn't identify the customer (no
-        // explicit customer + filename had no recognizable keyword), but
-        // the dispatcher told us which row this belongs to — fall through
-        // to AI with the explicit customer so the upload still succeeds.
-        if (!result && explicitCustomer) {
-          const idMap = await loadMergedIdMap();
-          const nameAliasMap = await loadCustomerNameAliasMap(explicitCustomer);
-          result = await extractImageForKnownCustomer({
-            fileName,
-            buffer: req.file.buffer,
-            mimeType: req.file.mimetype || "application/octet-stream",
-            customer: explicitCustomer,
-            weekStart: startDate,
-            weekEnd: endDate,
-            idMap,
-            drivers,
-            kfiSet,
-            nameAliasMap,
-            log: req.log,
-          });
-          stashedImageRows = imagePunchesForStash(result.punches);
-          aiFallback = true;
-          aiFallbackReason = "filename did not match a known customer keyword";
-        }
-      } catch (err) {
-        req.log.error({ err, fileName }, "Parse error (extract)");
-        const msg =
-          err instanceof Error ? err.message : "Could not parse file";
-        const detected =
-          explicitCustomer ?? detectCustomerFromFileName(fileName);
-        if (detected) {
-          await recordAttempt(startDate, detected, fileName, msg, "parser");
-        }
+        await recordAttempt(startDate, detectedCustomer, fileName, msg, "ai");
         res.status(400).json({ error: msg });
         return;
       }
@@ -1662,72 +1653,17 @@ weeksRouter.post(
       const body = parts.length > 0 ? ` — ${parts.join("; ")}.` : ".";
       return `${lead}${body}${tail}`;
     };
-    if (!isImage && !aiFallback && result.punches.length === 0) {
-      // Deterministic parser detected the customer from the filename but
-      // returned zero rows. That's almost always format drift — the source
-      // export changed column names, sheet layout, or date format. Rather
-      // than block the dispatcher on a parser update, fall back to Gemini
-      // with the customer name + week window pinned so it can recover the
-      // punches. The dispatcher reviews every row in the preview before
-      // anything is written, and the amber "AI fallback used" banner is the
-      // signal to engineering that the parser needs an update.
-      req.log.warn(
-        { fileName, customer: result.customer },
-        "Customer file parsed to zero punches — attempting AI fallback",
-      );
-      const detectedCustomer = result.customer;
-      try {
-        const idMap = await loadMergedIdMap();
-        const nameAliasMap =
-          await loadCustomerNameAliasMap(detectedCustomer);
-        const aiResult = await extractImageForKnownCustomer({
-          fileName,
-          buffer: req.file.buffer,
-          mimeType: req.file.mimetype || "application/octet-stream",
-          customer: detectedCustomer,
-          weekStart: startDate,
-          weekEnd: endDate,
-          idMap,
-          drivers,
-          kfiSet,
-          nameAliasMap,
-          log: req.log,
-        });
-        if (aiResult.punches.length === 0) {
-          const msg = explainZeroPunches(
-            detectedCustomer,
-            aiResult.unmappedIds,
-            aiResult.diagnostics,
-            "ai",
-          );
-          await recordAttempt(startDate, detectedCustomer, fileName, msg, "ai");
-          res.status(400).json({ error: msg });
-          return;
-        }
-        result = aiResult;
-        aiFallback = true;
-        aiFallbackReason = "deterministic parser returned 0 punches";
-        // AI-derived rows must be stashed verbatim — the extractor is
-        // non-deterministic so /confirm-customer-file can't re-derive them.
-        stashedImageRows = imagePunchesForStash(aiResult.punches);
-      } catch (err) {
-        req.log.error(
-          { err, fileName, customer: detectedCustomer },
-          "AI fallback failed after deterministic parser returned 0 punches",
-        );
-        const aiMsg =
-          err instanceof Error ? err.message : "AI fallback failed";
-        const msg = `Detected customer "${detectedCustomer}" but parsed 0 punches, and AI fallback failed: ${aiMsg}`;
-        await recordAttempt(startDate, detectedCustomer, fileName, msg, "ai");
-        res.status(400).json({ error: msg });
-        return;
-      }
-    }
+    // (The legacy "deterministic parser returned 0 → retry with AI"
+    // fallback block lived here. It's been folded into the uniform
+    // pipeline above — when the schema cache routes us to a legacy
+    // parser and it returns 0 rows, the `needsAi` guard at the top of
+    // this handler already kicks the same file through AI inline. So
+    // by the time we get here, `result` and `extractSource` are final.)
+
     // Origin label drives the dispatcher-facing copy + the recordAttempt
-    // audit row. AI any time we ran the model — either upfront (image, or
-    // explicit-customer + extension mismatch) or as a fallback after a
-    // deterministic parser returned 0.
-    const origin: "parser" | "ai" = aiFallback || useAiUpfront ? "ai" : "parser";
+    // audit row. `'parser'` covers both legacy-parser and (future)
+    // cache-reader successes; `'ai'` is the AI extraction path.
+    const origin: "parser" | "ai" = extractSource === "ai" ? "ai" : "parser";
     if (result.punches.length === 0) {
       const rawRowCount = result.diagnostics?.rawRowCount ?? 0;
       // AI path with rows in hand but nothing resolved to a kfiId: don't
@@ -1930,8 +1866,7 @@ weeksRouter.post(
       unmappedIds: unmappedWithSuggestions,
       autoIgnoredIds: autoIgnored,
       existingPunchCount,
-      aiFallback,
-      aiFallbackReason,
+      extractSource,
     });
   },
 );

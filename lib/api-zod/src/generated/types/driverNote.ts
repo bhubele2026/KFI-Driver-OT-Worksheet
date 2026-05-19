@@ -11,7 +11,7 @@ export interface DriverNote {
   weekStart: string;
   kfiId: string;
   /**
-   * Null = week-level note. Otherwise references the punch this note is attached to. Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an "(orphaned punch)" tag so context isn't lost.
+   * References the punch this note is attached to. Null only on historical week-level notes (no longer creatable; preserved for the admin audit screen). Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an "(orphaned punch)" tag so context isn't lost.
    * @nullable
    */
   punchId?: number | null;

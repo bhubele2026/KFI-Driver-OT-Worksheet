@@ -25,3 +25,4 @@ export * from "./driverCustomerOverrides";
 export * from "./connecteamUserAliases";
 export * from "./connecteamClockRefreshStats";
 export * from "./schemaFixupMarkers";
+export * from "./customerColumnSchemas";

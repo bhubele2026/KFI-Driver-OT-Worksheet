@@ -277,6 +277,36 @@ const BASELINES: Record<string, Expected[]> = {
       expectedUnmappedIds: ["3618", "3620", "3623", "3636", "3637"],
     },
   ],
+  // Second fixture week added during Task #221 (Connecteam-vs-customer
+  // comparison work). Only Adient was pinned at the time; baseline values
+  // captured here on 2026-05-19 against the same Kronos pivot export.
+  "2026-05-10": [
+    {
+      file: "Adient.xlsx",
+      customer: "Adient",
+      minPunches: 5,
+      totalHours: 52.0,
+      tolerance: 0.5,
+      expectedSampleNameById: {
+        TELD1003: "ORTEGA, MIGUEL E",
+        TELD1004: "YOSHIMURA, ROMEL",
+      },
+      expectedUnmappedIds: [
+        "TELD1003", "TELD1004", "TELD1005", "TELD1006", "TELD1013",
+        "TELD1023", "TELD1025", "TELD1026", "TELD1067", "TELD1068",
+        "TELD1069", "TELD1120", "TELD1121", "TELD1123", "TELD1126",
+        "TELD1127", "TELD1143", "TELD1144", "TELD1145", "TELD1146",
+        "TELD1147", "TELD1148", "TELD1149", "TELD1154", "TELD1155",
+        "TELD1156", "TELD1162", "TELD1163", "TELD1166", "TELD1167",
+        "TELD1168", "TELD1173", "TELD1174", "TELD1177", "TELD645",
+        "TELD647",  "TELD657",  "TELD659",  "TELD662",  "TELD664",
+        "TELD679",  "TELD682",  "TELD686",  "TELD687",  "TELD688",
+        "TELD689",  "TELD690",  "TELD706",  "TELD720",  "TELD723",
+        "TELD740",  "TELD742",  "TELD750",  "TELD788",  "TELD929",
+        "TELD943",  "TELD944",  "TELD946",
+      ],
+    },
+  ],
 };
 
 function totalHours(punches: ParsedPunch[]): number {
