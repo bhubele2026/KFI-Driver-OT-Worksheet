@@ -122,19 +122,21 @@ test.fixme("dispatcher can override and reset a daily total; punches scale propo
   await expect(page.getByRole("heading", { name: DRIVER.name })).toBeVisible();
 
   const totalDriverRow = page.getByTestId("row-summary-total-driver");
-  const dayRow = page.getByTestId(`row-day-total-${PUNCH_DATE}`);
-  await expect(dayRow).toBeVisible();
   // 4.23 + 4.22 = 8.45 (engine-derived starting total).
-  await expect(dayRow).toContainText("8.45");
   await expect(totalDriverRow).toContainText("8.45");
 
-  // Click the value, enter 8.50, save.
-  await page.getByTestId(`button-edit-day-total-${PUNCH_DATE}`).click();
+  // The click-to-override-day-hours affordance now lives on the Hours cell
+  // of every punch row of that day. Click the first row's Hours number,
+  // enter 8.50, save. The editor itself renders in place of that row's
+  // Hours number and is scoped to the row that was clicked.
+  await page
+    .getByTestId(`button-edit-day-total-${PUNCH_DATE}`)
+    .first()
+    .click();
   const input = page.getByTestId(`input-day-total-${PUNCH_DATE}`);
   await input.fill("8.50");
   await page.getByTestId(`button-save-day-total-${PUNCH_DATE}`).click();
   await expect(input).toHaveCount(0);
-  await expect(dayRow).toContainText("8.50");
   await expect(totalDriverRow).toContainText("8.50");
 
   // DB sanity: each punch is marked edited and their hours sum to 8.50.
@@ -148,8 +150,12 @@ test.fixme("dispatcher can override and reset a daily total; punches scale propo
   expect(Math.abs(sum - 8.5)).toBeLessThan(0.005);
   for (const r of after.rows) expect(r.edited).toBe(true);
 
-  // Reset puts it back to the engine-derived 8.45 (clock-in/out diff).
-  await page.getByTestId(`button-reset-day-total-${PUNCH_DATE}`).click();
-  await expect(dayRow).toContainText("8.45");
+  // Reset puts it back to the engine-derived 8.45 (clock-in/out diff). The
+  // reset button (Undo2) renders next to every overridden day's Hours
+  // number, so target the first row's reset.
+  await page
+    .getByTestId(`button-reset-day-total-${PUNCH_DATE}`)
+    .first()
+    .click();
   await expect(totalDriverRow).toContainText("8.45");
 });

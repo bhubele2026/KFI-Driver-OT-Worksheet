@@ -130,26 +130,22 @@ test("per-punch reviewed checkbox updates counters, persists, auto-clears on edi
   const cb1 = page.getByTestId(`checkbox-punch-reviewed-${firstPunch.id}`);
   const cb2 = page.getByTestId(`checkbox-punch-reviewed-${secondPunch.id}`);
   const cb3 = page.getByTestId(`checkbox-punch-reviewed-${thirdPunch.id}`);
-  const day1Badge = page.getByTestId(`day-reviewed-count-${WEEK_START}`);
-  const day2Badge = page.getByTestId(`day-reviewed-count-2031-04-22`);
+  // The per-day reviewed-count badge under the Date cell was removed as
+  // part of decluttering the punches table; the week-level pill is the
+  // single source of truth for review progress on this page.
 
   // Baseline: nothing reviewed yet.
   await expect(weekPill).toContainText("0/3 punches");
-  await expect(day1Badge).toHaveText("0/2");
-  await expect(day2Badge).toHaveText("0/1");
   await expect(cb1).toHaveAttribute("data-state", "unchecked");
 
   // 1. Toggle first punch reviewed: counters update.
   await cb1.click();
   await expect(cb1).toHaveAttribute("data-state", "checked");
-  await expect(day1Badge).toHaveText("1/2");
   await expect(weekPill).toContainText("1/3 punches");
 
   // 2. Toggle other two reviewed too: week counter shows fully done.
   await cb2.click();
   await cb3.click();
-  await expect(day1Badge).toHaveText("2/2");
-  await expect(day2Badge).toHaveText("1/1");
   await expect(weekPill).toContainText("3/3 punches");
 
   // 3. Reload — state persists from the server.
@@ -157,9 +153,6 @@ test("per-punch reviewed checkbox updates counters, persists, auto-clears on edi
   await expect(
     page.getByTestId(`checkbox-punch-reviewed-${firstPunch.id}`),
   ).toHaveAttribute("data-state", "checked");
-  await expect(
-    page.getByTestId(`day-reviewed-count-${WEEK_START}`),
-  ).toHaveText("2/2");
   await expect(
     page.getByTestId("pill-punch-reviewed-progress"),
   ).toContainText("3/3 punches");
@@ -175,9 +168,6 @@ test("per-punch reviewed checkbox updates counters, persists, auto-clears on edi
   await expect(
     page.getByTestId(`checkbox-punch-reviewed-${firstPunch.id}`),
   ).toHaveAttribute("data-state", "unchecked");
-  await expect(
-    page.getByTestId(`day-reviewed-count-${WEEK_START}`),
-  ).toHaveText("1/2");
   await expect(
     page.getByTestId("pill-punch-reviewed-progress"),
   ).toContainText("2/3 punches");
