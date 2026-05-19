@@ -239,6 +239,11 @@ export default function WeekSummary() {
   const resetWeekMut = useResetWeek();
   const [sidebarCollapsed, , toggleSidebar] = useSidebarCollapsed();
 
+  const [lastRefreshIssues, setLastRefreshIssues] = useState<{
+    unresolved: Array<{ ctUserId: number; shiftCount: number; clockIds: number[] }>;
+    failures: Array<{ clockId: number; clockName: string; error: string }>;
+  } | null>(null);
+
   const [resetOpen, setResetOpen] = useState(false);
   const [resetScope, setResetScope] = useState<
     "punches-only" | "punches-and-reviewed" | "all"
@@ -326,6 +331,21 @@ export default function WeekSummary() {
           toast({
             title: t("weekSummary.refreshSuccessTitle"),
             description: t("weekSummary.refreshSuccessDesc", { drivers: data.driversFound, punches: data.punchesUpserted }),
+          });
+          if (data.clockFailures && data.clockFailures.length > 0) {
+            toast({
+              title: `${data.clockFailures.length} clock${
+                data.clockFailures.length === 1 ? "" : "s"
+              } failed to pull`,
+              description: data.clockFailures
+                .map((f) => `${f.clockName} (${f.clockId}): ${f.error}`)
+                .join(" · "),
+              variant: "destructive",
+            });
+          }
+          setLastRefreshIssues({
+            unresolved: data.unresolvedUsers ?? [],
+            failures: data.clockFailures ?? [],
           });
         },
         onError: (err) => {
@@ -505,6 +525,66 @@ export default function WeekSummary() {
         />
 
         <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden relative">
+          {lastRefreshIssues &&
+            (lastRefreshIssues.unresolved.length > 0 ||
+              lastRefreshIssues.failures.length > 0) && (
+              <div
+                role="alert"
+                className="rounded-md border border-amber-500/60 bg-amber-500/10 p-4 text-sm space-y-2"
+                data-testid="banner-refresh-issues"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-display font-semibold text-amber-900 dark:text-amber-200">
+                    Last refresh had issues
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs underline text-muted-foreground"
+                    onClick={() => setLastRefreshIssues(null)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+                {lastRefreshIssues.failures.length > 0 && (
+                  <div className="text-xs">
+                    <span className="font-semibold">
+                      {lastRefreshIssues.failures.length} clock
+                      {lastRefreshIssues.failures.length === 1 ? "" : "s"}{" "}
+                      failed:
+                    </span>{" "}
+                    <span className="font-mono">
+                      {lastRefreshIssues.failures
+                        .map((f) => `${f.clockName} (${f.clockId})`)
+                        .join(", ")}
+                    </span>
+                  </div>
+                )}
+                {lastRefreshIssues.unresolved.length > 0 && (
+                  <div className="text-xs space-y-1">
+                    <div>
+                      <span className="font-semibold">
+                        {lastRefreshIssues.unresolved.length} Connecteam user
+                        {lastRefreshIssues.unresolved.length === 1 ? "" : "s"}{" "}
+                        with shifts but no KFI driver:
+                      </span>{" "}
+                      <span className="font-mono">
+                        {lastRefreshIssues.unresolved
+                          .slice(0, 5)
+                          .map((u) => `${u.ctUserId} (${u.shiftCount})`)
+                          .join(", ")}
+                        {lastRefreshIssues.unresolved.length > 5 ? " …" : ""}
+                      </span>
+                    </div>
+                    <Link
+                      href="/admin/connecteam-user-aliases"
+                      className="text-xs underline text-amber-900 dark:text-amber-200"
+                    >
+                      Map them on the Connecteam aliases page →
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
           <AllReviewedSplash visible={splashVisible} onDismiss={dismissSplash} />
           <FullyReconciledSplash
             visible={fullyReconciledSplashVisible}

@@ -1083,30 +1083,46 @@ export const AuditConnecteamTimeClocksResponse = zod.object({
       id: zod.number(),
       name: zod.string(),
       isArchived: zod.boolean(),
-      configured: zod
-        .boolean()
+      lastRefreshAt: zod.coerce
+        .date()
+        .nullish()
         .describe(
-          "Whether this clock is currently in TIME_CLOCKS and being pulled by refresh.",
+          "Timestamp of the most recent refresh that touched this clock, or null if never.",
+        ),
+      lastWeekStart: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "weekStart of the most recent refresh that touched this clock.",
+        ),
+      lastShiftCount: zod
+        .number()
+        .nullish()
+        .describe(
+          "Number of shifts returned by this clock on the most recent refresh.",
+        ),
+      lastError: zod
+        .string()
+        .nullish()
+        .describe(
+          "Error message if the most recent refresh failed on this clock.",
         ),
     }),
   ),
-  missing: zod
+  orphanStats: zod
     .array(
       zod.object({
         id: zod.number(),
         name: zod.string(),
-        isArchived: zod.boolean(),
-        configured: zod
-          .boolean()
-          .describe(
-            "Whether this clock is currently in TIME_CLOCKS and being pulled by refresh.",
-          ),
+        lastRefreshAt: zod.coerce.date(),
+        lastWeekStart: zod.coerce.date().nullish(),
+        lastShiftCount: zod.number(),
+        lastError: zod.string().nullish(),
       }),
     )
-    .describe("Clocks that exist in Connecteam but aren't being pulled."),
-  configuredButMissingFromAccount: zod
-    .array(zod.number())
-    .describe("Clock IDs in TIME_CLOCKS that no longer exist in the account."),
+    .describe(
+      "Stats rows for clocks that previously refreshed but are no longer present in the Connecteam account.",
+    ),
 });
 
 /**
@@ -1127,6 +1143,42 @@ export const RefreshConnecteamResponse = zod.object({
   driversFound: zod.number(),
   punchesUpserted: zod.number(),
   refreshedAt: zod.coerce.date(),
+  lockedSkipped: zod
+    .array(zod.string())
+    .optional()
+    .describe("KFI ids of locked drivers whose punches were left untouched."),
+  clockFailures: zod
+    .array(
+      zod.object({
+        clockId: zod.number(),
+        clockName: zod.string(),
+        error: zod.string(),
+      }),
+    )
+    .describe(
+      "Per-clock fetch failures. The refresh succeeds and proceeds with the other clocks; this surfaces what to investigate.",
+    ),
+  unresolvedUsers: zod
+    .array(
+      zod.object({
+        ctUserId: zod.number(),
+        shiftCount: zod.number(),
+        clockIds: zod.array(zod.number()),
+      }),
+    )
+    .describe(
+      "Connecteam userIds that returned shifts but have no matching KFI driver and no alias. Surface as a banner; clicking it should jump to the alias admin page.",
+    ),
+  perClock: zod
+    .array(
+      zod.object({
+        clockId: zod.number(),
+        clockName: zod.string(),
+        isArchived: zod.boolean(),
+        shiftCount: zod.number(),
+      }),
+    )
+    .describe("Per-clock shift counts for this refresh."),
 });
 
 /**
@@ -2122,6 +2174,120 @@ export const UpdateDriverIdAliasResponse = zod.object({
  */
 export const DeleteDriverIdAliasParams = zod.object({
   externalId: zod.coerce.string(),
+});
+
+/**
+ * @summary List every admin-managed Connecteam userId → KFI driver mapping (admin-only).
+ */
+export const ListConnecteamUserAliasesResponse = zod.object({
+  aliases: zod.array(
+    zod.object({
+      ctUserId: zod.number(),
+      kfiId: zod.string(),
+      note: zod.string().nullish(),
+      driverName: zod.string().nullish(),
+      driverCustomer: zod.string().nullish(),
+      driverIsArchived: zod.boolean().nullish(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+      createdByEmail: zod.string().nullish(),
+      updatedByEmail: zod.string().nullish(),
+      seededFromStatic: zod
+        .boolean()
+        .optional()
+        .describe(
+          "True when this row reflects a USER_ID_ALIASES_LD static seed (no DB row yet).",
+        ),
+    }),
+  ),
+  drivers: zod.array(
+    zod.object({
+      kfiId: zod.string(),
+      name: zod.string(),
+      customer: zod.string(),
+      ctUserId: zod.number().nullish(),
+      isDriver: zod.boolean(),
+      displayTz: zod
+        .string()
+        .nullish()
+        .describe(
+          "Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set; falls back to the IWG hardcode (when applicable) or CT_TZ.",
+        ),
+      effectiveDispTz: zod
+        .string()
+        .nullish()
+        .describe(
+          "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
+        ),
+    }),
+  ),
+});
+
+/**
+ * @summary Map a Connecteam userId to an existing KFI driver (admin-only).
+ */
+
+export const CreateConnecteamUserAliasBody = zod.object({
+  ctUserId: zod.number().min(1),
+  kfiId: zod.string().min(1),
+  note: zod.string().nullish(),
+});
+
+export const CreateConnecteamUserAliasResponse = zod.object({
+  ctUserId: zod.number(),
+  kfiId: zod.string(),
+  note: zod.string().nullish(),
+  driverName: zod.string().nullish(),
+  driverCustomer: zod.string().nullish(),
+  driverIsArchived: zod.boolean().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+  seededFromStatic: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when this row reflects a USER_ID_ALIASES_LD static seed (no DB row yet).",
+    ),
+});
+
+/**
+ * @summary Re-map an existing Connecteam user alias to a different driver, or update its note (admin-only).
+ */
+export const UpdateConnecteamUserAliasParams = zod.object({
+  ctUserId: zod.coerce.number(),
+});
+
+export const UpdateConnecteamUserAliasBody = zod.object({
+  kfiId: zod.string().min(1).optional(),
+  note: zod.string().nullish(),
+});
+
+export const UpdateConnecteamUserAliasResponse = zod.object({
+  ctUserId: zod.number(),
+  kfiId: zod.string(),
+  note: zod.string().nullish(),
+  driverName: zod.string().nullish(),
+  driverCustomer: zod.string().nullish(),
+  driverIsArchived: zod.boolean().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+  seededFromStatic: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when this row reflects a USER_ID_ALIASES_LD static seed (no DB row yet).",
+    ),
+});
+
+/**
+ * @summary Remove a saved Connecteam userId → driver mapping (admin-only).
+ */
+export const DeleteConnecteamUserAliasParams = zod.object({
+  ctUserId: zod.coerce.number(),
 });
 
 /**

@@ -1175,6 +1175,73 @@ paths:
         "204": { description: Deleted (or no alias existed) }
         "403": { description: Admin only }
 
+  /admin/connecteam-user-aliases:
+    get:
+      operationId: listConnecteamUserAliases
+      tags: [ingest]
+      summary: List every admin-managed Connecteam userId → KFI driver mapping (admin-only).
+      responses:
+        "200":
+          description: Saved Connecteam user aliases joined with the resolved driver, plus the active driver roster for the create/edit dropdowns.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnecteamUserAliasList" }
+        "403": { description: Admin only }
+    post:
+      operationId: createConnecteamUserAlias
+      tags: [ingest]
+      summary: Map a Connecteam userId to an existing KFI driver (admin-only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateConnecteamUserAliasBody" }
+      responses:
+        "200":
+          description: Created (or updated, if the ctUserId already existed) alias.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnecteamUserAlias" }
+        "400": { description: Invalid input or unknown kfiId }
+        "403": { description: Admin only }
+
+  /admin/connecteam-user-aliases/{ctUserId}:
+    patch:
+      operationId: updateConnecteamUserAlias
+      tags: [ingest]
+      summary: Re-map an existing Connecteam user alias to a different driver, or update its note (admin-only).
+      parameters:
+        - name: ctUserId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateConnecteamUserAliasBody" }
+      responses:
+        "200":
+          description: Updated alias.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnecteamUserAlias" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+        "404": { description: Alias not found }
+    delete:
+      operationId: deleteConnecteamUserAlias
+      tags: [ingest]
+      summary: Remove a saved Connecteam userId → driver mapping (admin-only).
+      parameters:
+        - name: ctUserId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Deleted (or no alias existed) }
+        "403": { description: Admin only }
+
   /customer-ignored-externals:
     get:
       operationId: listCustomerIgnoredExternals
@@ -1872,30 +1939,51 @@ components:
 
     ConnecteamTimeClock:
       type: object
-      required: [id, name, isArchived, configured]
+      required: [id, name, isArchived]
       properties:
         id: { type: integer }
         name: { type: string }
         isArchived: { type: boolean }
-        configured:
-          type: boolean
-          description: Whether this clock is currently in TIME_CLOCKS and being pulled by refresh.
+        lastRefreshAt:
+          type: ["string", "null"]
+          format: date-time
+          description: Timestamp of the most recent refresh that touched this clock, or null if never.
+        lastWeekStart:
+          type: ["string", "null"]
+          format: date
+          description: weekStart of the most recent refresh that touched this clock.
+        lastShiftCount:
+          type: ["integer", "null"]
+          description: Number of shifts returned by this clock on the most recent refresh.
+        lastError:
+          type: ["string", "null"]
+          description: Error message if the most recent refresh failed on this clock.
+
+    ConnecteamOrphanClockStat:
+      type: object
+      required: [id, name, lastRefreshAt, lastShiftCount]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        lastRefreshAt: { type: string, format: date-time }
+        lastWeekStart:
+          type: ["string", "null"]
+          format: date
+        lastShiftCount: { type: integer }
+        lastError:
+          type: ["string", "null"]
 
     ConnecteamClocksAudit:
       type: object
-      required: [discovered, missing, configuredButMissingFromAccount]
+      required: [discovered, orphanStats]
       properties:
         discovered:
           type: array
           items: { $ref: "#/components/schemas/ConnecteamTimeClock" }
-        missing:
+        orphanStats:
           type: array
-          description: Clocks that exist in Connecteam but aren't being pulled.
-          items: { $ref: "#/components/schemas/ConnecteamTimeClock" }
-        configuredButMissingFromAccount:
-          type: array
-          description: Clock IDs in TIME_CLOCKS that no longer exist in the account.
-          items: { type: integer }
+          description: Stats rows for clocks that previously refreshed but are no longer present in the Connecteam account.
+          items: { $ref: "#/components/schemas/ConnecteamOrphanClockStat" }
 
     RateLimitBucket:
       type: object
@@ -2632,11 +2720,62 @@ components:
 
     RefreshResult:
       type: object
-      required: [driversFound, punchesUpserted, refreshedAt]
+      required:
+        [
+          driversFound,
+          punchesUpserted,
+          refreshedAt,
+          clockFailures,
+          unresolvedUsers,
+          perClock,
+        ]
       properties:
         driversFound: { type: integer }
         punchesUpserted: { type: integer }
         refreshedAt: { type: string, format: date-time }
+        lockedSkipped:
+          type: array
+          items: { type: string }
+          description: KFI ids of locked drivers whose punches were left untouched.
+        clockFailures:
+          type: array
+          description: Per-clock fetch failures. The refresh succeeds and proceeds with the other clocks; this surfaces what to investigate.
+          items: { $ref: "#/components/schemas/RefreshClockFailure" }
+        unresolvedUsers:
+          type: array
+          description: Connecteam userIds that returned shifts but have no matching KFI driver and no alias. Surface as a banner; clicking it should jump to the alias admin page.
+          items: { $ref: "#/components/schemas/RefreshUnresolvedUser" }
+        perClock:
+          type: array
+          description: Per-clock shift counts for this refresh.
+          items: { $ref: "#/components/schemas/RefreshClockShiftCount" }
+
+    RefreshClockFailure:
+      type: object
+      required: [clockId, clockName, error]
+      properties:
+        clockId: { type: integer }
+        clockName: { type: string }
+        error: { type: string }
+
+    RefreshClockShiftCount:
+      type: object
+      required: [clockId, clockName, isArchived, shiftCount]
+      properties:
+        clockId: { type: integer }
+        clockName: { type: string }
+        isArchived: { type: boolean }
+        shiftCount: { type: integer }
+
+    RefreshUnresolvedUser:
+      type: object
+      required: [ctUserId, shiftCount, clockIds]
+      properties:
+        ctUserId: { type: integer }
+        shiftCount: { type: integer }
+        clockIds:
+          type: array
+          items: { type: integer }
 
     ResetWeekBody:
       type: object
@@ -3195,6 +3334,57 @@ components:
           type: ["string", "null"]
         sampleName:
           type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+
+    ConnecteamUserAlias:
+      type: object
+      required: [ctUserId, kfiId, createdAt, updatedAt]
+      properties:
+        ctUserId: { type: integer }
+        kfiId: { type: string }
+        note:
+          type: ["string", "null"]
+        driverName:
+          type: ["string", "null"]
+        driverCustomer:
+          type: ["string", "null"]
+        driverIsArchived:
+          type: ["boolean", "null"]
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        createdByEmail:
+          type: ["string", "null"]
+        updatedByEmail:
+          type: ["string", "null"]
+        seededFromStatic:
+          type: boolean
+          description: True when this row reflects a USER_ID_ALIASES_LD static seed (no DB row yet).
+
+    ConnecteamUserAliasList:
+      type: object
+      required: [aliases, drivers]
+      properties:
+        aliases:
+          type: array
+          items: { $ref: "#/components/schemas/ConnecteamUserAlias" }
+        drivers:
+          type: array
+          items: { $ref: "#/components/schemas/DriverInfo" }
+
+    CreateConnecteamUserAliasBody:
+      type: object
+      required: [ctUserId, kfiId]
+      properties:
+        ctUserId: { type: integer, minimum: 1 }
+        kfiId: { type: string, minLength: 1 }
+        note:
+          type: ["string", "null"]
+
+    UpdateConnecteamUserAliasBody:
+      type: object
+      properties:
+        kfiId: { type: string, minLength: 1 }
         note:
           type: ["string", "null"]
 

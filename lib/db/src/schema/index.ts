@@ -21,3 +21,6 @@ export * from "./connecteamDailySnapshots";
 export * from "./customerTzPreferences";
 export * from "./driverPayrollProfiles";
 export * from "./customerActiveState";
+export * from "./connecteamUserAliases";
+export * from "./connecteamClockRefreshStats";
+export * from "./schemaFixupMarkers";

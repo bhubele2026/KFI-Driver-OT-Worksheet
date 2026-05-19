@@ -11,10 +11,12 @@ import {
   CreateManualPunchBody,
   CreateParserPromotionSnoozeBody,
   CreateDriverIdAliasBody,
+  CreateConnecteamUserAliasBody,
   MarkCustomerInactiveBody,
   ResetWeekBody,
   SetReviewedBody,
   UpdateCustomerNameAliasBody,
+  UpdateConnecteamUserAliasBody,
   UpdateDriverIdAliasBody,
 } from "@workspace/api-zod";
 import { db, schema } from "../lib/db.js";
@@ -30,7 +32,7 @@ import {
   fetchPunchesForWeek,
   looksLikeRosterDateJunk,
 } from "../lib/connecteam.js";
-import { EMBEDDED_MAPPING, TIME_CLOCKS } from "../lib/mappings.js";
+import { EMBEDDED_MAPPING, USER_ID_ALIASES_LD } from "../lib/mappings.js";
 import {
   computeChecks,
   computeDailyTotals,
@@ -755,18 +757,39 @@ weeksRouter.get(
   async (req, res) => {
     try {
       const clocks = await fetchAllTimeClocks();
-      const configuredSet = new Set<number>(TIME_CLOCKS as readonly number[]);
+      const stats = await db
+        .select()
+        .from(schema.connecteamClockRefreshStatsTable);
+      const statByClock = new Map(stats.map((s) => [s.clockId, s]));
       const discovered = clocks
-        .map((c) => ({ ...c, configured: configuredSet.has(c.id) }))
+        .map((c) => {
+          const s = statByClock.get(c.id);
+          return {
+            id: c.id,
+            name: c.name,
+            isArchived: c.isArchived,
+            lastRefreshAt: s?.lastRefreshAt
+              ? s.lastRefreshAt.toISOString()
+              : null,
+            lastWeekStart: s?.lastWeekStart ?? null,
+            lastShiftCount: s?.shiftCount ?? null,
+            lastError: s?.errorMessage ?? null,
+          };
+        })
         .sort((a, b) => a.name.localeCompare(b.name));
+      // Stats rows for clocks no longer present in the Connecteam account.
       const discoveredIds = new Set(clocks.map((c) => c.id));
-      res.json({
-        discovered,
-        missing: discovered.filter((c) => !c.configured),
-        configuredButMissingFromAccount: [...configuredSet].filter(
-          (id) => !discoveredIds.has(id),
-        ),
-      });
+      const orphanStats = stats
+        .filter((s) => !discoveredIds.has(s.clockId))
+        .map((s) => ({
+          id: s.clockId,
+          name: s.clockName,
+          lastRefreshAt: s.lastRefreshAt.toISOString(),
+          lastWeekStart: s.lastWeekStart ?? null,
+          lastShiftCount: s.shiftCount,
+          lastError: s.errorMessage ?? null,
+        }));
+      res.json({ discovered, orphanStats });
     } catch (err) {
       req.log.error({ err }, "Connecteam time-clocks audit failed");
       res
@@ -812,11 +835,31 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
     }
     const ctUserIdToKfi = new Map(users.map((u) => [u.ctUserId, u.kfiId]));
     const driverTzByKfi = await loadDriverTzMap();
-    const punches = await fetchPunchesForWeek(
+    // Merge static USER_ID_ALIASES_LD seed with admin-managed rows; DB wins
+    // so an admin can override a stale legacy mapping.
+    const ctAliasRows = await db
+      .select({
+        ctUserId: schema.connecteamUserAliasesTable.ctUserId,
+        kfiId: schema.connecteamUserAliasesTable.kfiId,
+      })
+      .from(schema.connecteamUserAliasesTable);
+    const ctUserAliases = new Map<number, string>();
+    for (const [k, v] of Object.entries(USER_ID_ALIASES_LD)) {
+      const n = Number(k);
+      if (Number.isFinite(n)) ctUserAliases.set(n, v);
+    }
+    for (const row of ctAliasRows) ctUserAliases.set(row.ctUserId, row.kfiId);
+    const {
+      punches,
+      perClock,
+      failures: clockFailures,
+      unresolved: unresolvedUsers,
+    } = await fetchPunchesForWeek(
       startDate,
       endDate,
       ctUserIdToKfi,
       driverTzByKfi,
+      ctUserAliases,
     );
     // De-dupe by ctExternalKey before inserting to avoid mid-batch aborts.
     const uniqByKey = new Map<string, (typeof punches)[number]>();
@@ -959,6 +1002,37 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
           lastRefreshedBy: req.session.userId ?? null,
         })
         .where(eq(schema.weeksTable.startDate, startDate));
+      // Persist per-clock refresh stats so the admin clocks-audit card can
+      // show shift counts and failures after the request returns. Upsert one
+      // row per clock; failures captured by fetchPunchesForWeek win the
+      // errorMessage column.
+      const failureByClock = new Map(
+        clockFailures.map((f) => [f.clockId, f.error]),
+      );
+      for (const stat of perClock) {
+        await tx
+          .insert(schema.connecteamClockRefreshStatsTable)
+          .values({
+            clockId: stat.clockId,
+            clockName: stat.clockName,
+            isArchived: stat.isArchived,
+            lastWeekStart: startDate,
+            lastRefreshAt: refreshedAt,
+            shiftCount: stat.shiftCount,
+            errorMessage: failureByClock.get(stat.clockId) ?? null,
+          })
+          .onConflictDoUpdate({
+            target: schema.connecteamClockRefreshStatsTable.clockId,
+            set: {
+              clockName: stat.clockName,
+              isArchived: stat.isArchived,
+              lastWeekStart: startDate,
+              lastRefreshAt: refreshedAt,
+              shiftCount: stat.shiftCount,
+              errorMessage: failureByClock.get(stat.clockId) ?? null,
+            },
+          });
+      }
     });
     publishRealtime({
       type: "week-refreshed",
@@ -970,6 +1044,22 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
       punchesUpserted: punches.length,
       refreshedAt: refreshedAt.toISOString(),
       lockedSkipped,
+      clockFailures: clockFailures.map((f) => ({
+        clockId: f.clockId,
+        clockName: f.clockName,
+        error: f.error,
+      })),
+      unresolvedUsers: unresolvedUsers.map((u) => ({
+        ctUserId: u.ctUserId,
+        shiftCount: u.shiftCount,
+        clockIds: u.clockIds,
+      })),
+      perClock: perClock.map((c) => ({
+        clockId: c.clockId,
+        clockName: c.clockName,
+        isArchived: c.isArchived,
+        shiftCount: c.shiftCount,
+      })),
     });
   } catch (err) {
     req.log.error({ err }, "Connecteam refresh failed");
@@ -3473,6 +3563,276 @@ weeksRouter.delete(
   },
 );
 
+// ---------------------------------------------------------------------------
+// Connecteam user-id aliases (admin-managed extension of USER_ID_ALIASES_LD).
+// Maps a Connecteam userId to an existing KFI driver so that a driver who
+// appears on multiple time-clocks (and therefore has multiple Connecteam
+// userIds) collapses to a single KFI driver in payroll. Loaded on every
+// refresh and merged with the static USER_ID_ALIASES_LD seed; DB rows win.
+// ---------------------------------------------------------------------------
+
+const ctAliasSelect = {
+  ctUserId: schema.connecteamUserAliasesTable.ctUserId,
+  kfiId: schema.connecteamUserAliasesTable.kfiId,
+  note: schema.connecteamUserAliasesTable.note,
+  createdAt: schema.connecteamUserAliasesTable.createdAt,
+  updatedAt: schema.connecteamUserAliasesTable.updatedAt,
+  createdBy: schema.connecteamUserAliasesTable.createdBy,
+  updatedBy: schema.connecteamUserAliasesTable.updatedBy,
+  driverName: schema.driversTable.name,
+  driverCustomer: schema.driversTable.customer,
+  driverIsArchived: schema.driversTable.isArchived,
+};
+
+async function serializeCtUserAliases(
+  rows: Array<{
+    ctUserId: number;
+    kfiId: string;
+    note: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    createdBy: number | null;
+    updatedBy: number | null;
+    driverName: string | null;
+    driverCustomer: string | null;
+    driverIsArchived: boolean | null;
+  }>,
+) {
+  const actorIds = new Set<number>();
+  for (const r of rows) {
+    if (r.createdBy) actorIds.add(r.createdBy);
+    if (r.updatedBy) actorIds.add(r.updatedBy);
+  }
+  const actorEmailById = new Map<number, string>();
+  if (actorIds.size > 0) {
+    const actorRows = await db
+      .select({ id: schema.usersTable.id, email: schema.usersTable.email })
+      .from(schema.usersTable)
+      .where(inArray(schema.usersTable.id, [...actorIds]));
+    for (const a of actorRows) actorEmailById.set(a.id, a.email);
+  }
+  return rows.map((r) => ({
+    ctUserId: r.ctUserId,
+    kfiId: r.kfiId,
+    note: r.note,
+    driverName: r.driverName,
+    driverCustomer: r.driverCustomer,
+    driverIsArchived: r.driverIsArchived,
+    createdAt: new Date(r.createdAt).toISOString(),
+    updatedAt: new Date(r.updatedAt).toISOString(),
+    createdByEmail: r.createdBy ? actorEmailById.get(r.createdBy) ?? null : null,
+    updatedByEmail: r.updatedBy ? actorEmailById.get(r.updatedBy) ?? null : null,
+    seededFromStatic: false,
+  }));
+}
+
+weeksRouter.get(
+  "/admin/connecteam-user-aliases",
+  requireAdmin,
+  async (_req, res) => {
+    const rows = await db
+      .select(ctAliasSelect)
+      .from(schema.connecteamUserAliasesTable)
+      .leftJoin(
+        schema.driversTable,
+        eq(schema.connecteamUserAliasesTable.kfiId, schema.driversTable.kfiId),
+      )
+      .orderBy(asc(schema.connecteamUserAliasesTable.ctUserId));
+    const dbAliases = await serializeCtUserAliases(rows);
+    // Synthesize ConnecteamUserAlias rows for any USER_ID_ALIASES_LD seed
+    // entries that don't yet exist in the DB so the admin sees them with a
+    // "seededFromStatic" badge and can promote them to first-class rows.
+    const existingIds = new Set(dbAliases.map((a) => a.ctUserId));
+    const seededIds = Object.keys(USER_ID_ALIASES_LD)
+      .map((k) => Number(k))
+      .filter((n) => Number.isFinite(n) && !existingIds.has(n));
+    const seededDriverRows =
+      seededIds.length === 0
+        ? []
+        : await db
+            .select({
+              kfiId: schema.driversTable.kfiId,
+              name: schema.driversTable.name,
+              customer: schema.driversTable.customer,
+              isArchived: schema.driversTable.isArchived,
+            })
+            .from(schema.driversTable)
+            .where(
+              inArray(
+                schema.driversTable.kfiId,
+                seededIds.map((id) => USER_ID_ALIASES_LD[String(id)]!),
+              ),
+            );
+    const seededDriverByKfi = new Map(seededDriverRows.map((d) => [d.kfiId, d]));
+    const now = new Date(0).toISOString();
+    const seededAliases = seededIds.map((ctUserId) => {
+      const kfiId = USER_ID_ALIASES_LD[String(ctUserId)]!;
+      const d = seededDriverByKfi.get(kfiId);
+      return {
+        ctUserId,
+        kfiId,
+        note: "Seeded from USER_ID_ALIASES_LD",
+        driverName: d?.name ?? null,
+        driverCustomer: d?.customer ?? null,
+        driverIsArchived: d?.isArchived ?? null,
+        createdAt: now,
+        updatedAt: now,
+        createdByEmail: null,
+        updatedByEmail: null,
+        seededFromStatic: true,
+      };
+    });
+    const aliases = [...dbAliases, ...seededAliases].sort(
+      (a, b) => a.ctUserId - b.ctUserId,
+    );
+    const driverRows = await db
+      .select({
+        kfiId: schema.driversTable.kfiId,
+        name: schema.driversTable.name,
+        customer: schema.driversTable.customer,
+        ctUserId: schema.driversTable.ctUserId,
+        isDriver: schema.driversTable.isDriver,
+      })
+      .from(schema.driversTable)
+      .where(eq(schema.driversTable.isArchived, false))
+      .orderBy(asc(sql`lower(${schema.driversTable.name})`));
+    res.json({
+      aliases,
+      drivers: driverRows.map((d) => ({
+        kfiId: d.kfiId,
+        name: d.name,
+        customer: d.customer,
+        ctUserId: d.ctUserId ?? null,
+        isDriver: d.isDriver,
+      })),
+    });
+  },
+);
+
+async function fetchCtAliasJoined(ctUserId: number) {
+  const [row] = await db
+    .select(ctAliasSelect)
+    .from(schema.connecteamUserAliasesTable)
+    .leftJoin(
+      schema.driversTable,
+      eq(schema.connecteamUserAliasesTable.kfiId, schema.driversTable.kfiId),
+    )
+    .where(eq(schema.connecteamUserAliasesTable.ctUserId, ctUserId));
+  return row;
+}
+
+weeksRouter.post(
+  "/admin/connecteam-user-aliases",
+  requireAdmin,
+  async (req, res) => {
+    const parsed = CreateConnecteamUserAliasBody.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "Invalid input", details: parsed.error.issues });
+      return;
+    }
+    const { ctUserId, kfiId, note } = parsed.data;
+    const driver = await db.query.driversTable.findFirst({
+      where: eq(schema.driversTable.kfiId, kfiId),
+    });
+    if (!driver) {
+      res.status(400).json({ error: "Unknown kfiId" });
+      return;
+    }
+    const userId = req.session.userId ?? null;
+    await db
+      .insert(schema.connecteamUserAliasesTable)
+      .values({
+        ctUserId,
+        kfiId,
+        note: note ?? null,
+        createdBy: userId,
+        updatedBy: userId,
+      })
+      .onConflictDoUpdate({
+        target: schema.connecteamUserAliasesTable.ctUserId,
+        set: {
+          kfiId,
+          note: note ?? null,
+          updatedBy: userId,
+        },
+      });
+    const row = await fetchCtAliasJoined(ctUserId);
+    if (!row) {
+      res.status(500).json({ error: "Insert succeeded but row not found" });
+      return;
+    }
+    const [serialized] = await serializeCtUserAliases([row]);
+    res.json(serialized);
+  },
+);
+
+weeksRouter.patch(
+  "/admin/connecteam-user-aliases/:ctUserId",
+  requireAdmin,
+  async (req, res) => {
+    const ctUserId = Number(req.params.ctUserId);
+    if (!Number.isFinite(ctUserId) || ctUserId <= 0) {
+      res.status(400).json({ error: "ctUserId is required" });
+      return;
+    }
+    const parsed = UpdateConnecteamUserAliasBody.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "Invalid input", details: parsed.error.issues });
+      return;
+    }
+    const updates: Record<string, unknown> = {
+      updatedBy: req.session.userId ?? null,
+    };
+    if (parsed.data.kfiId !== undefined) {
+      const driver = await db.query.driversTable.findFirst({
+        where: eq(schema.driversTable.kfiId, parsed.data.kfiId),
+      });
+      if (!driver) {
+        res.status(400).json({ error: "Unknown kfiId" });
+        return;
+      }
+      updates.kfiId = parsed.data.kfiId;
+    }
+    if (parsed.data.note !== undefined) updates.note = parsed.data.note;
+    const [updated] = await db
+      .update(schema.connecteamUserAliasesTable)
+      .set(updates)
+      .where(eq(schema.connecteamUserAliasesTable.ctUserId, ctUserId))
+      .returning({ ctUserId: schema.connecteamUserAliasesTable.ctUserId });
+    if (!updated) {
+      res.status(404).json({ error: "Alias not found" });
+      return;
+    }
+    const row = await fetchCtAliasJoined(updated.ctUserId);
+    if (!row) {
+      res.status(404).json({ error: "Alias not found" });
+      return;
+    }
+    const [serialized] = await serializeCtUserAliases([row]);
+    res.json(serialized);
+  },
+);
+
+weeksRouter.delete(
+  "/admin/connecteam-user-aliases/:ctUserId",
+  requireAdmin,
+  async (req, res) => {
+    const ctUserId = Number(req.params.ctUserId);
+    if (!Number.isFinite(ctUserId) || ctUserId <= 0) {
+      res.status(400).json({ error: "ctUserId is required" });
+      return;
+    }
+    await db
+      .delete(schema.connecteamUserAliasesTable)
+      .where(eq(schema.connecteamUserAliasesTable.ctUserId, ctUserId));
+    res.status(204).end();
+  },
+);
+
 // ---------- /customer-ignored-externals (admin-only) ----------
 //
 // Manage the per-customer "not a driver — never import" list that the
@@ -4910,7 +5270,7 @@ weeksRouter.post(
       const ctUserIdToKfi = new Map<number, string>();
       if (driver.ctUserId != null) ctUserIdToKfi.set(driver.ctUserId, kfiId);
       // Pull every shift for the week, then keep only this driver's rows.
-      const allPunches = await fetchPunchesForWeek(
+      const { punches: allPunches } = await fetchPunchesForWeek(
         startDate,
         endDate,
         ctUserIdToKfi,

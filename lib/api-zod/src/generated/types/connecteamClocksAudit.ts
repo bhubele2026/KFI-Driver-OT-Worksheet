@@ -5,12 +5,11 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { ConnecteamOrphanClockStat } from "./connecteamOrphanClockStat";
 import type { ConnecteamTimeClock } from "./connecteamTimeClock";
 
 export interface ConnecteamClocksAudit {
   discovered: ConnecteamTimeClock[];
-  /** Clocks that exist in Connecteam but aren't being pulled. */
-  missing: ConnecteamTimeClock[];
-  /** Clock IDs in TIME_CLOCKS that no longer exist in the account. */
-  configuredButMissingFromAccount: number[];
+  /** Stats rows for clocks that previously refreshed but are no longer present in the Connecteam account. */
+  orphanStats: ConnecteamOrphanClockStat[];
 }

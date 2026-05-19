@@ -5,9 +5,20 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { RefreshClockFailure } from "./refreshClockFailure";
+import type { RefreshClockShiftCount } from "./refreshClockShiftCount";
+import type { RefreshUnresolvedUser } from "./refreshUnresolvedUser";
 
 export interface RefreshResult {
   driversFound: number;
   punchesUpserted: number;
   refreshedAt: Date;
+  /** KFI ids of locked drivers whose punches were left untouched. */
+  lockedSkipped?: string[];
+  /** Per-clock fetch failures. The refresh succeeds and proceeds with the other clocks; this surfaces what to investigate. */
+  clockFailures: RefreshClockFailure[];
+  /** Connecteam userIds that returned shifts but have no matching KFI driver and no alias. Surface as a banner; clicking it should jump to the alias admin page. */
+  unresolvedUsers: RefreshUnresolvedUser[];
+  /** Per-clock shift counts for this refresh. */
+  perClock: RefreshClockShiftCount[];
 }

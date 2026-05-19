@@ -1,8 +1,6 @@
 import {
   IWG_DRIVER_IDS,
   SHUSTER_CLOCK_IDS,
-  TIME_CLOCKS,
-  USER_ID_ALIASES_LD,
 } from "./mappings.js";
 import { CT_TZ, msToLocalStr, msToLocalDate, addDays, isAllowedTz } from "./time.js";
 import { toDisplayName } from "./parsers/displayName.js";
@@ -204,9 +202,42 @@ export async function fetchAllUsers(): Promise<ConnecteamDriver[]> {
   return drivers;
 }
 
+export interface ClockFetchFailure {
+  clockId: number;
+  clockName: string;
+  error: string;
+}
+
+export interface ClockShiftCount {
+  clockId: number;
+  clockName: string;
+  isArchived: boolean;
+  shiftCount: number;
+}
+
+export interface UnresolvedCtUser {
+  ctUserId: number;
+  shiftCount: number;
+  clockIds: number[];
+}
+
+export interface FetchPunchesResult {
+  punches: ConnecteamPunch[];
+  perClock: ClockShiftCount[];
+  failures: ClockFetchFailure[];
+  /**
+   * Connecteam userIds that appeared in shift payloads but had no matching
+   * KFI driver — neither via the live roster nor the alias map. Reported so
+   * the dashboard can prompt the admin to create an alias.
+   */
+  unresolved: UnresolvedCtUser[];
+}
+
 /**
- * Pull all driver punches in [startIso, endIsoInclusive] from every configured
- * time-clock and normalize to wall-clock display strings.
+ * Pull all driver punches in [startIso, endIsoInclusive] from every clock the
+ * Connecteam account currently exposes (no hardcoded TIME_CLOCKS list), and
+ * normalize to wall-clock display strings. Per-clock fetch errors are isolated
+ * so one bad clock can't fail the whole refresh.
  */
 export async function fetchPunchesForWeek(
   startIso: string,
@@ -218,23 +249,91 @@ export async function fetchPunchesForWeek(
    * Loaded from `drivers.display_tz` by the route layer; empty map is fine.
    */
   driverTzByKfi: Map<string, string | null> = new Map(),
-): Promise<ConnecteamPunch[]> {
+  /**
+   * Admin-managed Connecteam-userId -> KFI-id alias map, merged with the
+   * static seed by the route layer. Lets the same driver on multiple clocks
+   * (different ctUserId per clock) collapse to a single KFI driver.
+   */
+  ctUserAliases: Map<number, string> = new Map(),
+  /**
+   * Optional injection point for tests / alternative transports. Defaults
+   * to the production ctFetch helper.
+   */
+  options: {
+    listClocks?: () => Promise<ConnecteamTimeClock[]>;
+    fetchActivities?: (path: string) => Promise<unknown>;
+  } = {},
+): Promise<FetchPunchesResult> {
+  const listClocks = options.listClocks ?? fetchAllTimeClocks;
+  const fetchActivities = options.fetchActivities ?? ctFetch;
+
   // Connecteam's date filter is exclusive of the upper bound, so push it +1d.
   const endParam = addDays(endIsoInclusive, 1);
   const out: ConnecteamPunch[] = [];
+  const perClock: ClockShiftCount[] = [];
+  const failures: ClockFetchFailure[] = [];
+  const unresolvedById = new Map<
+    number,
+    { shiftCount: number; clockIds: Set<number> }
+  >();
 
-  for (const clockId of TIME_CLOCKS) {
-    let url = `/time-clock/v1/time-clocks/${clockId}/time-activities?startDate=${startIso}&endDate=${endParam}&activityTypes=shift`;
-    const data = (await ctFetch(url)) as {
-      data?: { timeActivitiesByUsers?: Array<{ userId: number; shifts?: CtShift[] }> };
-    };
+  let clocks: ConnecteamTimeClock[];
+  try {
+    clocks = await listClocks();
+  } catch (err) {
+    throw new Error(
+      `Failed to list Connecteam time-clocks: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  for (const clock of clocks) {
+    const clockId = clock.id;
+    const url = `/time-clock/v1/time-clocks/${clockId}/time-activities?startDate=${startIso}&endDate=${endParam}&activityTypes=shift`;
+    let groups: Array<{ userId: number; shifts?: CtShift[] }> = [];
+    try {
+      const data = (await fetchActivities(url)) as {
+        data?: {
+          timeActivitiesByUsers?: Array<{
+            userId: number;
+            shifts?: CtShift[];
+          }>;
+        };
+      };
+      groups = data?.data?.timeActivitiesByUsers ?? [];
+    } catch (err) {
+      failures.push({
+        clockId,
+        clockName: clock.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      perClock.push({
+        clockId,
+        clockName: clock.name,
+        isArchived: clock.isArchived,
+        shiftCount: 0,
+      });
+      continue;
+    }
     const shiftFix = SHUSTER_CLOCK_IDS.has(clockId) ? 3_600_000 : 0;
-    const groups = data?.data?.timeActivitiesByUsers ?? [];
+    let clockShiftCount = 0;
     for (const g of groups) {
       const ctUserId = g.userId;
-      const aliasedKfi = USER_ID_ALIASES_LD[String(ctUserId)];
+      const aliasedKfi = ctUserAliases.get(ctUserId);
       const kfiId = aliasedKfi ?? ctUserIdToKfi.get(ctUserId);
-      if (!kfiId) continue;
+      const shifts = g.shifts ?? [];
+      if (!kfiId) {
+        if (shifts.length > 0) {
+          const u =
+            unresolvedById.get(ctUserId) ??
+            { shiftCount: 0, clockIds: new Set<number>() };
+          u.shiftCount += shifts.length;
+          u.clockIds.add(clockId);
+          unresolvedById.set(ctUserId, u);
+        }
+        continue;
+      }
       const driverTz = driverTzByKfi.get(kfiId);
       const dispTz =
         driverTz && isAllowedTz(driverTz)
@@ -242,7 +341,7 @@ export async function fetchPunchesForWeek(
           : IWG_DRIVER_IDS.has(kfiId)
             ? "America/New_York"
             : CT_TZ;
-      for (const s of g.shifts ?? []) {
+      for (const s of shifts) {
         const startTs = s.start?.timestamp;
         const endTs = s.end?.timestamp;
         if (!startTs || !endTs) continue;
@@ -279,8 +378,24 @@ export async function fetchPunchesForWeek(
           // see the new key as a different shift and insert a duplicate.
           ctExternalKey: `${ctUserId}:${rawStartMs}:${rawEndMs}`,
         });
+        clockShiftCount++;
       }
     }
+    perClock.push({
+      clockId,
+      clockName: clock.name,
+      isArchived: clock.isArchived,
+      shiftCount: clockShiftCount,
+    });
   }
-  return out;
+
+  const unresolved: UnresolvedCtUser[] = [...unresolvedById.entries()]
+    .map(([ctUserId, v]) => ({
+      ctUserId,
+      shiftCount: v.shiftCount,
+      clockIds: [...v.clockIds].sort((a, b) => a - b),
+    }))
+    .sort((a, b) => b.shiftCount - a.shiftCount);
+
+  return { punches: out, perClock, failures, unresolved };
 }

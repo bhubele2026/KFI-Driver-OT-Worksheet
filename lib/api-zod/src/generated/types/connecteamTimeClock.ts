@@ -10,6 +10,24 @@ export interface ConnecteamTimeClock {
   id: number;
   name: string;
   isArchived: boolean;
-  /** Whether this clock is currently in TIME_CLOCKS and being pulled by refresh. */
-  configured: boolean;
+  /**
+   * Timestamp of the most recent refresh that touched this clock, or null if never.
+   * @nullable
+   */
+  lastRefreshAt?: Date | null;
+  /**
+   * weekStart of the most recent refresh that touched this clock.
+   * @nullable
+   */
+  lastWeekStart?: Date | null;
+  /**
+   * Number of shifts returned by this clock on the most recent refresh.
+   * @nullable
+   */
+  lastShiftCount?: number | null;
+  /**
+   * Error message if the most recent refresh failed on this clock.
+   * @nullable
+   */
+  lastError?: string | null;
 }

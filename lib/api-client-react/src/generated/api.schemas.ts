@@ -131,16 +131,43 @@ export interface ConnecteamTimeClock {
   id: number;
   name: string;
   isArchived: boolean;
-  /** Whether this clock is currently in TIME_CLOCKS and being pulled by refresh. */
-  configured: boolean;
+  /**
+   * Timestamp of the most recent refresh that touched this clock, or null if never.
+   * @nullable
+   */
+  lastRefreshAt?: string | null;
+  /**
+   * weekStart of the most recent refresh that touched this clock.
+   * @nullable
+   */
+  lastWeekStart?: string | null;
+  /**
+   * Number of shifts returned by this clock on the most recent refresh.
+   * @nullable
+   */
+  lastShiftCount?: number | null;
+  /**
+   * Error message if the most recent refresh failed on this clock.
+   * @nullable
+   */
+  lastError?: string | null;
+}
+
+export interface ConnecteamOrphanClockStat {
+  id: number;
+  name: string;
+  lastRefreshAt: string;
+  /** @nullable */
+  lastWeekStart?: string | null;
+  lastShiftCount: number;
+  /** @nullable */
+  lastError?: string | null;
 }
 
 export interface ConnecteamClocksAudit {
   discovered: ConnecteamTimeClock[];
-  /** Clocks that exist in Connecteam but aren't being pulled. */
-  missing: ConnecteamTimeClock[];
-  /** Clock IDs in TIME_CLOCKS that no longer exist in the account. */
-  configuredButMissingFromAccount: number[];
+  /** Stats rows for clocks that previously refreshed but are no longer present in the Connecteam account. */
+  orphanStats: ConnecteamOrphanClockStat[];
 }
 
 export interface RateLimitBucket {
@@ -822,10 +849,37 @@ export interface EditPunchInput {
   clockOut?: string | null;
 }
 
+export interface RefreshClockFailure {
+  clockId: number;
+  clockName: string;
+  error: string;
+}
+
+export interface RefreshUnresolvedUser {
+  ctUserId: number;
+  shiftCount: number;
+  clockIds: number[];
+}
+
+export interface RefreshClockShiftCount {
+  clockId: number;
+  clockName: string;
+  isArchived: boolean;
+  shiftCount: number;
+}
+
 export interface RefreshResult {
   driversFound: number;
   punchesUpserted: number;
   refreshedAt: string;
+  /** KFI ids of locked drivers whose punches were left untouched. */
+  lockedSkipped?: string[];
+  /** Per-clock fetch failures. The refresh succeeds and proceeds with the other clocks; this surfaces what to investigate. */
+  clockFailures: RefreshClockFailure[];
+  /** Connecteam userIds that returned shifts but have no matching KFI driver and no alias. Surface as a banner; clicking it should jump to the alias admin page. */
+  unresolvedUsers: RefreshUnresolvedUser[];
+  /** Per-clock shift counts for this refresh. */
+  perClock: RefreshClockShiftCount[];
 }
 
 /**
@@ -1305,6 +1359,48 @@ export interface UpdateDriverIdAliasBody {
   customer?: string | null;
   /** @nullable */
   sampleName?: string | null;
+  /** @nullable */
+  note?: string | null;
+}
+
+export interface ConnecteamUserAlias {
+  ctUserId: number;
+  kfiId: string;
+  /** @nullable */
+  note?: string | null;
+  /** @nullable */
+  driverName?: string | null;
+  /** @nullable */
+  driverCustomer?: string | null;
+  /** @nullable */
+  driverIsArchived?: boolean | null;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  createdByEmail?: string | null;
+  /** @nullable */
+  updatedByEmail?: string | null;
+  /** True when this row reflects a USER_ID_ALIASES_LD static seed (no DB row yet). */
+  seededFromStatic?: boolean;
+}
+
+export interface ConnecteamUserAliasList {
+  aliases: ConnecteamUserAlias[];
+  drivers: DriverInfo[];
+}
+
+export interface CreateConnecteamUserAliasBody {
+  /** @minimum 1 */
+  ctUserId: number;
+  /** @minLength 1 */
+  kfiId: string;
+  /** @nullable */
+  note?: string | null;
+}
+
+export interface UpdateConnecteamUserAliasBody {
+  /** @minLength 1 */
+  kfiId?: string;
   /** @nullable */
   note?: string | null;
 }

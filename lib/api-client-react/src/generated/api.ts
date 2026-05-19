@@ -28,6 +28,9 @@ import type {
   ConfirmNewCustomerInput,
   ConfirmNewCustomerResult,
   ConnecteamClocksAudit,
+  ConnecteamUserAlias,
+  ConnecteamUserAliasList,
+  CreateConnecteamUserAliasBody,
   CreateDriverIdAliasBody,
   CreateDriverNoteInput,
   CreateInviteBody,
@@ -100,6 +103,7 @@ import type {
   ShiftPunchesInput,
   ShiftPunchesResult,
   SuggestedIpBlock,
+  UpdateConnecteamUserAliasBody,
   UpdateCustomerNameAliasBody,
   UpdateCustomerNameAliasParams,
   UpdateDriverIdAliasBody,
@@ -5765,6 +5769,347 @@ export const useDeleteDriverIdAlias = <
   TContext
 > => {
   return useMutation(getDeleteDriverIdAliasMutationOptions(options));
+};
+
+/**
+ * @summary List every admin-managed Connecteam userId → KFI driver mapping (admin-only).
+ */
+export const getListConnecteamUserAliasesUrl = () => {
+  return `/api/admin/connecteam-user-aliases`;
+};
+
+export const listConnecteamUserAliases = async (
+  options?: RequestInit,
+): Promise<ConnecteamUserAliasList> => {
+  return customFetch<ConnecteamUserAliasList>(
+    getListConnecteamUserAliasesUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListConnecteamUserAliasesQueryKey = () => {
+  return [`/api/admin/connecteam-user-aliases`] as const;
+};
+
+export const getListConnecteamUserAliasesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listConnecteamUserAliases>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listConnecteamUserAliases>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListConnecteamUserAliasesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listConnecteamUserAliases>>
+  > = ({ signal }) => listConnecteamUserAliases({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listConnecteamUserAliases>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListConnecteamUserAliasesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listConnecteamUserAliases>>
+>;
+export type ListConnecteamUserAliasesQueryError = ErrorType<void>;
+
+/**
+ * @summary List every admin-managed Connecteam userId → KFI driver mapping (admin-only).
+ */
+
+export function useListConnecteamUserAliases<
+  TData = Awaited<ReturnType<typeof listConnecteamUserAliases>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listConnecteamUserAliases>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListConnecteamUserAliasesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Map a Connecteam userId to an existing KFI driver (admin-only).
+ */
+export const getCreateConnecteamUserAliasUrl = () => {
+  return `/api/admin/connecteam-user-aliases`;
+};
+
+export const createConnecteamUserAlias = async (
+  createConnecteamUserAliasBody: CreateConnecteamUserAliasBody,
+  options?: RequestInit,
+): Promise<ConnecteamUserAlias> => {
+  return customFetch<ConnecteamUserAlias>(getCreateConnecteamUserAliasUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createConnecteamUserAliasBody),
+  });
+};
+
+export const getCreateConnecteamUserAliasMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createConnecteamUserAlias>>,
+    TError,
+    { data: BodyType<CreateConnecteamUserAliasBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createConnecteamUserAlias>>,
+  TError,
+  { data: BodyType<CreateConnecteamUserAliasBody> },
+  TContext
+> => {
+  const mutationKey = ["createConnecteamUserAlias"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createConnecteamUserAlias>>,
+    { data: BodyType<CreateConnecteamUserAliasBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createConnecteamUserAlias(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateConnecteamUserAliasMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createConnecteamUserAlias>>
+>;
+export type CreateConnecteamUserAliasMutationBody =
+  BodyType<CreateConnecteamUserAliasBody>;
+export type CreateConnecteamUserAliasMutationError = ErrorType<void>;
+
+/**
+ * @summary Map a Connecteam userId to an existing KFI driver (admin-only).
+ */
+export const useCreateConnecteamUserAlias = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createConnecteamUserAlias>>,
+    TError,
+    { data: BodyType<CreateConnecteamUserAliasBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createConnecteamUserAlias>>,
+  TError,
+  { data: BodyType<CreateConnecteamUserAliasBody> },
+  TContext
+> => {
+  return useMutation(getCreateConnecteamUserAliasMutationOptions(options));
+};
+
+/**
+ * @summary Re-map an existing Connecteam user alias to a different driver, or update its note (admin-only).
+ */
+export const getUpdateConnecteamUserAliasUrl = (ctUserId: number) => {
+  return `/api/admin/connecteam-user-aliases/${ctUserId}`;
+};
+
+export const updateConnecteamUserAlias = async (
+  ctUserId: number,
+  updateConnecteamUserAliasBody: UpdateConnecteamUserAliasBody,
+  options?: RequestInit,
+): Promise<ConnecteamUserAlias> => {
+  return customFetch<ConnecteamUserAlias>(
+    getUpdateConnecteamUserAliasUrl(ctUserId),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(updateConnecteamUserAliasBody),
+    },
+  );
+};
+
+export const getUpdateConnecteamUserAliasMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateConnecteamUserAlias>>,
+    TError,
+    { ctUserId: number; data: BodyType<UpdateConnecteamUserAliasBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateConnecteamUserAlias>>,
+  TError,
+  { ctUserId: number; data: BodyType<UpdateConnecteamUserAliasBody> },
+  TContext
+> => {
+  const mutationKey = ["updateConnecteamUserAlias"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateConnecteamUserAlias>>,
+    { ctUserId: number; data: BodyType<UpdateConnecteamUserAliasBody> }
+  > = (props) => {
+    const { ctUserId, data } = props ?? {};
+
+    return updateConnecteamUserAlias(ctUserId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateConnecteamUserAliasMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateConnecteamUserAlias>>
+>;
+export type UpdateConnecteamUserAliasMutationBody =
+  BodyType<UpdateConnecteamUserAliasBody>;
+export type UpdateConnecteamUserAliasMutationError = ErrorType<void>;
+
+/**
+ * @summary Re-map an existing Connecteam user alias to a different driver, or update its note (admin-only).
+ */
+export const useUpdateConnecteamUserAlias = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateConnecteamUserAlias>>,
+    TError,
+    { ctUserId: number; data: BodyType<UpdateConnecteamUserAliasBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateConnecteamUserAlias>>,
+  TError,
+  { ctUserId: number; data: BodyType<UpdateConnecteamUserAliasBody> },
+  TContext
+> => {
+  return useMutation(getUpdateConnecteamUserAliasMutationOptions(options));
+};
+
+/**
+ * @summary Remove a saved Connecteam userId → driver mapping (admin-only).
+ */
+export const getDeleteConnecteamUserAliasUrl = (ctUserId: number) => {
+  return `/api/admin/connecteam-user-aliases/${ctUserId}`;
+};
+
+export const deleteConnecteamUserAlias = async (
+  ctUserId: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteConnecteamUserAliasUrl(ctUserId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteConnecteamUserAliasMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteConnecteamUserAlias>>,
+    TError,
+    { ctUserId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteConnecteamUserAlias>>,
+  TError,
+  { ctUserId: number },
+  TContext
+> => {
+  const mutationKey = ["deleteConnecteamUserAlias"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteConnecteamUserAlias>>,
+    { ctUserId: number }
+  > = (props) => {
+    const { ctUserId } = props ?? {};
+
+    return deleteConnecteamUserAlias(ctUserId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteConnecteamUserAliasMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteConnecteamUserAlias>>
+>;
+
+export type DeleteConnecteamUserAliasMutationError = ErrorType<void>;
+
+/**
+ * @summary Remove a saved Connecteam userId → driver mapping (admin-only).
+ */
+export const useDeleteConnecteamUserAlias = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteConnecteamUserAlias>>,
+    TError,
+    { ctUserId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteConnecteamUserAlias>>,
+  TError,
+  { ctUserId: number },
+  TContext
+> => {
+  return useMutation(getDeleteConnecteamUserAliasMutationOptions(options));
 };
 
 /**
