@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { ToastAction } from "@/components/ui/toast";
 import { Link } from "wouter";
 import {
   useGetCustomerUploadStatus,
@@ -52,6 +53,15 @@ function errMessage(err: unknown, fallback: string): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
   return fallback;
+}
+
+function looksLikeFormatDrift(error: string): boolean {
+  const lower = error.toLowerCase();
+  return (
+    lower.includes("0 punches") ||
+    lower.includes("format may have changed") ||
+    lower.includes("format has changed")
+  );
 }
 
 function readEntryAsFile(entry: FileSystemFileEntry): Promise<File | null> {
@@ -141,6 +151,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const { toast } = useToast();
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
   const bulkInputRef = useRef<HTMLInputElement>(null);
+  const bulkItemRefs = useRef<Record<number, HTMLLIElement | null>>({});
   const [rowState, setRowState] = useState<Record<string, RowState>>({});
   const [newOpen, setNewOpen] = useState(false);
   const [newInitialFile, setNewInitialFile] = useState<File | null>(null);
@@ -363,6 +374,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     let skipped = 0;
     let failed = 0;
     let needsReview = 0;
+    let firstFailedIdx: number | null = null;
     for (let i = 0; i < initial.length; i++) {
       const item = initial[i];
       if (!item.customer) {
@@ -405,6 +417,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         setRow(customer, { uploading: false, error: null });
       } else {
         failed++;
+        if (firstFailedIdx === null) firstFailedIdx = i;
         setBulkItems((prev) =>
           prev.map((it, idx) =>
             idx === i ? { ...it, status: "error", error: r.error } : it,
@@ -423,6 +436,25 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       title: `Bulk upload complete`,
       description: parts.join(", ") + ".",
       variant: failed > 0 ? "destructive" : "default",
+      action:
+        firstFailedIdx != null
+          ? (
+              <ToastAction
+                altText="Show first failed file"
+                onClick={() => {
+                  const el = bulkItemRefs.current[firstFailedIdx];
+                  if (!el) return;
+                  el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  el.classList.add("ring-2", "ring-destructive");
+                  window.setTimeout(() => {
+                    el.classList.remove("ring-2", "ring-destructive");
+                  }, 2000);
+                }}
+              >
+                Show first failure
+              </ToastAction>
+            )
+          : undefined,
     });
   };
 
@@ -632,10 +664,22 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           <ul className="space-y-1">
             {bulkItems.map((item, idx) => {
               const isUnknown = item.status === "unknown";
+              const isError = item.status === "error";
+              const driftHint =
+                isError && item.error && looksLikeFormatDrift(item.error);
               return (
                 <li
                   key={idx}
-                  className="flex items-start gap-2 text-xs py-1 px-2 rounded bg-background/60 border border-border/40"
+                  ref={(el) => {
+                    bulkItemRefs.current[idx] = el;
+                  }}
+                  data-testid={`bulk-item-${idx}`}
+                  data-status={item.status}
+                  className={`flex items-start gap-2 text-xs py-1 px-2 rounded border ${
+                    isError
+                      ? "bg-destructive/5 border-destructive/40"
+                      : "bg-background/60 border-border/40"
+                  }`}
                 >
                   <div className="shrink-0 mt-0.5">
                     {item.status === "pending" && (
@@ -691,9 +735,22 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                         </span>
                       )}
                     </div>
-                    {item.status === "error" && item.error && (
-                      <div className="mt-0.5 text-destructive text-[11px]">
-                        {item.error}
+                    {isError && (
+                      <div
+                        className="mt-1 text-destructive text-[11px] font-medium leading-snug"
+                        data-testid={`bulk-item-error-${idx}`}
+                      >
+                        {item.error ?? "Upload failed"}
+                      </div>
+                    )}
+                    {driftHint && (
+                      <div className="mt-1 text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-1">
+                        <Lightbulb className="h-3 w-3 mt-0.5 shrink-0" />
+                        <span>
+                          Probably a format change — open the file directly and
+                          compare it against the last working upload before
+                          retrying.
+                        </span>
                       </div>
                     )}
                     {isUnknown && (
