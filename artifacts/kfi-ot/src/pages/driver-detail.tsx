@@ -270,6 +270,17 @@ export default function DriverDetail() {
   };
 
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  // Mirror manual-entry dialog open/close into editing claims so other
+  // dispatchers can see "X is adding a punch" before the row exists.
+  // punchId=null signals a not-yet-persisted draft (handled by
+  // editorsForPunch(null)).
+  useEffect(() => {
+    if (!weekStart || !kfiId || !isManualModalOpen) return;
+    claim(null);
+    return () => {
+      release(null);
+    };
+  }, [isManualModalOpen, weekStart, kfiId, claim, release]);
   const [manualDate, setManualDate] = useState(weekStart);
   const [manualSource, setManualSource] = useState<"Driver" | "Customer">("Driver");
   const [manualCustomer, setManualCustomer] = useState<string>(

@@ -59,7 +59,13 @@ export function useLiveUpdates({
             qc.invalidateQueries({
               queryKey: getGetDriverWeekAuditQueryKey(event.weekStart, event.kfiId),
             });
-            if (enableToasts && !isSelf) {
+            // Scope lock/review toasts to the driver-week the dispatcher is
+            // currently looking at. Cache invalidation still happens for any
+            // event on the subscribed week so list views stay fresh, but
+            // popping a toast for an unrelated driver while the user is
+            // focused on a different one is noise.
+            const eventMatchesCurrent = !kfiId || event.kfiId === kfiId;
+            if (enableToasts && !isSelf && eventMatchesCurrent) {
               if (event.type === "lock-changed") {
                 toast({
                   title: event.locked ? "Driver-week locked" : "Driver-week unlocked",

@@ -85,6 +85,13 @@ interface ConnectionRec {
   retryDelayMs: number;
   retryTimer: ReturnType<typeof setTimeout> | null;
   handlers: Set<Handler>;
+  // True once we've ever connected successfully on this rec, so a subsequent
+  // onopen is recognized as a reconnect (even when EventSource auto-recovers
+  // CONNECTING → OPEN without us forcing a recycle).
+  everOpened: boolean;
+  // Flipped on onerror; consumed on next onopen to fire a synthetic
+  // "reconnect" event for query resync.
+  hadDisconnect: boolean;
 }
 
 const apiBase = `${import.meta.env.BASE_URL}api`;
@@ -118,6 +125,8 @@ function openConnection(weekStart: string, kfiId: string | null): ConnectionRec 
     retryDelayMs: 1000,
     retryTimer: null,
     handlers: new Set(),
+    everOpened: false,
+    hadDisconnect: false,
   };
   attach(rec);
   connections.set(key, rec);
@@ -133,11 +142,16 @@ function createSource(weekStart: string, kfiId: string | null): EventSource {
 
 function attach(rec: ConnectionRec, isReconnect = false): void {
   rec.source.onopen = () => {
-    // First successful open after a forced retry — tell every subscriber to
-    // resync their cached data since they may have missed events while the
-    // connection was down.
-    if (isReconnect) {
-      isReconnect = false;
+    // Treat any open after the very first as a reconnect. This covers both
+    // (a) our forced recycle path (CLOSED → new EventSource) and (b) the
+    // browser's built-in EventSource auto-recovery (CONNECTING → OPEN after
+    // a transient network blip), so subscribers always get a resync signal
+    // when the stream was interrupted.
+    const reconnected = isReconnect || rec.hadDisconnect || rec.everOpened;
+    rec.everOpened = true;
+    rec.hadDisconnect = false;
+    isReconnect = false;
+    if (reconnected) {
       const evt: RealtimeEvent = {
         type: "reconnect",
         weekStart: rec.weekStart,
@@ -175,6 +189,10 @@ function attach(rec: ConnectionRec, isReconnect = false): void {
     }
   };
   rec.source.onerror = () => {
+    // Mark that we lost the connection; the next successful onopen (whether
+    // from browser auto-recovery or our forced recycle) will fire the
+    // reconnect resync.
+    rec.hadDisconnect = true;
     // EventSource auto-reconnects, but on certain failure modes (auth
     // expiry, etc.) it stays in CLOSED. Force a manual recycle with
     // bounded backoff so a single dropped network doesn't leave the page
