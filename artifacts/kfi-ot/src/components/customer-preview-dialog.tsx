@@ -287,7 +287,7 @@ export function CustomerPreviewDialog({
           {preview.unmappedIds.length > 0 && (
             <div
               className="rounded-md border border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 space-y-2"
-              data-testid="panel-unmapped-picker"
+              data-testid="text-unmapped-warning"
             >
               <div className="flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
