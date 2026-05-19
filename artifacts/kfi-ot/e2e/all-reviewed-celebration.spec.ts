@@ -202,3 +202,53 @@ test("bubble click toggles reviewed without navigating, bad is a no-op, and last
   await page.waitForTimeout(500);
   await expect(splash).toHaveCount(0);
 });
+
+test("dashboard-only: toggling the last unreviewed driver from the week summary fires the splash, even after driver-detail recorded its own baseline first", async ({
+  page,
+}) => {
+  // Reset reviewed state for this week so we start from zero-reviewed.
+  await pool.query(`DELETE FROM reviewed_drivers WHERE week_start = $1`, [
+    WEEK_START,
+  ]);
+
+  const splash = page.getByTestId("all-reviewed-splash");
+  const summaryPill = page.getByTestId("pill-week-reviewed-progress");
+
+  // 1. Visit driver-detail first. This is the regression scenario from
+  //    task #164: the celebration hook used to be keyed by weekStart only,
+  //    so whichever surface observed the week first recorded the baseline
+  //    and the other surface would silently skip the celebration.
+  await page.goto(`/weeks/${WEEK_START}/drivers/${DRIVERS[0].kfiId}`);
+  await expect(page.getByTestId("drivers-sidebar")).toBeVisible();
+  await expect(splash).toHaveCount(0);
+
+  // 2. Navigate to the week dashboard (same SPA, no reload) and mark every
+  //    driver reviewed from there. The last toggle should trigger the
+  //    splash on the dashboard surface.
+  await page.goto(`/weeks/${WEEK_START}`);
+  await expect(summaryPill).toBeVisible();
+  await expect(summaryPill).toHaveText("0 / 3 reviewed");
+  await expect(splash).toHaveCount(0);
+
+  await page
+    .getByTestId(`checkbox-reviewed-${DRIVERS[0].kfiId}`)
+    .click();
+  await expect(summaryPill).toHaveText("1 / 3 reviewed");
+  await expect(splash).toHaveCount(0);
+
+  await page
+    .getByTestId(`checkbox-reviewed-${DRIVERS[1].kfiId}`)
+    .click();
+  await expect(summaryPill).toHaveText("2 / 3 reviewed");
+  await expect(splash).toHaveCount(0);
+
+  // Final toggle — splash must appear on the dashboard.
+  await page
+    .getByTestId(`checkbox-reviewed-${DRIVERS[2].kfiId}`)
+    .click();
+  await expect(summaryPill).toHaveText("All reviewed");
+  await expect(splash).toBeVisible();
+
+  await page.getByTestId("button-all-reviewed-dismiss").click();
+  await expect(splash).toHaveCount(0);
+});

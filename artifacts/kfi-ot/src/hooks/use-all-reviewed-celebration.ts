@@ -5,7 +5,19 @@ import { readCelebrationSoundPref } from "./use-celebration-sound";
 // React unmounts as the dispatcher walks between week-summary and
 // driver-detail pages. Per-tab is intentional — a hard refresh wipes it,
 // which is fine: the celebration is for the moment of transition only.
+//
+// Keyed by (weekStart, surface) so each page tracks its own baseline.
+// Otherwise whichever page first observed the week would "win" and the
+// other page would silently skip celebrating — e.g. opening driver-detail
+// records baseline=true, then toggling the last driver from the dashboard
+// would never fire because the dashboard never recorded its own baseline.
 const seenAllReviewed = new Map<string, boolean>();
+
+type Surface = "week-summary" | "driver-detail";
+
+function keyFor(weekStart: string, surface: Surface): string {
+  return `${surface}::${weekStart}`;
+}
 
 function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || !window.matchMedia) return false;
@@ -93,6 +105,7 @@ interface Args {
   weekStart: string | null | undefined;
   reviewed: number;
   total: number;
+  surface: Surface;
 }
 
 /**
@@ -109,6 +122,7 @@ export function useAllReviewedCelebration({
   weekStart,
   reviewed,
   total,
+  surface,
 }: Args): { splashVisible: boolean; dismiss: () => void } {
   const [splashVisible, setSplashVisible] = useState(false);
 
@@ -116,16 +130,17 @@ export function useAllReviewedCelebration({
     if (!weekStart) return;
     if (total <= 0) return;
     const isAll = reviewed >= total;
-    const prev = seenAllReviewed.get(weekStart);
+    const key = keyFor(weekStart, surface);
+    const prev = seenAllReviewed.get(key);
 
     if (prev === undefined) {
-      // First observation of this week in this tab — record without firing.
-      seenAllReviewed.set(weekStart, isAll);
+      // First observation of this week on this surface — record without firing.
+      seenAllReviewed.set(key, isAll);
       return;
     }
 
     if (!prev && isAll) {
-      seenAllReviewed.set(weekStart, true);
+      seenAllReviewed.set(key, true);
       const reducedMotion = prefersReducedMotion();
       if (!reducedMotion) {
         void fireConfettiBurst();
@@ -136,9 +151,9 @@ export function useAllReviewedCelebration({
       setSplashVisible(true);
     } else if (prev !== isAll) {
       // Drop back to not-all-reviewed — re-arm so the next completion fires.
-      seenAllReviewed.set(weekStart, isAll);
+      seenAllReviewed.set(key, isAll);
     }
-  }, [weekStart, reviewed, total]);
+  }, [weekStart, reviewed, total, surface]);
 
   useEffect(() => {
     if (!splashVisible) return;

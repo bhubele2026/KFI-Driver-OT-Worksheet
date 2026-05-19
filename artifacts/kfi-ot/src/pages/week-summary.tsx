@@ -125,6 +125,7 @@ export default function WeekSummary() {
     weekStart,
     reviewed: reviewedCount,
     total: allDrivers.length,
+    surface: "week-summary",
   });
 
   const refreshCt = useRefreshConnecteam();
@@ -787,6 +788,7 @@ export default function WeekSummary() {
                                               ? t("weekSummary.status.markedGoodClear")
                                               : t("weekSummary.status.markGood")
                                           }
+                                          data-testid={`checkbox-reviewed-${driver.kfiId}`}
                                         />
                                       )}
                                       {driver.locked && (

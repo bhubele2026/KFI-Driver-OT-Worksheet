@@ -263,6 +263,7 @@ export default function DriverDetail() {
       weekStart,
       reviewed: reviewedDriverCount,
       total: flatDrivers.length,
+      surface: "driver-detail",
     });
   type Punch = NonNullable<typeof data>["punches"][number];
   type PreviewResult = Awaited<ReturnType<typeof previewPunch>>;
