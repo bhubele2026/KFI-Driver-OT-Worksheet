@@ -95,6 +95,17 @@ export interface ExtractDiagnostics {
    * to the dispatcher so they know the preview may be missing rows.
    */
   extractionTruncated?: boolean;
+  /**
+   * Number of chunks (in the chunked xlsx path) whose Gemini call threw
+   * or timed out and were skipped instead of failing the whole upload.
+   * Task #267. Non-zero implies `extractionTruncated: true` (some rows
+   * are missing) and triggers a stronger preview-dialog banner so the
+   * dispatcher knows the preview is incomplete and can re-upload the
+   * file split into smaller parts if the row count looks wrong. Absent
+   * / 0 on single-call paths (images, PDFs, small xlsx) since those
+   * have no per-chunk fan-out to partially fail.
+   */
+  failedChunks?: number;
 }
 
 /**

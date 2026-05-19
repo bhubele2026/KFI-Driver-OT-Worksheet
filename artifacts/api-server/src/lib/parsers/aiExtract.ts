@@ -132,14 +132,18 @@ export const XLSX_CHUNK_THRESHOLD_CHARS = 300_000;
 // and silently dropping ~95% of the rows. We now force chunking once
 // the workbook exceeds this many data rows regardless of total chars,
 // keeping each chunk's worst-case JSON output well under 32k tokens.
-export const XLSX_CHUNK_THRESHOLD_ROWS = 150;
+export const XLSX_CHUNK_THRESHOLD_ROWS = 100;
 // Rough rows-per-chunk target. The chunker measures by chars (so wide
 // columns produce smaller chunks than narrow ones) but caps row count
 // as a safety net for pathologically wide rows. Sized to keep each
-// chunk's JSON output under ~10k tokens — ~3x headroom vs the 32k cap
-// so even a verbose pay-category-split shift fits without truncation.
+// chunk's JSON output under ~10k tokens AND each chunk's wall-clock
+// well under the per-chunk 120s ceiling — Task #267 dropped this from
+// 150 to 100 after Penda (522 rows ÷ 150 = 4 chunks) had one chunk
+// regularly hit the 120s timeout on verbose pay-category-split shifts.
+// At 100 rows/chunk Penda becomes ~6 chunks of 30-60s each, which the
+// parallel runner below finishes in roughly the time of one chunk.
 const XLSX_CHUNK_MAX_CHARS = 250_000;
-const XLSX_CHUNK_MAX_ROWS = 150;
+const XLSX_CHUNK_MAX_ROWS = 100;
 
 /**
  * Split a workbook into one-or-more CSV chunks suitable for separate
@@ -446,6 +450,11 @@ const _aiStubQueue: AiExtractedRow[][] = [];
 // can simulate Task #264's "Gemini hit maxOutputTokens" case and verify
 // the auto-rechunk / halving retry path.
 const _aiStubTruncatedQueue: boolean[] = [];
+// Parallel queue of per-stub errors. When the head is a non-null Error,
+// the next stub consumer throws it instead of returning rows — lets the
+// Task #267 partial-failure test simulate "one chunk's Gemini call blew
+// up" without actually invoking Gemini.
+const _aiStubErrorQueue: (Error | null)[] = [];
 /** @internal test seam — push rows the next `aiExtractRows` call should return. */
 export function __pushAiExtractStub(
   rows: AiExtractedRow[],
@@ -456,11 +465,22 @@ export function __pushAiExtractStub(
   }
   _aiStubQueue.push(rows);
   _aiStubTruncatedQueue.push(opts?.truncated ?? false);
+  _aiStubErrorQueue.push(null);
+}
+/** @internal test seam — push an error the next chunk consumer should throw. */
+export function __pushAiExtractErrorStub(message: string): void {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("__pushAiExtractErrorStub is a test seam — not callable in production");
+  }
+  _aiStubQueue.push([]);
+  _aiStubTruncatedQueue.push(false);
+  _aiStubErrorQueue.push(new Error(message));
 }
 /** @internal test seam — clear any unused stubs (e.g. teardown). */
 export function __clearAiExtractStubs(): void {
   _aiStubQueue.length = 0;
   _aiStubTruncatedQueue.length = 0;
+  _aiStubErrorQueue.length = 0;
 }
 
 // Per-chunk Gemini ceiling for the chunked xlsx path. Shorter than the
@@ -530,6 +550,13 @@ function halveChunk(chunk: string): [string, string] | null {
   ];
 }
 
+// Task #267: how many chunks to run in parallel. The Penda 522-row
+// workbook splits into ~6 chunks; concurrency=4 finishes in roughly
+// the time of one chunk's wall-clock (vs the old 6×30-60s sequential
+// total that routinely tripped the 120s ceiling and killed the upload).
+// Kept conservative to stay under the Gemini proxy's rate limits.
+const XLSX_CHUNK_CONCURRENCY = 4;
+
 async function runChunkedXlsxExtract(
   ai: ReturnType<typeof getGeminiClient>,
   chunks: string[],
@@ -539,9 +566,7 @@ async function runChunkedXlsxExtract(
   fileName: string,
   startedAt: number,
   log: SalvageLogger | undefined,
-): Promise<{ rows: AiExtractedRow[]; truncated: boolean }> {
-  const merged: AiExtractedRow[] = [];
-  let anyTruncated = false;
+): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
   const runOne = async (
     chunk: string,
     label: string,
@@ -553,8 +578,9 @@ async function runChunkedXlsxExtract(
       _aiStubQueue.length > 0
     ) {
       const stubbed = _aiStubQueue.shift()!;
-      const truncated =
-        _aiStubTruncatedQueue.shift() ?? false;
+      const truncated = _aiStubTruncatedQueue.shift() ?? false;
+      const err = _aiStubErrorQueue.shift() ?? null;
+      if (err) throw err;
       return {
         rows: stubbed.map((r) => ({
           ...r,
@@ -582,40 +608,116 @@ async function runChunkedXlsxExtract(
     };
   };
 
-  for (let i = 0; i < chunks.length; i++) {
-    const label = `This is chunk ${i + 1} of ${chunks.length}`;
-    const result = await runOne(chunks[i], label);
-    if (result.truncated) {
-      // Truncation on a chunk means the chunk size still exceeded the
-      // 32k output-token cap. Halve and retry the two halves once each.
-      // If even the halves truncate we accept partial rows and surface
-      // `truncated: true` so the dispatcher gets a clear banner instead
-      // of a silently-clipped preview.
-      const halves = halveChunk(chunks[i]);
-      if (halves) {
-        (log ?? logger).warn(
-          { customer, fileName, chunk: i + 1 },
-          "AI chunk response truncated — halving and retrying",
-        );
-        const halfResults = [];
-        for (let h = 0; h < halves.length; h++) {
-          halfResults.push(
-            await runOne(
-              halves[h],
-              `This is chunk ${i + 1}.${h + 1} of ${chunks.length} (halved retry)`,
-            ),
-          );
-        }
-        for (const hr of halfResults) {
-          for (const r of hr.rows) merged.push(r);
-          if (hr.truncated) anyTruncated = true;
-        }
-      } else {
-        for (const r of result.rows) merged.push(r);
-        anyTruncated = true;
+  // Top-level per-chunk worker: handles a chunk's full lifecycle
+  // (call Gemini → if truncated, halve and retry → if either step
+  // throws, log + report failed so the upload as a whole survives).
+  // Non-fatal per-chunk failure is the core of Task #267: before this
+  // a single chunk timeout aborted the entire upload, which is what
+  // killed the Penda demo case.
+  const handleChunk = async (
+    idx: number,
+  ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failed: boolean }> => {
+    try {
+      const result = await runOne(
+        chunks[idx],
+        `This is chunk ${idx + 1} of ${chunks.length}`,
+      );
+      if (!result.truncated) {
+        return { rows: result.rows, truncated: false, failed: false };
       }
-    } else {
-      for (const r of result.rows) merged.push(r);
+      // Truncation: chunk still exceeded the 32k output-token cap.
+      // Halve and retry the two halves in parallel. Each half failure
+      // is also non-fatal — we keep whatever rows survive.
+      const halves = halveChunk(chunks[idx]);
+      if (!halves) {
+        return { rows: result.rows, truncated: true, failed: false };
+      }
+      (log ?? logger).warn(
+        { customer, fileName, chunk: idx + 1 },
+        "AI chunk response truncated — halving and retrying",
+      );
+      const halfResults = await Promise.all(
+        halves.map((h, hIdx) =>
+          runOne(
+            h,
+            `This is chunk ${idx + 1}.${hIdx + 1} of ${chunks.length} (halved retry)`,
+          ).catch((err: unknown) => {
+            (log ?? logger).warn(
+              {
+                customer,
+                fileName,
+                chunk: idx + 1,
+                half: hIdx + 1,
+                err: err instanceof Error ? err.message : String(err),
+              },
+              "AI halved-retry chunk failed — continuing without it",
+            );
+            return { rows: [], truncated: false, failed: true } as {
+              rows: AiExtractedRow[];
+              truncated: boolean;
+              failed?: boolean;
+            };
+          }),
+        ),
+      );
+      const collected: AiExtractedRow[] = [];
+      let anyHalfTruncated = false;
+      let anyHalfFailed = false;
+      for (const hr of halfResults) {
+        for (const r of hr.rows) collected.push(r);
+        if (hr.truncated) anyHalfTruncated = true;
+        if ((hr as { failed?: boolean }).failed) anyHalfFailed = true;
+      }
+      return {
+        rows: collected,
+        truncated: anyHalfTruncated,
+        failed: anyHalfFailed,
+      };
+    } catch (err) {
+      (log ?? logger).warn(
+        {
+          customer,
+          fileName,
+          chunk: idx + 1,
+          err: err instanceof Error ? err.message : String(err),
+        },
+        "AI chunk failed — continuing with surviving chunks",
+      );
+      return { rows: [], truncated: false, failed: true };
+    }
+  };
+
+  // Bounded-concurrency worker pool. Preserves document order in the
+  // results array (so the merged output mirrors the chunk order, which
+  // matters for the schema-cache recorder downstream).
+  const results = new Array<{
+    rows: AiExtractedRow[];
+    truncated: boolean;
+    failed: boolean;
+  }>(chunks.length);
+  let nextIdx = 0;
+  const workerCount = Math.min(XLSX_CHUNK_CONCURRENCY, chunks.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const idx = nextIdx++;
+      if (idx >= chunks.length) break;
+      results[idx] = await handleChunk(idx);
+    }
+  });
+  await Promise.all(workers);
+
+  const merged: AiExtractedRow[] = [];
+  let anyTruncated = false;
+  let failedChunks = 0;
+  for (const r of results) {
+    for (const row of r.rows) merged.push(row);
+    if (r.truncated) anyTruncated = true;
+    if (r.failed) {
+      failedChunks++;
+      // A failed chunk means we don't have all the rows — surface that
+      // to the dispatcher via the same banner as a true truncation so
+      // they review carefully before confirming.
+      anyTruncated = true;
     }
   }
   const deduped = dedupeAiRows(merged);
@@ -625,13 +727,15 @@ async function runChunkedXlsxExtract(
       aiRawRowCount: merged.length,
       aiDedupedRowCount: deduped.length,
       chunks: chunks.length,
+      concurrency: workerCount,
       truncated: anyTruncated,
+      failedChunks,
       customer,
       fileName,
     },
     "AI extraction complete (chunked)",
   );
-  return { rows: deduped, truncated: anyTruncated };
+  return { rows: deduped, truncated: anyTruncated, failedChunks };
 }
 
 export async function aiExtractRows(
@@ -642,7 +746,7 @@ export async function aiExtractRows(
   weekEnd: string,
   mimeType?: string,
   log?: SalvageLogger,
-): Promise<{ rows: AiExtractedRow[]; truncated: boolean }> {
+): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
   const lower = fileName.toLowerCase();
   const isPdf = lower.endsWith(".pdf");
   const isImage =
@@ -845,5 +949,5 @@ export async function aiExtractRows(
     },
     "AI extraction complete",
   );
-  return { rows: deduped, truncated: parsed.truncated };
+  return { rows: deduped, truncated: parsed.truncated, failedChunks: 0 };
 }

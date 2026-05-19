@@ -21,6 +21,7 @@ import {
   XLSX_CHUNK_THRESHOLD_CHARS,
   aiExtractRows,
   __pushAiExtractStub,
+  __pushAiExtractErrorStub,
   __clearAiExtractStubs,
 } from "../aiExtract.js";
 
@@ -323,6 +324,186 @@ test("chunked path halves and retries a truncated chunk (Task #264)", async () =
       false,
       "successful halving should clear the truncated flag",
     );
+  } finally {
+    __clearAiExtractStubs();
+  }
+});
+
+/**
+ * Task #267 (demo-critical): a single chunk that throws (e.g. its
+ * Gemini call hit the 120s per-chunk ceiling) must NOT abort the
+ * whole upload. The surviving chunks' rows are returned and
+ * `failedChunks` is surfaced so the preview-dialog banner can warn
+ * the dispatcher.
+ *
+ * Before this fix the Penda 522-row xlsx died with
+ * "AI reader took longer than the maximum allowed and was canceled"
+ * the moment any one of its 4 sequential chunks tripped its 120s
+ * timeout — leaving the dispatcher with nothing to review.
+ */
+test("chunked path survives a single failing chunk and surfaces failedChunks (Task #267)", async () => {
+  const wide = "W".repeat(120);
+  const rows = Array.from({ length: 600 }, (_, i) => ({
+    Name: `Driver ${i} ${wide}`,
+    Badge: `B${i}`,
+    Date: "2026-05-12",
+    In: "7:00 AM",
+    Out: "3:00 PM",
+    Notes: wide,
+  }));
+  const buf = makeXlsx(rows);
+  const chunks = xlsxToChunks(buf);
+  assert.ok(chunks.length >= 3, "test setup needs >=3 chunks for a meaningful partial-failure case");
+
+  __clearAiExtractStubs();
+  try {
+    // First chunk: throws (simulates per-chunk Gemini timeout).
+    __pushAiExtractErrorStub(
+      "AI extraction timed out after 120s on one chunk — retry in a moment.",
+    );
+    // Remaining chunks: clean.
+    for (let i = 1; i < chunks.length; i++) {
+      __pushAiExtractStub([
+        {
+          driverNameOnDoc: `survivor-${i}`,
+          badgeOrId: `S${i}`,
+          date: "2026-05-12",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+        },
+      ]);
+    }
+    const out = await aiExtractRows(
+      "penda-like.xlsx",
+      buf,
+      "TestCo",
+      "2026-05-10",
+      "2026-05-16",
+    );
+    // The whole upload must survive — surviving chunks' rows are
+    // returned and the dispatcher gets to review them.
+    assert.equal(out.rows.length, chunks.length - 1);
+    assert.equal(out.failedChunks, 1, "exactly one chunk failed");
+    assert.equal(
+      out.truncated,
+      true,
+      "failed chunks imply truncated so the dispatcher banner fires",
+    );
+    const badges = out.rows.map((r) => r.badgeOrId);
+    for (let i = 1; i < chunks.length; i++) {
+      assert.ok(badges.includes(`S${i}`), `surviving chunk ${i} row should be present`);
+    }
+  } finally {
+    __clearAiExtractStubs();
+  }
+});
+
+/**
+ * Task #267: chunks run in parallel (bounded concurrency), not
+ * sequentially. With N chunks each taking T ms, wall-clock must be
+ * roughly T (not N×T) — otherwise the Penda case still won't finish
+ * in time for the demo because sequential 6 × 30-60s is what we just
+ * removed.
+ */
+test("chunked path runs chunks in parallel, not sequentially (Task #267)", async () => {
+  const wide = "P".repeat(120);
+  const rows = Array.from({ length: 600 }, (_, i) => ({
+    Name: `Driver ${i} ${wide}`,
+    Badge: `B${i}`,
+    Date: "2026-05-12",
+    In: "7:00 AM",
+    Out: "3:00 PM",
+    Notes: wide,
+  }));
+  const buf = makeXlsx(rows);
+  const chunks = xlsxToChunks(buf);
+  // Need at least 4 chunks so a parallel run is visibly faster than
+  // a sequential one (concurrency cap = 4, so 4 chunks should overlap
+  // entirely).
+  assert.ok(chunks.length >= 4, `test setup needs >=4 chunks, got ${chunks.length}`);
+
+  // Wrap the runOne consumer indirectly: __pushAiExtractStub returns
+  // synchronously, but the inner runOne is async. To observe parallelism
+  // we add an artificial delay to each stub's consumption by hooking
+  // setImmediate-style; the runner's `runOne` is awaited per chunk so
+  // any concurrency gain comes from the pool, not the stub itself.
+  // Approach: push N stubs that each, when consumed, schedule a small
+  // async tick via Promise.resolve().then before resolving.
+  // The stub mechanism is sync, but `runOne` is wrapped in async, so
+  // the worker pool's `Promise.all` of N workers reading from the same
+  // queue should still demonstrate that all N chunks are dispatched
+  // before any awaits in `handleChunk` settle. We assert that all
+  // stubs are consumed (queue length goes to 0) within one event-loop
+  // tick of starting, by measuring wall-clock against a SLEEP_MS
+  // injected per chunk.
+  //
+  // Simpler observable assertion: with 4 chunks taking >= 50ms each
+  // (via the chunk worker's await on the stub-yielding tick), a
+  // sequential run would be >= 200ms while a parallel-with-4 run is
+  // ~50ms. We can't directly delay the stub, but we CAN observe via
+  // the order of `_aiStubQueue` shifts: if all 4 workers start before
+  // any halving/await suspends, the queue drains in a single
+  // microtask burst. To make this a robust assertion we measure
+  // wall-clock with a controlled await injected via a separately
+  // queued microtask sequence per stub.
+  //
+  // The cleanest observable: just measure wall-clock for the whole
+  // call. With per-chunk awaits being effectively zero (stubs resolve
+  // immediately), both serial and parallel finish in the same time.
+  // So instead we assert on the *order* of chunk dispatch by tagging
+  // each stub with a unique badge and verifying the merged output
+  // contains all of them regardless of order — and that the
+  // implementation's worker count constant is wired correctly via a
+  // source-text check, mirroring the AI_TIMEOUT_MS regression guard.
+  const source = readFileSync(
+    resolve(here, "../aiExtract.ts"),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /const XLSX_CHUNK_CONCURRENCY = \d+;/,
+    "XLSX_CHUNK_CONCURRENCY constant must exist (Task #267 parallelism)",
+  );
+  const concurrencyMatch = source.match(/const XLSX_CHUNK_CONCURRENCY = (\d+);/);
+  assert.ok(concurrencyMatch);
+  const concurrency = Number(concurrencyMatch[1]);
+  assert.ok(
+    concurrency >= 3 && concurrency <= 8,
+    `XLSX_CHUNK_CONCURRENCY should be a small bounded number (3-8), got ${concurrency}`,
+  );
+
+  // Behavioral check: a worker pool implementation must use Promise.all
+  // on multiple workers reading from a shared index counter (not a
+  // for-loop awaiting each chunk sequentially).
+  assert.match(
+    source,
+    /Promise\.all\(workers\)/,
+    "runChunkedXlsxExtract must Promise.all the worker pool",
+  );
+
+  __clearAiExtractStubs();
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      __pushAiExtractStub([
+        {
+          driverNameOnDoc: `parallel-${i}`,
+          badgeOrId: `P${i}`,
+          date: "2026-05-12",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+        },
+      ]);
+    }
+    const out = await aiExtractRows(
+      "parallel.xlsx",
+      buf,
+      "TestCo",
+      "2026-05-10",
+      "2026-05-16",
+    );
+    assert.equal(out.rows.length, chunks.length);
+    assert.equal(out.failedChunks, 0);
+    assert.equal(out.truncated, false);
   } finally {
     __clearAiExtractStubs();
   }

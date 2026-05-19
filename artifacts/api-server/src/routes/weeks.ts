@@ -1941,6 +1941,7 @@ weeksRouter.post(
       extractSource,
       cacheWritten,
       extractionTruncated: result.diagnostics?.extractionTruncated ?? false,
+      failedChunks: result.diagnostics?.failedChunks ?? 0,
     });
   },
 );
@@ -3224,6 +3225,7 @@ weeksRouter.post(
     }
     let rows;
     let extractionTruncated = false;
+    let failedChunks = 0;
     try {
       const extracted = await aiExtractRows(
         req.file.originalname,
@@ -3236,6 +3238,7 @@ weeksRouter.post(
       );
       rows = extracted.rows;
       extractionTruncated = extracted.truncated;
+      failedChunks = extracted.failedChunks;
     } catch (err) {
       req.log.error({ err, fileName: req.file.originalname }, "AI extract error");
       res.status(400).json({
@@ -3357,6 +3360,7 @@ weeksRouter.post(
       suggestions,
       sampleId: sample.id,
       extractionTruncated,
+      failedChunks,
     });
   },
 );

@@ -79,6 +79,7 @@ export interface CustomerPreviewData {
    * to know rows are likely missing before confirming.
    */
   extractionTruncated?: boolean;
+  failedChunks?: number;
 }
 
 function errMessage(err: unknown, fallback: string): string {
@@ -326,10 +327,26 @@ export function CustomerPreviewDialog({
             >
               <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
               <span>
-                Heads up: this file was too large for the AI to read in one
-                pass, so even after auto-splitting, some rows may be missing
-                from the preview below. Review carefully — if the row count
-                looks low, re-upload the file split into smaller parts.
+                {preview.failedChunks && preview.failedChunks > 0 ? (
+                  <>
+                    Heads up: this file was split into parts for the AI, and{" "}
+                    {preview.failedChunks}{" "}
+                    {preview.failedChunks === 1 ? "part" : "parts"} timed out
+                    and{" "}
+                    {preview.failedChunks === 1 ? "was" : "were"} skipped.
+                    The preview shows the rows that came through — review
+                    carefully, then either confirm what's here or re-upload
+                    the file split into smaller parts.
+                  </>
+                ) : (
+                  <>
+                    Heads up: this file was too large for the AI to read in
+                    one pass, so even after auto-splitting, some rows may be
+                    missing from the preview below. Review carefully — if
+                    the row count looks low, re-upload the file split into
+                    smaller parts.
+                  </>
+                )}
               </span>
             </div>
           ) : null}
