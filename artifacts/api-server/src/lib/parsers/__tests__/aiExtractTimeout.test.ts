@@ -330,18 +330,14 @@ test("chunked path halves and retries a truncated chunk (Task #264)", async () =
 });
 
 /**
- * Task #267 (demo-critical): a single chunk that throws (e.g. its
- * Gemini call hit the 120s per-chunk ceiling) must NOT abort the
- * whole upload. The surviving chunks' rows are returned and
- * `failedChunks` is surfaced so the preview-dialog banner can warn
- * the dispatcher.
- *
- * Before this fix the Penda 522-row xlsx died with
- * "AI reader took longer than the maximum allowed and was canceled"
- * the moment any one of its 4 sequential chunks tripped its 120s
- * timeout — leaving the dispatcher with nothing to review.
+ * Task #279 (reverses Task #267): a single chunk that throws must
+ * now fail the WHOLE upload, not silently drop its rows. The earlier
+ * "continue with surviving chunks" policy looked friendly but caused
+ * a Penda 522-row upload to come back as "looks complete" while
+ * actually missing a chunk's worth of punches — exactly the kind of
+ * silent partial that the new app contract forbids.
  */
-test("chunked path survives a single failing chunk and surfaces failedChunks (Task #267)", async () => {
+test("chunked path aborts when any chunk throws (Task #279 reverses #267)", async () => {
   const wide = "W".repeat(120);
   const rows = Array.from({ length: 600 }, (_, i) => ({
     Name: `Driver ${i} ${wide}`,
@@ -353,15 +349,16 @@ test("chunked path survives a single failing chunk and surfaces failedChunks (Ta
   }));
   const buf = makeXlsx(rows);
   const chunks = xlsxToChunks(buf);
-  assert.ok(chunks.length >= 3, "test setup needs >=3 chunks for a meaningful partial-failure case");
+  assert.ok(chunks.length >= 3, "test setup needs >=3 chunks");
 
   __clearAiExtractStubs();
   try {
-    // First chunk: throws (simulates per-chunk Gemini timeout).
+    // First chunk throws. Remaining chunks have clean stubs queued
+    // (the pool may or may not consume them depending on scheduling —
+    // either way the failure must propagate as a rejection).
     __pushAiExtractErrorStub(
       "AI extraction timed out after 120s on one chunk — retry in a moment.",
     );
-    // Remaining chunks: clean.
     for (let i = 1; i < chunks.length; i++) {
       __pushAiExtractStub([
         {
@@ -373,26 +370,108 @@ test("chunked path survives a single failing chunk and surfaces failedChunks (Ta
         },
       ]);
     }
-    const out = await aiExtractRows(
-      "penda-like.xlsx",
-      buf,
-      "TestCo",
-      "2026-05-10",
-      "2026-05-16",
+    await assert.rejects(
+      aiExtractRows(
+        "penda-like.xlsx",
+        buf,
+        "TestCo",
+        "2026-05-10",
+        "2026-05-16",
+      ),
+      /timed out|extract/i,
+      "any failing chunk must reject the whole extract",
     );
-    // The whole upload must survive — surviving chunks' rows are
-    // returned and the dispatcher gets to review them.
-    assert.equal(out.rows.length, chunks.length - 1);
-    assert.equal(out.failedChunks, 1, "exactly one chunk failed");
-    assert.equal(
-      out.truncated,
-      true,
-      "failed chunks imply truncated so the dispatcher banner fires",
+  } finally {
+    __clearAiExtractStubs();
+  }
+});
+
+/**
+ * Task #279: when a chunk truncates and BOTH halves of the halved
+ * retry still truncate, throw a clear "split the file" error rather
+ * than returning a quietly-incomplete row set.
+ */
+test("chunked path throws when a chunk and both retry halves truncate (Task #279)", async () => {
+  // Narrow 120-row workbook: forces chunking on the row-count trigger
+  // (>100 rows) into EXACTLY 2 chunks at the current XLSX_CHUNK_MAX_ROWS.
+  // We need exactly 2 chunks so the worker pool's synchronous stub-shift
+  // race is deterministic: worker 1 grabs chunk1's truncated stub, worker
+  // 2 grabs chunk2's clean stub, then worker 1 halves and consumes both
+  // remaining truncated half stubs in order.
+  const rows = Array.from({ length: 120 }, (_, i) => ({
+    Name: `Driver ${i}`,
+    Badge: `B${i}`,
+    Date: "2026-05-12",
+    In: "7:00 AM",
+    Out: "3:00 PM",
+  }));
+  const buf = makeXlsx(rows);
+  const chunks = xlsxToChunks(buf);
+  assert.equal(chunks.length, 2, "test setup must produce exactly 2 chunks");
+
+  __clearAiExtractStubs();
+  try {
+    // First chunk + both halves: all truncated.
+    __pushAiExtractStub(
+      [
+        {
+          driverNameOnDoc: "partial",
+          badgeOrId: "P0",
+          date: "2026-05-12",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+        },
+      ],
+      { truncated: true },
     );
-    const badges = out.rows.map((r) => r.badgeOrId);
+    __pushAiExtractStub(
+      [
+        {
+          driverNameOnDoc: "h1-partial",
+          badgeOrId: "H1",
+          date: "2026-05-12",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+        },
+      ],
+      { truncated: true },
+    );
+    __pushAiExtractStub(
+      [
+        {
+          driverNameOnDoc: "h2-partial",
+          badgeOrId: "H2",
+          date: "2026-05-12",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+        },
+      ],
+      { truncated: true },
+    );
+    // Remaining chunks: clean stubs (may or may not be consumed before
+    // the first chunk's failure rejects Promise.all).
     for (let i = 1; i < chunks.length; i++) {
-      assert.ok(badges.includes(`S${i}`), `surviving chunk ${i} row should be present`);
+      __pushAiExtractStub([
+        {
+          driverNameOnDoc: `clean-${i}`,
+          badgeOrId: `C${i}`,
+          date: "2026-05-12",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+        },
+      ]);
     }
+    await assert.rejects(
+      aiExtractRows(
+        "double-truncate.xlsx",
+        buf,
+        "TestCo",
+        "2026-05-10",
+        "2026-05-16",
+      ),
+      /split the spreadsheet into two smaller files/i,
+      "double truncation must reject with the 'split the file' guidance",
+    );
   } finally {
     __clearAiExtractStubs();
   }
