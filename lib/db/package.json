@@ -10,7 +10,8 @@
   "scripts": {
     "pre-migrate": "tsx ./src/preMigrate.ts",
     "push": "pnpm run pre-migrate && drizzle-kit push --force --config ./drizzle.config.ts",
-    "push-interactive": "pnpm run pre-migrate && drizzle-kit push --config ./drizzle.config.ts"
+    "push-interactive": "pnpm run pre-migrate && drizzle-kit push --config ./drizzle.config.ts",
+    "check-drift": "tsx ./src/checkDrift.ts"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",
