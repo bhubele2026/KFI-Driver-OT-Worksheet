@@ -341,6 +341,30 @@ export const DriverSummaryRowReviewStatus = {
   bad: "bad",
 } as const;
 
+export type DriverSummaryRowConnecteamParityStatus =
+  (typeof DriverSummaryRowConnecteamParityStatus)[keyof typeof DriverSummaryRowConnecteamParityStatus];
+
+export const DriverSummaryRowConnecteamParityStatus = {
+  match: "match",
+  differ: "differ",
+  unknown: "unknown",
+} as const;
+
+/**
+ * Per-driver Connecteam parity status for this week, computed by
+comparing the engine's daily totals against the snapshotted
+Connecteam baseline. Lets the dashboard render the parity badge
+without N extra requests. `match` = every snapshotted day matches
+within 0.005h; `differ` = at least `diffCount` days diverge;
+`unknown` = no baseline yet (week never refreshed).
+
+ */
+export type DriverSummaryRowConnecteamParity = {
+  status: DriverSummaryRowConnecteamParityStatus;
+  /** Number of days that diverge from the Connecteam baseline. Always 0 when status is `match` or `unknown`. */
+  diffCount: number;
+};
+
 export interface DriverSummaryRow {
   kfiId: string;
   name: string;
@@ -373,6 +397,14 @@ export interface DriverSummaryRow {
    * @nullable
    */
   effectiveDispTz?: string | null;
+  /** Per-driver Connecteam parity status for this week, computed by
+comparing the engine's daily totals against the snapshotted
+Connecteam baseline. Lets the dashboard render the parity badge
+without N extra requests. `match` = every snapshotted day matches
+within 0.005h; `differ` = at least `diffCount` days diverge;
+`unknown` = no baseline yet (week never refreshed).
+ */
+  connecteamParity?: DriverSummaryRowConnecteamParity;
 }
 
 export type WeekSummaryTotals = {

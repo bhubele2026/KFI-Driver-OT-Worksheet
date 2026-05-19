@@ -59,6 +59,7 @@ import {
   Lock,
   XCircle,
   StickyNote,
+  Check,
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
 import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
@@ -735,6 +736,25 @@ export default function WeekSummary() {
                                             {driver.noteCount}
                                           </span>
                                         )}
+                                        {driver.connecteamParity?.status === "match" ? (
+                                          <span
+                                            className="inline-flex items-center gap-0.5 text-[10px] font-mono text-emerald-700 dark:text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.5 rounded"
+                                            title="Every day's dashboard total reconciles to the Connecteam baseline within 0.005h."
+                                            data-testid={`badge-ct-parity-match-${driver.kfiId}`}
+                                          >
+                                            <Check className="h-2.5 w-2.5" />
+                                            CT
+                                          </span>
+                                        ) : driver.connecteamParity?.status === "differ" ? (
+                                          <span
+                                            className="inline-flex items-center gap-0.5 text-[10px] font-mono text-warning bg-warning/15 border border-warning/40 px-1 py-0.5 rounded"
+                                            title={`${driver.connecteamParity.diffCount} day${driver.connecteamParity.diffCount === 1 ? "" : "s"} diverge from the Connecteam baseline. Open the driver to see which.`}
+                                            data-testid={`badge-ct-parity-diff-${driver.kfiId}`}
+                                          >
+                                            <AlertTriangle className="h-2.5 w-2.5" />
+                                            CT {driver.connecteamParity.diffCount}
+                                          </span>
+                                        ) : null}
                                       </span>
                                       <span className="text-xs text-muted-foreground font-mono">
                                         {driver.kfiId}

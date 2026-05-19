@@ -44,6 +44,8 @@ export * from "./driverMatch";
 export * from "./driverNameSuggestion";
 export * from "./driverNote";
 export * from "./driverSummaryRow";
+export * from "./driverSummaryRowConnecteamParity";
+export * from "./driverSummaryRowConnecteamParityStatus";
 export * from "./driverSummaryRowReviewStatus";
 export * from "./driverWeek";
 export * from "./driverWeekAuditEntry";

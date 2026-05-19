@@ -207,6 +207,26 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     .select()
     .from(schema.punchesTable)
     .where(eq(schema.punchesTable.weekStart, weekStart));
+  // Pull every Connecteam daily snapshot for this week in one shot so we can
+  // surface a per-driver parity status on the dashboard without N extra
+  // requests. Grouped by kfiId below.
+  const ctSnapshotRows = await db
+    .select({
+      kfiId: schema.connecteamDailySnapshotsTable.kfiId,
+      date: schema.connecteamDailySnapshotsTable.date,
+      hours: schema.connecteamDailySnapshotsTable.hours,
+    })
+    .from(schema.connecteamDailySnapshotsTable)
+    .where(eq(schema.connecteamDailySnapshotsTable.weekStart, weekStart));
+  const snapshotsByKfi = new Map<
+    string,
+    Array<{ date: string; hours: string | number }>
+  >();
+  for (const r of ctSnapshotRows) {
+    const arr = snapshotsByKfi.get(r.kfiId) ?? [];
+    arr.push({ date: r.date, hours: r.hours });
+    snapshotsByKfi.set(r.kfiId, arr);
+  }
   const deletions = await db
     .select()
     .from(schema.punchDeletionsTable)
@@ -338,6 +358,10 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     noteCount: number;
     displayTz: string | null;
     effectiveDispTz: string;
+    connecteamParity: {
+      status: "match" | "differ" | "unknown";
+      diffCount: number;
+    };
   }
   const rows: SummaryRow[] = [];
   for (const [kfiId, ps] of byKfi.entries()) {
@@ -377,6 +401,15 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       lastTouchedAt = new Date(lastDelete.deletedAt).toISOString();
     }
     const rstate = reviewByKfi.get(kfiId);
+    // Compute parity using the same helpers the driver-detail view uses, so
+    // the dashboard badge and the per-driver badge can never disagree.
+    const dailyTotals = computeDailyTotals(ps, weekStart, endDate);
+    const parityDays = buildDailyParity(
+      dailyTotals,
+      snapshotsByKfi.get(kfiId) ?? [],
+      week?.lastRefreshedAt != null,
+    );
+    const paritySummary = summarizeParity(parityDays);
     rows.push({
       kfiId,
       name: meta?.name ?? `Driver ${kfiId}`,
@@ -400,6 +433,10 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       noteCount: noteCountByKfi.get(kfiId) ?? 0,
       displayTz: meta?.displayTz ?? null,
       effectiveDispTz: resolveDispTz(kfiId, meta?.displayTz ?? null),
+      connecteamParity: {
+        status: paritySummary.status,
+        diffCount: paritySummary.diffCount,
+      },
     });
   }
   rows.sort(

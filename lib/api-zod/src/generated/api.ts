@@ -700,6 +700,19 @@ export const GetWeekSummaryResponse = zod.object({
         .describe(
           "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
         ),
+      connecteamParity: zod
+        .object({
+          status: zod.enum(["match", "differ", "unknown"]),
+          diffCount: zod
+            .number()
+            .describe(
+              "Number of days that diverge from the Connecteam baseline. Always 0 when status is `match` or `unknown`.",
+            ),
+        })
+        .optional()
+        .describe(
+          "Per-driver Connecteam parity status for this week, computed by\ncomparing the engine's daily totals against the snapshotted\nConnecteam baseline. Lets the dashboard render the parity badge\nwithout N extra requests. `match` = every snapshotted day matches\nwithin 0.005h; `differ` = at least `diffCount` days diverge;\n`unknown` = no baseline yet (week never refreshed).\n",
+        ),
     }),
   ),
   customers: zod.array(
@@ -740,6 +753,19 @@ export const GetWeekSummaryResponse = zod.object({
             .nullish()
             .describe(
               "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
+            ),
+          connecteamParity: zod
+            .object({
+              status: zod.enum(["match", "differ", "unknown"]),
+              diffCount: zod
+                .number()
+                .describe(
+                  "Number of days that diverge from the Connecteam baseline. Always 0 when status is `match` or `unknown`.",
+                ),
+            })
+            .optional()
+            .describe(
+              "Per-driver Connecteam parity status for this week, computed by\ncomparing the engine's daily totals against the snapshotted\nConnecteam baseline. Lets the dashboard render the parity badge\nwithout N extra requests. `match` = every snapshotted day matches\nwithin 0.005h; `differ` = at least `diffCount` days diverge;\n`unknown` = no baseline yet (week never refreshed).\n",
             ),
         }),
       ),
@@ -981,7 +1007,7 @@ export const ExtractCustomerFileParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(extractCustomerFilePathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
 });
 
 export const ExtractCustomerFileResponse = zod.object({
@@ -1052,7 +1078,7 @@ export const ConfirmCustomerFileParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(confirmCustomerFilePathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
 });
 
 export const confirmCustomerFileBodyExcludedIndicesItemMin = 0;
@@ -1072,6 +1098,12 @@ export const ConfirmCustomerFileResponse = zod.object({
   customer: zod.string(),
   fileName: zod.string(),
   punchesUpserted: zod.number(),
+  skipped: zod
+    .boolean()
+    .optional()
+    .describe(
+      'True when the uploaded file\'s SHA-256 matched the most recent\nsuccessful import for this (week, customer) and the server\nshort-circuited without re-parsing or re-writing punches.\nBulk-upload uses this to render \"Already up to date\" instead of\nre-importing identical files. Per-row Re-upload bypasses the\ncheck by sending `?force=1`.\n',
+    ),
   unmappedIds: zod
     .array(
       zod.object({
@@ -1108,7 +1140,7 @@ export const DiscardCustomerExtractParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(discardCustomerExtractPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
   sampleId: zod.coerce.number(),
 });
 

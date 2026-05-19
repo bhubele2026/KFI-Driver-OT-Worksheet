@@ -27,13 +27,20 @@ import { readAutoAdvancePref } from "@/hooks/use-auto-advance";
 import { cn } from "@/lib/utils";
 import { formatPersonName } from "@/lib/format-name";
 
-type FilterChip = "unreviewed" | "ot" | "mismatch";
+type FilterChip = "unreviewed" | "ot" | "mismatch" | "ct-diff";
 
 const CHIP_LABELS: Record<FilterChip, string> = {
   unreviewed: "Un-reviewed",
   ot: "Has OT",
   mismatch: "Mismatch",
+  "ct-diff": "Differs from CT",
 };
+
+function driverDiffersFromConnecteam(driver: {
+  connecteamParity?: { status?: string } | null;
+}): boolean {
+  return driver.connecteamParity?.status === "differ";
+}
 
 function driverHasMismatch(driver: {
   driverHours: number;
@@ -157,6 +164,7 @@ function DriversList({
           if (chips.has("unreviewed") && driver.reviewed) return false;
           if (chips.has("ot") && !driver.hasOvertime) return false;
           if (chips.has("mismatch") && !driverHasMismatch(driver)) return false;
+          if (chips.has("ct-diff") && !driverDiffersFromConnecteam(driver)) return false;
           return true;
         }),
       }))
@@ -314,6 +322,7 @@ function FilterCountBadge({ weekStart, search, chips }: FilterCountProps) {
         if (chips.has("unreviewed") && driver.reviewed) continue;
         if (chips.has("ot") && !driver.hasOvertime) continue;
         if (chips.has("mismatch") && !driverHasMismatch(driver)) continue;
+        if (chips.has("ct-diff") && !driverDiffersFromConnecteam(driver)) continue;
         matched += 1;
       }
     }
@@ -347,7 +356,7 @@ function FilterControls({
   onToggleChip,
   weekStart,
 }: FilterControlsProps) {
-  const chipKeys: FilterChip[] = ["unreviewed", "ot", "mismatch"];
+  const chipKeys: FilterChip[] = ["unreviewed", "ot", "mismatch", "ct-diff"];
   return (
     <div className="px-3 py-2 border-b border-border bg-muted/20 space-y-2">
       <div className="relative">
@@ -407,7 +416,7 @@ function FilterControls({
 }
 
 const FILTERS_STORAGE_PREFIX = "kfi-ot:drivers-sidebar:filters:v1";
-const VALID_CHIPS: readonly FilterChip[] = ["unreviewed", "ot", "mismatch"];
+const VALID_CHIPS: readonly FilterChip[] = ["unreviewed", "ot", "mismatch", "ct-diff"];
 
 interface PersistedFilters {
   search: string;

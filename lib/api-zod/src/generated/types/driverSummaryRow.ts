@@ -5,6 +5,7 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { DriverSummaryRowConnecteamParity } from "./driverSummaryRowConnecteamParity";
 import type { DriverSummaryRowReviewStatus } from "./driverSummaryRowReviewStatus";
 
 export interface DriverSummaryRow {
@@ -39,4 +40,12 @@ export interface DriverSummaryRow {
    * @nullable
    */
   effectiveDispTz?: string | null;
+  /** Per-driver Connecteam parity status for this week, computed by
+comparing the engine's daily totals against the snapshotted
+Connecteam baseline. Lets the dashboard render the parity badge
+without N extra requests. `match` = every snapshotted day matches
+within 0.005h; `differ` = at least `diffCount` days diverge;
+`unknown` = no baseline yet (week never refreshed).
+ */
+  connecteamParity?: DriverSummaryRowConnecteamParity;
 }
