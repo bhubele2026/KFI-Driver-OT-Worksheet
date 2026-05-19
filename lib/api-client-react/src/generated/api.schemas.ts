@@ -672,6 +672,8 @@ unknown id belongs to without opening the file.
 export interface CustomerUploadStatus {
   customer: string;
   extensions: string[];
+  /** Lowercase filename substrings that route a file to this customer's parser. Empty for AI-only customers (no deterministic parser yet). */
+  keywords: string[];
   punchCount: number;
   /** True when this customer has no deterministic parser and has only ever been imported via the AI extract flow. */
   isAiImported: boolean;

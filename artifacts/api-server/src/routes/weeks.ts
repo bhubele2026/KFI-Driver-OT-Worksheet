@@ -1027,6 +1027,7 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
     return {
       customer: c.displayName,
       extensions: [...c.extensions],
+      keywords: [...c.keywords],
       punchCount: r?.punchCount ?? 0,
       lastUploadAt: r?.lastUploadAt
         ? new Date(r.lastUploadAt).toISOString()
@@ -1067,6 +1068,7 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
     return {
       customer: name,
       extensions: ["pdf", "xlsx"],
+      keywords: [],
       punchCount: r?.punchCount ?? 0,
       lastUploadAt: r?.lastUploadAt
         ? new Date(r.lastUploadAt).toISOString()

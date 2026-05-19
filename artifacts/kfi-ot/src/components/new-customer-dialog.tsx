@@ -76,11 +76,13 @@ export function NewCustomerDialog({
   open,
   onOpenChange,
   onImported,
+  initialFile,
 }: {
   weekStart: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImported: () => void;
+  initialFile?: File | null;
 }) {
   const { toast } = useToast();
   const confirmMut = useConfirmNewCustomerFile();
@@ -109,8 +111,10 @@ export function NewCustomerDialog({
       setMapping({});
       setForgottenAliases(new Set());
       setForgettingName(null);
+    } else if (initialFile) {
+      setFile(initialFile);
     }
-  }, [open]);
+  }, [open, initialFile]);
 
   const forgetAlias = async (nameOnDoc: string) => {
     if (!preview) return;

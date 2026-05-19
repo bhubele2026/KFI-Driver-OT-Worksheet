@@ -935,6 +935,11 @@ export const GetCustomerUploadStatusParams = zod.object({
 export const GetCustomerUploadStatusResponseItem = zod.object({
   customer: zod.string(),
   extensions: zod.array(zod.string()),
+  keywords: zod
+    .array(zod.string())
+    .describe(
+      "Lowercase filename substrings that route a file to this customer's parser. Empty for AI-only customers (no deterministic parser yet).",
+    ),
   punchCount: zod.number(),
   isAiImported: zod
     .boolean()

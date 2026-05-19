@@ -31,6 +31,8 @@ import {
   Wand2,
   Lightbulb,
   BellOff,
+  FileQuestion,
+  X,
 } from "lucide-react";
 import { NewCustomerDialog } from "@/components/new-customer-dialog";
 
@@ -45,14 +47,37 @@ interface RowState {
   error: string | null;
 }
 
+interface BulkItem {
+  file: File;
+  customer: string | null;
+  status: "pending" | "uploading" | "success" | "warning" | "error" | "unknown";
+  punchesUpserted?: number;
+  unmappedCount?: number;
+  error?: string;
+}
+
+interface UnmappedId {
+  id: string;
+  count: number;
+  sampleName: string | null;
+}
+
+type UploadResult =
+  | { ok: true; punches: number; unmapped: UnmappedId[] }
+  | { ok: false; error: string };
+
 export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const { data: statuses } = useGetCustomerUploadStatus(weekStart);
   const { data: me } = useGetMe();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
+  const bulkInputRef = useRef<HTMLInputElement>(null);
   const [rowState, setRowState] = useState<Record<string, RowState>>({});
   const [newOpen, setNewOpen] = useState(false);
+  const [newInitialFile, setNewInitialFile] = useState<File | null>(null);
+  const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
+  const [bulkRunning, setBulkRunning] = useState(false);
   const snoozeMutation = useCreateParserPromotionSnooze();
 
   const snooze = (customer: string, snoozeWeeks: number | null) => {
@@ -104,8 +129,10 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     });
   };
 
-  const uploadFor = async (customer: string, file: File) => {
-    setRow(customer, { uploading: true, error: null });
+  const doUpload = async (
+    customer: string,
+    file: File,
+  ): Promise<UploadResult> => {
     const formData = new FormData();
     formData.append("file", file);
     try {
@@ -117,52 +144,146 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         | {
             customer?: string;
             punchesUpserted?: number;
-            unmappedIds?: Array<{
-              id: string;
-              count: number;
-              sampleName: string | null;
-            }>;
+            unmappedIds?: UnmappedId[];
             error?: string;
           }
         | null;
       if (!res.ok) {
-        throw new Error(body?.error ?? "Upload failed");
+        return { ok: false, error: body?.error ?? "Upload failed" };
       }
       if (body?.customer && body.customer !== customer) {
-        throw new Error(
-          `File detected as "${body.customer}" but you uploaded it for "${customer}". Rename the file to include "${customer}" so it routes correctly.`,
-        );
+        return {
+          ok: false,
+          error: `File detected as "${body.customer}" but you uploaded it for "${customer}". Rename the file to include "${customer}" so it routes correctly.`,
+        };
       }
-      setRow(customer, { uploading: false, error: null });
-      const unmapped = body?.unmappedIds ?? [];
-      if (unmapped.length > 0) {
-        const formatted = unmapped
-          .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
-          .join(", ");
-        toast({
-          title: `${customer} uploaded with ${unmapped.length} unknown ${
-            unmapped.length === 1 ? "badge" : "badges"
-          }`,
-          description: `Imported ${body?.punchesUpserted ?? 0} punches. These IDs aren't in the KFI roster, so their rows were skipped: ${formatted}. Add them to the driver mapping if they're new hires.`,
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: `${customer} uploaded`,
-          description: `Imported ${body?.punchesUpserted ?? 0} punches.`,
-        });
-      }
-      invalidateAll();
+      return {
+        ok: true,
+        punches: body?.punchesUpserted ?? 0,
+        unmapped: body?.unmappedIds ?? [],
+      };
     } catch (err) {
-      const msg = errMessage(err, "Upload failed");
-      setRow(customer, { uploading: false, error: msg });
-      toast({
-        title: `${customer} upload failed`,
-        description: msg,
-        variant: "destructive",
-      });
+      return { ok: false, error: errMessage(err, "Upload failed") };
     }
   };
+
+  const uploadFor = async (customer: string, file: File) => {
+    setRow(customer, { uploading: true, error: null });
+    const r = await doUpload(customer, file);
+    if (!r.ok) {
+      setRow(customer, { uploading: false, error: r.error });
+      toast({
+        title: `${customer} upload failed`,
+        description: r.error,
+        variant: "destructive",
+      });
+      return;
+    }
+    setRow(customer, { uploading: false, error: null });
+    if (r.unmapped.length > 0) {
+      const formatted = r.unmapped
+        .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
+        .join(", ");
+      toast({
+        title: `${customer} uploaded with ${r.unmapped.length} unknown ${
+          r.unmapped.length === 1 ? "badge" : "badges"
+        }`,
+        description: `Imported ${r.punches} punches. These IDs aren't in the KFI roster, so their rows were skipped: ${formatted}. Add them to the driver mapping if they're new hires.`,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: `${customer} uploaded`,
+        description: `Imported ${r.punches} punches.`,
+      });
+    }
+    invalidateAll();
+  };
+
+  const classifyFile = (file: File): string | null => {
+    const lower = file.name.toLowerCase();
+    const isPdf = lower.endsWith(".pdf");
+    const isXlsx = lower.endsWith(".xlsx") || lower.endsWith(".xls");
+    if (!isPdf && !isXlsx) return null;
+    for (const s of statuses ?? []) {
+      if (!s.keywords || s.keywords.length === 0) continue;
+      if (isPdf && !s.extensions.includes("pdf")) continue;
+      if (isXlsx && !s.extensions.includes("xlsx")) continue;
+      if (s.keywords.some((k) => lower.includes(k))) return s.customer;
+    }
+    return null;
+  };
+
+  const runBulk = async (files: File[]) => {
+    if (files.length === 0) return;
+    const initial: BulkItem[] = files.map((file) => {
+      const customer = classifyFile(file);
+      return {
+        file,
+        customer,
+        status: customer ? "pending" : "unknown",
+      };
+    });
+    setBulkItems(initial);
+    setBulkRunning(true);
+    let uploaded = 0;
+    let failed = 0;
+    let needsReview = 0;
+    for (let i = 0; i < initial.length; i++) {
+      const item = initial[i];
+      if (!item.customer) {
+        needsReview++;
+        continue;
+      }
+      const customer = item.customer;
+      setBulkItems((prev) =>
+        prev.map((it, idx) =>
+          idx === i ? { ...it, status: "uploading" } : it,
+        ),
+      );
+      setRow(customer, { uploading: true, error: null });
+      const r = await doUpload(customer, item.file);
+      if (r.ok) {
+        uploaded++;
+        const warning = r.unmapped.length > 0;
+        setBulkItems((prev) =>
+          prev.map((it, idx) =>
+            idx === i
+              ? {
+                  ...it,
+                  status: warning ? "warning" : "success",
+                  punchesUpserted: r.punches,
+                  unmappedCount: r.unmapped.length,
+                }
+              : it,
+          ),
+        );
+        setRow(customer, { uploading: false, error: null });
+      } else {
+        failed++;
+        setBulkItems((prev) =>
+          prev.map((it, idx) =>
+            idx === i ? { ...it, status: "error", error: r.error } : it,
+          ),
+        );
+        setRow(customer, { uploading: false, error: r.error });
+      }
+    }
+    setBulkRunning(false);
+    invalidateAll();
+    toast({
+      title: `Bulk upload complete`,
+      description: `${uploaded} uploaded, ${needsReview} need review, ${failed} failed.`,
+      variant: failed > 0 ? "destructive" : "default",
+    });
+  };
+
+  const openNewWithFile = (file: File | null) => {
+    setNewInitialFile(file);
+    setNewOpen(true);
+  };
+
+  const dismissBulk = () => setBulkItems([]);
 
   const promotionCandidates = (statuses ?? []).filter(
     (s) => s.promotionCandidate,
@@ -180,15 +301,142 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
             customer's imported rows; manual punches are kept.
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setNewOpen(true)}
-        >
-          <Sparkles className="mr-2 h-4 w-4" />
-          New customer file…
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            type="file"
+            ref={bulkInputRef}
+            accept=".pdf,.xlsx,.xls"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length > 0) void runBulk(files);
+              e.target.value = "";
+            }}
+          />
+          <Button
+            size="sm"
+            disabled={bulkRunning}
+            onClick={() => bulkInputRef.current?.click()}
+          >
+            {bulkRunning ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <UploadCloud className="mr-2 h-4 w-4" />
+            )}
+            Upload all customer files
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => openNewWithFile(null)}
+          >
+            <Sparkles className="mr-2 h-4 w-4" />
+            New customer file…
+          </Button>
+        </div>
       </div>
+      {bulkItems.length > 0 && (
+        <div className="border-b border-border bg-muted/20 px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <h4 className="font-display font-semibold text-sm">
+              {bulkRunning ? "Uploading…" : "Bulk upload results"}
+            </h4>
+            {!bulkRunning && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={dismissBulk}
+              >
+                <X className="h-3 w-3 mr-1" />
+                Dismiss
+              </Button>
+            )}
+          </div>
+          <ul className="space-y-1">
+            {bulkItems.map((item, idx) => {
+              const isUnknown = item.status === "unknown";
+              return (
+                <li
+                  key={idx}
+                  className="flex items-start gap-2 text-xs py-1 px-2 rounded bg-background/60 border border-border/40"
+                >
+                  <div className="shrink-0 mt-0.5">
+                    {item.status === "pending" && (
+                      <Circle className="h-3.5 w-3.5 text-muted-foreground/40" />
+                    )}
+                    {item.status === "uploading" && (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                    )}
+                    {item.status === "success" && (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                    )}
+                    {item.status === "warning" && (
+                      <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    )}
+                    {item.status === "error" && (
+                      <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                    )}
+                    {item.status === "unknown" && (
+                      <FileQuestion className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-[11px] truncate">
+                        {item.file.name}
+                      </span>
+                      {item.customer && (
+                        <Badge
+                          variant="secondary"
+                          className="text-[10px]"
+                        >
+                          {item.customer}
+                        </Badge>
+                      )}
+                      {item.status === "success" && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {item.punchesUpserted} punches imported
+                        </span>
+                      )}
+                      {item.status === "warning" && (
+                        <span className="text-[10px] text-amber-700 dark:text-amber-400">
+                          {item.punchesUpserted} imported · {item.unmappedCount}{" "}
+                          unknown{" "}
+                          {item.unmappedCount === 1 ? "badge" : "badges"}
+                        </span>
+                      )}
+                    </div>
+                    {item.status === "error" && item.error && (
+                      <div className="mt-0.5 text-destructive text-[11px]">
+                        {item.error}
+                      </div>
+                    )}
+                    {isUnknown && (
+                      <div className="mt-0.5 text-amber-800 dark:text-amber-300 text-[11px]">
+                        Not a known customer — use the new-customer flow to map
+                        it.
+                      </div>
+                    )}
+                  </div>
+                  {isUnknown && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 px-2 text-[11px] shrink-0"
+                      onClick={() => openNewWithFile(item.file)}
+                    >
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      New customer file…
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
       {promotionCandidates.length > 0 && (
         <div className="border-b border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-4 py-3 space-y-2">
           <div className="flex items-start gap-2">
@@ -457,8 +705,12 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       <NewCustomerDialog
         weekStart={weekStart}
         open={newOpen}
-        onOpenChange={setNewOpen}
+        onOpenChange={(o) => {
+          setNewOpen(o);
+          if (!o) setNewInitialFile(null);
+        }}
         onImported={invalidateAll}
+        initialFile={newInitialFile}
       />
     </Card>
   );

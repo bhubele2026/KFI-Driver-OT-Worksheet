@@ -2038,12 +2038,16 @@ components:
 
     CustomerUploadStatus:
       type: object
-      required: [customer, extensions, punchCount, isAiImported, aiImportWeekCount, aliasCount, promotionCandidate, lastUnmappedIds]
+      required: [customer, extensions, keywords, punchCount, isAiImported, aiImportWeekCount, aliasCount, promotionCandidate, lastUnmappedIds]
       properties:
         customer: { type: string }
         extensions:
           type: array
           items: { type: string }
+        keywords:
+          type: array
+          items: { type: string }
+          description: Lowercase filename substrings that route a file to this customer's parser. Empty for AI-only customers (no deterministic parser yet).
         punchCount: { type: integer }
         isAiImported:
           type: boolean
