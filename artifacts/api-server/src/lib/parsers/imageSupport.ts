@@ -290,5 +290,8 @@ function toParsedPunch(
     clockOut: fmtDT(`${r.date} ${clockOut}`),
     hours: Math.round(hours * 1000) / 1000,
     payType: "Reg",
+    // Carry the raw badge through so the PDF schema-cache recorder can
+    // locate the originating line in the document. Not persisted.
+    rawBadge: (r.badgeOrId ?? "").trim() || null,
   };
 }

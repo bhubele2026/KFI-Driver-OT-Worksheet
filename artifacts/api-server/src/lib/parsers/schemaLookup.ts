@@ -16,14 +16,16 @@ export type SchemaLookupResult =
   | {
       kind: "cache";
       parserName: null;
-      columnRoles: Record<string, string>;
+      columnRoles: Record<string, unknown>;
       headerSignature: string;
+      format: "xlsx" | "pdf";
     }
   | {
       kind: "legacy-parser";
       parserName: string;
       columnRoles: null;
       headerSignature: string;
+      format: "xlsx" | "pdf";
     }
   | { kind: "miss" };
 
@@ -56,7 +58,9 @@ export async function lookupSchema(
         : null;
   if (!format) return { kind: "miss" };
 
-  const signature = format === "xlsx" ? computeHeaderSignature(fileName, buffer) : null;
+  // Signature is available for both xlsx and PDF (Task #257). Images
+  // still skip — `format === null` short-circuited above.
+  const signature = await computeHeaderSignature(fileName, buffer);
 
   const sigPredicate = signature
     ? or(
@@ -89,14 +93,16 @@ export async function lookupSchema(
         parserName: exact.parserName,
         columnRoles: null,
         headerSignature: exact.headerSignature,
+        format,
       };
     }
     if (exact.columnRoles) {
       return {
         kind: "cache",
         parserName: null,
-        columnRoles: exact.columnRoles as Record<string, string>,
+        columnRoles: exact.columnRoles as Record<string, unknown>,
         headerSignature: exact.headerSignature,
+        format,
       };
     }
   }
@@ -107,6 +113,7 @@ export async function lookupSchema(
       parserName: star.parserName,
       columnRoles: null,
       headerSignature: "*",
+      format,
     };
   }
   return { kind: "miss" };

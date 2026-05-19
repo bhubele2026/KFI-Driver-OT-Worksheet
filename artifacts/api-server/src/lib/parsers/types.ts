@@ -8,6 +8,16 @@ export interface ParsedPunch {
   payType: "Reg" | "OT";
   /** Set true for IWG (already in EST display tz, no further conversion). */
   noTz?: boolean;
+  /**
+   * Raw badge / employee id as it appeared in the source file, when the
+   * extractor saw one (AI's `badgeOrId`, parsers reading badge columns).
+   * Optional and only consumed by post-extraction tooling — currently the
+   * PDF schema-cache recorder, which uses it as a search needle to locate
+   * the originating line in the document so it can derive a stable
+   * employee-anchor regex for the cache. Not persisted, not returned to
+   * the dispatcher; safe to leave undefined.
+   */
+  rawBadge?: string | null;
 }
 
 export interface UnmappedIdEntry {

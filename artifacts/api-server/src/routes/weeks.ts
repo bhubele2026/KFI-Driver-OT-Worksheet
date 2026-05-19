@@ -56,7 +56,10 @@ import {
 import { detectCustomerFromFileName } from "../lib/parsers/customers.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { lookupSchema } from "../lib/parsers/schemaLookup.js";
-import { readWithRoles } from "../lib/parsers/genericRoleReader.js";
+import {
+  readWithRoles,
+  readPdfWithRoles,
+} from "../lib/parsers/genericRoleReader.js";
 import { recordAiSchemaIfPossible } from "../lib/parsers/aiSchemaRecorder.js";
 import { dispatchLegacyParser } from "../lib/parsers/parserDispatch.js";
 import type {
@@ -1558,20 +1561,32 @@ weeksRouter.post(
       }
     } else if (schemaHit.kind === "cache") {
       // AI-discovered column-roles cache hit: skip AI entirely and run
-      // the generic role-based xlsx reader. Falls through to AI if the
-      // reader can't parse (stale roles) — re-running AI on the same
-      // header signature will overwrite the cache row.
+      // the generic role-based reader for the file's format (xlsx or
+      // pdf — Task #257). Falls through to AI if the reader can't
+      // parse (stale roles) — re-running AI on the same signature will
+      // overwrite the cache row.
       try {
         const idMap = await loadMergedIdMap();
-        const parsed = readWithRoles(
-          detectedCustomer,
-          req.file.buffer,
-          schemaHit.columnRoles,
-          kfiSet,
-          idMap,
-          startDate,
-          endDate,
-        );
+        const parsed =
+          schemaHit.format === "pdf"
+            ? await readPdfWithRoles(
+                detectedCustomer,
+                req.file.buffer,
+                schemaHit.columnRoles,
+                kfiSet,
+                idMap,
+                startDate,
+                endDate,
+              )
+            : readWithRoles(
+                detectedCustomer,
+                req.file.buffer,
+                schemaHit.columnRoles,
+                kfiSet,
+                idMap,
+                startDate,
+                endDate,
+              );
         if (parsed && parsed.punches.length > 0) {
           result = parsed;
           extractSource = "cache";
@@ -1631,6 +1646,7 @@ weeksRouter.post(
           fileName,
           buffer: req.file.buffer,
           aiResult,
+          weekStart: startDate,
           log: req.log,
         });
       } catch (err) {
