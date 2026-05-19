@@ -1718,11 +1718,47 @@ weeksRouter.post(
     // Driver picks made there are persisted to `driver_id_aliases` by
     // /confirm-customer-file so the next upload of the same file matches
     // automatically — no admin round-trip required.
-    const driverCandidates = drivers.map((d) => ({
-      kfiId: d.kfiId,
-      name: d.name,
-      customer: d.customer ?? "",
-    }));
+    // Restrict the per-id "this is actually driver X" picker to drivers
+    // who actually punched in via Connecteam this week (same rationale as
+    // the new-customer dialog). Union in any driver already aliased for
+    // an unmapped id in play, so previously-vetted id→driver decisions
+    // remain selectable even if that driver didn't clock this week.
+    const connecteamRowsForCandidates = await db
+      .selectDistinct({ kfiId: schema.punchesTable.kfiId })
+      .from(schema.punchesTable)
+      .where(
+        and(
+          eq(schema.punchesTable.weekStart, startDate),
+          eq(schema.punchesTable.source, "Driver"),
+          eq(schema.punchesTable.isManual, false),
+        ),
+      );
+    const candidateKfiIds = new Set<string>(
+      connecteamRowsForCandidates.map((r) => r.kfiId),
+    );
+    if (result.unmappedIds.length > 0) {
+      // Match the case-insensitive uniqueness used by driver_id_aliases'
+      // lower(external_id) index, so a doc id of "teld664" still surfaces
+      // an alias stored as "TELD664".
+      const idsInPlay = result.unmappedIds.map((u) => u.id.toLowerCase());
+      const aliasRowsForIds = await db
+        .select({ kfiId: schema.driverIdAliasesTable.kfiId })
+        .from(schema.driverIdAliasesTable)
+        .where(
+          sql`lower(${schema.driverIdAliasesTable.externalId}) IN (${sql.join(
+            idsInPlay.map((id) => sql`${id}`),
+            sql`, `,
+          )})`,
+        );
+      for (const r of aliasRowsForIds) candidateKfiIds.add(r.kfiId);
+    }
+    const driverCandidates = drivers
+      .filter((d) => candidateKfiIds.has(d.kfiId))
+      .map((d) => ({
+        kfiId: d.kfiId,
+        name: d.name,
+        customer: d.customer ?? "",
+      }));
     // Partition unmapped ids using the per-customer "not a driver" ignore
     // list. Ignored ids skip the picker entirely (we surface them in a
     // separate `autoIgnoredIds` array for transparency) so the dispatcher
@@ -2832,6 +2868,27 @@ weeksRouter.post(
         aliasByLowerName.set(a.nameOnDoc.toLowerCase(), a.kfiId);
       }
     }
+    // Restrict the fuzzy-match pool to drivers who actually punched in via
+    // Connecteam this week — those are the only people who could plausibly
+    // appear on a customer's sheet. Without this filter the dropdown lists
+    // every active driver in the roster (including e2e fixtures like "AAA
+    // Driver One") and dispatchers easily mis-map a name to someone who
+    // wasn't even working. Union in any driver who was already saved as an
+    // alias for this customer so previously-vetted decisions stay
+    // selectable even if that driver didn't clock this week.
+    const connecteamRows = await db
+      .selectDistinct({ kfiId: schema.punchesTable.kfiId })
+      .from(schema.punchesTable)
+      .where(
+        and(
+          eq(schema.punchesTable.weekStart, startDate),
+          eq(schema.punchesTable.source, "Driver"),
+          eq(schema.punchesTable.isManual, false),
+        ),
+      );
+    const eligibleKfiIds = new Set<string>(connecteamRows.map((r) => r.kfiId));
+    for (const kfi of aliasByLowerName.values()) eligibleKfiIds.add(kfi);
+    const matchPool = drivers.filter((d) => eligibleKfiIds.has(d.kfiId));
     // Hide low-confidence fuzzy matches from the dropdown entirely — they
     // were the root cause of dispatchers seeing "Carlos Juan" suggested as
     // "Juan Del Pueblo". A previously-saved alias is still surfaced below
@@ -2839,7 +2896,7 @@ weeksRouter.post(
     // for it).
     const SUGGESTION_MIN_CONFIDENCE = 0.85;
     const suggestions = [...seen.entries()].map(([driverNameOnDoc, badgeOrId]) => {
-      const matches = topMatches(driverNameOnDoc, drivers, 5).filter(
+      const matches = topMatches(driverNameOnDoc, matchPool, 5).filter(
         (m) => m.confidence >= SUGGESTION_MIN_CONFIDENCE,
       );
       const savedKfiId =
