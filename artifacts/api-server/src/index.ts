@@ -84,10 +84,22 @@ async function main() {
            WHERE table_name = 'driver_payroll_profiles'
          ) AS exists`,
       );
-      if (!exists.rows[0]?.exists) return;
+      if (!exists.rows[0]?.exists) {
+        // Missing the table is a real bug: post-merge `pnpm db push`
+        // didn't run, or the schema barrel doesn't export it. In dev
+        // we crash loudly so the next regression is impossible to
+        // miss; in prod we log + carry on so a transient startup race
+        // doesn't take the API down.
+        const msg =
+          "driver_payroll_profiles table missing — run `pnpm --filter @workspace/db run push`";
+        if (process.env.NODE_ENV !== "production") throw new Error(msg);
+        logger.error({}, msg);
+        return;
+      }
       const result = await seedDriverPayrollProfiles(client);
       logger.info({ result }, "seedDriverPayrollProfiles complete");
     } catch (err) {
+      if (process.env.NODE_ENV !== "production") throw err;
       logger.warn({ err }, "seedDriverPayrollProfiles failed");
     } finally {
       client.release();

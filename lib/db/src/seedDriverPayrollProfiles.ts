@@ -97,9 +97,32 @@ export async function seedDriverPayrollProfiles(
     `SELECT kfi_id, name FROM drivers`,
   );
   const byFp = new Map<string, string>();
+  const rosterTokenSets: Array<{ kfiId: string; tokens: Set<string> }> = [];
   for (const r of rosterRes.rows) {
     const fp = fingerprintName(r.name);
     if (!byFp.has(fp)) byFp.set(fp, r.kfi_id);
+    const tokens = new Set(fp.split(" ").filter((t) => t.length > 0));
+    if (tokens.size >= 2) rosterTokenSets.push({ kfiId: r.kfi_id, tokens });
+  }
+
+  // Fallback: a seed row's tokens are a superset of a roster driver's
+  // tokens (i.e. seed has extra middle names). Requires the roster to
+  // contribute at least two tokens (typically first + last) and the
+  // match to be unique to avoid silently picking the wrong driver.
+  function matchBySubset(seedFp: string): string | null {
+    const seedTokens = new Set(seedFp.split(" ").filter((t) => t.length > 0));
+    const hits: string[] = [];
+    for (const { kfiId, tokens } of rosterTokenSets) {
+      let isSubset = true;
+      for (const t of tokens) {
+        if (!seedTokens.has(t)) {
+          isSubset = false;
+          break;
+        }
+      }
+      if (isSubset) hits.push(kfiId);
+    }
+    return hits.length === 1 ? hits[0]! : null;
   }
 
   const result: SeedResult = {
@@ -117,7 +140,9 @@ export async function seedDriverPayrollProfiles(
   for (const row of PAYROLL_SEED_ROWS) {
     const overrideKfiId =
       row.kfiId && kfiIdSet.has(row.kfiId) ? row.kfiId : undefined;
-    const kfiId = overrideKfiId ?? byFp.get(fingerprintName(row.person));
+    const seedFp = fingerprintName(row.person);
+    const kfiId =
+      overrideKfiId ?? byFp.get(seedFp) ?? matchBySubset(seedFp);
     if (!kfiId) {
       result.unmatched.push(row.person);
       continue;
