@@ -49,10 +49,7 @@ import {
   computeBaselineStaleness,
   summarizeParity,
 } from "../lib/connecteamParity.js";
-import {
-  KNOWN_CUSTOMERS,
-  detectAndParseFile,
-} from "../lib/parsers/index.js";
+import { KNOWN_CUSTOMERS } from "../lib/parsers/index.js";
 import { detectCustomerFromFileName } from "../lib/parsers/customers.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { lookupSchema } from "../lib/parsers/schemaLookup.js";
@@ -61,7 +58,6 @@ import {
   readPdfWithRoles,
 } from "../lib/parsers/genericRoleReader.js";
 import { recordAiSchemaIfPossible } from "../lib/parsers/aiSchemaRecorder.js";
-import { dispatchLegacyParser } from "../lib/parsers/parserDispatch.js";
 import type {
   ExtractDiagnostics,
   UnmappedIdEntry,
@@ -1486,28 +1482,28 @@ weeksRouter.post(
     // Track which extraction strategy ran. Drives the preview dialog's
     // neutral source chip + the customer_upload_attempts.last_source
     // audit value. One of:
-    //   - 'legacy-parser': cache pointed at a hand-written parser (fast).
     //   - 'cache': AI-discovered column roles fed a generic reader (fast).
     //   - 'ai': fell through to Gemini (slow, but uniform).
-    let extractSource: "legacy-parser" | "cache" | "ai" = "ai";
+    // Task #277 removed the legacy hand-written parsers; every upload
+    // is AI-first now.
+    let extractSource: "cache" | "ai" = "ai";
     // True only when the AI path succeeded AND `recordAiSchemaIfPossible`
     // wrote a `customer_column_schemas` row for the file's header
     // signature. Surfaced to the dispatcher so they know the next upload
     // of this format will skip AI entirely (cache → readWithRoles). Task #255.
     let cacheWritten = false;
 
-    // ---- Uniform per-row pipeline (Task #250) -------------------------
+    // ---- Uniform per-row pipeline (Task #250, simplified by #277) -----
     // Every per-row upload (`explicitCustomer` set, including drag-drop
     // and the per-row picker) starts with the same single lookup against
     // `customer_column_schemas`:
     //   1. Cache hit (exact header signature) → generic role-based reader.
-    //   2. Legacy-parser sentinel (customer-level `'*'` row, seeded at
-    //      boot for every KNOWN_CUSTOMERS entry) → delegate to the
-    //      hand-written parser.
-    //   3. Miss → AI extraction.
-    // The bulk filename-routed `/upload-customer-file` path is untouched.
-    // Images and the no-explicit-customer (filename-detection) path also
-    // route here so the behavior tree is one shape regardless of input.
+    //   2. Miss → AI extraction (which then writes a cache row for the
+    //      next upload of the same layout).
+    // Task #277 removed the legacy hand-written parsers; the cache is
+    // the only fast path. Images and the no-explicit-customer
+    // (filename-detection) path also route here so the behavior tree is
+    // one shape regardless of input.
     const detectedCustomer =
       explicitCustomer ?? detectCustomerFromFileName(fileName);
     if (isImage && req.file.size > MAX_IMAGE_BYTES) {
@@ -1535,32 +1531,7 @@ weeksRouter.post(
           isImage,
         );
 
-    if (schemaHit.kind === "legacy-parser") {
-      try {
-        const idMap = await loadMergedIdMap();
-        const parsed = await dispatchLegacyParser(
-          schemaHit.parserName,
-          fileName,
-          req.file.buffer,
-          kfiSet,
-          startDate,
-          idMap,
-        );
-        if (parsed) {
-          result = parsed;
-          extractSource = "legacy-parser";
-        }
-      } catch (err) {
-        // Legacy parser threw (e.g. Adient's "header missing" guard).
-        // Don't bubble — fall through to AI so the dispatcher still gets
-        // a preview rather than a hard 400. Log so engineering sees the
-        // drift signal in audit attempts.
-        req.log.warn(
-          { err, fileName, customer: detectedCustomer, parser: schemaHit.parserName },
-          "Legacy parser threw — falling through to AI",
-        );
-      }
-    } else if (schemaHit.kind === "cache") {
+    if (schemaHit.kind === "cache") {
       // AI-discovered column-roles cache hit: skip AI entirely and run
       // the generic role-based reader for the file's format (xlsx or
       // pdf — Task #257). Falls through to AI if the reader can't
@@ -1600,11 +1571,9 @@ weeksRouter.post(
       }
     }
 
-    // Step 3: AI extraction. Triggered when the cache missed, when the
-    // legacy parser returned 0 rows (format drift), or when an image.
-    const needsAi =
-      !result ||
-      (extractSource === "legacy-parser" && result.punches.length === 0);
+    // Step 2: AI extraction. Triggered when the cache missed or when
+    // the cached role reader threw / returned no rows.
+    const needsAi = !result;
     if (needsAi) {
       try {
         let bufferForAi = req.file.buffer;
@@ -1662,7 +1631,7 @@ weeksRouter.post(
     if (!result) {
       res.status(400).json({
         error:
-          "Could not detect customer from filename. Include the customer name (penda, trienda, greystone, lsi, burnett, adient, iwg, delallo, zenople) in the file name.",
+          "Could not extract any rows from the file. Drop the file onto a specific customer row, or rename it to include the customer name.",
       });
       return;
     }
@@ -1719,16 +1688,9 @@ weeksRouter.post(
       const body = parts.length > 0 ? ` — ${parts.join("; ")}.` : ".";
       return `${lead}${body}${tail}`;
     };
-    // (The legacy "deterministic parser returned 0 → retry with AI"
-    // fallback block lived here. It's been folded into the uniform
-    // pipeline above — when the schema cache routes us to a legacy
-    // parser and it returns 0 rows, the `needsAi` guard at the top of
-    // this handler already kicks the same file through AI inline. So
-    // by the time we get here, `result` and `extractSource` are final.)
-
     // Origin label drives the dispatcher-facing copy + the recordAttempt
-    // audit row. `'parser'` covers both legacy-parser and (future)
-    // cache-reader successes; `'ai'` is the AI extraction path.
+    // audit row. `'parser'` covers cache-reader successes; `'ai'` is the
+    // AI extraction path. (Task #277 removed legacy hand-written parsers.)
     const origin: "parser" | "ai" = extractSource === "ai" ? "ai" : "parser";
     if (result.punches.length === 0) {
       const rawRowCount = result.diagnostics?.rawRowCount ?? 0;
@@ -2015,20 +1977,27 @@ weeksRouter.post(
       return;
     }
 
-    // Image samples already have their fully-resolved rows persisted (the AI
-    // extractor is non-deterministic, so we can't re-derive them here). For
-    // every other sample we re-run the deterministic parser against the
-    // stashed bytes.
+    // Task #277: every per-row upload now stashes AI-extracted rows
+    // (extractedRows and/or pendingNamedRows). Legacy deterministic
+    // parsers were removed, so we no longer re-parse the stashed bytes
+    // — we trust the AI's stashed rows and re-resolve pendingNamedRows
+    // against the picker aliases inside the commit tx below.
     //
-    // Either of `extractedRows` (rows the AI auto-resolved) or
-    // `pendingNamedRows` (rows it couldn't but the dispatcher will map via
-    // the picker) being populated marks this as an AI sample. Otherwise
-    // it's a deterministic-parser sample.
-    const sampleSource: "parser" | "ai" =
+    // Old in-flight stashes from before the cutover may have neither
+    // field populated; those are unrecoverable now and we return a
+    // clear "re-upload" error rather than silently dropping to a parser
+    // that no longer exists.
+    const hasAiRows =
       (sample.extractedRows && sample.extractedRows.length > 0) ||
-      (sample.pendingNamedRows && sample.pendingNamedRows.length > 0)
-        ? "ai"
-        : "parser";
+      (sample.pendingNamedRows && sample.pendingNamedRows.length > 0);
+    if (!hasAiRows) {
+      const msg =
+        "This upload preview was created by an older parser path that has been removed. Re-upload the customer file to extract it through the AI pipeline.";
+      await recordAttempt(startDate, customer, sample.fileName, msg, "ai");
+      res.status(400).json({ error: msg });
+      return;
+    }
+    const sampleSource = "ai" as const;
 
     const drivers = await db.select().from(schema.driversTable);
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
@@ -2095,52 +2064,17 @@ weeksRouter.post(
       punches: schema.StashedExtractedPunch[];
       unmappedIds: schema.UnmappedIdEntry[];
     };
-    if (sampleSource === "ai") {
-      // AI-extracted samples (image uploads) already have fully-resolved
-      // rows (extractedRows) plus any pendingNamedRows the dispatcher
-      // will resolve via the picker. The probe-parse only exists to
-      // validate the file still parses to the expected customer; for AI
-      // samples we trust the stash. extractedRows can be empty when
-      // every row needed dispatcher mapping (e.g. first-ever Schuette
-      // Metals upload) — that's fine, the tx body builds the full set
-      // from extractedRows + re-resolved pendingNamedRows.
-      result = {
-        customer: sample.customer,
-        punches: sample.extractedRows ?? [],
-        unmappedIds: [],
-      };
-    } else {
-      try {
-        // Probe-parse with the un-augmented map just to validate the file
-        // still parses to the expected customer before we open the tx.
-        // The authoritative parse (using merged-with-new-aliases map) runs
-        // inside the tx below so we never commit punches that disagree with
-        // what we just wrote to driver_id_aliases.
-        const probeMap = await loadMergedIdMap();
-        const probed = await detectAndParseFile(
-          fileName,
-          Buffer.from(sample.fileBytes),
-          kfiSet,
-          startDate,
-          probeMap,
-        );
-        if (!probed || probed.customer !== customer) {
-          const msg =
-            "Stashed file no longer parses to the expected customer.";
-          await recordAttempt(startDate, customer, fileName, msg, "parser");
-          res.status(400).json({ error: msg });
-          return;
-        }
-        result = probed;
-      } catch (err) {
-        req.log.error({ err, fileName }, "Parse error (confirm)");
-        const msg =
-          err instanceof Error ? err.message : "Could not parse file";
-        await recordAttempt(startDate, customer, fileName, msg, "parser");
-        res.status(400).json({ error: msg });
-        return;
-      }
-    }
+    // AI-extracted samples already have fully-resolved rows
+    // (extractedRows) plus any pendingNamedRows the dispatcher will
+    // resolve via the picker. We trust the stash; extractedRows can be
+    // empty when every row needed dispatcher mapping (e.g. first-ever
+    // Schuette Metals upload) — that's fine, the tx body builds the
+    // full set from extractedRows + re-resolved pendingNamedRows.
+    result = {
+      customer: sample.customer,
+      punches: sample.extractedRows ?? [],
+      unmappedIds: [],
+    };
 
     const lockedKfiIds = await loadLockedKfiIds(startDate);
     const lockedSkipped: string[] = [];
@@ -2230,14 +2164,14 @@ weeksRouter.post(
         for (const r of aliasRows) mergedMap[r.externalId] = r.kfiId;
 
         // AI samples skip the re-parse — the stashed rows ARE the
-        // authoritative result and there's no deterministic parser to run.
-        // For everything else, re-parse with the now-augmented merged map.
+        // authoritative result. (Task #277 removed deterministic
+        // parsers, so this is now the only branch.)
         let reparsed: {
           customer: string;
           punches: schema.StashedExtractedPunch[];
           unmappedIds: schema.UnmappedIdEntry[];
         };
-        if (sampleSource === "ai") {
+        {
           // AI samples: combine the rows the extractor already resolved
           // (stashed verbatim because the AI is non-deterministic) with
           // any pendingNamedRows we can now resolve thanks to the
@@ -2340,20 +2274,6 @@ weeksRouter.post(
             punches: [...baseRows, ...reResolved],
             unmappedIds: [],
           };
-        } else {
-          const reparsedRaw = await detectAndParseFile(
-            fileName,
-            Buffer.from(sample.fileBytes),
-            kfiSet,
-            startDate,
-            mergedMap,
-          );
-          if (!reparsedRaw || reparsedRaw.customer !== customer) {
-            throw new Error(
-              "Stashed file no longer parses to the expected customer.",
-            );
-          }
-          reparsed = reparsedRaw;
         }
         finalResult = reparsed;
 
@@ -2422,7 +2342,7 @@ weeksRouter.post(
         "Confirm-customer-file transaction failed (alias writes rolled back)",
       );
       const msg = err instanceof Error ? err.message : "Confirm failed";
-      await recordAttempt(startDate, customer, fileName, msg, "parser");
+      await recordAttempt(startDate, customer, fileName, msg, "ai");
       res.status(400).json({ error: msg });
       return;
     }

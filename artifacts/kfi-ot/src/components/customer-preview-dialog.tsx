@@ -70,7 +70,7 @@ export interface CustomerPreviewData {
   unmappedIds: CustomerPreviewUnmappedId[];
   autoIgnoredIds?: CustomerPreviewUnmappedId[];
   existingPunchCount: number;
-  extractSource?: "legacy-parser" | "cache" | "ai";
+  extractSource?: "cache" | "ai";
   cacheWritten?: boolean;
   /**
    * Task #264. True when at least one Gemini response was truncated at
@@ -298,11 +298,7 @@ export function CustomerPreviewDialog({
                     : "inline-flex items-center rounded border border-border bg-muted/40 px-2 py-0.5 font-medium"
                 }
               >
-                {preview.extractSource === "ai"
-                  ? "AI"
-                  : preview.extractSource === "cache"
-                    ? "Learned schema"
-                    : "Built-in parser"}
+                {preview.extractSource === "ai" ? "AI" : "Learned schema"}
               </span>
               {preview.extractSource === "ai" ? (
                 <span className="text-muted-foreground/80">

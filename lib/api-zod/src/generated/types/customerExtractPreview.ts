@@ -38,15 +38,12 @@ ignore from /admin/customer-ignored-externals if needed.
   autoIgnoredIds?: UnmappedId[];
   /** Number of existing Customer-source punches for `(week, customer)` that this confirm would actually replace — i.e. excluding manual rows, inline-edited rows, and any rows belonging to a locked driver-week (all of which the wipe preserves). */
   existingPunchCount: number;
-  /** Which extraction strategy the uniform per-row pipeline used:
-- `legacy-parser`: the schema cache routed to a hand-written
-  parser (fast, deterministic).
+  /** Which extraction strategy the uniform per-row pipeline used
+(Task #277 removed the legacy hand-written parsers; every
+upload is AI-first now):
 - `cache`: an AI-discovered column-roles row was found and a
   generic role-based reader produced the rows (fast).
 - `ai`: fell through to Gemini extraction (slow, but uniform).
-  For known-customer rows this signals format drift —
-  consider updating the deterministic parser or promoting
-  the AI extraction (see `docs/promote-ai-customer-to-parser.md`).
  */
   extractSource?: CustomerExtractPreviewExtractSource;
   /** True only when `extractSource` is `ai` AND the column-roles
@@ -54,8 +51,8 @@ cache row was successfully written for this file's header
 signature. Tells the dispatcher the next upload of the same
 xlsx layout will skip AI entirely and take the fast
 `cache` → `readWithRoles` branch (sub-100ms). Always false
-for legacy-parser / cache hits, images, and PDFs (the schema
-cache is xlsx-only today).
+for cache hits, images, and PDFs (the schema cache is
+xlsx-only today).
  */
   cacheWritten?: boolean;
 }

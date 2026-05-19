@@ -9,24 +9,21 @@ import {
 
 /**
  * Per-customer parser registry that backs the uniform per-row upload
- * pipeline. Lookup key is `(lower(customer), header_signature)`.
+ * pipeline. Lookup key is `(lower(customer), header_signature, format)`.
  *
- * Two row shapes coexist:
+ * Task #277 ripped out the hand-written deterministic parsers; the
+ * only live row shape now is:
  *
- *  1. **Legacy-parser sentinel** (`source = 'legacy-parser'`,
- *     `parser_name` set, `column_roles` null, `header_signature = '*'`).
- *     Seeded at boot for every entry in `KNOWN_CUSTOMERS` so the
- *     per-row uploader can short-circuit to a fast deterministic parser
- *     when the customer has a hand-written one. The `*` signature is a
- *     customer-level fallback the lookup uses when nothing matches the
- *     actual file's computed signature.
+ *  **AI-discovered roles** (`source = 'ai'`, `column_roles` set,
+ *  `header_signature` = the file's actual header hash). Written by the
+ *  upload route after a successful AI extraction so subsequent uploads
+ *  with the same header layout skip AI and use the generic role-based
+ *  reader (`readWithRoles` / `readPdfWithRoles`).
  *
- *  2. **AI-discovered roles** (`source = 'ai'`, `column_roles` set,
- *     `header_signature` = the file's actual header hash). Written by
- *     the route after a successful AI extraction so subsequent uploads
- *     with the same header layout skip AI and use the generic
- *     role-based reader. (Generic reader not yet wired — table is in
- *     place to support it; see drift on Task #250.)
+ * Historical: rows with `source = 'legacy-parser'` and
+ * `header_signature = '*'` were seeded at boot for every
+ * `KNOWN_CUSTOMERS` entry. The boot path now deletes those instead;
+ * see `deleteLegacyParserSchemaRows` in `lib/parsers/schemaLookup.ts`.
  *
  * Either way the route does ONE lookup at upload time, in the same
  * order, regardless of customer or file format. That's the
@@ -40,28 +37,31 @@ export const customerColumnSchemasTable = pgTable(
     /** Canonical customer display name (matches punches.customer). */
     customer: text("customer").notNull(),
     /**
-     * Stable SHA-256 of the file's normalized header row, or `'*'` for
-     * customer-level legacy-parser sentinels seeded at boot. The route
-     * looks up by exact signature first, then falls back to `'*'`.
+     * Stable SHA-256 of the file's normalized header row. The legacy
+     * `'*'` sentinel value (used by the boot-seeded legacy-parser rows
+     * before Task #277) is no longer written; the boot cleanup removes
+     * any leftover `'*'` rows it finds.
      */
     headerSignature: text("header_signature").notNull().default("*"),
     /**
      * Source of this schema row:
-     *  - `'legacy-parser'`: seeded; delegates to `parserName`.
      *  - `'ai'`: AI-discovered column roles stored in `columnRoles`.
      *  - `'seed'`: hand-curated column roles (future use).
+     *  - `'legacy-parser'`: historical only — boot cleanup removes
+     *    these on startup (Task #277).
      */
     source: text("source").notNull(),
     /**
-     * Identifier of the hand-written parser to delegate to when
-     * `source = 'legacy-parser'`. Matches `dispatchLegacyParser` in
-     * `lib/parsers/index.ts`. Null for AI rows.
+     * Historical: identifier of the hand-written parser to delegate to
+     * when `source = 'legacy-parser'`. Now always null on new writes
+     * — Task #277 removed the legacy parsers.
      */
     parserName: text("parser_name"),
     /**
      * File extension this schema applies to (`'xlsx'` / `'pdf'`). Used
-     * during lookup so a PDF dropped on a customer with only an xlsx
-     * parser falls through to AI instead of trying the wrong parser.
+     * during lookup so a PDF dropped on a customer with an xlsx-only
+     * learned schema falls through to AI instead of trying the wrong
+     * column roles.
      */
     format: text("format").notNull(),
     /**
@@ -74,11 +74,9 @@ export const customerColumnSchemasTable = pgTable(
       .defaultNow(),
   },
   (t) => [
-    // Uniqueness on (customer, headerSignature, format) so:
-    //  - a customer like Adient with both an xlsx and a pdf legacy
-    //    parser can coexist with the same `'*'` sentinel signature
-    //  - boot-time seeds and later AI-discovered rows can coexist as
-    //    long as their signatures differ.
+    // Uniqueness on (customer, headerSignature, format) so multiple
+    // AI-discovered layouts for the same customer can coexist as long
+    // as their header signatures or formats differ.
     uniqueIndex("customer_column_schemas_customer_sig_format_uq").on(
       t.customer,
       t.headerSignature,

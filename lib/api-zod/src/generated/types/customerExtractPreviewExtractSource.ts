@@ -7,22 +7,18 @@
  */
 
 /**
- * Which extraction strategy the uniform per-row pipeline used:
-- `legacy-parser`: the schema cache routed to a hand-written
-  parser (fast, deterministic).
+ * Which extraction strategy the uniform per-row pipeline used
+(Task #277 removed the legacy hand-written parsers; every
+upload is AI-first now):
 - `cache`: an AI-discovered column-roles row was found and a
   generic role-based reader produced the rows (fast).
 - `ai`: fell through to Gemini extraction (slow, but uniform).
-  For known-customer rows this signals format drift —
-  consider updating the deterministic parser or promoting
-  the AI extraction (see `docs/promote-ai-customer-to-parser.md`).
 
  */
 export type CustomerExtractPreviewExtractSource =
   (typeof CustomerExtractPreviewExtractSource)[keyof typeof CustomerExtractPreviewExtractSource];
 
 export const CustomerExtractPreviewExtractSource = {
-  "legacy-parser": "legacy-parser",
   cache: "cache",
   ai: "ai",
 } as const;

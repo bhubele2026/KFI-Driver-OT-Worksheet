@@ -16,7 +16,7 @@ import { startHiddenNotesDigest } from "./lib/hiddenNotesDigest";
 import { initIpBlocklist } from "./lib/ipBlocklist";
 import { startRealtimeHeartbeat } from "./lib/realtime";
 import { seedDriverPayrollProfiles } from "@workspace/db/seedDriverPayrollProfiles";
-import { seedLegacyParserSchemas } from "./lib/parsers/schemaLookup";
+import { deleteLegacyParserSchemaRows } from "./lib/parsers/schemaLookup";
 import { seedDriverIdAliasesFromEmbedded } from "./lib/seedDriverIdAliases";
 
 if (process.env.NODE_ENV === "production") {
@@ -83,21 +83,20 @@ async function main() {
   startHiddenNotesDigest();
   startRealtimeHeartbeat();
 
-  // Seed the per-customer parser registry that drives the uniform
-  // per-row upload pipeline (see Task #250). Idempotent: re-running on
-  // every boot is a no-op once the rows exist.
+  // Task #277: legacy hand-written parsers were removed; every upload
+  // now flows through the AI-first pipeline (cache → AI → cache write).
+  // Drop any leftover legacy-parser sentinel rows from the old boot
+  // seed so they don't clutter the table. Idempotent: no-op once gone.
   try {
-    const seedResult = await seedLegacyParserSchemas();
-    if (seedResult.inserted > 0) {
+    const cleanup = await deleteLegacyParserSchemaRows();
+    if (cleanup.deleted > 0) {
       logger.info(
-        { inserted: seedResult.inserted },
-        "seedLegacyParserSchemas seeded customer_column_schemas",
+        { deleted: cleanup.deleted },
+        "deleteLegacyParserSchemaRows cleaned legacy customer_column_schemas",
       );
     }
   } catch (err) {
-    // Never crash boot on seed failure — every per-row upload still
-    // works via the AI path, the cache just doesn't fast-path them.
-    logger.warn({ err }, "seedLegacyParserSchemas failed");
+    logger.warn({ err }, "deleteLegacyParserSchemaRows failed");
   }
 
   // Task #271: lift EMBEDDED_MAPPING into driver_id_aliases so the DB

@@ -3,6 +3,8 @@ import { Type } from "@google/genai";
 import { logger } from "../logger.js";
 import { getGeminiClient } from "./gemini.js";
 import { toDisplayName } from "./displayName.js";
+import { ocrDelalloPDF } from "./ocr.js";
+import { UnmappedIdAccumulator } from "./types.js";
 
 export interface AiExtractedRow {
   driverNameOnDoc: string;
@@ -859,7 +861,59 @@ export async function aiExtractRows(
         text: `\n\n--- PDF TEXT ---\n${text}\n--- END PDF TEXT ---`,
       });
     } else {
-      // Scanned PDF: send the document directly for OCR.
+      // Scanned PDF (no extractable text). For DeLallo specifically we
+      // hand the document to the customer-specialized OCR fallback
+      // (`ocrDelalloPDF`) — its prompt knows the exact layout of
+      // DeLallo's scanned daily-punches sheets and produces far
+      // higher-quality rows than the generic AI extract. The OCR
+      // returns fully-resolved ParsedPunch[]; convert back to the
+      // AiExtractedRow shape (with `resolvedKfiId` as a hint) so the
+      // downstream pipeline in `imageSupport.ts` treats it
+      // identically to a normal AI extraction. (Task #277.)
+      if (customer.toLowerCase() === "delallo") {
+        const year = parseInt(weekStart.slice(0, 4), 10);
+        const unmapped = new UnmappedIdAccumulator();
+        const punches = await ocrDelalloPDF(buffer, new Set<string>(), year, unmapped);
+        // Pass the unresolved (badge-only) rows through the standard
+        // downstream resolver — ocrDelalloPDF was called with an
+        // empty kfiSet specifically so it returns nothing in
+        // `punches` and everything via `unmapped` keyed by badge.
+        // That's fine — we instead re-call below with the raw rows.
+        // But ocrDelalloPDF doesn't expose raw rows directly, so we
+        // simply convert the resolved punches it DID produce (with a
+        // real kfiSet would have all rows resolved) into the
+        // AiExtractedRow shape. To get every row resolved we run it
+        // with a sentinel "accept everything" kfiSet via a Proxy.
+        const sentinelKfiSet = new Proxy(new Set<string>(), {
+          get(target, prop) {
+            if (prop === "has") return () => true;
+            return Reflect.get(target, prop);
+          },
+        });
+        const allPunches = await ocrDelalloPDF(
+          buffer,
+          sentinelKfiSet,
+          year,
+          new UnmappedIdAccumulator(),
+        );
+        const rows: AiExtractedRow[] = allPunches.map((p) => ({
+          driverNameOnDoc: toDisplayName(p.kfiId),
+          badgeOrId: null,
+          date: p.date,
+          timeIn: p.clockIn.slice(p.date.length).trim() || null,
+          timeOut: p.clockOut.slice(p.date.length).trim() || null,
+          hours: p.hours,
+          resolvedKfiId: p.kfiId,
+        }));
+        void punches;
+        void unmapped;
+        logger.info(
+          { rows: rows.length, customer },
+          "DeLallo scanned-PDF OCR fallback produced rows",
+        );
+        return { rows, truncated: false, failedChunks: 0 };
+      }
+      // Generic scanned-PDF path: send the document directly for OCR.
       parts.push({
         inlineData: {
           mimeType: "application/pdf",
