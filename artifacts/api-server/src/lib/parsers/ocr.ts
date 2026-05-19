@@ -1,6 +1,7 @@
 import { Type } from "@google/genai";
 import { EMBEDDED_MAPPING } from "../mappings.js";
 import { logger } from "../logger.js";
+import { fmtDT } from "../time.js";
 import { getGeminiClient } from "./gemini.js";
 import type { ParsedPunch, UnmappedIdAccumulator } from "./types.js";
 
@@ -137,8 +138,8 @@ export async function ocrDelalloPDF(
       kfiId,
       customer: "DeLallo",
       date,
-      clockIn: ci ? `${date} ${ci}` : date,
-      clockOut: co ? `${date} ${co}` : date,
+      clockIn: ci ? fmtDT(`${date} ${ci}`) : date,
+      clockOut: co ? fmtDT(`${date} ${co}`) : date,
       hours,
       payType: "Reg",
     });

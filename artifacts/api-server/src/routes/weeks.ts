@@ -76,6 +76,7 @@ import { narrowDriverPool } from "../lib/parsers/candidatePool.js";
 import {
   ALLOWED_TZS,
   diffHours,
+  fmtDT,
   isAllowedTz,
   localStrToSortMs,
   sundayOf,
@@ -2254,8 +2255,10 @@ weeksRouter.post(
                 kfiId,
                 customer: sample.customer,
                 date: p.date,
-                clockIn: `${p.date} ${clockIn}`,
-                clockOut: `${p.date} ${clockOut}`,
+                // Normalize through fmtDT so AI-resolved punches land in DB
+                // as canonical `YYYY-MM-DD h:MM AM/PM`. Task #247.
+                clockIn: fmtDT(`${p.date} ${clockIn}`),
+                clockOut: fmtDT(`${p.date} ${clockOut}`),
                 hours: Math.round(hours * 1000) / 1000,
                 payType: "Reg",
               });
@@ -3410,8 +3413,8 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
     toInsert.push({
       kfiId,
       date: r.date,
-      clockIn: `${r.date} ${r.clockIn}`,
-      clockOut: `${r.date} ${r.clockOut}`,
+      clockIn: fmtDT(`${r.date} ${r.clockIn}`),
+      clockOut: fmtDT(`${r.date} ${r.clockOut}`),
       hours: Math.round(hours * 1000) / 1000,
       dispTz:
         overrideTz ??
@@ -4735,8 +4738,10 @@ weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
   // pipeline (storage, sort, engine) on the same tz-agnostic parser, so a
   // punch the dispatcher entered as Wednesday 7:30am – 5:30pm always lands
   // on Wednesday with 10.0h regardless of the box this code runs on.
-  const clockIn = `${parsed.data.date} ${parsed.data.clockIn}`;
-  const clockOut = `${parsed.data.date} ${parsed.data.clockOut}`;
+  // Normalize through fmtDT so manual punches land in DB as canonical
+  // `YYYY-MM-DD h:MM AM/PM`. Task #247.
+  const clockIn = fmtDT(`${parsed.data.date} ${parsed.data.clockIn}`);
+  const clockOut = fmtDT(`${parsed.data.date} ${parsed.data.clockOut}`);
   const hours = Math.round(diffHours(clockIn, clockOut) * 100) / 100;
   const [row] = await db
     .insert(schema.punchesTable)
@@ -4999,8 +5004,10 @@ weeksRouter.post("/weeks/:weekStart/preview-punch", async (req, res) => {
   // preview matches what we'd actually persist.
   const stripDate = (s: string): string =>
     s.replace(/^\d{4}-\d{2}-\d{2}\s+/, "").trim();
-  const normalizedClockIn = rawIn ? `${date} ${stripDate(rawIn)}` : "";
-  const normalizedClockOut = rawOut ? `${date} ${stripDate(rawOut)}` : "";
+  // Normalize through fmtDT so the preview matches the canonical shape we'd
+  // persist on save (12-hour `h:MM AM/PM`). Task #247.
+  const normalizedClockIn = rawIn ? fmtDT(`${date} ${stripDate(rawIn)}`) : "";
+  const normalizedClockOut = rawOut ? fmtDT(`${date} ${stripDate(rawOut)}`) : "";
 
   const inMs = localStrToSortMs(normalizedClockIn);
   const outMs = localStrToSortMs(normalizedClockOut);

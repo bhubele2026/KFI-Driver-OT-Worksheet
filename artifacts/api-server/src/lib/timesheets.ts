@@ -5,7 +5,7 @@ import {
   computeDriverTotals,
   type PunchCheck,
 } from "./hoursEngine.js";
-import { isoDateToUtcMs, localStrToSortMs, weekEndOf } from "./time.js";
+import { ensureTime12, isoDateToUtcMs, localStrToSortMs, weekEndOf } from "./time.js";
 import { KNOWN_CUSTOMERS } from "./parsers/index.js";
 import { looksLikeRosterDateJunk } from "./connecteam.js";
 import { renderTimesheetsPdf } from "./timesheetsPdf.js";
@@ -551,13 +551,15 @@ ${sheetsHtml || "<p>No active drivers found for this week.</p>"}
 }
 
 /** Mirror of driver-detail.tsx formatClockCell — turns "YYYY-MM-DD H:MM AM"
- * into "MM/DD, H:MM AM" for the printable timesheet. */
+ * into "MM/DD, h:MM AM" for the printable timesheet. Tolerates legacy
+ * 24-hour `HH:MM[:SS]` rows already in the DB so historical customer-file
+ * imports render consistently without a backfill. */
 function formatClockCell(value: string | null | undefined): string {
   if (!value) return "";
   const m = value.match(/^(\d{4})-(\d{2})-(\d{2})\s+(.+)$/);
   if (!m) return value;
   const [, , mm, dd, time] = m;
-  return `${mm}/${dd}, ${time}`;
+  return `${mm}/${dd}, ${ensureTime12(time)}`;
 }
 
 function esc(s: string | number | null | undefined): string {

@@ -1,3 +1,4 @@
+import { fmtDT } from "../time.js";
 import { topMatches } from "./fuzzy.js";
 import type {
   ExtractDiagnostics,
@@ -281,8 +282,11 @@ function toParsedPunch(
     kfiId,
     customer,
     date: r.date,
-    clockIn: `${r.date} ${clockIn}`,
-    clockOut: `${r.date} ${clockOut}`,
+    // Always normalize through fmtDT so AI-extracted rows land in DB as
+    // canonical `YYYY-MM-DD h:MM AM/PM` regardless of what shape Gemini
+    // returned (24-hour, seconds, mixed case). Task #247.
+    clockIn: fmtDT(`${r.date} ${clockIn}`),
+    clockOut: fmtDT(`${r.date} ${clockOut}`),
     hours: Math.round(hours * 1000) / 1000,
     payType: "Reg",
   };

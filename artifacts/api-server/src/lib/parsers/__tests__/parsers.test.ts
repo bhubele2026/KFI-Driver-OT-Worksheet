@@ -280,6 +280,8 @@ const BASELINES: Record<string, Expected[]> = {
   // Second fixture week added during Task #221 (Connecteam-vs-customer
   // comparison work). Only Adient was pinned at the time; baseline values
   // captured here on 2026-05-19 against the same Kronos pivot export.
+  // Same shape as the 2026-04-26 Adient baseline above — just a different
+  // week's TELD roster.
   "2026-05-10": [
     {
       file: "Adient.xlsx",
@@ -446,6 +448,31 @@ for (const weekStart of fixtureWeeks) {
         assert.ok(p.kfiId, `punch missing kfiId: ${JSON.stringify(p)}`);
         assert.ok(p.date, `punch missing date: ${JSON.stringify(p)}`);
         assert.ok(p.hours > 0, `punch has non-positive hours: ${JSON.stringify(p)}`);
+      }
+      // Task #247: every customer parser must emit clockIn / clockOut as
+      // `YYYY-MM-DD h:MM AM/PM` (12-hour, no seconds, no leading zero on
+      // hour). Catches a regression to the old `HH:MM:SS` 24-hour shape
+      // — which silently rendered on the dashboard as `13:28:00` instead
+      // of the canonical `1:28 PM` for Driver-source punches.
+      const wallClock12 = /^\d{4}-\d{2}-\d{2} \d{1,2}:\d{2} (AM|PM)$/;
+      for (const p of result.punches) {
+        assert.match(
+          p.clockIn,
+          wallClock12,
+          `${e.file}: clockIn not 12-hour: ${JSON.stringify(p.clockIn)}`,
+        );
+        assert.match(
+          p.clockOut,
+          wallClock12,
+          `${e.file}: clockOut not 12-hour: ${JSON.stringify(p.clockOut)}`,
+        );
+        // No leading zero on the hour digit (`05:55 AM` would slip past the
+        // regex above) — match the canonical `h:MM` shape.
+        const hour = p.clockIn.split(" ")[1].split(":")[0];
+        assert.ok(
+          !hour.startsWith("0"),
+          `${e.file}: clockIn hour should not have leading zero: ${JSON.stringify(p.clockIn)}`,
+        );
       }
     });
   }

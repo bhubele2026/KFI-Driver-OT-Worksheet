@@ -95,7 +95,31 @@ function formatClockCell(value: string): string {
   const m = value.match(/^(\d{4})-(\d{2})-(\d{2})\s+(.+)$/);
   if (!m) return value;
   const [, , mm, dd, time] = m;
-  return `${mm}/${dd}, ${time}`;
+  return `${mm}/${dd}, ${to12HourTime(time)}`;
+}
+
+/**
+ * Tolerate both the canonical `h:MM AM/PM` shape and legacy
+ * `HH:MM[:SS]` 24-hour rows already stored in the DB so historical
+ * customer-file imports render consistently without a backfill.
+ */
+function to12HourTime(time: string): string {
+  const s = time.trim();
+  const m12 = s.match(/^(\d{1,2}):(\d{2})\s*([AaPp])\.?[Mm]\.?$/);
+  if (m12) {
+    const h = parseInt(m12[1], 10);
+    return `${h}:${m12[2]} ${m12[3].toUpperCase()}M`;
+  }
+  const m24 = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (m24) {
+    const hh = parseInt(m24[1], 10);
+    const mm = m24[2];
+    const ap = hh >= 12 ? "PM" : "AM";
+    let h = hh % 12;
+    if (h === 0) h = 12;
+    return `${h}:${mm} ${ap}`;
+  }
+  return s;
 }
 
 /**

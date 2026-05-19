@@ -136,8 +136,8 @@ export function parseGreystone(
       kfiId,
       customer: "Greystone",
       date,
-      clockIn: `${date} ${r[inIdx]}`,
-      clockOut: `${date} ${r[outIdx]}`,
+      clockIn: fmtDT(`${date} ${r[inIdx]}`),
+      clockOut: fmtDT(`${date} ${r[outIdx]}`),
       hours: round3(parseFloat(String(r[hrIdx] ?? "0")) || 0),
       payType: "Reg",
     });
@@ -347,8 +347,8 @@ export function parseZenople(
       kfiId,
       customer: String(r[custIdx] ?? "Unknown"),
       date,
-      clockIn: `${date} ${r[inIdx]}`,
-      clockOut: `${date} ${r[outIdx]}`,
+      clockIn: fmtDT(`${date} ${r[inIdx]}`),
+      clockOut: fmtDT(`${date} ${r[outIdx]}`),
       hours,
       payType: "Reg",
     });

@@ -1,4 +1,5 @@
 import { EMBEDDED_MAPPING } from "../mappings.js";
+import { fmtDT } from "../time.js";
 import { ocrDelalloPDF } from "./ocr.js";
 import type { ParsedPunch, UnmappedIdAccumulator } from "./types.js";
 
@@ -104,8 +105,8 @@ export async function parseAdientPDF(
         for (let j = i; j < Math.min(i + 5, lines.length); j++) {
           const times = lines[j].match(/\b(\d{1,2}:\d{2}\s*[AP]M)\b/gi);
           if (times && times.length >= 2) {
-            clockIn = `${date} ${times[0]}`;
-            clockOut = `${date} ${times[1]}`;
+            clockIn = fmtDT(`${date} ${times[0]}`);
+            clockOut = fmtDT(`${date} ${times[1]}`);
             break;
           }
         }
@@ -167,8 +168,8 @@ export async function parseIWGPDF(
           kfiId,
           customer: "International Wire Group",
           date: m[1],
-          clockIn: `${m[1]} ${m[2]}`,
-          clockOut: `${m[1]} ${m[3]}`,
+          clockIn: fmtDT(`${m[1]} ${m[2]}`),
+          clockOut: fmtDT(`${m[1]} ${m[3]}`),
           hours,
           payType: "Reg",
           noTz: true,
@@ -229,8 +230,10 @@ export async function parseDelalloPDF(
         let clockIn = date;
         let clockOut = date;
         if (tm) {
-          clockIn = `${date} ${tm[1]}`;
-          clockOut = `${date} ${tm[2]}`;
+          // fmtDT strips trailing seconds and normalizes to canonical
+          // `h:MM AM/PM`. The DeLallo regex allows optional seconds.
+          clockIn = fmtDT(`${date} ${tm[1]}`);
+          clockOut = fmtDT(`${date} ${tm[2]}`);
         }
         if (hours > 0) {
           punches.push({

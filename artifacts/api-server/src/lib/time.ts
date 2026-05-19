@@ -132,18 +132,90 @@ export function fmtDate(v: unknown): string {
   return isNaN(d.getTime()) ? String(v).slice(0, 10) : d.toISOString().slice(0, 10);
 }
 
-/** Format an arbitrary date-ish value as "YYYY-MM-DD HH:MM:SS" in local time. */
+/** Convert 24-hour hour into 12-hour h + AM/PM suffix (no leading zero). */
+function to12Hour(hh: number, mm: number | string): string {
+  const m = typeof mm === "number" ? String(mm).padStart(2, "0") : mm;
+  const ap = hh >= 12 ? "PM" : "AM";
+  let h = hh % 12;
+  if (h === 0) h = 12;
+  return `${h}:${m} ${ap}`;
+}
+
+/**
+ * Format an arbitrary date-ish value as "YYYY-MM-DD h:MM AM/PM" in local time.
+ *
+ * Tolerates:
+ *   - Date objects (Excel datetime cells with cellDates: true)
+ *   - ISO strings parseable by `new Date(...)`
+ *   - Combined wall-clock strings the parsers concatenate themselves, in
+ *     either 24-hour ("YYYY-MM-DD HH:MM[:SS]") or 12-hour
+ *     ("YYYY-MM-DD H:MM AM/PM"; with or without leading-zero hour) form
+ *   - Excel serial numbers
+ *
+ * Idempotent — feeding the formatter its own output round-trips unchanged.
+ */
 export function fmtDT(v: unknown): string {
-  if (!v) return "";
-  let d: Date;
-  if (v instanceof Date) d = v;
-  else d = new Date(v as string);
-  if (isNaN(d.getTime())) return String(v).slice(0, 19);
+  if (v == null || v === "") return "";
+  if (typeof v === "string") {
+    const s = v.trim();
+    // Already in our target shape (with or without leading-zero hour).
+    let m = s.match(
+      /^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})\s*([AaPp])\.?[Mm]\.?$/,
+    );
+    if (m) {
+      const h = parseInt(m[2], 10);
+      const ap = m[4].toUpperCase() + "M";
+      return `${m[1]} ${h}:${m[3]} ${ap}`;
+    }
+    // 24-hour combined wall-clock string, optionally with seconds.
+    m = s.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (m) {
+      const hh = parseInt(m[2], 10);
+      return `${m[1]} ${to12Hour(hh, m[3])}`;
+    }
+    // Anything else: hand to Date.
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s.slice(0, 19);
+    return fmtDateLocal(d);
+  }
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return "";
+    return fmtDateLocal(v);
+  }
+  if (typeof v === "number") {
+    // Excel serial (days since 1899-12-30, UTC-naive).
+    const ms = Math.round((v - 25569) * 86400 * 1000);
+    const d = new Date(ms);
+    if (isNaN(d.getTime())) return "";
+    const y = d.getUTCFullYear();
+    const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dy = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${mo}-${dy} ${to12Hour(d.getUTCHours(), d.getUTCMinutes())}`;
+  }
+  return String(v);
+}
+
+function fmtDateLocal(d: Date): string {
   const yr = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, "0");
   const dy = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${yr}-${mo}-${dy} ${hh}:${mm}:${ss}`;
+  return `${yr}-${mo}-${dy} ${to12Hour(d.getHours(), d.getMinutes())}`;
+}
+
+/**
+ * Convert any stored wall-clock time portion (the part after the date) to the
+ * `h:MM AM/PM` shape. Tolerates legacy 24-hour `HH:MM[:SS]` rows so the UI
+ * can display old data without a backfill, and passes already-formatted
+ * 12-hour strings through unchanged.
+ */
+export function ensureTime12(time: string): string {
+  const s = time.trim();
+  const m12 = s.match(/^(\d{1,2}):(\d{2})\s*([AaPp])\.?[Mm]\.?$/);
+  if (m12) {
+    const h = parseInt(m12[1], 10);
+    return `${h}:${m12[2]} ${m12[3].toUpperCase()}M`;
+  }
+  const m24 = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (m24) return to12Hour(parseInt(m24[1], 10), m24[2]);
+  return s;
 }
