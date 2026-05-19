@@ -105,8 +105,11 @@ export function CustomerPreviewDialog({
   const [picks, setPicks] = useState<Record<string, string>>({});
 
   // Reset exclusions when a new preview arrives. Pre-fill each unmapped id's
-  // picker with its top fuzzy suggestion (if any) so the common case is a
-  // single-click "looks right, confirm". Dispatchers can override or skip.
+  // picker: when the server returned a high-confidence fuzzy suggestion
+  // (server-side floor is 0.85) we pre-pick it for a single-click confirm.
+  // When nothing cleared the bar, default to "Not a driver" so a wildly
+  // wrong match can never auto-import — the dispatcher has to actively
+  // choose a real driver, never the other way around.
   useEffect(() => {
     setExcluded(new Set());
     if (!preview) {
@@ -116,7 +119,7 @@ export function CustomerPreviewDialog({
     const initial: Record<string, string> = {};
     for (const u of preview.unmappedIds) {
       const top = u.suggestions?.[0];
-      initial[u.id] = top ? top.kfiId : "";
+      initial[u.id] = top ? top.kfiId : IGNORE_PICK;
     }
     setPicks(initial);
   }, [preview]);

@@ -1720,14 +1720,23 @@ weeksRouter.post(
         visibleUnmapped.push(u);
       }
     }
+    // Only surface fuzzy suggestions the dispatcher would actually accept.
+    // Anything below 0.85 is noise — emitting it tagged "suggested" was the
+    // root cause of the mapping dialog confidently pre-selecting wildly
+    // wrong drivers (e.g. "Carlos Juan" → "Juan Del Pueblo"). When nothing
+    // clears the bar we send an empty suggestions array so the UI defaults
+    // the row to "Not a driver" instead of pre-picking garbage.
+    const SUGGESTION_MIN_CONFIDENCE = 0.85;
     const unmappedWithSuggestions = visibleUnmapped.map((u) => {
       const suggestions =
         u.sampleName && driverCandidates.length > 0
-          ? topMatches(u.sampleName, driverCandidates, 5).map((m) => ({
-              kfiId: m.kfiId,
-              name: m.name,
-              confidence: m.confidence,
-            }))
+          ? topMatches(u.sampleName, driverCandidates, 5)
+              .filter((m) => m.confidence >= SUGGESTION_MIN_CONFIDENCE)
+              .map((m) => ({
+                kfiId: m.kfiId,
+                name: m.name,
+                confidence: m.confidence,
+              }))
           : [];
       return { ...u, suggestions };
     });
@@ -2773,8 +2782,16 @@ weeksRouter.post(
         aliasByLowerName.set(a.nameOnDoc.toLowerCase(), a.kfiId);
       }
     }
+    // Hide low-confidence fuzzy matches from the dropdown entirely — they
+    // were the root cause of dispatchers seeing "Carlos Juan" suggested as
+    // "Juan Del Pueblo". A previously-saved alias is still surfaced below
+    // regardless of its computed confidence (the dispatcher already vouched
+    // for it).
+    const SUGGESTION_MIN_CONFIDENCE = 0.85;
     const suggestions = [...seen.entries()].map(([driverNameOnDoc, badgeOrId]) => {
-      const matches = topMatches(driverNameOnDoc, drivers, 5);
+      const matches = topMatches(driverNameOnDoc, drivers, 5).filter(
+        (m) => m.confidence >= SUGGESTION_MIN_CONFIDENCE,
+      );
       const savedKfiId =
         aliasByLowerName.get(driverNameOnDoc.toLowerCase()) ?? null;
       // If the saved driver isn't already in the top-N matches, surface them

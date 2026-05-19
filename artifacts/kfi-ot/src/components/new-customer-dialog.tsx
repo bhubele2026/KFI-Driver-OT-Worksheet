@@ -182,9 +182,14 @@ export function NewCustomerDialog({
           initialMap[s.driverNameOnDoc] = s.savedKfiId;
           continue;
         }
+        // Only pre-pick high-confidence fuzzy matches. The server already
+        // filters its `matches` list to confidence >= 0.85, so this is
+        // belt-and-braces — but it also means a future relaxed server
+        // threshold can't sneak a wildly-wrong driver into the dropdown
+        // as the default selection.
         const top = s.matches[0];
         initialMap[s.driverNameOnDoc] =
-          top && top.confidence >= 0.6 ? top.kfiId : UNMAPPED;
+          top && top.confidence >= 0.85 ? top.kfiId : UNMAPPED;
       }
       setMapping(initialMap);
     } catch (err) {
