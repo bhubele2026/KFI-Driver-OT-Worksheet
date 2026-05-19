@@ -60,7 +60,6 @@ test("Impossible calendar dates are rejected (not silently coerced)", () => {
   assert.equal(normalizeIsoDate("2/29/2024"), "2024-02-29"); // is a leap year
   assert.equal(normalizeIsoDate("2/29/2025"), null); // is not
 });
-
 test("Unparseable / empty / non-string inputs return null", () => {
   assert.equal(normalizeIsoDate(""), null);
   assert.equal(normalizeIsoDate("   "), null);
@@ -69,4 +68,11 @@ test("Unparseable / empty / non-string inputs return null", () => {
   assert.equal(normalizeIsoDate(undefined), null);
   assert.equal(normalizeIsoDate(20260510), null);
   assert.equal(normalizeIsoDate({}), null);
+});
+
+test("Impossible calendar dates (e.g. Feb 30) return null", () => {
+  assert.equal(normalizeIsoDate("2026-02-30"), null);
+  assert.equal(normalizeIsoDate("02/30/2026"), null);
+  assert.equal(normalizeIsoDate("2/30/26"), null);
+  assert.equal(normalizeIsoDate("February 30, 2026"), null);
 });

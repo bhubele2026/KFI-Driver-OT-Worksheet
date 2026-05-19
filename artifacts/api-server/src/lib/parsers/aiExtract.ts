@@ -14,13 +14,26 @@ export interface AiExtractedRow {
 }
 
 /**
+ * Check if the given year, month, and day form a valid calendar date.
+ * Prevents AI hallucinations like "2026-02-30".
+ */
+function isRealCalendarDate(y: number, m: number, d: number): boolean {
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return (
+    date.getUTCFullYear() === y &&
+    date.getUTCMonth() === m - 1 &&
+    date.getUTCDate() === d
+  );
+}
+
+/**
  * Coerce whatever shape Gemini returns in `date` into a strict YYYY-MM-DD
  * string. Gemini is asked for ISO dates in the prompt but routinely emits
  * `M/D/YYYY`, `MM/DD/YY`, `May 12, 2026`, ISO datetimes with timezones,
  * etc. The week-window filter downstream is a string compare, so anything
  * but YYYY-MM-DD silently drops 100% of the rows. Returns null when the
- * input genuinely can't be interpreted; callers count that into the
- * `invalidDateCount` diagnostics bucket.
+ * input genuinely can't be interpreted or is an impossible calendar date
+ * (e.g. 2/30); callers count that into the `invalidDateCount` diagnostics bucket.
  */
 /**
  * Reject impossible calendar dates like 2/30/2026 or 13/01/2026 that the
@@ -50,7 +63,7 @@ export function normalizeIsoDate(input: unknown): string | null {
     const mo = parseInt(m[2], 10);
     const d = parseInt(m[3], 10);
     if (!isRealCalendarDate(y, mo, d)) return null;
-    return `${m[1]}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   }
   // M/D/YYYY or MM/DD/YYYY (US-formatted).
   m = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -59,7 +72,7 @@ export function normalizeIsoDate(input: unknown): string | null {
     const mo = parseInt(m[1], 10);
     const d = parseInt(m[2], 10);
     if (!isRealCalendarDate(y, mo, d)) return null;
-    return `${m[3]}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   }
   // M/D/YY (assume 2000s).
   m = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
@@ -71,15 +84,27 @@ export function normalizeIsoDate(input: unknown): string | null {
     return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   }
   // Last resort: let the Date constructor try. Use the UTC slice to
-  // avoid local-tz day flips for inputs like "May 12 2026". The Date
-  // constructor itself rejects impossible calendar dates by returning
-  // NaN, so no extra validation needed here.
-  const d = new Date(trimmed);
-  if (!isNaN(d.getTime())) {
-    const y = d.getUTCFullYear();
-    const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const dy = String(d.getUTCDate()).padStart(2, "0");
-    return `${y}-${mo}-${dy}`;
+  // avoid local-tz day flips for inputs like "May 12 2026". For non-ISO
+  // strings the Date constructor silently rolls invalid dates (e.g.
+  // "February 30, 2026" becomes March 2), so we cross-check the parsed
+  // month/day against the original string to reject rollovers.
+  const dt = new Date(trimmed);
+  if (!isNaN(dt.getTime())) {
+    const y = dt.getUTCFullYear();
+    const mo = dt.getUTCMonth() + 1;
+    const dy = dt.getUTCDate();
+    if (!isRealCalendarDate(y, mo, dy)) return null;
+    const months = [
+      "jan", "feb", "mar", "apr", "may", "jun",
+      "jul", "aug", "sep", "oct", "nov", "dec",
+    ];
+    const lower = trimmed.toLowerCase();
+    const monthIdx = dt.getUTCMonth();
+    for (let i = 0; i < 12; i++) {
+      if (lower.includes(months[i]) && i !== monthIdx) return null;
+    }
+    if (!trimmed.includes(String(dy))) return null;
+    return `${y}-${String(mo).padStart(2, "0")}-${String(dy).padStart(2, "0")}`;
   }
   return null;
 }
