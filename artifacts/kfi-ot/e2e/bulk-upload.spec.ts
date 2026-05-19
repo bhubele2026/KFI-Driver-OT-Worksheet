@@ -9,7 +9,8 @@
  *     `extensions` returned by `GET /weeks/:weekStart/customer-uploads`).
  *   - The server-side keyword routing in
  *     `artifacts/api-server/src/lib/parsers/customers.ts` (KNOWN_CUSTOMERS)
- *     and the `/weeks/:weekStart/upload-customer-file` route.
+ *     and the `/weeks/:weekStart/extract-customer-file` +
+ *     `/confirm-customer-file` routes the bulk flow now drives.
  *
  * The test seeds an isolated week + driver and picks 4 files via the bulk
  * picker:

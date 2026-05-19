@@ -1011,8 +1011,20 @@ export interface CustomerExtractPreview {
   customer: string;
   fileName: string;
   weekStart: string;
-  /** ID of the stashed copy of the uploaded file. Pass back to /confirm-customer-file so the same bytes are re-parsed and committed. */
-  sampleId: number;
+  /** True when the uploaded file's SHA-256 matched the most recent
+successful import for this (week, customer) and the server
+short-circuited without parsing or stashing anything. `sampleId`,
+`rows`, `unmappedIds`, and `existingPunchCount` are all empty/zero
+in this case and there is nothing for the caller to confirm.
+Bulk-upload uses this to render "Already up to date" instead of
+walking the dispatcher through a no-op preview.
+ */
+  skipped?: boolean;
+  /**
+   * ID of the stashed copy of the uploaded file. Pass back to /confirm-customer-file so the same bytes are re-parsed and committed. Null when `skipped=true`.
+   * @nullable
+   */
+  sampleId: number | null;
   rows: CustomerExtractRow[];
   unmappedIds: UnmappedId[];
   /** Badge / employee IDs that the parser would have surfaced as unmapped

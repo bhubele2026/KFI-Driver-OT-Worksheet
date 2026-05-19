@@ -8,7 +8,7 @@
  *   - Confirm with an excluded row = (parsedCount - 1) Customer-source rows.
  *   - Re-uploading and confirming again replaces the previously-imported
  *     rows atomically (same wipe-and-reinsert semantics as the legacy
- *     /upload-customer-file endpoint).
+ *     extract-customer-file endpoint).
  *
  * Seeds a clean week + a single Adient driver (kfiId 2002909, the only id in
  * the Adient.xlsx fixture that maps through EMBEDDED_MAPPING for this sample
@@ -31,12 +31,12 @@ if (!DATABASE_URL) {
 const pool = new Pool({ connectionString: DATABASE_URL });
 
 // The dashboard route accepts any in-week date; the server snaps to the
-// Monday-aligned week start via `ensureWeek`. Use the snapped value
-// (2026-04-20 = Monday before Apr 26) for all DB cleanup, seeding, and count
-// queries — otherwise the cleanup deletes the wrong week and previous rows
-// leak across runs.
-const WEEK_START = "2026-04-20";
-const WEEK_END = "2026-04-26";
+// Sunday-aligned week start via `ensureWeek` (payroll runs Sun→Sat). Use
+// the snapped value (2026-04-19 = Sunday) for all DB cleanup, seeding, and
+// count queries — otherwise the cleanup deletes the wrong week and previous
+// rows leak across runs.
+const WEEK_START = "2026-04-19";
+const WEEK_END = "2026-04-25";
 const ADIENT_KFI_ID = "2002909";
 const DRIVER_NAME = `Adient Preview Tester ${Date.now().toString(36)}`;
 
@@ -210,8 +210,13 @@ test("dispatcher previews a known-customer upload and only persists on Confirm",
   //    to verify the wipe-and-reinsert tx: prior 4 customer rows are
   //    replaced by all 5 from the fresh extract.
   // ---------------------------------------------------------------------
+  // `?force=1` bypasses the SHA-256 no-op skip-detection: this test
+  // intentionally re-uploads the same fixture bytes that the prior
+  // confirm just imported, and we want a fresh preview, not a "skipped"
+  // short-circuit. The bulk-upload path relies on the skip; per-row
+  // Re-upload and explicit re-tests like this one opt out.
   const reExtract = await page.request.post(
-    `/api/weeks/${WEEK_START}/extract-customer-file`,
+    `/api/weeks/${WEEK_START}/extract-customer-file?force=1`,
     {
       multipart: {
         file: {

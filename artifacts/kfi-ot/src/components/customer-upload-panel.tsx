@@ -250,9 +250,12 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     });
   };
 
-  // One-shot upload used by the bulk-upload flow (no per-file preview UX);
-  // posts directly to the legacy /upload-customer-file route which writes
-  // immediately. Per-row single-file uploads go through `extractFor` instead.
+  // One-shot upload used by the bulk-upload flow (no per-file preview UX):
+  // POST /extract-customer-file then immediately POST /confirm-customer-file
+  // with no excludedIndices. The extract route short-circuits on a matching
+  // SHA-256 hash and returns `{ skipped: true }`, which bulk renders as
+  // "Already up to date" without calling confirm. Per-row single-file
+  // uploads go through `extractFor` instead so the dispatcher can review.
   const doUpload = async (
     customer: string,
     file: File,
@@ -265,33 +268,59 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     }
     try {
       const qs = opts?.force ? "?force=1" : "";
-      const res = await fetch(
-        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/upload-customer-file${qs}`,
+      const extractRes = await fetch(
+        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file${qs}`,
         { method: "POST", credentials: "include", body: formData },
       );
-      const body = (await res.json().catch(() => null)) as
+      const extractBody = (await extractRes.json().catch(() => null)) as
+        | (CustomerPreviewData & { skipped?: boolean; error?: string })
+        | { error?: string }
+        | null;
+      if (!extractRes.ok) {
+        const msg =
+          (extractBody && "error" in extractBody && extractBody.error) ||
+          "Upload failed";
+        return { ok: false, error: msg };
+      }
+      const preview = extractBody as CustomerPreviewData & {
+        skipped?: boolean;
+      };
+      if (preview.customer && preview.customer !== customer) {
+        return {
+          ok: false,
+          error: `File detected as "${preview.customer}" but you uploaded it for "${customer}". Rename the file to include "${customer}" so it routes correctly.`,
+        };
+      }
+      if (preview.skipped) {
+        return { ok: true, punches: 0, unmapped: [], skipped: true };
+      }
+      const confirmRes = await fetch(
+        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/confirm-customer-file`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customer: preview.customer,
+            sampleId: preview.sampleId,
+          }),
+        },
+      );
+      const confirmBody = (await confirmRes.json().catch(() => null)) as
         | {
-            customer?: string;
             punchesUpserted?: number;
             unmappedIds?: UnmappedId[];
-            skipped?: boolean;
             error?: string;
           }
         | null;
-      if (!res.ok) {
-        return { ok: false, error: body?.error ?? "Upload failed" };
-      }
-      if (body?.customer && body.customer !== customer) {
-        return {
-          ok: false,
-          error: `File detected as "${body.customer}" but you uploaded it for "${customer}". Rename the file to include "${customer}" so it routes correctly.`,
-        };
+      if (!confirmRes.ok) {
+        return { ok: false, error: confirmBody?.error ?? "Upload failed" };
       }
       return {
         ok: true,
-        punches: body?.punchesUpserted ?? 0,
-        unmapped: body?.unmappedIds ?? [],
-        skipped: !!body?.skipped,
+        punches: confirmBody?.punchesUpserted ?? 0,
+        unmapped: confirmBody?.unmappedIds ?? [],
+        skipped: false,
       };
     } catch (err) {
       return { ok: false, error: errMessage(err, "Upload failed") };

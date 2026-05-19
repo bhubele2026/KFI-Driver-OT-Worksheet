@@ -1191,67 +1191,6 @@ export const ResetWeekResponse = zod.object({
 });
 
 /**
- * @summary DEPRECATED. Upload a known-customer time export (xlsx/pdf) and write punches in a single round-trip.
-The dashboard now uses the two-step extract/confirm flow below so dispatchers can preview before saving.
-Kept for back-compat; new callers should not use it.
-
- */
-export const uploadCustomerFilePathWeekStartRegExp = new RegExp(
-  "^\\d{4}-\\d{2}-\\d{2}$",
-);
-
-export const UploadCustomerFileParams = zod.object({
-  weekStart: zod.coerce
-    .string()
-    .regex(uploadCustomerFilePathWeekStartRegExp)
-    .describe("Week start date (Sunday) in YYYY-MM-DD"),
-});
-
-export const UploadCustomerFileResponse = zod.object({
-  customer: zod.string(),
-  fileName: zod.string(),
-  punchesUpserted: zod.number(),
-  skipped: zod
-    .boolean()
-    .optional()
-    .describe(
-      'True when the uploaded file\'s SHA-256 matched the most recent\nsuccessful import for this (week, customer) and the server\nshort-circuited without re-parsing or re-writing punches.\nBulk-upload uses this to render \"Already up to date\" instead of\nre-importing identical files. Per-row Re-upload bypasses the\ncheck by sending `?force=1`.\n',
-    ),
-  unmappedIds: zod
-    .array(
-      zod.object({
-        id: zod.string(),
-        count: zod
-          .number()
-          .describe(
-            "Number of rows in the file that referenced this id and were dropped.",
-          ),
-        sampleName: zod
-          .string()
-          .nullable()
-          .describe(
-            "Driver name as printed next to the id in the source file, when available.",
-          ),
-        suggestions: zod
-          .array(
-            zod.object({
-              kfiId: zod.string(),
-              name: zod.string(),
-              confidence: zod.number(),
-            }),
-          )
-          .optional()
-          .describe(
-            "Up to 5 candidate KFI drivers ranked by fuzzy match of `sampleName`\nagainst the active roster. Used by the upload preview dialog to\npre-fill a driver picker so dispatchers can map the id on the fly\nand have it remembered via `driver_id_aliases`. Omitted\/empty when\nno `sampleName` is available or the roster is empty.\n",
-          ),
-      }),
-    )
-    .describe(
-      "Badge \/ employee IDs that appeared in the uploaded file but could\nnot be mapped to a known KFI driver. Surfaced as a non-blocking\nwarning so dispatchers know punches were dropped (e.g. a new hire\nwho hasn't been added to the mapping yet). `sampleName` carries\nthe driver name as it appeared next to the id in the source file\n(when the parser could see one), so admins can recognize who an\nunknown id belongs to without opening the file.\n",
-    ),
-});
-
-/**
  * @summary Parse a known-customer time export (xlsx/pdf, or a photo: jpg/png/heic/webp,
 max 15 MB; HEIC is transcoded to JPEG server-side) into preview rows WITHOUT
 writing anything. Image uploads route through Gemini AI extraction and persist
@@ -1277,10 +1216,17 @@ export const ExtractCustomerFileResponse = zod.object({
   customer: zod.string(),
   fileName: zod.string(),
   weekStart: zod.string(),
+  skipped: zod
+    .boolean()
+    .optional()
+    .describe(
+      'True when the uploaded file\'s SHA-256 matched the most recent\nsuccessful import for this (week, customer) and the server\nshort-circuited without parsing or stashing anything. `sampleId`,\n`rows`, `unmappedIds`, and `existingPunchCount` are all empty\/zero\nin this case and there is nothing for the caller to confirm.\nBulk-upload uses this to render \"Already up to date\" instead of\nwalking the dispatcher through a no-op preview.\n',
+    ),
   sampleId: zod
     .number()
+    .nullable()
     .describe(
-      "ID of the stashed copy of the uploaded file. Pass back to \/confirm-customer-file so the same bytes are re-parsed and committed.",
+      "ID of the stashed copy of the uploaded file. Pass back to \/confirm-customer-file so the same bytes are re-parsed and committed. Null when `skipped=true`.",
     ),
   rows: zod.array(
     zod.object({

@@ -1147,233 +1147,6 @@ weeksRouter.post(
   },
 );
 
-weeksRouter.post(
-  "/weeks/:weekStart/upload-customer-file",
-  upload.single("file"),
-  async (req, res) => {
-    const weekStart = String(req.params.weekStart ?? "");
-    if (!isWeek(weekStart)) {
-      res.status(400).json({ error: "Invalid week" });
-      return;
-    }
-    if (!req.file) {
-      res.status(400).json({ error: "No file uploaded" });
-      return;
-    }
-    // Images are never accepted by the legacy single-shot route — every
-    // image upload has to go through the preview / confirm flow because the
-    // AI extraction is non-deterministic and must be reviewed by a human
-    // before any punches are written.
-    if (
-      imageExtension(req.file.originalname) ||
-      isImageMime(req.file.mimetype)
-    ) {
-      res.status(400).json({
-        error:
-          "Image files must be reviewed before saving. Use the per-customer Upload button so you can confirm the extracted rows.",
-      });
-      return;
-    }
-    const { startDate } = await ensureWeek(weekStart);
-    const drivers = await db.select().from(schema.driversTable);
-    const kfiSet = new Set(drivers.map((d) => d.kfiId));
-    const driverTzByKfi = new Map<string, string | null>(
-      drivers.map((d) => [d.kfiId, d.displayTz ?? null]),
-    );
-    const fileName = req.file.originalname;
-    const force =
-      String(req.query.force ?? "").toLowerCase() === "1" ||
-      String(req.query.force ?? "").toLowerCase() === "true";
-    const contentHash = createHash("sha256")
-      .update(req.file.buffer)
-      .digest("hex");
-    // Short-circuit no-op re-uploads: if the file's bytes exactly match the
-    // most recent successful import for this (week, customer), skip parsing
-    // and writing entirely. Detect customer from filename so we can look up
-    // the prior attempt without parsing first.
-    const detected = detectCustomerFromFileName(fileName);
-    if (!force && detected) {
-      const prior = await db
-        .select({
-          lastContentHash: schema.customerUploadAttemptsTable.lastContentHash,
-          lastSuccessAt: schema.customerUploadAttemptsTable.lastSuccessAt,
-        })
-        .from(schema.customerUploadAttemptsTable)
-        .where(
-          and(
-            eq(schema.customerUploadAttemptsTable.weekStart, startDate),
-            eq(schema.customerUploadAttemptsTable.customer, detected),
-          ),
-        )
-        .limit(1);
-      const p = prior[0];
-      if (p?.lastContentHash && p.lastSuccessAt && p.lastContentHash === contentHash) {
-        await recordSkip(startDate, detected, fileName);
-        res.json({
-          customer: detected,
-          fileName,
-          punchesUpserted: 0,
-          unmappedIds: [],
-          lockedSkipped: [],
-          skipped: true,
-        });
-        return;
-      }
-    }
-    // Per-upload tz override sent as a multipart form field. Validated against
-    // ALLOWED_TZS; anything unknown is dropped silently so a stale frontend
-    // can't poison the data.
-    const overrideTzRaw =
-      typeof req.body?.dispTz === "string" ? req.body.dispTz.trim() : "";
-    const overrideTz = isAllowedTz(overrideTzRaw) ? overrideTzRaw : null;
-    let result;
-    try {
-      const idMap = await loadMergedIdMap();
-      result = await detectAndParseFile(
-        fileName,
-        req.file.buffer,
-        kfiSet,
-        startDate,
-        idMap,
-      );
-    } catch (err) {
-      req.log.error({ err, fileName }, "Parse error");
-      const msg = err instanceof Error ? err.message : "Could not parse file";
-      // Best-effort: try to attribute to a known customer for status display.
-      const detectedForErr = detectCustomerFromFileName(fileName);
-      if (detectedForErr) {
-        await recordAttempt(startDate, detectedForErr, fileName, msg, "parser");
-      }
-      res.status(400).json({ error: msg });
-      return;
-    }
-    if (!result) {
-      res.status(400).json({
-        error:
-          "Could not detect customer from filename. Include the customer name (penda, trienda, greystone, lsi, burnett, adient, iwg, delallo, zenople) in the file name.",
-      });
-      return;
-    }
-    // Reject uploads targeted at an inactive customer. Filename routing still
-    // recognizes inactive customers (so it doesn't silently fall back to the
-    // "could not detect" branch), but we never write punches for them — admins
-    // must reactivate first.
-    const inactiveSet = await loadInactiveCustomerSet();
-    if (inactiveSet.has(result.customer.toLowerCase())) {
-      const msg = `Customer "${result.customer}" is inactive — reactivate it under Admin · Inactive customers before uploading.`;
-      res.status(400).json({ error: msg });
-      return;
-    }
-    if (result.punches.length === 0) {
-      req.log.warn(
-        { fileName, customer: result.customer },
-        "Customer file parsed to zero punches",
-      );
-      const msg = `Detected customer "${result.customer}" but parsed 0 punches. The file format may have changed, or no rows match the loaded driver roster.`;
-      await recordAttempt(startDate, result.customer, fileName, msg, "parser");
-      res.status(400).json({ error: msg });
-      return;
-    }
-    // Lock-gate: skip any rows belonging to a locked driver-week. Surface
-    // them in the response so the dispatcher knows the upload was partial.
-    const lockedKfiIds = await loadLockedKfiIds(startDate);
-    const lockedSkipped: string[] = [];
-    const insertablePunches = result.punches.filter((p) => {
-      if (lockedKfiIds.has(p.kfiId)) {
-        if (!lockedSkipped.includes(p.kfiId)) lockedSkipped.push(p.kfiId);
-        return false;
-      }
-      return true;
-    });
-    // Transactional swap: delete the existing customer-source rows for this
-    // (week, customer) and insert the new batch atomically.
-    await db.transaction(async (tx) => {
-      // Preserve manual rows AND inline-edited customer rows on re-upload.
-      // Also preserve everything for locked driver-weeks.
-      const deleteConds: SQL[] = [
-        eq(schema.punchesTable.weekStart, startDate),
-        eq(schema.punchesTable.source, "Customer"),
-        eq(schema.punchesTable.customer, result.customer),
-        eq(schema.punchesTable.isManual, false),
-        ne(schema.punchesTable.edited, true),
-      ];
-      if (lockedKfiIds.size > 0) {
-        deleteConds.push(
-          sql`${schema.punchesTable.kfiId} NOT IN (${sql.join(
-            [...lockedKfiIds].map((k) => sql`${k}`),
-            sql`, `,
-          )})`,
-        );
-      }
-      await tx.delete(schema.punchesTable).where(and(...deleteConds));
-      if (insertablePunches.length > 0) {
-        await tx.insert(schema.punchesTable).values(
-          insertablePunches.map((p) => ({
-            weekStart: startDate,
-            kfiId: p.kfiId,
-            customer: result.customer,
-            source: "Customer",
-            date: p.date,
-            clockIn: p.clockIn,
-            clockOut: p.clockOut,
-            hours: String(p.hours),
-            payType: p.payType,
-            dispTz: resolveDispTz(
-              p.kfiId,
-              driverTzByKfi.get(p.kfiId) ?? null,
-              // For IWG, the parser sets noTz; resolveDispTz already covers
-              // the IWG hardcode when no override/driver tz is set.
-              overrideTz,
-            ),
-            isManual: false,
-            fileOrigin: req.file!.originalname,
-            createdBy: req.session.userId ?? null,
-          })),
-        );
-      }
-    });
-    // Filter the unmapped-ids surfaced to the dispatcher / audit trail by
-    // the per-customer "not a driver — never import" list, so the one-shot
-    // route honors the same ignore decisions as the preview/confirm flow.
-    const oneShotIgnored = await loadIgnoredExternalIds(result.customer);
-    const visibleUnmappedOneShot = result.unmappedIds.filter(
-      (u) => !oneShotIgnored.has(u.id.toLowerCase()),
-    );
-    await recordAttempt(
-      startDate,
-      result.customer,
-      fileName,
-      null,
-      "parser",
-      visibleUnmappedOneShot,
-      contentHash,
-    );
-    if (visibleUnmappedOneShot.length > 0) {
-      req.log.warn(
-        {
-          fileName,
-          customer: result.customer,
-          unmappedIds: visibleUnmappedOneShot,
-        },
-        "Customer file contained badge IDs not in the KFI roster",
-      );
-    }
-    publishRealtime({
-      type: "customer-upload",
-      weekStart: startDate,
-      customer: result.customer,
-      actor: actorRef(req),
-    });
-    res.json({
-      customer: result.customer,
-      fileName,
-      punchesUpserted: insertablePunches.length,
-      unmappedIds: visibleUnmappedOneShot,
-      lockedSkipped,
-    });
-  },
-);
-
 // Two-step known-customer upload: extract (preview only) + confirm (writes).
 // Mirrors the existing AI extract/confirm flow so dispatchers can review the
 // parsed rows, exclude any that look wrong, and see exactly how many existing
@@ -1398,6 +1171,55 @@ weeksRouter.post(
     const fileName = req.file.originalname;
     const isImage =
       !!imageExtension(fileName) || isImageMime(req.file.mimetype);
+    // Short-circuit no-op re-uploads: if the file's bytes exactly match the
+    // most recent successful import for this (week, customer), return a
+    // skipped-preview without parsing or stashing anything. Bulk-upload
+    // relies on this to keep identical re-runs cheap; per-row uploads
+    // bypass it with `?force=1`. Detect the customer from the filename so
+    // we can look up the prior attempt without parsing first. Skip the
+    // shortcut for images — the AI extractor is non-deterministic, so a
+    // matching content hash doesn't guarantee an identical previously-
+    // confirmed result, and we want the dispatcher to re-review.
+    const force =
+      String(req.query.force ?? "").toLowerCase() === "1" ||
+      String(req.query.force ?? "").toLowerCase() === "true";
+    const contentHash = createHash("sha256")
+      .update(req.file.buffer)
+      .digest("hex");
+    const detectedForSkip = detectCustomerFromFileName(fileName);
+    if (!isImage && !force && detectedForSkip) {
+      const prior = await db
+        .select({
+          lastContentHash: schema.customerUploadAttemptsTable.lastContentHash,
+          lastSuccessAt: schema.customerUploadAttemptsTable.lastSuccessAt,
+        })
+        .from(schema.customerUploadAttemptsTable)
+        .where(
+          and(
+            eq(schema.customerUploadAttemptsTable.weekStart, startDate),
+            eq(schema.customerUploadAttemptsTable.customer, detectedForSkip),
+          ),
+        )
+        .limit(1);
+      const p = prior[0];
+      if (
+        p?.lastContentHash &&
+        p.lastSuccessAt &&
+        p.lastContentHash === contentHash
+      ) {
+        res.json({
+          customer: detectedForSkip,
+          fileName,
+          weekStart: startDate,
+          skipped: true,
+          sampleId: null,
+          rows: [],
+          unmappedIds: [],
+          existingPunchCount: 0,
+        });
+        return;
+      }
+    }
     let result;
     // Track image-derived rows so /confirm-customer-file can replay them
     // exactly instead of re-invoking the (non-deterministic) AI extractor.
@@ -1983,7 +1805,15 @@ weeksRouter.post(
     const visibleUnmappedConfirm = result.unmappedIds.filter(
       (u) => !postCommitIgnored.has(u.id.toLowerCase()),
     );
-
+    // Stamp the content hash from the stashed bytes so a subsequent
+    // bulk re-upload of the same file short-circuits via the extract
+    // route's skip-detection. Hashing the stashed bytes (rather than
+    // the original request bytes from /extract) keeps the hash and the
+    // committed punches in lockstep — they're parsed from the same
+    // buffer.
+    const confirmContentHash = createHash("sha256")
+      .update(Buffer.from(sample.fileBytes))
+      .digest("hex");
     await recordAttempt(
       startDate,
       result.customer,
@@ -1991,6 +1821,7 @@ weeksRouter.post(
       null,
       sampleSource,
       visibleUnmappedConfirm,
+      confirmContentHash,
     );
     if (visibleUnmappedConfirm.length > 0) {
       req.log.warn(
@@ -2002,6 +1833,12 @@ weeksRouter.post(
         "Customer file contained badge IDs not in the KFI roster",
       );
     }
+    publishRealtime({
+      type: "customer-upload",
+      weekStart: startDate,
+      customer: result.customer,
+      actor: actorRef(req),
+    });
     res.json({
       customer: result.customer,
       fileName,

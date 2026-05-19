@@ -735,24 +735,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ResetWeekLockedError" }
 
-  /weeks/{weekStart}/upload-customer-file:
-    post:
-      operationId: uploadCustomerFile
-      tags: [ingest]
-      summary: |
-        DEPRECATED. Upload a known-customer time export (xlsx/pdf) and write punches in a single round-trip.
-        The dashboard now uses the two-step extract/confirm flow below so dispatchers can preview before saving.
-        Kept for back-compat; new callers should not use it.
-      parameters:
-        - $ref: "#/components/parameters/WeekStart"
-      responses:
-        "200":
-          description: Ingest result
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/UploadResult" }
-        "400": { description: Could not detect or parse file }
-
   /weeks/{weekStart}/extract-customer-file:
     post:
       operationId: extractCustomerFile
@@ -2871,9 +2853,19 @@ components:
         customer: { type: string }
         fileName: { type: string }
         weekStart: { type: string }
+        skipped:
+          type: boolean
+          description: |
+            True when the uploaded file's SHA-256 matched the most recent
+            successful import for this (week, customer) and the server
+            short-circuited without parsing or stashing anything. `sampleId`,
+            `rows`, `unmappedIds`, and `existingPunchCount` are all empty/zero
+            in this case and there is nothing for the caller to confirm.
+            Bulk-upload uses this to render "Already up to date" instead of
+            walking the dispatcher through a no-op preview.
         sampleId:
-          type: integer
-          description: ID of the stashed copy of the uploaded file. Pass back to /confirm-customer-file so the same bytes are re-parsed and committed.
+          type: ["integer", "null"]
+          description: ID of the stashed copy of the uploaded file. Pass back to /confirm-customer-file so the same bytes are re-parsed and committed. Null when `skipped=true`.
         rows:
           type: array
           items: { $ref: "#/components/schemas/CustomerExtractRow" }
