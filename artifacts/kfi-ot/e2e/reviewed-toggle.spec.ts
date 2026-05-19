@@ -25,8 +25,8 @@ if (!DATABASE_URL) {
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
-const WEEK_START = "2031-04-07";
-const WEEK_END = "2031-04-13";
+const WEEK_START = "2031-04-06";
+const WEEK_END = "2031-04-12";
 const SUFFIX = `e2e-rt-${Date.now().toString(36)}`;
 // Sidebar order is customer (KNOWN_CUSTOMERS), then alphabetical by name.
 const DRIVERS = [

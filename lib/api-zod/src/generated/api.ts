@@ -645,7 +645,7 @@ export const GetWeekSummaryParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(getWeekSummaryPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
 });
 
 export const GetWeekSummaryResponse = zod.object({
@@ -734,7 +734,7 @@ export const GetDriverWeekParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(getDriverWeekPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
   kfiId: zod.coerce.string(),
 });
 
@@ -872,7 +872,7 @@ export const RefreshConnecteamParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(refreshConnecteamPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
 });
 
 export const RefreshConnecteamResponse = zod.object({
@@ -892,7 +892,7 @@ export const UploadCustomerFileParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(uploadCustomerFilePathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
 });
 
 export const UploadCustomerFileResponse = zod.object({
@@ -932,7 +932,7 @@ export const GetCustomerUploadStatusParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(getCustomerUploadStatusPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
 });
 
 export const GetCustomerUploadStatusResponseItem = zod.object({
@@ -1024,7 +1024,7 @@ export const ExtractNewCustomerFileParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(extractNewCustomerFilePathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
 });
 
 export const ExtractNewCustomerFileResponse = zod.object({
@@ -1078,7 +1078,7 @@ export const ConfirmNewCustomerFileParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(confirmNewCustomerFilePathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
 });
 
 export const confirmNewCustomerFileBodyRowsItemDateRegExp = new RegExp(
@@ -1509,7 +1509,7 @@ export const CreateManualPunchParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(createManualPunchPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
 });
 
 export const createManualPunchBodyDateRegExp = new RegExp(
@@ -1564,7 +1564,7 @@ export const PreviewPunchParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(previewPunchPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
 });
 
 export const previewPunchBodyDateRegExp = new RegExp("^\\d{4}-\\d{2}-\\d{2}$");
@@ -1719,7 +1719,7 @@ export const SetReviewedParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(setReviewedPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
   kfiId: zod.coerce.string(),
 });
 
@@ -1744,7 +1744,7 @@ export const LockDriverWeekParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(lockDriverWeekPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
   kfiId: zod.coerce.string(),
 });
 
@@ -1765,7 +1765,7 @@ export const UnlockDriverWeekParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(unlockDriverWeekPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
   kfiId: zod.coerce.string(),
 });
 
@@ -1786,7 +1786,7 @@ export const ListDriverNotesParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(listDriverNotesPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
   kfiId: zod.coerce.string(),
 });
 
@@ -1828,7 +1828,7 @@ export const CreateDriverNoteParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(createDriverNotePathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
   kfiId: zod.coerce.string(),
 });
 
@@ -1991,7 +1991,7 @@ export const GetDriverWeekAuditParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(getDriverWeekAuditPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
   kfiId: zod.coerce.string(),
 });
 

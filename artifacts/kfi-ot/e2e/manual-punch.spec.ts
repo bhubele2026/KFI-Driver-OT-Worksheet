@@ -31,8 +31,8 @@ if (!DATABASE_URL) {
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
-const WEEK_START = "2031-04-14";
-const WEEK_END = "2031-04-20";
+const WEEK_START = "2031-04-13";
+const WEEK_END = "2031-04-19";
 const SUFFIX = `e2e-mp-${Date.now().toString(36)}`;
 const DRIVER = {
   kfiId: `KFI-MP-${SUFFIX}`,

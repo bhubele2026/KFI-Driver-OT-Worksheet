@@ -27,7 +27,7 @@ const pool = new Pool({ connectionString: DATABASE_URL });
 const SUFFIX = `e2e-${Date.now().toString(36)}`;
 const CUSTOMER_A = `ZZZ-E2E-Alpha-${SUFFIX}`;
 const CUSTOMER_B = `ZZZ-E2E-Beta-${SUFFIX}`;
-const WEEK_START = "2031-04-07";
+const WEEK_START = "2031-04-06";
 
 const SAMPLES = [
   {

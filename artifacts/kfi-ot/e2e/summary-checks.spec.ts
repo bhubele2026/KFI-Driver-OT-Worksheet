@@ -29,10 +29,10 @@ if (!DATABASE_URL) {
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
-// Pick a Monday far enough in the future that it does not collide with real
+// Pick a Sunday far enough in the future that it does not collide with real
 // dispatcher data (and a different week than the other e2e specs use).
-const WEEK_START = "2031-04-07";
-const WEEK_END = "2031-04-13";
+const WEEK_START = "2031-04-06";
+const WEEK_END = "2031-04-12";
 
 const SUFFIX = `e2e-${Date.now().toString(36)}`;
 const KFI_ID = `KFI-SC-${SUFFIX}`;

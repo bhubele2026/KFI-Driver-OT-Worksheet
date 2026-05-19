@@ -89,6 +89,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 
 ## Gotchas
 
+- Payroll week is **Sunday → Saturday** (`weeks.start_date` is always a Sunday). `sundayOf(iso)` in `lib/time.ts` snaps any date to the Sunday of its payroll week; `weekEndOf(start)` returns the Saturday. The frontend default in `week-summary.tsx` also snaps to Sunday. Cutover docs + the one-shot DB fixup that wipes legacy Mon-anchored weeks live in `docs/sun-sat-week-cutover.md` (do **not** run the fixup against prod — execute the SQL there manually).
 - Schema/codegen flow: edit `lib/api-spec/openapi.yaml` → `pnpm --filter @workspace/api-spec run codegen` → use the new hooks/Zod by their generated names (don't guess — Orval names vary).
 - `SHUSTER_CLOCK_IDS` in `lib/mappings.ts` get a +1h fix applied during Connecteam ingest (legacy data quirk).
 - Customer-file routing depends on the uploaded filename containing a known customer keyword.

@@ -40,7 +40,7 @@ import {
 import { detectCustomerFromFileName } from "../lib/parsers/customers.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { topMatches } from "../lib/parsers/fuzzy.js";
-import { diffHours, localStrToSortMs, mondayOf, weekEndOf } from "../lib/time.js";
+import { diffHours, localStrToSortMs, sundayOf, weekEndOf } from "../lib/time.js";
 import { makeTimesheetsHandler } from "../lib/timesheets.js";
 import {
   publish as publishRealtime,
@@ -89,13 +89,13 @@ async function ensureWeek(weekStart: string): Promise<{
   startDate: string;
   endDate: string;
 }> {
-  const monday = mondayOf(weekStart);
-  const end = weekEndOf(monday);
+  const sunday = sundayOf(weekStart);
+  const end = weekEndOf(sunday);
   await db
     .insert(schema.weeksTable)
-    .values({ startDate: monday, endDate: end })
+    .values({ startDate: sunday, endDate: end })
     .onConflictDoNothing();
-  return { startDate: monday, endDate: end };
+  return { startDate: sunday, endDate: end };
 }
 
 async function recordAttempt(
@@ -3523,7 +3523,7 @@ weeksRouter.get("/events", (req, res) => {
   }
   const weekStart = String(req.query.weekStart ?? "");
   if (!isWeek(weekStart)) {
-    res.status(400).json({ error: "weekStart query param is required (YYYY-MM-DD Monday)" });
+    res.status(400).json({ error: "weekStart query param is required (YYYY-MM-DD Sunday)" });
     return;
   }
   const kfiId =

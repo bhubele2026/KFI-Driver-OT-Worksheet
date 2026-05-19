@@ -43,15 +43,15 @@ const SUFFIX = `e2e-ps-${Date.now().toString(36)}`;
 // customer-uploads aggregation.
 const CUSTOMER = `ZZZ-Snoozeable-${SUFFIX}`;
 
-// Pick three Mondays well in the future so we don't collide with real data.
+// Pick three Sundays well in the future so we don't collide with real data.
 // The dashboard renders the most recent of these; the other two only need
 // to bump aiImportWeekCount past the >= 3 promotion threshold.
-const VIEW_WEEK = "2031-05-05";
-const HISTORY_WEEKS = ["2031-04-21", "2031-04-28"];
+const VIEW_WEEK = "2031-05-04";
+const HISTORY_WEEKS = ["2031-04-20", "2031-04-27"];
 const WEEK_END_BY_START: Record<string, string> = {
-  "2031-04-21": "2031-04-27",
-  "2031-04-28": "2031-05-04",
-  "2031-05-05": "2031-05-11",
+  "2031-04-20": "2031-04-26",
+  "2031-04-27": "2031-05-03",
+  "2031-05-04": "2031-05-10",
 };
 
 async function seed(): Promise<void> {

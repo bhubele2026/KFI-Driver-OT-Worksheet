@@ -87,17 +87,20 @@ export function listDates(start: string, end: string): string[] {
   return out;
 }
 
-/** Sunday of a Monday-anchored week (start). */
+/** Saturday end of a Sunday-anchored payroll week. */
 export function weekEndOf(weekStart: string): string {
   return addDays(weekStart, 6);
 }
 
-/** Snap any ISO date to the Monday of its week. */
-export function mondayOf(iso: string): string {
+/**
+ * Snap any ISO date to the Sunday of its payroll week (Sun→Sat).
+ * KFI runs payroll Sunday through Saturday, so every weekStart in the
+ * system is a Sunday.
+ */
+export function sundayOf(iso: string): string {
   const ms = isoDateToUtcMs(iso);
   const dow = new Date(ms).getUTCDay(); // 0=Sun..6=Sat
-  const offset = (dow + 6) % 7; // Mon=0, Sun=6
-  return addDays(iso, -offset);
+  return addDays(iso, -dow);
 }
 
 /** Format an arbitrary date-ish value as YYYY-MM-DD. */

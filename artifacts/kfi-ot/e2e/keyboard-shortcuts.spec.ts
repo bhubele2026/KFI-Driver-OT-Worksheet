@@ -28,10 +28,10 @@ if (!DATABASE_URL) {
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
-// Pick a Monday far enough in the future that it does not collide with
+// Pick a Sunday far enough in the future that it does not collide with
 // real dispatcher data already in the dev database.
-const WEEK_START = "2031-03-03";
-const WEEK_END = "2031-03-09";
+const WEEK_START = "2031-03-02";
+const WEEK_END = "2031-03-08";
 
 const SUFFIX = `e2e-${Date.now().toString(36)}`;
 // Sidebar order is: customers in KNOWN_CUSTOMERS order (Adient before

@@ -49,7 +49,7 @@ function xlsxToText(buffer: Buffer): string {
 function buildPrompt(customer: string, weekStart: string, weekEnd: string) {
   return [
     `You are extracting timecard punches from a payroll export uploaded for customer "${customer}".`,
-    `The week being reconciled is ${weekStart} through ${weekEnd} (Monday through Sunday). Only return rows whose date falls in that window.`,
+    `The week being reconciled is ${weekStart} through ${weekEnd} (Sunday through Saturday). Only return rows whose date falls in that window.`,
     `For each punch row return:`,
     `- driverNameOnDoc: the worker's name as written in the document (preserve casing exactly).`,
     `- badgeOrId: any employee/badge/payroll id shown for that worker (string of digits or alphanum), or omit.`,

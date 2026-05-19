@@ -69,16 +69,16 @@ import {
   format,
   parseISO,
   isValid,
-  previousMonday,
-  isMonday,
+  previousSunday,
+  isSunday,
   addWeeks,
 } from "date-fns";
 
-function getMonday(d: Date) {
+function getSunday(d: Date) {
   const date = new Date(d);
-  const day = date.getDay();
-  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(date.setDate(diff));
+  const day = date.getDay(); // 0 = Sunday
+  date.setDate(date.getDate() - day);
+  return date;
 }
 
 function errMessage(err: unknown, fallback: string): string {
@@ -99,8 +99,8 @@ export default function WeekSummary() {
   const { data: me } = useGetMe();
 
   const today = new Date();
-  const currentMonday = getMonday(today);
-  const defaultWeekStart = format(currentMonday, "yyyy-MM-dd");
+  const currentSunday = getSunday(today);
+  const defaultWeekStart = format(currentSunday, "yyyy-MM-dd");
 
   const weekStart = params.weekStart || defaultWeekStart;
 
@@ -193,8 +193,8 @@ export default function WeekSummary() {
     const val = e.target.value;
     if (val && isValid(parseISO(val))) {
       const d = parseISO(val);
-      const m = isMonday(d) ? d : previousMonday(d);
-      setLocation(`/weeks/${format(m, "yyyy-MM-dd")}`);
+      const s = isSunday(d) ? d : previousSunday(d);
+      setLocation(`/weeks/${format(s, "yyyy-MM-dd")}`);
     }
   };
 

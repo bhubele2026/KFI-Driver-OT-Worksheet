@@ -9,8 +9,8 @@ import {
 } from "../timesheets.js";
 import { computeDriverTotals } from "../hoursEngine.js";
 
-const WEEK_START = "2026-04-27"; // Monday
-const WEEK_END = "2026-05-03"; // Sunday
+const WEEK_START = "2026-04-26"; // Sunday
+const WEEK_END = "2026-05-02"; // Saturday
 
 let punchId = 1;
 function p(over: Partial<Punch> & { kfiId: string; date: string }): Punch {

@@ -29,8 +29,8 @@ if (!DATABASE_URL) {
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
-const WEEK_START = "2031-04-21";
-const WEEK_END = "2031-04-27";
+const WEEK_START = "2031-04-20";
+const WEEK_END = "2031-04-26";
 const SUFFIX = `e2e-sf-${Date.now().toString(36)}`;
 
 // Sidebar order is customer (KNOWN_CUSTOMERS sequence: Adient before
