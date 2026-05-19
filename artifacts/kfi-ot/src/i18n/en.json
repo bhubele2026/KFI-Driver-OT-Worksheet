@@ -198,7 +198,6 @@
     "lockedBanner": "This driver-week is locked{{by}}{{at}}. Punches, refreshes, and customer-file uploads are blocked until it's unlocked.",
     "lockedBannerBy": " by {{email}}",
     "lockedBannerAt": " at {{time}}",
-    "recentActivity": "Recent activity",
     "deletePunchConfirm": "Are you sure you want to delete this punch?",
     "punchDeleted": "Punch deleted",
     "deletePunchFailed": "Failed to delete punch",

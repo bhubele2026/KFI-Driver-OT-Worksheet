@@ -19,7 +19,6 @@ import {
   useGetAllowedTimezones,
   useLockDriverWeek,
   useUnlockDriverWeek,
-  useGetDriverWeekAudit,
   useGetMe,
   useListDriverNotes,
   useCreateDriverNote,
@@ -164,7 +163,6 @@ export default function DriverDetail() {
   });
   const meRole = (me as { role?: string } | undefined)?.role;
   const canLock = !!me?.isAdmin || meRole === "supervisor";
-  const { data: auditLog } = useGetDriverWeekAudit(weekStart, kfiId);
   const lockMutation = useLockDriverWeek();
   const unlockMutation = useUnlockDriverWeek();
   const driverLocked = !!(data as { locked?: boolean } | undefined)?.locked;
@@ -1770,51 +1768,6 @@ export default function DriverDetail() {
                   at: data.lockedAt ? t("driverDetail.lockedBannerAt", { time: new Date(data.lockedAt).toLocaleString() }) : "",
                 })}
               </span>
-            </CardContent>
-          </Card>
-        )}
-
-        {auditLog && auditLog.length > 0 && (
-          <Card data-testid="card-driver-week-audit">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm font-display tracking-tight">
-                {t("driverDetail.recentActivity")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <ul className="space-y-1 text-xs font-mono">
-                {auditLog.slice(0, 20).map((entry) => (
-                  <li
-                    key={entry.id}
-                    className="flex items-center gap-3 py-0.5"
-                    data-testid={`audit-row-${entry.id}`}
-                  >
-                    <span className="text-muted-foreground w-40 shrink-0">
-                      {new Date(entry.createdAt).toLocaleString()}
-                    </span>
-                    <span
-                      className={cn(
-                        "uppercase tracking-wider px-1.5 py-0.5 rounded text-[10px] font-semibold",
-                        entry.action === "lock" &&
-                          "bg-amber-500/15 text-amber-700 dark:text-amber-300",
-                        entry.action === "unlock" &&
-                          "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-                        entry.action === "review-good" &&
-                          "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-                        entry.action === "review-bad" &&
-                          "bg-rose-500/15 text-rose-700 dark:text-rose-300",
-                        entry.action === "review-clear" &&
-                          "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {entry.action}
-                    </span>
-                    <span className="text-foreground">
-                      {entry.actorEmail ?? "—"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
             </CardContent>
           </Card>
         )}

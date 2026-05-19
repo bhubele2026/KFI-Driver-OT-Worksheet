@@ -198,7 +198,6 @@
     "lockedBanner": "Esta semana del conductor está bloqueada{{by}}{{at}}. Los registros, las actualizaciones y las cargas de archivos del cliente están bloqueados hasta que se desbloquee.",
     "lockedBannerBy": " por {{email}}",
     "lockedBannerAt": " a las {{time}}",
-    "recentActivity": "Actividad reciente",
     "deletePunchConfirm": "¿Seguro que quieres eliminar este registro?",
     "punchDeleted": "Registro eliminado",
     "deletePunchFailed": "Error al eliminar el registro",
