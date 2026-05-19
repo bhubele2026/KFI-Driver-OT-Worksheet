@@ -35,6 +35,10 @@ import {
   X,
 } from "lucide-react";
 import { NewCustomerDialog } from "@/components/new-customer-dialog";
+import {
+  CustomerPreviewDialog,
+  type CustomerPreviewData,
+} from "@/components/customer-preview-dialog";
 
 function errMessage(err: unknown, fallback: string): string {
   if (err instanceof Error) return err.message;
@@ -87,6 +91,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const [bulkRunning, setBulkRunning] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragDepth = useRef(0);
+  const [preview, setPreview] = useState<CustomerPreviewData | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const snoozeMutation = useCreateParserPromotionSnooze();
 
   const snooze = (customer: string, snoozeWeeks: number | null) => {
@@ -138,6 +144,9 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     });
   };
 
+  // One-shot upload used by the bulk-upload flow (no per-file preview UX);
+  // posts directly to the legacy /upload-customer-file route which writes
+  // immediately. Per-row single-file uploads go through `extractFor` instead.
   const doUpload = async (
     customer: string,
     file: File,
@@ -177,6 +186,47 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       };
     } catch (err) {
       return { ok: false, error: errMessage(err, "Upload failed") };
+    }
+  };
+
+  // Two-step flow used by per-row single-file uploads: extract (preview only)
+  // → dispatcher confirms in dialog → /confirm-customer-file commits.
+  // Cancel = no DB writes.
+  const extractFor = async (customer: string, file: File) => {
+    setRow(customer, { uploading: true, error: null });
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch(
+        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file`,
+        { method: "POST", credentials: "include", body: formData },
+      );
+      const body = (await res.json().catch(() => null)) as
+        | (CustomerPreviewData & { error?: string })
+        | { error?: string }
+        | null;
+      if (!res.ok) {
+        throw new Error(
+          (body && "error" in body && body.error) || "Upload failed",
+        );
+      }
+      const data = body as CustomerPreviewData;
+      if (data.customer && data.customer !== customer) {
+        throw new Error(
+          `File detected as "${data.customer}" but you uploaded it for "${customer}". Rename the file to include "${customer}" so it routes correctly.`,
+        );
+      }
+      setRow(customer, { uploading: false, error: null });
+      setPreview(data);
+      setPreviewOpen(true);
+    } catch (err) {
+      const msg = errMessage(err, "Upload failed");
+      setRow(customer, { uploading: false, error: msg });
+      toast({
+        title: `${customer} extract failed`,
+        description: msg,
+        variant: "destructive",
+      });
     }
   };
 
@@ -800,7 +850,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
-                  if (f) void uploadFor(s.customer, f);
+                  if (f) void extractFor(s.customer, f);
                   e.target.value = "";
                 }}
               />
@@ -830,6 +880,12 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         }}
         onImported={invalidateAll}
         initialFile={newInitialFile}
+      />
+      <CustomerPreviewDialog
+        preview={preview}
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        onConfirmed={invalidateAll}
       />
     </Card>
   );

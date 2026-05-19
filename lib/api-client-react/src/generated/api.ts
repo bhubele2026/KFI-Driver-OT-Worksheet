@@ -22,6 +22,7 @@ import type {
   AiExtractPreview,
   AiExtractSample,
   AuthCredentials,
+  ConfirmCustomerFileInput,
   ConfirmNewCustomerInput,
   ConfirmNewCustomerResult,
   ConnecteamClocksAudit,
@@ -30,6 +31,7 @@ import type {
   CreateInviteBody,
   CreateParserPromotionSnoozeBody,
   CustomerAliasAuditLogEntry,
+  CustomerExtractPreview,
   CustomerNameAlias,
   CustomerNameAliasList,
   CustomerUploadStatus,
@@ -3084,7 +3086,10 @@ export const useRefreshConnecteam = <
 };
 
 /**
- * @summary Upload a customer time export (xlsx/pdf) for the week. Body is `multipart/form-data` with a single `file` field; the frontend builds the FormData manually.
+ * @summary DEPRECATED. Upload a known-customer time export (xlsx/pdf) and write punches in a single round-trip.
+The dashboard now uses the two-step extract/confirm flow below so dispatchers can preview before saving.
+Kept for back-compat; new callers should not use it.
+
  */
 export const getUploadCustomerFileUrl = (weekStart: string) => {
   return `/api/weeks/${weekStart}/upload-customer-file`;
@@ -3145,7 +3150,10 @@ export type UploadCustomerFileMutationResult = NonNullable<
 export type UploadCustomerFileMutationError = ErrorType<void>;
 
 /**
- * @summary Upload a customer time export (xlsx/pdf) for the week. Body is `multipart/form-data` with a single `file` field; the frontend builds the FormData manually.
+ * @summary DEPRECATED. Upload a known-customer time export (xlsx/pdf) and write punches in a single round-trip.
+The dashboard now uses the two-step extract/confirm flow below so dispatchers can preview before saving.
+Kept for back-compat; new callers should not use it.
+
  */
 export const useUploadCustomerFile = <
   TError = ErrorType<void>,
@@ -3165,6 +3173,291 @@ export const useUploadCustomerFile = <
   TContext
 > => {
   return useMutation(getUploadCustomerFileMutationOptions(options));
+};
+
+/**
+ * @summary Parse a known-customer time export (xlsx/pdf) into preview rows WITHOUT writing
+anything. Stashes the uploaded file in `ai_extract_samples` (24h TTL) so
+/confirm-customer-file can re-parse it on demand. Body is `multipart/form-data`
+with a single `file` field; the frontend builds the FormData manually.
+
+ */
+export const getExtractCustomerFileUrl = (weekStart: string) => {
+  return `/api/weeks/${weekStart}/extract-customer-file`;
+};
+
+export const extractCustomerFile = async (
+  weekStart: string,
+  options?: RequestInit,
+): Promise<CustomerExtractPreview> => {
+  return customFetch<CustomerExtractPreview>(
+    getExtractCustomerFileUrl(weekStart),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getExtractCustomerFileMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof extractCustomerFile>>,
+    TError,
+    { weekStart: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof extractCustomerFile>>,
+  TError,
+  { weekStart: string },
+  TContext
+> => {
+  const mutationKey = ["extractCustomerFile"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof extractCustomerFile>>,
+    { weekStart: string }
+  > = (props) => {
+    const { weekStart } = props ?? {};
+
+    return extractCustomerFile(weekStart, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ExtractCustomerFileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof extractCustomerFile>>
+>;
+
+export type ExtractCustomerFileMutationError = ErrorType<void>;
+
+/**
+ * @summary Parse a known-customer time export (xlsx/pdf) into preview rows WITHOUT writing
+anything. Stashes the uploaded file in `ai_extract_samples` (24h TTL) so
+/confirm-customer-file can re-parse it on demand. Body is `multipart/form-data`
+with a single `file` field; the frontend builds the FormData manually.
+
+ */
+export const useExtractCustomerFile = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof extractCustomerFile>>,
+    TError,
+    { weekStart: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof extractCustomerFile>>,
+  TError,
+  { weekStart: string },
+  TContext
+> => {
+  return useMutation(getExtractCustomerFileMutationOptions(options));
+};
+
+/**
+ * @summary Commit a previously-extracted known-customer upload. Re-parses the stashed
+file by sampleId, drops any rows the dispatcher excluded by index, and runs
+the same wipe-and-reinsert tx as the legacy upload endpoint
+(`(week, source=Customer, customer=X, isManual=false)`).
+
+ */
+export const getConfirmCustomerFileUrl = (weekStart: string) => {
+  return `/api/weeks/${weekStart}/confirm-customer-file`;
+};
+
+export const confirmCustomerFile = async (
+  weekStart: string,
+  confirmCustomerFileInput: ConfirmCustomerFileInput,
+  options?: RequestInit,
+): Promise<UploadResult> => {
+  return customFetch<UploadResult>(getConfirmCustomerFileUrl(weekStart), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(confirmCustomerFileInput),
+  });
+};
+
+export const getConfirmCustomerFileMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmCustomerFile>>,
+    TError,
+    { weekStart: string; data: BodyType<ConfirmCustomerFileInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof confirmCustomerFile>>,
+  TError,
+  { weekStart: string; data: BodyType<ConfirmCustomerFileInput> },
+  TContext
+> => {
+  const mutationKey = ["confirmCustomerFile"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof confirmCustomerFile>>,
+    { weekStart: string; data: BodyType<ConfirmCustomerFileInput> }
+  > = (props) => {
+    const { weekStart, data } = props ?? {};
+
+    return confirmCustomerFile(weekStart, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ConfirmCustomerFileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof confirmCustomerFile>>
+>;
+export type ConfirmCustomerFileMutationBody =
+  BodyType<ConfirmCustomerFileInput>;
+export type ConfirmCustomerFileMutationError = ErrorType<void>;
+
+/**
+ * @summary Commit a previously-extracted known-customer upload. Re-parses the stashed
+file by sampleId, drops any rows the dispatcher excluded by index, and runs
+the same wipe-and-reinsert tx as the legacy upload endpoint
+(`(week, source=Customer, customer=X, isManual=false)`).
+
+ */
+export const useConfirmCustomerFile = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmCustomerFile>>,
+    TError,
+    { weekStart: string; data: BodyType<ConfirmCustomerFileInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof confirmCustomerFile>>,
+  TError,
+  { weekStart: string; data: BodyType<ConfirmCustomerFileInput> },
+  TContext
+> => {
+  return useMutation(getConfirmCustomerFileMutationOptions(options));
+};
+
+/**
+ * @summary Discard a stashed extract preview without committing. Called when
+the dispatcher cancels the preview dialog so the stashed bytes are
+purged immediately instead of waiting for the 24h TTL.
+
+ */
+export const getDiscardCustomerExtractUrl = (
+  weekStart: string,
+  sampleId: number,
+) => {
+  return `/api/weeks/${weekStart}/extract-customer-file/${sampleId}`;
+};
+
+export const discardCustomerExtract = async (
+  weekStart: string,
+  sampleId: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDiscardCustomerExtractUrl(weekStart, sampleId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDiscardCustomerExtractMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof discardCustomerExtract>>,
+    TError,
+    { weekStart: string; sampleId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof discardCustomerExtract>>,
+  TError,
+  { weekStart: string; sampleId: number },
+  TContext
+> => {
+  const mutationKey = ["discardCustomerExtract"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof discardCustomerExtract>>,
+    { weekStart: string; sampleId: number }
+  > = (props) => {
+    const { weekStart, sampleId } = props ?? {};
+
+    return discardCustomerExtract(weekStart, sampleId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DiscardCustomerExtractMutationResult = NonNullable<
+  Awaited<ReturnType<typeof discardCustomerExtract>>
+>;
+
+export type DiscardCustomerExtractMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Discard a stashed extract preview without committing. Called when
+the dispatcher cancels the preview dialog so the stashed bytes are
+purged immediately instead of waiting for the 24h TTL.
+
+ */
+export const useDiscardCustomerExtract = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof discardCustomerExtract>>,
+    TError,
+    { weekStart: string; sampleId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof discardCustomerExtract>>,
+  TError,
+  { weekStart: string; sampleId: number },
+  TContext
+> => {
+  return useMutation(getDiscardCustomerExtractMutationOptions(options));
 };
 
 /**

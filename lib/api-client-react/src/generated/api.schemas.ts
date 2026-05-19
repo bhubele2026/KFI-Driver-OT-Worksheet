@@ -747,6 +747,42 @@ was clean.
   lastUnmappedIds: UnmappedId[];
 }
 
+export interface CustomerExtractRow {
+  /** Stable position in the parser's deterministic output. Pass back in `excludedIndices` on /confirm-customer-file to drop this row. */
+  index: number;
+  /** Human-readable hint identifying where this row came from in the uploaded file (e.g. `row 3 of Adient.xlsx`). Surfaced in the preview so dispatchers can cross-check against the original document. */
+  sourceRow: string;
+  kfiId: string;
+  /** @nullable */
+  driverName?: string | null;
+  date: string;
+  clockIn: string;
+  clockOut: string;
+  hours: number;
+  /** @nullable */
+  payType?: string | null;
+}
+
+export interface CustomerExtractPreview {
+  customer: string;
+  fileName: string;
+  weekStart: string;
+  /** ID of the stashed copy of the uploaded file. Pass back to /confirm-customer-file so the same bytes are re-parsed and committed. */
+  sampleId: number;
+  rows: CustomerExtractRow[];
+  unmappedIds: UnmappedId[];
+  /** Number of existing Customer-source punches for `(week, customer)` that this confirm would actually replace — i.e. excluding manual rows, inline-edited rows, and any rows belonging to a locked driver-week (all of which the wipe preserves). */
+  existingPunchCount: number;
+}
+
+export interface ConfirmCustomerFileInput {
+  /** @minLength 1 */
+  customer: string;
+  sampleId: number;
+  /** Stable indices from the preview's `rows` array that the dispatcher chose to exclude. */
+  excludedIndices?: number[];
+}
+
 export interface AiExtractedRow {
   driverNameOnDoc: string;
   /** @nullable */

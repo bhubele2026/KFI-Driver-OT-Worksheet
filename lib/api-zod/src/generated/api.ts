@@ -882,7 +882,10 @@ export const RefreshConnecteamResponse = zod.object({
 });
 
 /**
- * @summary Upload a customer time export (xlsx/pdf) for the week. Body is `multipart/form-data` with a single `file` field; the frontend builds the FormData manually.
+ * @summary DEPRECATED. Upload a known-customer time export (xlsx/pdf) and write punches in a single round-trip.
+The dashboard now uses the two-step extract/confirm flow below so dispatchers can preview before saving.
+Kept for back-compat; new callers should not use it.
+
  */
 export const uploadCustomerFilePathWeekStartRegExp = new RegExp(
   "^\\d{4}-\\d{2}-\\d{2}$",
@@ -925,6 +928,152 @@ export const UploadCustomerFileResponse = zod.object({
     .describe(
       "Badge \/ employee IDs that appeared in the uploaded file but could\nnot be mapped to a known KFI driver. Surfaced as a non-blocking\nwarning so dispatchers know punches were dropped (e.g. a new hire\nwho hasn't been added to the mapping yet). `sampleName` carries\nthe driver name as it appeared next to the id in the source file\n(when the parser could see one), so admins can recognize who an\nunknown id belongs to without opening the file.\n",
     ),
+});
+
+/**
+ * @summary Parse a known-customer time export (xlsx/pdf) into preview rows WITHOUT writing
+anything. Stashes the uploaded file in `ai_extract_samples` (24h TTL) so
+/confirm-customer-file can re-parse it on demand. Body is `multipart/form-data`
+with a single `file` field; the frontend builds the FormData manually.
+
+ */
+export const extractCustomerFilePathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const ExtractCustomerFileParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(extractCustomerFilePathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+});
+
+export const ExtractCustomerFileResponse = zod.object({
+  customer: zod.string(),
+  fileName: zod.string(),
+  weekStart: zod.string(),
+  sampleId: zod
+    .number()
+    .describe(
+      "ID of the stashed copy of the uploaded file. Pass back to \/confirm-customer-file so the same bytes are re-parsed and committed.",
+    ),
+  rows: zod.array(
+    zod.object({
+      index: zod
+        .number()
+        .describe(
+          "Stable position in the parser's deterministic output. Pass back in `excludedIndices` on \/confirm-customer-file to drop this row.",
+        ),
+      sourceRow: zod
+        .string()
+        .describe(
+          "Human-readable hint identifying where this row came from in the uploaded file (e.g. `row 3 of Adient.xlsx`). Surfaced in the preview so dispatchers can cross-check against the original document.",
+        ),
+      kfiId: zod.string(),
+      driverName: zod.string().nullish(),
+      date: zod.string(),
+      clockIn: zod.string(),
+      clockOut: zod.string(),
+      hours: zod.number(),
+      payType: zod.string().nullish(),
+    }),
+  ),
+  unmappedIds: zod.array(
+    zod.object({
+      id: zod.string(),
+      count: zod
+        .number()
+        .describe(
+          "Number of rows in the file that referenced this id and were dropped.",
+        ),
+      sampleName: zod
+        .string()
+        .nullable()
+        .describe(
+          "Driver name as printed next to the id in the source file, when available.",
+        ),
+    }),
+  ),
+  existingPunchCount: zod
+    .number()
+    .describe(
+      "Number of existing Customer-source punches for `(week, customer)` that this confirm would actually replace — i.e. excluding manual rows, inline-edited rows, and any rows belonging to a locked driver-week (all of which the wipe preserves).",
+    ),
+});
+
+/**
+ * @summary Commit a previously-extracted known-customer upload. Re-parses the stashed
+file by sampleId, drops any rows the dispatcher excluded by index, and runs
+the same wipe-and-reinsert tx as the legacy upload endpoint
+(`(week, source=Customer, customer=X, isManual=false)`).
+
+ */
+export const confirmCustomerFilePathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const ConfirmCustomerFileParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(confirmCustomerFilePathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+});
+
+export const confirmCustomerFileBodyExcludedIndicesItemMin = 0;
+
+export const ConfirmCustomerFileBody = zod.object({
+  customer: zod.string().min(1),
+  sampleId: zod.number(),
+  excludedIndices: zod
+    .array(zod.number().min(confirmCustomerFileBodyExcludedIndicesItemMin))
+    .optional()
+    .describe(
+      "Stable indices from the preview's `rows` array that the dispatcher chose to exclude.",
+    ),
+});
+
+export const ConfirmCustomerFileResponse = zod.object({
+  customer: zod.string(),
+  fileName: zod.string(),
+  punchesUpserted: zod.number(),
+  unmappedIds: zod
+    .array(
+      zod.object({
+        id: zod.string(),
+        count: zod
+          .number()
+          .describe(
+            "Number of rows in the file that referenced this id and were dropped.",
+          ),
+        sampleName: zod
+          .string()
+          .nullable()
+          .describe(
+            "Driver name as printed next to the id in the source file, when available.",
+          ),
+      }),
+    )
+    .describe(
+      "Badge \/ employee IDs that appeared in the uploaded file but could\nnot be mapped to a known KFI driver. Surfaced as a non-blocking\nwarning so dispatchers know punches were dropped (e.g. a new hire\nwho hasn't been added to the mapping yet). `sampleName` carries\nthe driver name as it appeared next to the id in the source file\n(when the parser could see one), so admins can recognize who an\nunknown id belongs to without opening the file.\n",
+    ),
+});
+
+/**
+ * @summary Discard a stashed extract preview without committing. Called when
+the dispatcher cancels the preview dialog so the stashed bytes are
+purged immediately instead of waiting for the 24h TTL.
+
+ */
+export const discardCustomerExtractPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const DiscardCustomerExtractParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(discardCustomerExtractPathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+  sampleId: zod.coerce.number(),
 });
 
 /**

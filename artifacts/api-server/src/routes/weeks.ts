@@ -4,6 +4,7 @@ import multer from "multer";
 import { and, asc, desc, eq, gt, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
+  ConfirmCustomerFileBody,
   ConfirmNewCustomerFileBody,
   CreateDriverNoteBody,
   CreateManualPunchBody,
@@ -984,6 +985,330 @@ weeksRouter.post(
       unmappedIds: result.unmappedIds,
       lockedSkipped,
     });
+  },
+);
+
+// Two-step known-customer upload: extract (preview only) + confirm (writes).
+// Mirrors the existing AI extract/confirm flow so dispatchers can review the
+// parsed rows, exclude any that look wrong, and see exactly how many existing
+// punches a re-upload will replace before anything is persisted.
+weeksRouter.post(
+  "/weeks/:weekStart/extract-customer-file",
+  upload.single("file"),
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    if (!req.file) {
+      res.status(400).json({ error: "No file uploaded" });
+      return;
+    }
+    const { startDate } = await ensureWeek(weekStart);
+    const drivers = await db.select().from(schema.driversTable);
+    const kfiSet = new Set(drivers.map((d) => d.kfiId));
+    const nameByKfi = new Map(drivers.map((d) => [d.kfiId, d.name] as const));
+    const fileName = req.file.originalname;
+    let result;
+    try {
+      const idMap = await loadMergedIdMap();
+      result = await detectAndParseFile(
+        fileName,
+        req.file.buffer,
+        kfiSet,
+        startDate,
+        idMap,
+      );
+    } catch (err) {
+      req.log.error({ err, fileName }, "Parse error (extract)");
+      const msg = err instanceof Error ? err.message : "Could not parse file";
+      const detected = detectCustomerFromFileName(fileName);
+      if (detected) {
+        await recordAttempt(startDate, detected, fileName, msg, "parser");
+      }
+      res.status(400).json({ error: msg });
+      return;
+    }
+    if (!result) {
+      res.status(400).json({
+        error:
+          "Could not detect customer from filename. Include the customer name (penda, trienda, greystone, lsi, burnett, adient, iwg, delallo, zenople) in the file name.",
+      });
+      return;
+    }
+    if (result.punches.length === 0) {
+      req.log.warn(
+        { fileName, customer: result.customer },
+        "Customer file parsed to zero punches (extract)",
+      );
+      const msg = `Detected customer "${result.customer}" but parsed 0 punches. The file format may have changed, or no rows match the loaded driver roster.`;
+      await recordAttempt(startDate, result.customer, fileName, msg, "parser");
+      res.status(400).json({ error: msg });
+      return;
+    }
+
+    // Count existing customer-source rows for this (week, customer) that
+    // /confirm-customer-file would actually replace. Mirrors the WHERE in
+    // the wipe-and-reinsert tx exactly: skips manual rows, inline-edited
+    // rows, and any rows belonging to a locked driver-week (all preserved
+    // by the wipe). Otherwise the dispatcher would see an inflated
+    // "will replace N existing rows" warning.
+    const existingLockedKfiIds = await loadLockedKfiIds(startDate);
+    const existingConds: SQL[] = [
+      eq(schema.punchesTable.weekStart, startDate),
+      eq(schema.punchesTable.source, "Customer"),
+      eq(schema.punchesTable.customer, result.customer),
+      eq(schema.punchesTable.isManual, false),
+      ne(schema.punchesTable.edited, true),
+    ];
+    if (existingLockedKfiIds.size > 0) {
+      existingConds.push(
+        sql`${schema.punchesTable.kfiId} NOT IN (${sql.join(
+          [...existingLockedKfiIds].map((k) => sql`${k}`),
+          sql`, `,
+        )})`,
+      );
+    }
+    const existing = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.punchesTable)
+      .where(and(...existingConds));
+    const existingPunchCount = existing[0]?.n ?? 0;
+
+    // Stash the original file bytes so /confirm-customer-file can re-parse
+    // them deterministically. Unconfirmed samples expire after 24h; the
+    // existing `aiExtractSampleCleanup` job already purges them.
+    const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
+    const [sample] = await db
+      .insert(schema.aiExtractSamplesTable)
+      .values({
+        weekStart: startDate,
+        customer: result.customer,
+        fileName,
+        mimeType: req.file.mimetype || "application/octet-stream",
+        sizeBytes: req.file.size,
+        fileBytes: req.file.buffer,
+        uploadedBy: req.session.userId ?? null,
+        expiresAt: new Date(Date.now() + PENDING_TTL_MS),
+      })
+      .returning({ id: schema.aiExtractSamplesTable.id });
+
+    res.json({
+      customer: result.customer,
+      fileName,
+      weekStart: startDate,
+      sampleId: sample.id,
+      rows: result.punches.map((p, index) => ({
+        index,
+        // Source row hint: the parser preserves the document's row order,
+        // so the 1-based position plus filename is enough for a dispatcher
+        // to find the matching line in the original file.
+        sourceRow: `row ${index + 1} of ${fileName}`,
+        kfiId: p.kfiId,
+        driverName: nameByKfi.get(p.kfiId) ?? null,
+        date: p.date,
+        clockIn: p.clockIn,
+        clockOut: p.clockOut,
+        hours: p.hours,
+        payType: p.payType,
+      })),
+      unmappedIds: result.unmappedIds,
+      existingPunchCount,
+    });
+  },
+);
+
+weeksRouter.post(
+  "/weeks/:weekStart/confirm-customer-file",
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    const parsed = ConfirmCustomerFileBody.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "Invalid input", details: parsed.error.issues });
+      return;
+    }
+    const { startDate } = await ensureWeek(weekStart);
+    const customer = parsed.data.customer.trim();
+    if (!customer) {
+      res.status(400).json({ error: "Customer name is required" });
+      return;
+    }
+    const excludedIndices = new Set(parsed.data.excludedIndices ?? []);
+
+    // Load the stashed sample. We require (id, weekStart, customer) to match
+    // so a stale or unrelated sampleId can't be used to commit against the
+    // wrong week or customer.
+    const [sample] = await db
+      .select()
+      .from(schema.aiExtractSamplesTable)
+      .where(
+        and(
+          eq(schema.aiExtractSamplesTable.id, parsed.data.sampleId),
+          eq(schema.aiExtractSamplesTable.weekStart, startDate),
+          eq(schema.aiExtractSamplesTable.customer, customer),
+        ),
+      )
+      .limit(1);
+    if (!sample) {
+      res.status(400).json({
+        error:
+          "Upload preview not found. The stashed file may have expired — re-upload the customer file to start over.",
+      });
+      return;
+    }
+
+    const drivers = await db.select().from(schema.driversTable);
+    const kfiSet = new Set(drivers.map((d) => d.kfiId));
+    const fileName = sample.fileName;
+    let result;
+    try {
+      const idMap = await loadMergedIdMap();
+      result = await detectAndParseFile(
+        fileName,
+        Buffer.from(sample.fileBytes),
+        kfiSet,
+        startDate,
+        idMap,
+      );
+    } catch (err) {
+      req.log.error({ err, fileName }, "Parse error (confirm)");
+      const msg = err instanceof Error ? err.message : "Could not parse file";
+      await recordAttempt(startDate, customer, fileName, msg, "parser");
+      res.status(400).json({ error: msg });
+      return;
+    }
+    if (!result || result.customer !== customer) {
+      const msg = "Stashed file no longer parses to the expected customer.";
+      await recordAttempt(startDate, customer, fileName, msg, "parser");
+      res.status(400).json({ error: msg });
+      return;
+    }
+
+    // Apply the dispatcher's exclude toggles using the same deterministic
+    // index order the preview returned.
+    const includedPunches = result.punches.filter(
+      (_p, i) => !excludedIndices.has(i),
+    );
+
+    // Lock-gate: skip any rows belonging to a locked driver-week. Same
+    // semantics as the legacy single-shot upload route.
+    const lockedKfiIds = await loadLockedKfiIds(startDate);
+    const lockedSkipped: string[] = [];
+    const insertablePunches = includedPunches.filter((p) => {
+      if (lockedKfiIds.has(p.kfiId)) {
+        if (!lockedSkipped.includes(p.kfiId)) lockedSkipped.push(p.kfiId);
+        return false;
+      }
+      return true;
+    });
+
+    await db.transaction(async (tx) => {
+      const deleteConds: SQL[] = [
+        eq(schema.punchesTable.weekStart, startDate),
+        eq(schema.punchesTable.source, "Customer"),
+        eq(schema.punchesTable.customer, result.customer),
+        eq(schema.punchesTable.isManual, false),
+        ne(schema.punchesTable.edited, true),
+      ];
+      if (lockedKfiIds.size > 0) {
+        deleteConds.push(
+          sql`${schema.punchesTable.kfiId} NOT IN (${sql.join(
+            [...lockedKfiIds].map((k) => sql`${k}`),
+            sql`, `,
+          )})`,
+        );
+      }
+      await tx.delete(schema.punchesTable).where(and(...deleteConds));
+      if (insertablePunches.length > 0) {
+        await tx.insert(schema.punchesTable).values(
+          insertablePunches.map((p) => ({
+            weekStart: startDate,
+            kfiId: p.kfiId,
+            customer: result.customer,
+            source: "Customer",
+            date: p.date,
+            clockIn: p.clockIn,
+            clockOut: p.clockOut,
+            hours: String(p.hours),
+            payType: p.payType,
+            dispTz: p.noTz ? "America/New_York" : defaultDispTz(p.kfiId),
+            isManual: false,
+            fileOrigin: fileName,
+            createdBy: req.session.userId ?? null,
+          })),
+        );
+      }
+      // Purge the stashed bytes inside the same tx as the commit. A
+      // sample is only useful as a "pending preview" — once it's been
+      // confirmed (or rolled back), we have no reason to hold the
+      // payroll file around. Symmetric with the discard-on-cancel path.
+      await tx
+        .delete(schema.aiExtractSamplesTable)
+        .where(eq(schema.aiExtractSamplesTable.id, sample.id));
+    });
+
+    await recordAttempt(
+      startDate,
+      result.customer,
+      fileName,
+      null,
+      "parser",
+      result.unmappedIds,
+    );
+    if (result.unmappedIds.length > 0) {
+      req.log.warn(
+        {
+          fileName,
+          customer: result.customer,
+          unmappedIds: result.unmappedIds,
+        },
+        "Customer file contained badge IDs not in the KFI roster",
+      );
+    }
+    res.json({
+      customer: result.customer,
+      fileName,
+      punchesUpserted: insertablePunches.length,
+      unmappedIds: result.unmappedIds,
+      lockedSkipped,
+    });
+  },
+);
+
+// Discard a stashed extract preview without committing. Called when the
+// dispatcher cancels the preview dialog so we don't keep payroll-file
+// bytes around for the full 24h TTL when we know they'll never be used.
+// Idempotent: missing sample is treated as success (already gone).
+weeksRouter.delete(
+  "/weeks/:weekStart/extract-customer-file/:sampleId",
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    const sampleId = Number.parseInt(String(req.params.sampleId ?? ""), 10);
+    if (!Number.isFinite(sampleId)) {
+      res.status(400).json({ error: "Invalid sampleId" });
+      return;
+    }
+    const { startDate } = await ensureWeek(weekStart);
+    await db
+      .delete(schema.aiExtractSamplesTable)
+      .where(
+        and(
+          eq(schema.aiExtractSamplesTable.id, sampleId),
+          eq(schema.aiExtractSamplesTable.weekStart, startDate),
+        ),
+      );
+    res.status(204).end();
   },
 );
 
