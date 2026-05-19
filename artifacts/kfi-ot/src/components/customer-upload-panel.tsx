@@ -54,6 +54,55 @@ function errMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+function readEntryAsFile(entry: FileSystemFileEntry): Promise<File | null> {
+  return new Promise((resolve) => {
+    entry.file(
+      (file) => resolve(file),
+      () => resolve(null),
+    );
+  });
+}
+
+function readDirectoryEntries(
+  reader: FileSystemDirectoryReader,
+): Promise<FileSystemEntry[]> {
+  return new Promise((resolve) => {
+    reader.readEntries(
+      (entries) => resolve(entries),
+      () => resolve([]),
+    );
+  });
+}
+
+async function collectFilesFromEntries(
+  entries: FileSystemEntry[],
+): Promise<File[]> {
+  const out: File[] = [];
+  const walk = async (entry: FileSystemEntry) => {
+    if (entry.isFile) {
+      const file = await readEntryAsFile(entry as FileSystemFileEntry);
+      if (file) out.push(file);
+      return;
+    }
+    if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      // readEntries returns at most ~100 entries per call; keep reading
+      // until it returns an empty batch.
+      for (;;) {
+        const batch = await readDirectoryEntries(reader);
+        if (batch.length === 0) break;
+        for (const child of batch) {
+          await walk(child);
+        }
+      }
+    }
+  };
+  for (const entry of entries) {
+    await walk(entry);
+  }
+  return out;
+}
+
 interface RowState {
   uploading: boolean;
   error: string | null;
@@ -412,26 +461,48 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       });
       return;
     }
-    const dropped = Array.from(e.dataTransfer.files ?? []);
-    if (dropped.length === 0) return;
-    const accepted: File[] = [];
-    const rejected: string[] = [];
-    for (const f of dropped) {
-      const lower = f.name.toLowerCase();
-      if (lower.endsWith(".pdf") || lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
-        accepted.push(f);
-      } else {
-        rejected.push(f.name);
+    // We need to snapshot the items list now — `DataTransferItem` entries
+    // are invalidated as soon as the drop event handler returns, so the
+    // async folder traversal below would otherwise see an empty list.
+    const items = e.dataTransfer.items
+      ? Array.from(e.dataTransfer.items)
+          .map((it) =>
+            typeof it.webkitGetAsEntry === "function"
+              ? it.webkitGetAsEntry()
+              : null,
+          )
+          .filter((entry): entry is FileSystemEntry => entry !== null)
+      : [];
+    const fallbackFiles = Array.from(e.dataTransfer.files ?? []);
+    void (async () => {
+      const collected: File[] =
+        items.length > 0
+          ? await collectFilesFromEntries(items)
+          : fallbackFiles;
+      if (collected.length === 0) return;
+      const accepted: File[] = [];
+      const rejected: string[] = [];
+      for (const f of collected) {
+        const lower = f.name.toLowerCase();
+        if (
+          lower.endsWith(".pdf") ||
+          lower.endsWith(".xlsx") ||
+          lower.endsWith(".xls")
+        ) {
+          accepted.push(f);
+        } else {
+          rejected.push(f.name);
+        }
       }
-    }
-    if (rejected.length > 0) {
-      toast({
-        title: `Skipped ${rejected.length} unsupported ${rejected.length === 1 ? "file" : "files"}`,
-        description: `Only .xlsx and .pdf customer files are accepted. Skipped: ${rejected.join(", ")}.`,
-        variant: "destructive",
-      });
-    }
-    if (accepted.length > 0) void runBulk(accepted);
+      if (rejected.length > 0) {
+        toast({
+          title: `Skipped ${rejected.length} unsupported ${rejected.length === 1 ? "file" : "files"}`,
+          description: `Only .xlsx and .pdf customer files are accepted. Skipped: ${rejected.join(", ")}.`,
+          variant: "destructive",
+        });
+      }
+      if (accepted.length > 0) void runBulk(accepted);
+    })();
   };
 
   const promotionCandidates = (statuses ?? []).filter(
