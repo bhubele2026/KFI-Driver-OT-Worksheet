@@ -677,7 +677,7 @@ async function runChunkedXlsxExtract(
   // chunks 2-10 to complete their Gemini calls before Promise.all's
   // rejection bubbled out — wasted minutes and tokens.
   let aborted = false;
-  const handleChunk = async (
+  const handleChunkInner = async (
     idx: number,
   ): Promise<{ rows: AiExtractedRow[] }> => {
     if (aborted) return { rows: [] };
@@ -721,6 +721,22 @@ async function runChunkedXlsxExtract(
       for (const r of hr.rows) collected.push(r);
     }
     return { rows: collected };
+  };
+
+  // Wrap so ANY throw from handleChunkInner (timeout, network error,
+  // schema validation failure, etc.) trips the abort flag — not just
+  // the explicit throws inside handleChunkInner. Without this, an
+  // early runOne() timeout on chunk 1 of 10 would let chunks 2-10
+  // finish their Gemini calls before Promise.all's rejection bubbled.
+  const handleChunk = async (
+    idx: number,
+  ): Promise<{ rows: AiExtractedRow[] }> => {
+    try {
+      return await handleChunkInner(idx);
+    } catch (err) {
+      aborted = true;
+      throw err;
+    }
   };
 
   // Bounded-concurrency worker pool. Preserves document order in the
