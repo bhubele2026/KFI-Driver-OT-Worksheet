@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { readCelebrationSoundPref } from "./use-celebration-sound";
 
 // Module-level so the "already celebrated for this week" memory survives
 // React unmounts as the dispatcher walks between week-summary and
@@ -12,6 +13,48 @@ function prefersReducedMotion(): boolean {
     return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   } catch {
     return false;
+  }
+}
+
+function playCelebrationChime(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const Ctor: typeof AudioContext | undefined =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!Ctor) return;
+    const ctx = new Ctor();
+    // Short two-note arpeggio (E5 -> A5), gentle sine, ~450ms total,
+    // peak gain 0.12 so it stays well below a notification "ding".
+    const now = ctx.currentTime;
+    const notes: Array<{ freq: number; start: number; dur: number }> = [
+      { freq: 659.25, start: 0, dur: 0.22 },
+      { freq: 880.0, start: 0.12, dur: 0.32 },
+    ];
+    for (const n of notes) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = n.freq;
+      const t0 = now + n.start;
+      const t1 = t0 + n.dur;
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(0.12, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t1);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t1 + 0.02);
+    }
+    window.setTimeout(() => {
+      try {
+        void ctx.close();
+      } catch {
+        // ignore
+      }
+    }, 800);
+  } catch {
+    // sound is best-effort
   }
 }
 
@@ -83,8 +126,12 @@ export function useAllReviewedCelebration({
 
     if (!prev && isAll) {
       seenAllReviewed.set(weekStart, true);
-      if (!prefersReducedMotion()) {
+      const reducedMotion = prefersReducedMotion();
+      if (!reducedMotion) {
         void fireConfettiBurst();
+      }
+      if (!reducedMotion && readCelebrationSoundPref()) {
+        playCelebrationChime();
       }
       setSplashVisible(true);
     } else if (prev !== isAll) {

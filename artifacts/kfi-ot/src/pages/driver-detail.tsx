@@ -56,6 +56,7 @@ import { LanguageToggle } from "@/components/language-toggle";
 import { useTranslation } from "react-i18next";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useAutoAdvancePref } from "@/hooks/use-auto-advance";
+import { useCelebrationSoundPref } from "@/hooks/use-celebration-sound";
 import { PresenceChip } from "@/components/presence-chip";
 import { EditingIndicator } from "@/components/editing-indicator";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
@@ -243,6 +244,7 @@ export default function DriverDetail() {
   };
   const [sidebarCollapsed, , toggleSidebar] = useSidebarCollapsed();
   const [autoAdvance, setAutoAdvance] = useAutoAdvancePref();
+  const [celebrationSound, setCelebrationSound] = useCelebrationSoundPref();
 
   // Flat driver order matches the sidebar's grouping (customer -> drivers).
   const flatDriverIds = useMemo(() => {
@@ -2072,6 +2074,20 @@ export default function DriverDetail() {
                 checked={autoAdvance}
                 onCheckedChange={(v) => setAutoAdvance(v === true)}
                 data-testid="checkbox-auto-advance"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <label
+                htmlFor="celebration-sound-pref"
+                className="text-foreground cursor-pointer"
+              >
+                Play a chime when the week is fully reviewed
+              </label>
+              <Checkbox
+                id="celebration-sound-pref"
+                checked={celebrationSound}
+                onCheckedChange={(v) => setCelebrationSound(v === true)}
+                data-testid="checkbox-celebration-sound"
               />
             </div>
             <p className="text-xs text-muted-foreground pt-2">
