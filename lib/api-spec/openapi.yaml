@@ -2169,6 +2169,20 @@ components:
             lastRefreshedAt:
               type: ["string", "null"]
               format: date-time
+            baselineAgeHours:
+              type: ["number", "null"]
+              description: |
+                Hours elapsed since the most recent /refresh-connecteam for
+                this week, or null if the week has never been refreshed.
+            baselineStale:
+              type: boolean
+              description: |
+                True when the snapshot is older than the staleness threshold
+                (default 6h, override via CT_BASELINE_STALE_HOURS). When the
+                badge would otherwise be `match`, the UI flips it to a soft
+                warning so dispatchers don't trust a stale baseline.
+            baselineStaleThresholdHours:
+              type: number
             days:
               type: array
               items:

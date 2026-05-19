@@ -39,7 +39,11 @@ import {
   loadDriverTzMap,
   resolveDispTz,
 } from "../lib/dispatchTz.js";
-import { buildDailyParity, summarizeParity } from "../lib/connecteamParity.js";
+import {
+  buildDailyParity,
+  computeBaselineStaleness,
+  summarizeParity,
+} from "../lib/connecteamParity.js";
 import {
   KNOWN_CUSTOMERS,
   detectAndParseFile,
@@ -557,6 +561,16 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
     baselineExists,
   );
   const paritySummary = summarizeParity(dailyParity);
+  const staleThresholdHours = (() => {
+    const raw = process.env.CT_BASELINE_STALE_HOURS;
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : 6;
+  })();
+  const baselineStaleness = computeBaselineStaleness(
+    week?.lastRefreshedAt ?? null,
+    new Date(),
+    staleThresholdHours,
+  );
   const reviewed = await db.query.reviewedDriversTable.findFirst({
     where: and(
       eq(schema.reviewedDriversTable.weekStart, weekStart),
@@ -601,6 +615,9 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
       lastRefreshedAt: week?.lastRefreshedAt
         ? new Date(week.lastRefreshedAt).toISOString()
         : null,
+      baselineAgeHours: baselineStaleness.ageHours,
+      baselineStale: baselineStaleness.stale,
+      baselineStaleThresholdHours: staleThresholdHours,
       days: dailyParity,
     },
     totals: {

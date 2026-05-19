@@ -873,6 +873,19 @@ export const GetDriverWeekResponse = zod.object({
       status: zod.enum(["match", "differ", "unknown"]),
       diffCount: zod.number(),
       lastRefreshedAt: zod.coerce.date().nullish(),
+      baselineAgeHours: zod
+        .number()
+        .nullish()
+        .describe(
+          "Hours elapsed since the most recent \/refresh-connecteam for\nthis week, or null if the week has never been refreshed.\n",
+        ),
+      baselineStale: zod
+        .boolean()
+        .optional()
+        .describe(
+          "True when the snapshot is older than the staleness threshold\n(default 6h, override via CT_BASELINE_STALE_HOURS). When the\nbadge would otherwise be `match`, the UI flips it to a soft\nwarning so dispatchers don't trust a stale baseline.\n",
+        ),
+      baselineStaleThresholdHours: zod.number().optional(),
       days: zod.array(
         zod.object({
           date: zod.string(),

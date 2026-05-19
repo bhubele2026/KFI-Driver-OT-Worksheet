@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildDailyParity,
+  computeBaselineStaleness,
   summarizeParity,
 } from "../connecteamParity.js";
 
@@ -97,6 +98,46 @@ test("buildDailyParity: snapshot says 0 but engine says >0 is a real diff (expli
   assert.equal(parity[0].matches, false);
   assert.equal(parity[0].connecteamHours, 0);
   assert.equal(summarizeParity(parity).status, "differ");
+});
+
+test("computeBaselineStaleness: never refreshed → ageHours null, not stale", () => {
+  const r = computeBaselineStaleness(null, new Date("2026-05-19T12:00:00Z"), 6);
+  assert.equal(r.ageHours, null);
+  assert.equal(r.stale, false);
+});
+
+test("computeBaselineStaleness: fresh refresh → not stale", () => {
+  const now = new Date("2026-05-19T12:00:00Z");
+  const refreshed = new Date("2026-05-19T11:00:00Z"); // 1h ago
+  const r = computeBaselineStaleness(refreshed, now, 6);
+  assert.equal(Math.round(r.ageHours ?? -1), 1);
+  assert.equal(r.stale, false);
+});
+
+test("computeBaselineStaleness: at/over threshold → stale", () => {
+  const now = new Date("2026-05-19T12:00:00Z");
+  // exactly 6h ago → stale (>=, not >)
+  const r1 = computeBaselineStaleness(
+    new Date("2026-05-19T06:00:00Z"),
+    now,
+    6,
+  );
+  assert.equal(r1.stale, true);
+  // 30h ago → very stale
+  const r2 = computeBaselineStaleness(
+    new Date("2026-05-18T06:00:00Z"),
+    now,
+    6,
+  );
+  assert.equal(r2.stale, true);
+  assert.ok((r2.ageHours ?? 0) > 24);
+});
+
+test("computeBaselineStaleness: ISO string input is accepted", () => {
+  const now = new Date("2026-05-19T12:00:00Z");
+  const r = computeBaselineStaleness("2026-05-19T03:00:00Z", now, 6);
+  assert.equal(r.stale, true);
+  assert.equal(Math.round(r.ageHours ?? -1), 9);
 });
 
 test("summarizeParity: every snapshotted day matches → match", () => {

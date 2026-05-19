@@ -2226,6 +2226,9 @@ function SummaryAndChecks({
     status: "match" | "differ" | "unknown" | string;
     diffCount: number;
     lastRefreshedAt?: string | null;
+    baselineAgeHours?: number | null;
+    baselineStale?: boolean;
+    baselineStaleThresholdHours?: number;
     days: Array<{
       date: string;
       engineHours: number;
@@ -2249,6 +2252,31 @@ function SummaryAndChecks({
   const refreshedNote = lastRefreshedAt
     ? ` Baseline refreshed ${new Date(lastRefreshedAt).toLocaleString()}.`
     : "";
+  // Baseline staleness: a green "matches" badge against a hours-old snapshot
+  // is misleading because Connecteam may have new shifts on its side that
+  // the dashboard has no way to know about. When stale, replace the match
+  // badge with a soft "baseline is N hours old" warning, and append a note
+  // to the differ badge tooltip so dispatchers know to re-pull.
+  const baselineStale = connecteamParity?.baselineStale === true;
+  const baselineAgeHours = connecteamParity?.baselineAgeHours ?? null;
+  const formatAge = (h: number): string => {
+    if (h < 1) {
+      const m = Math.max(1, Math.round(h * 60));
+      return `${m} min`;
+    }
+    if (h < 24) {
+      const r = Math.round(h);
+      return `${r} hour${r === 1 ? "" : "s"}`;
+    }
+    const d = Math.round(h / 24);
+    return `${d} day${d === 1 ? "" : "s"}`;
+  };
+  const ageLabel =
+    baselineAgeHours != null ? formatAge(baselineAgeHours) : null;
+  const staleNote =
+    baselineStale && ageLabel
+      ? ` Baseline is ${ageLabel} old — refresh to recheck.`
+      : "";
   const diffDayList = (connecteamParity?.days ?? [])
     .filter((d) => d.matches === false)
     .map(
@@ -2295,7 +2323,16 @@ function SummaryAndChecks({
         <CardHeader className="pb-2 pt-4 px-4">
           <CardTitle className="text-sm font-display tracking-tight flex items-center justify-between gap-2">
             <span>Summary</span>
-            {parityStatus === "match" ? (
+            {parityStatus === "match" && baselineStale && ageLabel ? (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/40"
+                data-testid="badge-ct-parity-stale"
+                title={`Dashboard matches the snapshot, but the snapshot is ${ageLabel} old — Connecteam may have logged new shifts since.${refreshedNote} Re-pull Connecteam to recheck.`}
+              >
+                <AlertTriangle className="h-3 w-3" />
+                Baseline {ageLabel} old — refresh to recheck
+              </span>
+            ) : parityStatus === "match" ? (
               <span
                 className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
                 data-testid="badge-ct-parity-match"
@@ -2308,7 +2345,7 @@ function SummaryAndChecks({
               <span
                 className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-warning/15 text-warning border border-warning/40"
                 data-testid="badge-ct-parity-diff"
-                title={`${diffCount} day${diffCount === 1 ? "" : "s"} diverge from the Connecteam baseline.${refreshedNote}${diffDayList ? `\n\n${diffDayList}` : ""}`}
+                title={`${diffCount} day${diffCount === 1 ? "" : "s"} diverge from the Connecteam baseline.${refreshedNote}${staleNote}${diffDayList ? `\n\n${diffDayList}` : ""}`}
               >
                 <AlertTriangle className="h-3 w-3" />
                 Differs from Connecteam ({diffCount})

@@ -83,6 +83,32 @@ export function buildDailyParity(
  * `null` (not-yet-refreshed); the frontend treats null as "no parity claim
  * yet" rather than green or amber.
  */
+/**
+ * The dispatcher-visible parity badge compares the dashboard against a
+ * snapshot taken at the last /refresh-connecteam call. If that snapshot is
+ * old, a green "matches" badge can be misleading — Connecteam may have new
+ * shifts on its side that the dashboard has no way to know about.
+ *
+ * Returns `{ stale, ageHours }`:
+ * - `ageHours` is null when there's no baseline at all (never refreshed).
+ * - `stale` is true when the baseline is older than `thresholdHours`.
+ *   Never refreshed → `stale=false` (the unknown badge already says that).
+ */
+export function computeBaselineStaleness(
+  lastRefreshedAt: Date | string | null | undefined,
+  now: Date,
+  thresholdHours: number,
+): { stale: boolean; ageHours: number | null } {
+  if (lastRefreshedAt == null) return { stale: false, ageHours: null };
+  const refreshedMs =
+    typeof lastRefreshedAt === "string"
+      ? Date.parse(lastRefreshedAt)
+      : lastRefreshedAt.getTime();
+  if (!Number.isFinite(refreshedMs)) return { stale: false, ageHours: null };
+  const ageHours = Math.max(0, (now.getTime() - refreshedMs) / 3_600_000);
+  return { stale: ageHours >= thresholdHours, ageHours };
+}
+
 export function summarizeParity(rows: ReadonlyArray<DailyParity>): {
   status: "match" | "differ" | "unknown";
   diffCount: number;

@@ -552,6 +552,20 @@ export type DriverWeekConnecteamParity = {
   diffCount: number;
   /** @nullable */
   lastRefreshedAt?: string | null;
+  /**
+   * Hours elapsed since the most recent /refresh-connecteam for
+this week, or null if the week has never been refreshed.
+
+   * @nullable
+   */
+  baselineAgeHours?: number | null;
+  /** True when the snapshot is older than the staleness threshold
+(default 6h, override via CT_BASELINE_STALE_HOURS). When the
+badge would otherwise be `match`, the UI flips it to a soft
+warning so dispatchers don't trust a stale baseline.
+ */
+  baselineStale?: boolean;
+  baselineStaleThresholdHours?: number;
   days: DriverWeekConnecteamParityDaysItem[];
 };
 
