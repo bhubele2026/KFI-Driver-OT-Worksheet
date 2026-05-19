@@ -2329,10 +2329,42 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
     if (r.customer) byName.set(r.customer, r);
   }
   const attemptByName = new Map(attempts.map((a) => [a.customer, a]));
+  // Compute the set of customers that have at least one Driver-source punch
+  // for this week, joined through the drivers table (driver-source punches
+  // store customer=null and derive it from drivers.kfi_id). Used below to
+  // hide roster-only customers — internal/test entries like "zzKFI Internal"
+  // and "zzzTest" — that nobody is actually working this week. A customer
+  // that already has Customer-source punches OR a recorded upload attempt
+  // for this week stays visible regardless, so prior dispatcher work is
+  // never hidden.
+  const driverTimeRows = await db
+    .selectDistinct({ customer: schema.driversTable.customer })
+    .from(schema.driversTable)
+    .innerJoin(
+      schema.punchesTable,
+      eq(schema.punchesTable.kfiId, schema.driversTable.kfiId),
+    )
+    .where(
+      and(
+        eq(schema.punchesTable.weekStart, weekStart),
+        eq(schema.punchesTable.source, "Driver"),
+      ),
+    );
+  const driverTimeCustomers = new Set<string>();
+  for (const r of driverTimeRows) {
+    const name = (r.customer ?? "").trim();
+    if (name) driverTimeCustomers.add(name);
+  }
+  const hasActivityThisWeek = (name: string): boolean =>
+    driverTimeCustomers.has(name) ||
+    (byName.get(name)?.punchCount ?? 0) > 0 ||
+    attemptByName.has(name);
   // Filter inactive customers out of the per-week panel. Historical punches,
   // upload attempts, aliases, and AI samples are untouched — only the row's
   // visibility on this dashboard changes.
-  const out = KNOWN_CUSTOMERS.filter((c) => !isInactive(c.displayName)).map((c) => {
+  const out = KNOWN_CUSTOMERS.filter(
+    (c) => !isInactive(c.displayName) && hasActivityThisWeek(c.displayName),
+  ).map((c) => {
     const r = byName.get(c.displayName);
     const a = attemptByName.get(c.displayName);
     return {
@@ -2405,7 +2437,10 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
     if (knownNames.has(name)) continue;
     aiOnlyNames.add(name);
   }
-  const aiOnly = [...aiOnlyNames].filter((name) => !isInactive(name)).sort().map((name) => {
+  const aiOnly = [...aiOnlyNames]
+    .filter((name) => !isInactive(name) && hasActivityThisWeek(name))
+    .sort()
+    .map((name) => {
     const r = byName.get(name);
     const a = attemptByName.get(name);
     const aiWeeks = aiWeekCountByCustomer.get(name) ?? 0;
