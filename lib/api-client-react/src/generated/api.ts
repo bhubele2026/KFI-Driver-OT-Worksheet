@@ -3550,10 +3550,14 @@ export const useUploadCustomerFile = <
 };
 
 /**
- * @summary Parse a known-customer time export (xlsx/pdf) into preview rows WITHOUT writing
-anything. Stashes the uploaded file in `ai_extract_samples` (24h TTL) so
-/confirm-customer-file can re-parse it on demand. Body is `multipart/form-data`
-with a single `file` field; the frontend builds the FormData manually.
+ * @summary Parse a known-customer time export (xlsx/pdf, or a photo: jpg/png/heic/webp,
+max 15 MB; HEIC is transcoded to JPEG server-side) into preview rows WITHOUT
+writing anything. Image uploads route through Gemini AI extraction and persist
+their resolved rows on the stashed sample so /confirm-customer-file replays them
+exactly instead of re-running the (non-deterministic) extractor. Stashes the
+uploaded file in `ai_extract_samples` (24h TTL) so /confirm-customer-file can
+replay it on demand. Body is `multipart/form-data` with a single `file` field;
+the frontend builds the FormData manually.
 
  */
 export const getExtractCustomerFileUrl = (weekStart: string) => {
@@ -3618,10 +3622,14 @@ export type ExtractCustomerFileMutationResult = NonNullable<
 export type ExtractCustomerFileMutationError = ErrorType<void>;
 
 /**
- * @summary Parse a known-customer time export (xlsx/pdf) into preview rows WITHOUT writing
-anything. Stashes the uploaded file in `ai_extract_samples` (24h TTL) so
-/confirm-customer-file can re-parse it on demand. Body is `multipart/form-data`
-with a single `file` field; the frontend builds the FormData manually.
+ * @summary Parse a known-customer time export (xlsx/pdf, or a photo: jpg/png/heic/webp,
+max 15 MB; HEIC is transcoded to JPEG server-side) into preview rows WITHOUT
+writing anything. Image uploads route through Gemini AI extraction and persist
+their resolved rows on the stashed sample so /confirm-customer-file replays them
+exactly instead of re-running the (non-deterministic) extractor. Stashes the
+uploaded file in `ai_extract_samples` (24h TTL) so /confirm-customer-file can
+replay it on demand. Body is `multipart/form-data` with a single `file` field;
+the frontend builds the FormData manually.
 
  */
 export const useExtractCustomerFile = <

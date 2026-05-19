@@ -18,4 +18,11 @@ export interface CustomerExtractPreview {
   unmappedIds: UnmappedId[];
   /** Number of existing Customer-source punches for `(week, customer)` that this confirm would actually replace — i.e. excluding manual rows, inline-edited rows, and any rows belonging to a locked driver-week (all of which the wipe preserves). */
   existingPunchCount: number;
+  /** True when the deterministic parser for this customer returned zero punches and the server fell back to AI extraction (Gemini) to recover rows. Indicates the source file format has likely drifted from what the parser expects — the dispatcher should review every row carefully before confirming, and engineering should update the deterministic parser (or promote the AI fallback to a parser; see `docs/promote-ai-customer-to-parser.md`). */
+  aiFallback?: boolean;
+  /**
+   * When `aiFallback` is true, the human-readable reason the deterministic parser failed (e.g. "parsed 0 punches" or "missing Transaction Apply Date header"). Null otherwise.
+   * @nullable
+   */
+  aiFallbackReason?: string | null;
 }

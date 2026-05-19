@@ -68,6 +68,8 @@ export interface CustomerPreviewData {
   rows: CustomerPreviewRow[];
   unmappedIds: CustomerPreviewUnmappedId[];
   existingPunchCount: number;
+  aiFallback?: boolean;
+  aiFallbackReason?: string | null;
 }
 
 function errMessage(err: unknown, fallback: string): string {
@@ -263,6 +265,24 @@ export function CustomerPreviewDialog({
         </DialogHeader>
 
         <div className="space-y-2">
+          {preview.aiFallback ? (
+            <div
+              className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-100/70 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200"
+              data-testid="text-ai-fallback-warning"
+            >
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>
+                <strong>AI fallback used.</strong> The built-in parser for{" "}
+                {preview.customer} returned no rows
+                {preview.aiFallbackReason
+                  ? ` (${preview.aiFallbackReason})`
+                  : ""}
+                , so the file was read by AI instead. The format has likely
+                changed — review every row carefully before confirming and
+                flag the change to engineering so the parser can be updated.
+              </span>
+            </div>
+          ) : null}
           {preview.existingPunchCount > 0 ? (
             <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
               <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />

@@ -1229,13 +1229,71 @@ weeksRouter.post(
       });
       return;
     }
+    // Track whether we fell back to AI extraction so the preview dialog can
+    // warn the dispatcher and so /confirm-customer-file knows to replay the
+    // stashed rows instead of re-running the deterministic parser.
+    let aiFallback = false;
+    let aiFallbackReason: string | null = null;
+    if (!isImage && result.punches.length === 0) {
+      // Deterministic parser detected the customer from the filename but
+      // returned zero rows. That's almost always format drift — the source
+      // export changed column names, sheet layout, or date format. Rather
+      // than block the dispatcher on a parser update, fall back to Gemini
+      // with the customer name + week window pinned so it can recover the
+      // punches. The dispatcher reviews every row in the preview before
+      // anything is written, and the amber "AI fallback used" banner is the
+      // signal to engineering that the parser needs an update.
+      req.log.warn(
+        { fileName, customer: result.customer },
+        "Customer file parsed to zero punches — attempting AI fallback",
+      );
+      const detectedCustomer = result.customer;
+      try {
+        const idMap = await loadMergedIdMap();
+        const aiResult = await extractImageForKnownCustomer({
+          fileName,
+          buffer: req.file.buffer,
+          mimeType: req.file.mimetype || "application/octet-stream",
+          customer: detectedCustomer,
+          weekStart: startDate,
+          weekEnd: endDate,
+          idMap,
+          drivers,
+          kfiSet,
+        });
+        if (aiResult.punches.length === 0) {
+          const msg = `Detected customer "${detectedCustomer}" but parsed 0 punches even with AI fallback. The file may not contain any punches in this week's window, or the format is unreadable.`;
+          await recordAttempt(startDate, detectedCustomer, fileName, msg, "ai");
+          res.status(400).json({ error: msg });
+          return;
+        }
+        result = aiResult;
+        aiFallback = true;
+        aiFallbackReason = "deterministic parser returned 0 punches";
+        // AI-derived rows must be stashed verbatim — the extractor is
+        // non-deterministic so /confirm-customer-file can't re-derive them.
+        stashedImageRows = imagePunchesForStash(aiResult.punches);
+      } catch (err) {
+        req.log.error(
+          { err, fileName, customer: detectedCustomer },
+          "AI fallback failed after deterministic parser returned 0 punches",
+        );
+        const aiMsg =
+          err instanceof Error ? err.message : "AI fallback failed";
+        const msg = `Detected customer "${detectedCustomer}" but parsed 0 punches, and AI fallback failed: ${aiMsg}`;
+        await recordAttempt(startDate, detectedCustomer, fileName, msg, "ai");
+        res.status(400).json({ error: msg });
+        return;
+      }
+    }
     if (result.punches.length === 0) {
+      // Image branch only: AI returned zero rows.
       req.log.warn(
         { fileName, customer: result.customer },
         "Customer file parsed to zero punches (extract)",
       );
       const msg = `Detected customer "${result.customer}" but parsed 0 punches. The file format may have changed, or no rows match the loaded driver roster.`;
-      await recordAttempt(startDate, result.customer, fileName, msg, "parser");
+      await recordAttempt(startDate, result.customer, fileName, msg, isImage ? "ai" : "parser");
       res.status(400).json({ error: msg });
       return;
     }
@@ -1333,6 +1391,8 @@ weeksRouter.post(
       })),
       unmappedIds: unmappedWithSuggestions,
       existingPunchCount,
+      aiFallback,
+      aiFallbackReason,
     });
   },
 );

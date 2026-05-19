@@ -1176,10 +1176,14 @@ export const UploadCustomerFileResponse = zod.object({
 });
 
 /**
- * @summary Parse a known-customer time export (xlsx/pdf) into preview rows WITHOUT writing
-anything. Stashes the uploaded file in `ai_extract_samples` (24h TTL) so
-/confirm-customer-file can re-parse it on demand. Body is `multipart/form-data`
-with a single `file` field; the frontend builds the FormData manually.
+ * @summary Parse a known-customer time export (xlsx/pdf, or a photo: jpg/png/heic/webp,
+max 15 MB; HEIC is transcoded to JPEG server-side) into preview rows WITHOUT
+writing anything. Image uploads route through Gemini AI extraction and persist
+their resolved rows on the stashed sample so /confirm-customer-file replays them
+exactly instead of re-running the (non-deterministic) extractor. Stashes the
+uploaded file in `ai_extract_samples` (24h TTL) so /confirm-customer-file can
+replay it on demand. Body is `multipart/form-data` with a single `file` field;
+the frontend builds the FormData manually.
 
  */
 export const extractCustomerFilePathWeekStartRegExp = new RegExp(
@@ -1255,6 +1259,18 @@ export const ExtractCustomerFileResponse = zod.object({
     .number()
     .describe(
       "Number of existing Customer-source punches for `(week, customer)` that this confirm would actually replace — i.e. excluding manual rows, inline-edited rows, and any rows belonging to a locked driver-week (all of which the wipe preserves).",
+    ),
+  aiFallback: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when the deterministic parser for this customer returned zero punches and the server fell back to AI extraction (Gemini) to recover rows. Indicates the source file format has likely drifted from what the parser expects — the dispatcher should review every row carefully before confirming, and engineering should update the deterministic parser (or promote the AI fallback to a parser; see `docs\/promote-ai-customer-to-parser.md`).",
+    ),
+  aiFallbackReason: zod
+    .string()
+    .nullish()
+    .describe(
+      'When `aiFallback` is true, the human-readable reason the deterministic parser failed (e.g. \"parsed 0 punches\" or \"missing Transaction Apply Date header\"). Null otherwise.',
     ),
 });
 
