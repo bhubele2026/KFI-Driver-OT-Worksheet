@@ -1391,6 +1391,125 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/DriverWeekAuditEntry" }
 
+  /timezones/allowed:
+    get:
+      operationId: getAllowedTimezones
+      tags: [timezones]
+      summary: List of IANA timezone strings allowed for per-driver / per-upload overrides.
+      responses:
+        "200":
+          description: Allowed tz list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AllowedTimezones" }
+
+  /drivers/{kfiId}/timezone:
+    patch:
+      operationId: updateDriverTimezone
+      tags: [timezones]
+      summary: Set or clear a driver's display-tz override (`drivers.display_tz`). Supervisor/Admin.
+      parameters:
+        - $ref: "#/components/parameters/KfiId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateDriverTimezoneInput" }
+      responses:
+        "200":
+          description: Updated driver record (includes resolved effective tz)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DriverInfo" }
+        "400": { description: Invalid tz value }
+        "403": { description: Supervisor or admin only }
+        "404": { description: Driver not found }
+
+  /weeks/{weekStart}/drivers/{kfiId}/refresh-connecteam:
+    post:
+      operationId: refreshConnecteamForDriver
+      tags: [timezones]
+      summary: Re-pull this single driver's Connecteam punches for the week (applies the current `display_tz`). Supervisor/Admin.
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - $ref: "#/components/parameters/KfiId"
+      responses:
+        "200":
+          description: Refresh result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RefreshConnecteamDriverResult" }
+        "403": { description: Supervisor or admin only }
+        "404": { description: Driver not found }
+        "502": { description: Upstream Connecteam error }
+
+  /weeks/{weekStart}/drivers/{kfiId}/shift-punches:
+    post:
+      operationId: shiftDriverWeekPunches
+      tags: [timezones]
+      summary: Shift this driver-week's punches by `offsetHours` (and optionally restamp `dispTz`) — useful for fixing rows that were ingested in the wrong tz. Supervisor/Admin.
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - $ref: "#/components/parameters/KfiId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ShiftPunchesInput" }
+      responses:
+        "200":
+          description: Number of rows shifted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShiftPunchesResult" }
+        "400": { description: Invalid offset }
+        "403": { description: Supervisor or admin only }
+        "423": { description: Driver-week is locked }
+
+  /customer-tz-preferences:
+    get:
+      operationId: listCustomerTzPreferences
+      tags: [timezones]
+      summary: Per-customer default display-tz preferences. Auth required.
+      responses:
+        "200":
+          description: Preferences
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CustomerTzPreference" }
+    put:
+      operationId: upsertCustomerTzPreference
+      tags: [timezones]
+      summary: Set the default display-tz for a customer. Supervisor/Admin.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpsertCustomerTzPreferenceInput" }
+      responses:
+        "200":
+          description: Saved preference
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpsertCustomerTzPreferenceInput" }
+        "400": { description: Invalid input }
+        "403": { description: Supervisor or admin only }
+    delete:
+      operationId: deleteCustomerTzPreference
+      tags: [timezones]
+      summary: Clear a customer's display-tz preference. Supervisor/Admin.
+      parameters:
+        - name: customer
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Deleted (or no-op) }
+        "400": { description: customer is required }
+        "403": { description: Supervisor or admin only }
+
 components:
   parameters:
     WeekStart:
@@ -1765,6 +1884,12 @@ components:
         ctUserId:
           type: ["integer", "null"]
         isDriver: { type: boolean }
+        displayTz:
+          type: ["string", "null"]
+          description: Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set; falls back to the IWG hardcode (when applicable) or CT_TZ.
+        effectiveDispTz:
+          type: ["string", "null"]
+          description: Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.
 
     DriverSummaryRow:
       type: object
@@ -1808,6 +1933,12 @@ components:
         noteCount:
           type: integer
           description: Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context.
+        displayTz:
+          type: ["string", "null"]
+          description: Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set.
+        effectiveDispTz:
+          type: ["string", "null"]
+          description: Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.
 
     WeekSummary:
       type: object
@@ -2229,7 +2360,7 @@ components:
 
     CustomerUploadStatus:
       type: object
-      required: [customer, extensions, keywords, punchCount, isAiImported, aiImportWeekCount, aliasCount, promotionCandidate, lastUnmappedIds]
+      required: [customer, extensions, keywords, punchCount, isAiImported, aiImportWeekCount, aliasCount, promotionCandidate, lastUnmappedIds, preferredDispTz]
       properties:
         customer: { type: string }
         extensions:
@@ -2281,6 +2412,9 @@ components:
             persistent warning under the row so dispatchers don't lose the
             list when refreshing the dashboard. Empty when the last upload
             was clean.
+        preferredDispTz:
+          type: ["string", "null"]
+          description: Saved per-customer display-tz preference (`customer_tz_preferences.display_tz`). Pre-selects the timezone picker on this customer's upload dialog. Null when no preference is set.
 
     CustomerExtractRow:
       type: object
@@ -2422,6 +2556,9 @@ components:
         rows:
           type: array
           items: { $ref: "#/components/schemas/ConfirmNewCustomerRow" }
+        dispTz:
+          type: ["string", "null"]
+          description: Per-upload display-tz override (must be one of `ALLOWED_TZS`). Applied to every imported row in lieu of the per-driver `display_tz` and the IWG/CT fallback. Silently ignored when not recognized.
 
     ConfirmNewCustomerResult:
       type: object
@@ -2718,3 +2855,66 @@ components:
         actorEmail:
           type: ["string", "null"]
         createdAt: { type: string, format: date-time }
+
+    AllowedTimezones:
+      type: object
+      required: [allowed]
+      properties:
+        allowed:
+          type: array
+          items: { type: string }
+          description: IANA timezone strings the dispatcher is allowed to pick from. Matches `ALLOWED_TZS` on the server.
+
+    UpdateDriverTimezoneInput:
+      type: object
+      required: [displayTz]
+      properties:
+        displayTz:
+          type: ["string", "null"]
+          description: IANA tz string from `ALLOWED_TZS`, or null to clear the override and fall back to IWG/CT defaults.
+
+    RefreshConnecteamDriverResult:
+      type: object
+      required: [driversFound, punchesUpserted, refreshedAt]
+      properties:
+        driversFound: { type: integer }
+        punchesUpserted: { type: integer }
+        refreshedAt: { type: string, format: date-time }
+
+    ShiftPunchesInput:
+      type: object
+      required: [offsetHours]
+      properties:
+        offsetHours:
+          type: number
+          description: Hours to shift every matching punch by. Positive shifts later; negative shifts earlier. Must be non-zero and within -12..12.
+        source:
+          type: ["string", "null"]
+          enum: [Driver, Customer, null]
+          description: When set, only rows from this source are shifted. Otherwise both Driver- and Customer-source rows are shifted.
+        newDispTz:
+          type: ["string", "null"]
+          description: If provided (and in `ALLOWED_TZS`), every shifted row is also restamped with this tz so future reads agree with the new wall-clock time.
+
+    ShiftPunchesResult:
+      type: object
+      required: [shifted]
+      properties:
+        shifted: { type: integer }
+
+    CustomerTzPreference:
+      type: object
+      required: [customer, displayTz, updatedAt]
+      properties:
+        customer: { type: string }
+        displayTz: { type: string }
+        updatedAt: { type: string, format: date-time }
+        updatedByEmail:
+          type: ["string", "null"]
+
+    UpsertCustomerTzPreferenceInput:
+      type: object
+      required: [customer, displayTz]
+      properties:
+        customer: { type: string, minLength: 1 }
+        displayTz: { type: string }

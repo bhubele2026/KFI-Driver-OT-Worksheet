@@ -29,4 +29,14 @@ export interface DriverSummaryRow {
   lastTouchedAt?: Date | null;
   /** Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context. */
   noteCount: number;
+  /**
+   * Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set.
+   * @nullable
+   */
+  displayTz?: string | null;
+  /**
+   * Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.
+   * @nullable
+   */
+  effectiveDispTz?: string | null;
 }

@@ -52,4 +52,9 @@ list when refreshing the dashboard. Empty when the last upload
 was clean.
  */
   lastUnmappedIds: UnmappedId[];
+  /**
+   * Saved per-customer display-tz preference (`customer_tz_preferences.display_tz`). Pre-selects the timezone picker on this customer's upload dialog. Null when no preference is set.
+   * @nullable
+   */
+  preferredDispTz: string | null;
 }

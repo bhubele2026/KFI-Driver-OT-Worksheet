@@ -4,7 +4,7 @@ import {
   TIME_CLOCKS,
   USER_ID_ALIASES_LD,
 } from "./mappings.js";
-import { CT_TZ, msToLocalStr, msToLocalDate, addDays } from "./time.js";
+import { CT_TZ, msToLocalStr, msToLocalDate, addDays, isAllowedTz } from "./time.js";
 
 const CT_BASE = "https://api.connecteam.com";
 
@@ -208,6 +208,12 @@ export async function fetchPunchesForWeek(
   startIso: string,
   endIsoInclusive: string,
   ctUserIdToKfi: Map<number, string>,
+  /**
+   * Per-driver display-tz override map keyed by KFI id. When a driver has an
+   * entry, that tz wins over the legacy IWG hardcode and the CT_TZ default.
+   * Loaded from `drivers.display_tz` by the route layer; empty map is fine.
+   */
+  driverTzByKfi: Map<string, string | null> = new Map(),
 ): Promise<ConnecteamPunch[]> {
   // Connecteam's date filter is exclusive of the upper bound, so push it +1d.
   const endParam = addDays(endIsoInclusive, 1);
@@ -225,7 +231,13 @@ export async function fetchPunchesForWeek(
       const aliasedKfi = USER_ID_ALIASES_LD[String(ctUserId)];
       const kfiId = aliasedKfi ?? ctUserIdToKfi.get(ctUserId);
       if (!kfiId) continue;
-      const dispTz = IWG_DRIVER_IDS.has(kfiId) ? "America/New_York" : CT_TZ;
+      const driverTz = driverTzByKfi.get(kfiId);
+      const dispTz =
+        driverTz && isAllowedTz(driverTz)
+          ? driverTz
+          : IWG_DRIVER_IDS.has(kfiId)
+            ? "America/New_York"
+            : CT_TZ;
       for (const s of g.shifts ?? []) {
         const startTs = s.start?.timestamp;
         const endTs = s.end?.timestamp;

@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { useConfirmNewCustomerFile } from "@workspace/api-client-react";
+import {
+  useConfirmNewCustomerFile,
+  useGetAllowedTimezones,
+} from "@workspace/api-client-react";
 import {
   Dialog,
   DialogContent,
@@ -99,6 +102,8 @@ export function NewCustomerDialog({
     new Set(),
   );
   const [forgettingName, setForgettingName] = useState<string | null>(null);
+  const [dispTz, setDispTz] = useState<string>("__auto__");
+  const { data: allowedTzs } = useGetAllowedTimezones();
 
   useEffect(() => {
     if (!open) {
@@ -111,6 +116,7 @@ export function NewCustomerDialog({
       setMapping({});
       setForgottenAliases(new Set());
       setForgettingName(null);
+      setDispTz("__auto__");
     } else if (initialFile) {
       setFile(initialFile);
     }
@@ -213,6 +219,7 @@ export function NewCustomerDialog({
           sampleId: preview.sampleId,
           mapping: cleanMapping,
           rows: payloadRows,
+          ...(dispTz !== "__auto__" ? { dispTz } : {}),
         },
       },
       {
@@ -296,11 +303,36 @@ export function NewCustomerDialog({
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="rounded border border-border/60 bg-muted/30 px-3 py-2 text-sm">
-                <span className="font-semibold">{preview.customer}</span>
-                <span className="text-muted-foreground">
-                  {" "}· week of {preview.weekStart} · {editedRows.length} extracted rows
-                </span>
+              <div className="rounded border border-border/60 bg-muted/30 px-3 py-2 text-sm flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="font-semibold">{preview.customer}</span>
+                  <span className="text-muted-foreground">
+                    {" "}· week of {preview.weekStart} · {editedRows.length} extracted rows
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    Tz
+                  </Label>
+                  <Select value={dispTz} onValueChange={setDispTz}>
+                    <SelectTrigger
+                      className="h-7 w-[180px] text-xs"
+                      data-testid="select-new-customer-tz"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__auto__" className="text-xs">
+                        Auto (per driver/customer)
+                      </SelectItem>
+                      {(allowedTzs?.allowed ?? []).map((tz) => (
+                        <SelectItem key={tz} value={tz} className="text-xs">
+                          {tz}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               <section>

@@ -8,6 +8,27 @@
 
 export const CT_TZ = "America/Chicago";
 
+/**
+ * Display timezones the dispatcher is allowed to assign to a driver or
+ * customer upload. Kept short on purpose — these are the only zones the
+ * KFI roster has ever needed. Add a new one here when a driver moves.
+ */
+export const ALLOWED_TZS = [
+  "America/Chicago",
+  "America/New_York",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Phoenix",
+] as const;
+
+export type AllowedTz = (typeof ALLOWED_TZS)[number];
+
+export function isAllowedTz(tz: unknown): tz is AllowedTz {
+  return (
+    typeof tz === "string" && (ALLOWED_TZS as readonly string[]).includes(tz)
+  );
+}
+
 /** Convert a UTC ms timestamp into "YYYY-MM-DD H:MM AM" in the given tz. */
 export function msToLocalStr(ms: number, tz: string): string {
   const d = new Date(ms);

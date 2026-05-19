@@ -317,6 +317,16 @@ export interface DriverInfo {
   /** @nullable */
   ctUserId?: number | null;
   isDriver: boolean;
+  /**
+   * Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set; falls back to the IWG hardcode (when applicable) or CT_TZ.
+   * @nullable
+   */
+  displayTz?: string | null;
+  /**
+   * Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.
+   * @nullable
+   */
+  effectiveDispTz?: string | null;
 }
 
 /**
@@ -353,6 +363,16 @@ export interface DriverSummaryRow {
   lastTouchedAt?: string | null;
   /** Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context. */
   noteCount: number;
+  /**
+   * Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set.
+   * @nullable
+   */
+  displayTz?: string | null;
+  /**
+   * Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.
+   * @nullable
+   */
+  effectiveDispTz?: string | null;
 }
 
 export type WeekSummaryTotals = {
@@ -745,6 +765,11 @@ list when refreshing the dashboard. Empty when the last upload
 was clean.
  */
   lastUnmappedIds: UnmappedId[];
+  /**
+   * Saved per-customer display-tz preference (`customer_tz_preferences.display_tz`). Pre-selects the timezone picker on this customer's upload dialog. Null when no preference is set.
+   * @nullable
+   */
+  preferredDispTz: string | null;
 }
 
 export interface CustomerExtractRow {
@@ -846,6 +871,11 @@ export interface ConfirmNewCustomerInput {
   sampleId?: number | null;
   mapping: ConfirmNewCustomerInputMapping;
   rows: ConfirmNewCustomerRow[];
+  /**
+   * Per-upload display-tz override (must be one of `ALLOWED_TZS`). Applied to every imported row in lieu of the per-driver `display_tz` and the IWG/CT fallback. Silently ignored when not recognized.
+   * @nullable
+   */
+  dispTz?: string | null;
 }
 
 export interface ConfirmNewCustomerResult {
@@ -1096,6 +1126,71 @@ export interface CustomerAliasAuditLogEntry {
   createdAt: string;
 }
 
+export interface AllowedTimezones {
+  /** IANA timezone strings the dispatcher is allowed to pick from. Matches `ALLOWED_TZS` on the server. */
+  allowed: string[];
+}
+
+export interface UpdateDriverTimezoneInput {
+  /**
+   * IANA tz string from `ALLOWED_TZS`, or null to clear the override and fall back to IWG/CT defaults.
+   * @nullable
+   */
+  displayTz: string | null;
+}
+
+export interface RefreshConnecteamDriverResult {
+  driversFound: number;
+  punchesUpserted: number;
+  refreshedAt: string;
+}
+
+/**
+ * When set, only rows from this source are shifted. Otherwise both Driver- and Customer-source rows are shifted.
+ * @nullable
+ */
+export type ShiftPunchesInputSource =
+  | (typeof ShiftPunchesInputSource)[keyof typeof ShiftPunchesInputSource]
+  | null;
+
+export const ShiftPunchesInputSource = {
+  Driver: "Driver",
+  Customer: "Customer",
+} as const;
+
+export interface ShiftPunchesInput {
+  /** Hours to shift every matching punch by. Positive shifts later; negative shifts earlier. Must be non-zero and within -12..12. */
+  offsetHours: number;
+  /**
+   * When set, only rows from this source are shifted. Otherwise both Driver- and Customer-source rows are shifted.
+   * @nullable
+   */
+  source?: ShiftPunchesInputSource;
+  /**
+   * If provided (and in `ALLOWED_TZS`), every shifted row is also restamped with this tz so future reads agree with the new wall-clock time.
+   * @nullable
+   */
+  newDispTz?: string | null;
+}
+
+export interface ShiftPunchesResult {
+  shifted: number;
+}
+
+export interface CustomerTzPreference {
+  customer: string;
+  displayTz: string;
+  updatedAt: string;
+  /** @nullable */
+  updatedByEmail?: string | null;
+}
+
+export interface UpsertCustomerTzPreferenceInput {
+  /** @minLength 1 */
+  customer: string;
+  displayTz: string;
+}
+
 export type ListRateLimitEventTimeseriesParams = {
   /**
    * @minimum 1
@@ -1180,4 +1275,8 @@ export type ListDeletedDriverNotesParams = {
    * @maximum 500
    */
   limit?: number;
+};
+
+export type DeleteCustomerTzPreferenceParams = {
+  customer: string;
 };

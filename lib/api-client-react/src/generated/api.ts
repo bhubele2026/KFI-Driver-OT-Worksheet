@@ -21,6 +21,7 @@ import type {
   AddIpBlocklistBody,
   AiExtractPreview,
   AiExtractSample,
+  AllowedTimezones,
   AuthCredentials,
   ConfirmCustomerFileInput,
   ConfirmNewCustomerInput,
@@ -34,11 +35,14 @@ import type {
   CustomerExtractPreview,
   CustomerNameAlias,
   CustomerNameAliasList,
+  CustomerTzPreference,
   CustomerUploadStatus,
   DayHoursResult,
+  DeleteCustomerTzPreferenceParams,
   DeletedDriverNote,
   DriverIdAlias,
   DriverIdAliasList,
+  DriverInfo,
   DriverNote,
   DriverWeek,
   DriverWeekAuditEntry,
@@ -73,6 +77,7 @@ import type {
   RateLimitLockout,
   RateLimitLockoutTimeseriesPoint,
   RateLimitLockoutTopOffender,
+  RefreshConnecteamDriverResult,
   RefreshResult,
   RegistrationStatus,
   RemoveIpBlocklistBody,
@@ -83,13 +88,17 @@ import type {
   SetPunchReviewedBody,
   SetReviewed200,
   SetReviewedBody,
+  ShiftPunchesInput,
+  ShiftPunchesResult,
   SuggestedIpBlock,
   UpdateCustomerNameAliasBody,
   UpdateCustomerNameAliasParams,
   UpdateDriverIdAliasBody,
+  UpdateDriverTimezoneInput,
   UpdateLanguageBody,
   UpdateUserBody,
   UploadResult,
+  UpsertCustomerTzPreferenceInput,
   User,
   UserAuditLogEntry,
   Week,
@@ -6758,3 +6767,618 @@ export function useGetDriverWeekAudit<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary List of IANA timezone strings allowed for per-driver / per-upload overrides.
+ */
+export const getGetAllowedTimezonesUrl = () => {
+  return `/api/timezones/allowed`;
+};
+
+export const getAllowedTimezones = async (
+  options?: RequestInit,
+): Promise<AllowedTimezones> => {
+  return customFetch<AllowedTimezones>(getGetAllowedTimezonesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAllowedTimezonesQueryKey = () => {
+  return [`/api/timezones/allowed`] as const;
+};
+
+export const getGetAllowedTimezonesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAllowedTimezones>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAllowedTimezones>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAllowedTimezonesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getAllowedTimezones>>
+  > = ({ signal }) => getAllowedTimezones({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAllowedTimezones>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAllowedTimezonesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAllowedTimezones>>
+>;
+export type GetAllowedTimezonesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List of IANA timezone strings allowed for per-driver / per-upload overrides.
+ */
+
+export function useGetAllowedTimezones<
+  TData = Awaited<ReturnType<typeof getAllowedTimezones>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAllowedTimezones>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAllowedTimezonesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Set or clear a driver's display-tz override (`drivers.display_tz`). Supervisor/Admin.
+ */
+export const getUpdateDriverTimezoneUrl = (kfiId: string) => {
+  return `/api/drivers/${kfiId}/timezone`;
+};
+
+export const updateDriverTimezone = async (
+  kfiId: string,
+  updateDriverTimezoneInput: UpdateDriverTimezoneInput,
+  options?: RequestInit,
+): Promise<DriverInfo> => {
+  return customFetch<DriverInfo>(getUpdateDriverTimezoneUrl(kfiId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateDriverTimezoneInput),
+  });
+};
+
+export const getUpdateDriverTimezoneMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDriverTimezone>>,
+    TError,
+    { kfiId: string; data: BodyType<UpdateDriverTimezoneInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateDriverTimezone>>,
+  TError,
+  { kfiId: string; data: BodyType<UpdateDriverTimezoneInput> },
+  TContext
+> => {
+  const mutationKey = ["updateDriverTimezone"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateDriverTimezone>>,
+    { kfiId: string; data: BodyType<UpdateDriverTimezoneInput> }
+  > = (props) => {
+    const { kfiId, data } = props ?? {};
+
+    return updateDriverTimezone(kfiId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateDriverTimezoneMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateDriverTimezone>>
+>;
+export type UpdateDriverTimezoneMutationBody =
+  BodyType<UpdateDriverTimezoneInput>;
+export type UpdateDriverTimezoneMutationError = ErrorType<void>;
+
+/**
+ * @summary Set or clear a driver's display-tz override (`drivers.display_tz`). Supervisor/Admin.
+ */
+export const useUpdateDriverTimezone = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDriverTimezone>>,
+    TError,
+    { kfiId: string; data: BodyType<UpdateDriverTimezoneInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateDriverTimezone>>,
+  TError,
+  { kfiId: string; data: BodyType<UpdateDriverTimezoneInput> },
+  TContext
+> => {
+  return useMutation(getUpdateDriverTimezoneMutationOptions(options));
+};
+
+/**
+ * @summary Re-pull this single driver's Connecteam punches for the week (applies the current `display_tz`). Supervisor/Admin.
+ */
+export const getRefreshConnecteamForDriverUrl = (
+  weekStart: string,
+  kfiId: string,
+) => {
+  return `/api/weeks/${weekStart}/drivers/${kfiId}/refresh-connecteam`;
+};
+
+export const refreshConnecteamForDriver = async (
+  weekStart: string,
+  kfiId: string,
+  options?: RequestInit,
+): Promise<RefreshConnecteamDriverResult> => {
+  return customFetch<RefreshConnecteamDriverResult>(
+    getRefreshConnecteamForDriverUrl(weekStart, kfiId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getRefreshConnecteamForDriverMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshConnecteamForDriver>>,
+    TError,
+    { weekStart: string; kfiId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshConnecteamForDriver>>,
+  TError,
+  { weekStart: string; kfiId: string },
+  TContext
+> => {
+  const mutationKey = ["refreshConnecteamForDriver"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshConnecteamForDriver>>,
+    { weekStart: string; kfiId: string }
+  > = (props) => {
+    const { weekStart, kfiId } = props ?? {};
+
+    return refreshConnecteamForDriver(weekStart, kfiId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshConnecteamForDriverMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshConnecteamForDriver>>
+>;
+
+export type RefreshConnecteamForDriverMutationError = ErrorType<void>;
+
+/**
+ * @summary Re-pull this single driver's Connecteam punches for the week (applies the current `display_tz`). Supervisor/Admin.
+ */
+export const useRefreshConnecteamForDriver = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshConnecteamForDriver>>,
+    TError,
+    { weekStart: string; kfiId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refreshConnecteamForDriver>>,
+  TError,
+  { weekStart: string; kfiId: string },
+  TContext
+> => {
+  return useMutation(getRefreshConnecteamForDriverMutationOptions(options));
+};
+
+/**
+ * @summary Shift this driver-week's punches by `offsetHours` (and optionally restamp `dispTz`) — useful for fixing rows that were ingested in the wrong tz. Supervisor/Admin.
+ */
+export const getShiftDriverWeekPunchesUrl = (
+  weekStart: string,
+  kfiId: string,
+) => {
+  return `/api/weeks/${weekStart}/drivers/${kfiId}/shift-punches`;
+};
+
+export const shiftDriverWeekPunches = async (
+  weekStart: string,
+  kfiId: string,
+  shiftPunchesInput: ShiftPunchesInput,
+  options?: RequestInit,
+): Promise<ShiftPunchesResult> => {
+  return customFetch<ShiftPunchesResult>(
+    getShiftDriverWeekPunchesUrl(weekStart, kfiId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(shiftPunchesInput),
+    },
+  );
+};
+
+export const getShiftDriverWeekPunchesMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof shiftDriverWeekPunches>>,
+    TError,
+    { weekStart: string; kfiId: string; data: BodyType<ShiftPunchesInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof shiftDriverWeekPunches>>,
+  TError,
+  { weekStart: string; kfiId: string; data: BodyType<ShiftPunchesInput> },
+  TContext
+> => {
+  const mutationKey = ["shiftDriverWeekPunches"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof shiftDriverWeekPunches>>,
+    { weekStart: string; kfiId: string; data: BodyType<ShiftPunchesInput> }
+  > = (props) => {
+    const { weekStart, kfiId, data } = props ?? {};
+
+    return shiftDriverWeekPunches(weekStart, kfiId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ShiftDriverWeekPunchesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof shiftDriverWeekPunches>>
+>;
+export type ShiftDriverWeekPunchesMutationBody = BodyType<ShiftPunchesInput>;
+export type ShiftDriverWeekPunchesMutationError = ErrorType<void>;
+
+/**
+ * @summary Shift this driver-week's punches by `offsetHours` (and optionally restamp `dispTz`) — useful for fixing rows that were ingested in the wrong tz. Supervisor/Admin.
+ */
+export const useShiftDriverWeekPunches = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof shiftDriverWeekPunches>>,
+    TError,
+    { weekStart: string; kfiId: string; data: BodyType<ShiftPunchesInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof shiftDriverWeekPunches>>,
+  TError,
+  { weekStart: string; kfiId: string; data: BodyType<ShiftPunchesInput> },
+  TContext
+> => {
+  return useMutation(getShiftDriverWeekPunchesMutationOptions(options));
+};
+
+/**
+ * @summary Per-customer default display-tz preferences. Auth required.
+ */
+export const getListCustomerTzPreferencesUrl = () => {
+  return `/api/customer-tz-preferences`;
+};
+
+export const listCustomerTzPreferences = async (
+  options?: RequestInit,
+): Promise<CustomerTzPreference[]> => {
+  return customFetch<CustomerTzPreference[]>(
+    getListCustomerTzPreferencesUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListCustomerTzPreferencesQueryKey = () => {
+  return [`/api/customer-tz-preferences`] as const;
+};
+
+export const getListCustomerTzPreferencesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCustomerTzPreferences>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCustomerTzPreferences>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListCustomerTzPreferencesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listCustomerTzPreferences>>
+  > = ({ signal }) => listCustomerTzPreferences({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCustomerTzPreferences>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCustomerTzPreferencesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCustomerTzPreferences>>
+>;
+export type ListCustomerTzPreferencesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Per-customer default display-tz preferences. Auth required.
+ */
+
+export function useListCustomerTzPreferences<
+  TData = Awaited<ReturnType<typeof listCustomerTzPreferences>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCustomerTzPreferences>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCustomerTzPreferencesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Set the default display-tz for a customer. Supervisor/Admin.
+ */
+export const getUpsertCustomerTzPreferenceUrl = () => {
+  return `/api/customer-tz-preferences`;
+};
+
+export const upsertCustomerTzPreference = async (
+  upsertCustomerTzPreferenceInput: UpsertCustomerTzPreferenceInput,
+  options?: RequestInit,
+): Promise<UpsertCustomerTzPreferenceInput> => {
+  return customFetch<UpsertCustomerTzPreferenceInput>(
+    getUpsertCustomerTzPreferenceUrl(),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(upsertCustomerTzPreferenceInput),
+    },
+  );
+};
+
+export const getUpsertCustomerTzPreferenceMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof upsertCustomerTzPreference>>,
+    TError,
+    { data: BodyType<UpsertCustomerTzPreferenceInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof upsertCustomerTzPreference>>,
+  TError,
+  { data: BodyType<UpsertCustomerTzPreferenceInput> },
+  TContext
+> => {
+  const mutationKey = ["upsertCustomerTzPreference"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof upsertCustomerTzPreference>>,
+    { data: BodyType<UpsertCustomerTzPreferenceInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return upsertCustomerTzPreference(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpsertCustomerTzPreferenceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof upsertCustomerTzPreference>>
+>;
+export type UpsertCustomerTzPreferenceMutationBody =
+  BodyType<UpsertCustomerTzPreferenceInput>;
+export type UpsertCustomerTzPreferenceMutationError = ErrorType<void>;
+
+/**
+ * @summary Set the default display-tz for a customer. Supervisor/Admin.
+ */
+export const useUpsertCustomerTzPreference = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof upsertCustomerTzPreference>>,
+    TError,
+    { data: BodyType<UpsertCustomerTzPreferenceInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof upsertCustomerTzPreference>>,
+  TError,
+  { data: BodyType<UpsertCustomerTzPreferenceInput> },
+  TContext
+> => {
+  return useMutation(getUpsertCustomerTzPreferenceMutationOptions(options));
+};
+
+/**
+ * @summary Clear a customer's display-tz preference. Supervisor/Admin.
+ */
+export const getDeleteCustomerTzPreferenceUrl = (
+  params: DeleteCustomerTzPreferenceParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/customer-tz-preferences?${stringifiedParams}`
+    : `/api/customer-tz-preferences`;
+};
+
+export const deleteCustomerTzPreference = async (
+  params: DeleteCustomerTzPreferenceParams,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteCustomerTzPreferenceUrl(params), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteCustomerTzPreferenceMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCustomerTzPreference>>,
+    TError,
+    { params: DeleteCustomerTzPreferenceParams },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteCustomerTzPreference>>,
+  TError,
+  { params: DeleteCustomerTzPreferenceParams },
+  TContext
+> => {
+  const mutationKey = ["deleteCustomerTzPreference"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteCustomerTzPreference>>,
+    { params: DeleteCustomerTzPreferenceParams }
+  > = (props) => {
+    const { params } = props ?? {};
+
+    return deleteCustomerTzPreference(params, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteCustomerTzPreferenceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteCustomerTzPreference>>
+>;
+
+export type DeleteCustomerTzPreferenceMutationError = ErrorType<void>;
+
+/**
+ * @summary Clear a customer's display-tz preference. Supervisor/Admin.
+ */
+export const useDeleteCustomerTzPreference = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCustomerTzPreference>>,
+    TError,
+    { params: DeleteCustomerTzPreferenceParams },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteCustomerTzPreference>>,
+  TError,
+  { params: DeleteCustomerTzPreferenceParams },
+  TContext
+> => {
+  return useMutation(getDeleteCustomerTzPreferenceMutationOptions(options));
+};

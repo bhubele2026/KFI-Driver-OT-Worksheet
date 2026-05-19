@@ -11,6 +11,10 @@ import {
   previewPunch,
   useSetReviewed,
   useRefreshConnecteam,
+  useRefreshConnecteamForDriver,
+  useShiftDriverWeekPunches,
+  useUpdateDriverTimezone,
+  useGetAllowedTimezones,
   useLockDriverWeek,
   useUnlockDriverWeek,
   useGetDriverWeekAudit,
@@ -30,7 +34,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, Lock, LockOpen, ThumbsDown, Undo2, MessageSquare, MessageSquarePlus } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, Lock, LockOpen, ThumbsDown, Undo2, MessageSquare, MessageSquarePlus, Globe } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Fragment } from "react";
 import { ToastAction } from "@/components/ui/toast";
@@ -267,6 +273,13 @@ export default function DriverDetail() {
   const deletePunch = useDeletePunch();
   const setPunchReviewed = useSetPunchReviewed();
   const refreshCt = useRefreshConnecteam();
+  const refreshCtForDriver = useRefreshConnecteamForDriver();
+  const shiftPunches = useShiftDriverWeekPunches();
+  const updateDriverTz = useUpdateDriverTimezone();
+  const { data: allowedTzs } = useGetAllowedTimezones();
+  const [tzPopoverOpen, setTzPopoverOpen] = useState(false);
+  const [tzDraft, setTzDraft] = useState<string>("__default__");
+  const [shiftHours, setShiftHours] = useState<string>("1");
 
   const handleRefresh = () => {
     refreshCt.mutate(
@@ -1127,10 +1140,250 @@ export default function DriverDetail() {
               )}
             />
           </div>
-          <p className="text-sm text-muted-foreground font-mono">
-            {t("driverDetail.customer")} <span className="text-foreground">{customerLabel}</span>
-            <span className="mx-2 text-muted-foreground/60">·</span>
-            {t("driverDetail.kfiId")} <span className="text-foreground">{data.driver.kfiId}</span>
+          <p className="text-sm text-muted-foreground font-mono flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span>
+              {t("driverDetail.customer")}{" "}
+              <span className="text-foreground">{customerLabel}</span>
+            </span>
+            <span className="text-muted-foreground/60">·</span>
+            <span>
+              {t("driverDetail.kfiId")}{" "}
+              <span className="text-foreground">{data.driver.kfiId}</span>
+            </span>
+            <span className="text-muted-foreground/60 print:hidden">·</span>
+            <span className="print:hidden">
+              <Popover open={tzPopoverOpen} onOpenChange={(o) => {
+                setTzPopoverOpen(o);
+                if (o) {
+                  setTzDraft(data.driver.displayTz ?? "__default__");
+                  setShiftHours("1");
+                }
+              }}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    data-testid="button-driver-tz"
+                    title="Display timezone — click to change override, re-pull, or shift existing punches."
+                    className="inline-flex items-center gap-1 rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[11px] hover:bg-muted"
+                  >
+                    <Globe className="h-3 w-3" />
+                    <span className="font-mono">
+                      {data.driver.effectiveDispTz ?? "America/Chicago"}
+                    </span>
+                    {data.driver.displayTz ? (
+                      <Badge
+                        variant="outline"
+                        className="ml-1 h-4 px-1 text-[9px] font-mono border-primary/40 text-primary"
+                      >
+                        override
+                      </Badge>
+                    ) : null}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-80 space-y-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Display timezone</Label>
+                    <Select value={tzDraft} onValueChange={setTzDraft}>
+                      <SelectTrigger className="h-8 text-xs" data-testid="select-driver-tz">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__default__" className="text-xs">
+                          (default — customer / system)
+                        </SelectItem>
+                        {(allowedTzs?.allowed ?? []).map((tz) => (
+                          <SelectItem key={tz} value={tz} className="text-xs">
+                            {tz}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-muted-foreground">
+                      Saving only changes future ingests. Use "Re-pull
+                      Connecteam" to restamp this week from Connecteam, or
+                      "Shift existing" to add Xh to every punch already
+                      stored.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updateDriverTz.isPending}
+                      data-testid="button-save-driver-tz"
+                      onClick={() =>
+                        updateDriverTz.mutate(
+                          {
+                            kfiId,
+                            data: {
+                              displayTz:
+                                tzDraft === "__default__" ? null : tzDraft,
+                            },
+                          },
+                          {
+                            onSuccess: () => {
+                              queryClient.invalidateQueries({
+                                queryKey: getGetDriverWeekQueryKey(
+                                  weekStart,
+                                  kfiId,
+                                ),
+                              });
+                              queryClient.invalidateQueries({
+                                queryKey: getGetWeekSummaryQueryKey(weekStart),
+                              });
+                              toast({
+                                title: "Timezone updated",
+                                description:
+                                  tzDraft === "__default__"
+                                    ? "Cleared override."
+                                    : `Now ${tzDraft}.`,
+                              });
+                            },
+                            onError: (err) =>
+                              toast({
+                                title: "Update failed",
+                                description:
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Unknown error",
+                                variant: "destructive",
+                              }),
+                          },
+                        )
+                      }
+                    >
+                      {updateDriverTz.isPending ? (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      ) : (
+                        <Save className="h-3 w-3 mr-1" />
+                      )}
+                      Save
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={refreshCtForDriver.isPending}
+                      data-testid="button-repull-driver-ct"
+                      onClick={() =>
+                        refreshCtForDriver.mutate(
+                          { weekStart, kfiId },
+                          {
+                            onSuccess: (res) => {
+                              queryClient.invalidateQueries({
+                                queryKey: getGetDriverWeekQueryKey(
+                                  weekStart,
+                                  kfiId,
+                                ),
+                              });
+                              queryClient.invalidateQueries({
+                                queryKey: getGetWeekSummaryQueryKey(weekStart),
+                              });
+                              toast({
+                                title: "Re-pulled from Connecteam",
+                                description: `${res.punchesUpserted} punches restamped.`,
+                              });
+                              setTzPopoverOpen(false);
+                            },
+                            onError: (err) =>
+                              toast({
+                                title: "Re-pull failed",
+                                description:
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Unknown error",
+                                variant: "destructive",
+                              }),
+                          },
+                        )
+                      }
+                    >
+                      {refreshCtForDriver.isPending ? (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                      )}
+                      Re-pull Connecteam
+                    </Button>
+                  </div>
+                  <div className="space-y-1 border-t border-border/40 pt-2">
+                    <Label className="text-xs">
+                      Shift existing punches by (hours)
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={shiftHours}
+                        onChange={(e) => setShiftHours(e.target.value)}
+                        className="h-7 w-20 text-xs font-mono"
+                        data-testid="input-shift-hours"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={shiftPunches.isPending}
+                        data-testid="button-shift-punches"
+                        onClick={() => {
+                          const n = Number(shiftHours);
+                          if (!Number.isFinite(n) || n === 0) {
+                            toast({
+                              title: "Invalid shift",
+                              description:
+                                "Enter a non-zero number of hours (e.g. 1 or -1).",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          shiftPunches.mutate(
+                            {
+                              weekStart,
+                              kfiId,
+                              data: {
+                                offsetHours: n,
+                                newDispTz:
+                                  tzDraft === "__default__" ? null : tzDraft,
+                              },
+                            },
+                            {
+                              onSuccess: (res) => {
+                                queryClient.invalidateQueries({
+                                  queryKey: getGetDriverWeekQueryKey(
+                                    weekStart,
+                                    kfiId,
+                                  ),
+                                });
+                                queryClient.invalidateQueries({
+                                  queryKey: getGetWeekSummaryQueryKey(
+                                    weekStart,
+                                  ),
+                                });
+                                toast({
+                                  title: "Punches shifted",
+                                  description: `${res.shifted} punches moved by ${n}h.`,
+                                });
+                                setTzPopoverOpen(false);
+                              },
+                              onError: (err) =>
+                                toast({
+                                  title: "Shift failed",
+                                  description:
+                                    err instanceof Error
+                                      ? err.message
+                                      : "Unknown error",
+                                  variant: "destructive",
+                                }),
+                            },
+                          );
+                        }}
+                      >
+                        {shiftPunches.isPending ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : null}
+                        Shift
+                      </Button>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </span>
             <span className="hidden print:inline">
               <span className="mx-2 text-muted-foreground/60">·</span>
               {t("common.weekOf", { week: weekStart })}

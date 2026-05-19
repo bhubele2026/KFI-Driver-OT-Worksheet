@@ -4,10 +4,18 @@ import {
   useGetCustomerUploadStatus,
   useGetMe,
   useCreateParserPromotionSnooze,
+  useGetAllowedTimezones,
   getGetCustomerUploadStatusQueryKey,
   getGetWeekSummaryQueryKey,
   getListParserPromotionSnoozesQueryKey,
 } from "@workspace/api-client-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -93,6 +101,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const dragDepth = useRef(0);
   const [preview, setPreview] = useState<CustomerPreviewData | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [overrideTz, setOverrideTz] = useState<string>("__auto__");
+  const { data: allowedTzs } = useGetAllowedTimezones();
   const snoozeMutation = useCreateParserPromotionSnooze();
 
   const snooze = (customer: string, snoozeWeeks: number | null) => {
@@ -154,6 +164,9 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   ): Promise<UploadResult> => {
     const formData = new FormData();
     formData.append("file", file);
+    if (overrideTz !== "__auto__") {
+      formData.append("dispTz", overrideTz);
+    }
     try {
       const qs = opts?.force ? "?force=1" : "";
       const res = await fetch(
@@ -463,6 +476,30 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Tz
+            </span>
+            <Select value={overrideTz} onValueChange={setOverrideTz}>
+              <SelectTrigger
+                className="h-8 w-[170px] text-xs"
+                data-testid="select-upload-tz"
+                title="Override the timezone applied to the next upload. 'Auto' uses the driver / customer / system default."
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__auto__" className="text-xs">
+                  Auto (per driver/customer)
+                </SelectItem>
+                {(allowedTzs?.allowed ?? []).map((tz) => (
+                  <SelectItem key={tz} value={tz} className="text-xs">
+                    {tz}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <input
             type="file"
             ref={bulkInputRef}

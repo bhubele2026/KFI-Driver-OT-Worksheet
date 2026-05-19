@@ -13,6 +13,9 @@ export const driversTable = pgTable("drivers", {
   ctUserId: integer("ct_user_id"),
   isDriver: boolean("is_driver").notNull().default(true),
   isArchived: boolean("is_archived").notNull().default(false),
+  displayTz: text("display_tz"),
+  displayTzUpdatedBy: integer("display_tz_updated_by"),
+  displayTzUpdatedAt: timestamp("display_tz_updated_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

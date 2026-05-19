@@ -13,4 +13,14 @@ export interface DriverInfo {
   /** @nullable */
   ctUserId?: number | null;
   isDriver: boolean;
+  /**
+   * Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set; falls back to the IWG hardcode (when applicable) or CT_TZ.
+   * @nullable
+   */
+  displayTz?: string | null;
+  /**
+   * Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.
+   * @nullable
+   */
+  effectiveDispTz?: string | null;
 }

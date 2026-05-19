@@ -18,4 +18,9 @@ export interface ConfirmNewCustomerInput {
   sampleId?: number | null;
   mapping: ConfirmNewCustomerInputMapping;
   rows: ConfirmNewCustomerRow[];
+  /**
+   * Per-upload display-tz override (must be one of `ALLOWED_TZS`). Applied to every imported row in lieu of the per-driver `display_tz` and the IWG/CT fallback. Silently ignored when not recognized.
+   * @nullable
+   */
+  dispTz?: string | null;
 }

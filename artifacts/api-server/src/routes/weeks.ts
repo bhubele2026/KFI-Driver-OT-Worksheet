@@ -32,8 +32,12 @@ import {
   computeChecks,
   computeDailyTotals,
   computeDriverTotals,
-  defaultDispTz,
 } from "../lib/hoursEngine.js";
+import {
+  loadDriverTz,
+  loadDriverTzMap,
+  resolveDispTz,
+} from "../lib/dispatchTz.js";
 import { buildDailyParity, summarizeParity } from "../lib/connecteamParity.js";
 import {
   KNOWN_CUSTOMERS,
@@ -42,7 +46,14 @@ import {
 import { detectCustomerFromFileName } from "../lib/parsers/customers.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { topMatches } from "../lib/parsers/fuzzy.js";
-import { diffHours, localStrToSortMs, sundayOf, weekEndOf } from "../lib/time.js";
+import {
+  ALLOWED_TZS,
+  diffHours,
+  isAllowedTz,
+  localStrToSortMs,
+  sundayOf,
+  weekEndOf,
+} from "../lib/time.js";
 import { makeTimesheetsHandler } from "../lib/timesheets.js";
 import {
   publish as publishRealtime,
@@ -323,6 +334,8 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     lastTouchedByEmail: string | null;
     lastTouchedAt: string | null;
     noteCount: number;
+    displayTz: string | null;
+    effectiveDispTz: string;
   }
   const rows: SummaryRow[] = [];
   for (const [kfiId, ps] of byKfi.entries()) {
@@ -383,6 +396,8 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
         : null,
       lastTouchedAt,
       noteCount: noteCountByKfi.get(kfiId) ?? 0,
+      displayTz: meta?.displayTz ?? null,
+      effectiveDispTz: resolveDispTz(kfiId, meta?.displayTz ?? null),
     });
   }
   rows.sort(
@@ -534,6 +549,8 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
       customer: driver?.customer ?? punches[0]?.customer ?? "Unknown",
       ctUserId: driver?.ctUserId ?? null,
       isDriver: driver?.isDriver ?? true,
+      displayTz: driver?.displayTz ?? null,
+      effectiveDispTz: resolveDispTz(kfiId, driver?.displayTz ?? null),
     },
     weekStart,
     endDate,
@@ -642,10 +659,12 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
         });
     }
     const ctUserIdToKfi = new Map(users.map((u) => [u.ctUserId, u.kfiId]));
+    const driverTzByKfi = await loadDriverTzMap();
     const punches = await fetchPunchesForWeek(
       startDate,
       endDate,
       ctUserIdToKfi,
+      driverTzByKfi,
     );
     // De-dupe by ctExternalKey before inserting to avoid mid-batch aborts.
     const uniqByKey = new Map<string, (typeof punches)[number]>();
@@ -824,6 +843,9 @@ weeksRouter.post(
     const { startDate } = await ensureWeek(weekStart);
     const drivers = await db.select().from(schema.driversTable);
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
+    const driverTzByKfi = new Map<string, string | null>(
+      drivers.map((d) => [d.kfiId, d.displayTz ?? null]),
+    );
     const fileName = req.file.originalname;
     const force =
       String(req.query.force ?? "").toLowerCase() === "1" ||
@@ -863,6 +885,12 @@ weeksRouter.post(
         return;
       }
     }
+    // Per-upload tz override sent as a multipart form field. Validated against
+    // ALLOWED_TZS; anything unknown is dropped silently so a stale frontend
+    // can't poison the data.
+    const overrideTzRaw =
+      typeof req.body?.dispTz === "string" ? req.body.dispTz.trim() : "";
+    const overrideTz = isAllowedTz(overrideTzRaw) ? overrideTzRaw : null;
     let result;
     try {
       const idMap = await loadMergedIdMap();
@@ -945,7 +973,13 @@ weeksRouter.post(
             clockOut: p.clockOut,
             hours: String(p.hours),
             payType: p.payType,
-            dispTz: p.noTz ? "America/New_York" : defaultDispTz(p.kfiId),
+            dispTz: resolveDispTz(
+              p.kfiId,
+              driverTzByKfi.get(p.kfiId) ?? null,
+              // For IWG, the parser sets noTz; resolveDispTz already covers
+              // the IWG hardcode when no override/driver tz is set.
+              overrideTz,
+            ),
             isManual: false,
             fileOrigin: req.file!.originalname,
             createdBy: req.session.userId ?? null,
@@ -1393,6 +1427,18 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
     aliases: number,
     name: string,
   ) => (aiWeeks >= 3 || aliases >= 5) && !isSnoozed(name);
+  const tzPrefRows = await db
+    .select({
+      customer: schema.customerTzPreferencesTable.customer,
+      displayTz: schema.customerTzPreferencesTable.displayTz,
+    })
+    .from(schema.customerTzPreferencesTable);
+  const tzPrefByLower = new Map<string, string>();
+  for (const r of tzPrefRows) {
+    if (isAllowedTz(r.displayTz)) tzPrefByLower.set(r.customer.toLowerCase(), r.displayTz);
+  }
+  const prefFor = (name: string): string | null =>
+    tzPrefByLower.get(name.toLowerCase()) ?? null;
   const knownNames = new Set(KNOWN_CUSTOMERS.map((c) => c.displayName));
   const byName = new Map<string, (typeof rows)[number]>();
   for (const r of rows) {
@@ -1426,6 +1472,7 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       // Known-customer rows already have a deterministic parser, so they
       // never need promoting. Keep promotionCandidate=false unconditionally.
       promotionCandidate: false,
+      preferredDispTz: prefFor(c.displayName),
     };
   });
   // Append any AI-only customers that aren't in KNOWN_CUSTOMERS so the
@@ -1469,6 +1516,7 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
         aliasCountByCustomer.get(name) ?? 0,
         name,
       ),
+      preferredDispTz: prefFor(name),
     };
   });
   res.json([...out, ...aiOnly]);
@@ -1754,6 +1802,10 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
     res.status(400).json({ error: "Customer name is required" });
     return;
   }
+  const overrideTzRaw =
+    typeof parsed.data.dispTz === "string" ? parsed.data.dispTz.trim() : "";
+  const overrideTz = isAllowedTz(overrideTzRaw) ? overrideTzRaw : null;
+  const driverTzByKfi = await loadDriverTzMap();
 
   const unmappedNames = new Set<string>();
   const lockedKfiIds = await loadLockedKfiIds(startDate);
@@ -1800,7 +1852,11 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
       clockIn: `${r.date} ${r.clockIn}`,
       clockOut: `${r.date} ${r.clockOut}`,
       hours: Math.round(hours * 1000) / 1000,
-      dispTz: defaultDispTz(kfiId),
+      dispTz: resolveDispTz(
+        kfiId,
+        driverTzByKfi.get(kfiId) ?? null,
+        overrideTz,
+      ),
     });
   }
 
@@ -2718,7 +2774,12 @@ weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
     return;
   }
   if (!(await assertNotLocked(res, startDate, parsed.data.kfiId))) return;
-  const dispTz = parsed.data.dispTz || defaultDispTz(parsed.data.kfiId);
+  const driverDisplayTz = await loadDriverTz(parsed.data.kfiId);
+  const dispTz = resolveDispTz(
+    parsed.data.kfiId,
+    driverDisplayTz,
+    parsed.data.dispTz ?? null,
+  );
   // Always store clock-in/out as a fully-prefixed wall-clock string
   // ("YYYY-MM-DD H:MM AM"), and compute hours via the same `localStrToSortMs`
   // parser the hours engine uses. Using `new Date()` here previously made
@@ -3027,8 +3088,12 @@ weeksRouter.post("/weeks/:weekStart/preview-punch", async (req, res) => {
       ),
     );
 
-  const dispTz =
-    (typeof body.dispTz === "string" && body.dispTz) || defaultDispTz(kfiId);
+  const driverDisplayTz = await loadDriverTz(kfiId);
+  const dispTz = resolveDispTz(
+    kfiId,
+    driverDisplayTz,
+    typeof body.dispTz === "string" ? body.dispTz : null,
+  );
 
   const filtered = excludePunchId
     ? existing.filter((p) => p.id !== excludePunchId)
@@ -3831,6 +3896,377 @@ weeksRouter.get("/admin/notes/deleted", requireAdmin, async (req, res) => {
     })),
   );
 });
+
+// ---------------------------------------------------------------------------
+// Timezone management — per-driver `drivers.display_tz`, per-customer
+// `customer_tz_preferences`, plus per-driver Connecteam re-pull and a
+// bulk shift-existing-punches helper for fixing a wrong-tz driver-week
+// without re-uploading.
+// ---------------------------------------------------------------------------
+
+weeksRouter.get("/timezones/allowed", (_req, res) => {
+  res.json({ allowed: [...ALLOWED_TZS] });
+});
+
+weeksRouter.patch(
+  "/drivers/:kfiId/timezone",
+  requireSupervisorOrAdmin,
+  async (req, res) => {
+    const kfiId = String(req.params.kfiId ?? "").trim();
+    if (!kfiId) {
+      res.status(400).json({ error: "kfiId is required" });
+      return;
+    }
+    const body = req.body as { displayTz?: unknown } | undefined;
+    const raw = body?.displayTz;
+    let displayTz: string | null;
+    if (raw === null || raw === "" || raw === undefined) {
+      displayTz = null;
+    } else if (typeof raw === "string" && isAllowedTz(raw)) {
+      displayTz = raw;
+    } else {
+      res
+        .status(400)
+        .json({ error: `displayTz must be null or one of ${ALLOWED_TZS.join(", ")}` });
+      return;
+    }
+    const driver = await db.query.driversTable.findFirst({
+      where: eq(schema.driversTable.kfiId, kfiId),
+    });
+    if (!driver) {
+      res.status(404).json({ error: "Driver not found" });
+      return;
+    }
+    const userId = req.session.userId ?? null;
+    const [row] = await db
+      .update(schema.driversTable)
+      .set({
+        displayTz,
+        displayTzUpdatedBy: userId,
+        displayTzUpdatedAt: new Date(),
+      })
+      .where(eq(schema.driversTable.kfiId, kfiId))
+      .returning();
+    res.json({
+      kfiId: row.kfiId,
+      name: row.name,
+      customer: row.customer,
+      ctUserId: row.ctUserId ?? null,
+      isDriver: row.isDriver,
+      displayTz: row.displayTz ?? null,
+      effectiveDispTz: resolveDispTz(row.kfiId, row.displayTz ?? null),
+    });
+  },
+);
+
+weeksRouter.post(
+  "/weeks/:weekStart/drivers/:kfiId/refresh-connecteam",
+  requireSupervisorOrAdmin,
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart);
+    const kfiId = String(req.params.kfiId ?? "").trim();
+    if (!isWeek(weekStart) || !kfiId) {
+      res.status(400).json({ error: "Invalid week or kfiId" });
+      return;
+    }
+    if (!(await assertNotLocked(res, weekStart, kfiId))) return;
+    const { startDate, endDate } = await ensureWeek(weekStart);
+    const driver = await db.query.driversTable.findFirst({
+      where: eq(schema.driversTable.kfiId, kfiId),
+    });
+    if (!driver) {
+      res.status(404).json({ error: "Driver not found" });
+      return;
+    }
+    try {
+      const driverTzByKfi = await loadDriverTzMap();
+      const ctUserIdToKfi = new Map<number, string>();
+      if (driver.ctUserId != null) ctUserIdToKfi.set(driver.ctUserId, kfiId);
+      // Pull every shift for the week, then keep only this driver's rows.
+      const allPunches = await fetchPunchesForWeek(
+        startDate,
+        endDate,
+        ctUserIdToKfi,
+        driverTzByKfi,
+      );
+      const punches = allPunches.filter((p) => p.kfiId === kfiId);
+      const seen = new Map<string, (typeof punches)[number]>();
+      for (const p of punches) seen.set(p.ctExternalKey, p);
+      const deduped = [...seen.values()];
+      const refreshedAt = new Date();
+      await db.transaction(async (tx) => {
+        // Replace only this driver's non-manual, non-edited Driver-source rows.
+        await tx
+          .delete(schema.punchesTable)
+          .where(
+            and(
+              eq(schema.punchesTable.weekStart, startDate),
+              eq(schema.punchesTable.kfiId, kfiId),
+              eq(schema.punchesTable.source, "Driver"),
+              eq(schema.punchesTable.isManual, false),
+              ne(schema.punchesTable.edited, true),
+            ),
+          );
+        const keptKeys = new Set(
+          (
+            await tx
+              .select({ key: schema.punchesTable.ctExternalKey })
+              .from(schema.punchesTable)
+              .where(
+                and(
+                  eq(schema.punchesTable.weekStart, startDate),
+                  eq(schema.punchesTable.kfiId, kfiId),
+                  eq(schema.punchesTable.source, "Driver"),
+                ),
+              )
+          )
+            .map((r) => r.key)
+            .filter((k): k is string => Boolean(k)),
+        );
+        const toInsert = deduped.filter((p) => !keptKeys.has(p.ctExternalKey));
+        if (toInsert.length > 0) {
+          await tx.insert(schema.punchesTable).values(
+            toInsert.map((p) => ({
+              weekStart: startDate,
+              kfiId: p.kfiId,
+              customer: null,
+              source: "Driver",
+              date: p.date,
+              clockIn: p.clockIn,
+              clockOut: p.clockOut,
+              hours: String(p.hours),
+              dispTz: p.dispTz,
+              isManual: false,
+              ctExternalKey: p.ctExternalKey,
+              createdBy: req.session.userId ?? null,
+            })),
+          );
+        }
+        // Refresh the per-day snapshot for this driver only.
+        const snapshotByDate = new Map<string, number>();
+        for (const p of deduped) {
+          snapshotByDate.set(
+            p.date,
+            Math.round(((snapshotByDate.get(p.date) ?? 0) + p.hours) * 100) /
+              100,
+          );
+        }
+        await tx
+          .delete(schema.connecteamDailySnapshotsTable)
+          .where(
+            and(
+              eq(schema.connecteamDailySnapshotsTable.weekStart, startDate),
+              eq(schema.connecteamDailySnapshotsTable.kfiId, kfiId),
+            ),
+          );
+        if (snapshotByDate.size > 0) {
+          await tx.insert(schema.connecteamDailySnapshotsTable).values(
+            [...snapshotByDate.entries()].map(([date, hours]) => ({
+              weekStart: startDate,
+              kfiId,
+              date,
+              hours: String(hours),
+              refreshedAt,
+            })),
+          );
+        }
+      });
+      publishRealtime({
+        type: "punch-changed",
+        weekStart: startDate,
+        kfiId,
+        action: "update",
+        actor: actorRef(req),
+      });
+      res.json({
+        driversFound: 1,
+        punchesUpserted: deduped.length,
+        refreshedAt: refreshedAt.toISOString(),
+      });
+    } catch (err) {
+      req.log.error({ err, kfiId }, "Per-driver Connecteam refresh failed");
+      res
+        .status(502)
+        .json({ error: err instanceof Error ? err.message : "Connecteam error" });
+    }
+  },
+);
+
+weeksRouter.post(
+  "/weeks/:weekStart/drivers/:kfiId/shift-punches",
+  requireSupervisorOrAdmin,
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart);
+    const kfiId = String(req.params.kfiId ?? "").trim();
+    if (!isWeek(weekStart) || !kfiId) {
+      res.status(400).json({ error: "Invalid week or kfiId" });
+      return;
+    }
+    if (!(await assertNotLocked(res, weekStart, kfiId))) return;
+    const body = req.body as {
+      offsetHours?: unknown;
+      source?: unknown;
+      newDispTz?: unknown;
+    };
+    const offsetHours = Number(body.offsetHours);
+    if (!Number.isFinite(offsetHours) || offsetHours === 0) {
+      res.status(400).json({ error: "offsetHours must be a non-zero number" });
+      return;
+    }
+    if (Math.abs(offsetHours) > 12) {
+      res.status(400).json({ error: "offsetHours out of range (-12..12)" });
+      return;
+    }
+    const sourceFilter =
+      body.source === "Driver" || body.source === "Customer"
+        ? body.source
+        : null;
+    const newDispTz =
+      typeof body.newDispTz === "string" && isAllowedTz(body.newDispTz)
+        ? body.newDispTz
+        : null;
+    const conds: SQL[] = [
+      eq(schema.punchesTable.weekStart, weekStart),
+      eq(schema.punchesTable.kfiId, kfiId),
+    ];
+    if (sourceFilter) conds.push(eq(schema.punchesTable.source, sourceFilter));
+    const rows = await db
+      .select()
+      .from(schema.punchesTable)
+      .where(and(...conds));
+    if (rows.length === 0) {
+      res.json({ shifted: 0 });
+      return;
+    }
+    const offsetMs = offsetHours * 3_600_000;
+    const shift = (s: string): string => {
+      const ms = localStrToSortMs(s);
+      if (ms == null) return s;
+      const next = new Date(ms + offsetMs);
+      const yr = next.getUTCFullYear();
+      const mo = String(next.getUTCMonth() + 1).padStart(2, "0");
+      const dy = String(next.getUTCDate()).padStart(2, "0");
+      let hh = next.getUTCHours();
+      const mm = String(next.getUTCMinutes()).padStart(2, "0");
+      const ap = hh >= 12 ? "PM" : "AM";
+      hh = hh % 12;
+      if (hh === 0) hh = 12;
+      return `${yr}-${mo}-${dy} ${hh}:${mm} ${ap}`;
+    };
+    const userId = req.session.userId ?? null;
+    await db.transaction(async (tx) => {
+      for (const r of rows) {
+        const newIn = shift(r.clockIn);
+        const newOut = shift(r.clockOut);
+        const newDate = newIn.slice(0, 10);
+        await tx
+          .update(schema.punchesTable)
+          .set({
+            clockIn: newIn,
+            clockOut: newOut,
+            date: newDate,
+            edited: true,
+            updatedBy: userId,
+            ...(newDispTz ? { dispTz: newDispTz } : {}),
+          })
+          .where(eq(schema.punchesTable.id, r.id));
+      }
+    });
+    publishRealtime({
+      type: "punch-changed",
+      weekStart,
+      kfiId,
+      action: "update",
+      actor: actorRef(req),
+    });
+    res.json({ shifted: rows.length });
+  },
+);
+
+weeksRouter.get("/customer-tz-preferences", requireAuth, async (_req, res) => {
+  const rows = await db
+    .select({
+      customer: schema.customerTzPreferencesTable.customer,
+      displayTz: schema.customerTzPreferencesTable.displayTz,
+      updatedAt: schema.customerTzPreferencesTable.updatedAt,
+      updatedBy: schema.customerTzPreferencesTable.updatedBy,
+    })
+    .from(schema.customerTzPreferencesTable)
+    .orderBy(asc(sql`lower(${schema.customerTzPreferencesTable.customer})`));
+  const actorIds = new Set<number>();
+  for (const r of rows) if (r.updatedBy) actorIds.add(r.updatedBy);
+  const emailById = new Map<number, string>();
+  if (actorIds.size > 0) {
+    const actors = await db
+      .select({ id: schema.usersTable.id, email: schema.usersTable.email })
+      .from(schema.usersTable)
+      .where(inArray(schema.usersTable.id, [...actorIds]));
+    for (const a of actors) emailById.set(a.id, a.email);
+  }
+  res.json(
+    rows.map((r) => ({
+      customer: r.customer,
+      displayTz: r.displayTz,
+      updatedAt: new Date(r.updatedAt).toISOString(),
+      updatedByEmail: r.updatedBy ? emailById.get(r.updatedBy) ?? null : null,
+    })),
+  );
+});
+
+weeksRouter.put(
+  "/customer-tz-preferences",
+  requireSupervisorOrAdmin,
+  async (req, res) => {
+    const body = req.body as { customer?: unknown; displayTz?: unknown };
+    const customer =
+      typeof body.customer === "string" ? body.customer.trim() : "";
+    if (!customer) {
+      res.status(400).json({ error: "customer is required" });
+      return;
+    }
+    if (typeof body.displayTz !== "string" || !isAllowedTz(body.displayTz)) {
+      res
+        .status(400)
+        .json({ error: `displayTz must be one of ${ALLOWED_TZS.join(", ")}` });
+      return;
+    }
+    const displayTz = body.displayTz;
+    const userId = req.session.userId ?? null;
+    // Case-insensitive upsert: the unique index is on lower(customer), which
+    // Drizzle's onConflict can't target directly, so delete-then-insert.
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(schema.customerTzPreferencesTable)
+        .where(
+          sql`lower(${schema.customerTzPreferencesTable.customer}) = lower(${customer})`,
+        );
+      await tx.insert(schema.customerTzPreferencesTable).values({
+        customer,
+        displayTz,
+        updatedBy: userId,
+      });
+    });
+    res.json({ customer, displayTz });
+  },
+);
+
+weeksRouter.delete(
+  "/customer-tz-preferences",
+  requireSupervisorOrAdmin,
+  async (req, res) => {
+    const customer = String(req.query.customer ?? "").trim();
+    if (!customer) {
+      res.status(400).json({ error: "customer is required" });
+      return;
+    }
+    await db
+      .delete(schema.customerTzPreferencesTable)
+      .where(
+        sql`lower(${schema.customerTzPreferencesTable.customer}) = lower(${customer})`,
+      );
+    res.status(204).end();
+  },
+);
 
 export function serializePunch(
   p: typeof schema.punchesTable.$inferSelect,

@@ -688,6 +688,18 @@ export const GetWeekSummaryResponse = zod.object({
         .describe(
           "Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context.",
         ),
+      displayTz: zod
+        .string()
+        .nullish()
+        .describe(
+          "Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set.",
+        ),
+      effectiveDispTz: zod
+        .string()
+        .nullish()
+        .describe(
+          "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
+        ),
     }),
   ),
   customers: zod.array(
@@ -717,6 +729,18 @@ export const GetWeekSummaryResponse = zod.object({
             .describe(
               "Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context.",
             ),
+          displayTz: zod
+            .string()
+            .nullish()
+            .describe(
+              "Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set.",
+            ),
+          effectiveDispTz: zod
+            .string()
+            .nullish()
+            .describe(
+              "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
+            ),
         }),
       ),
     }),
@@ -745,6 +769,18 @@ export const GetDriverWeekResponse = zod.object({
     customer: zod.string(),
     ctUserId: zod.number().nullish(),
     isDriver: zod.boolean(),
+    displayTz: zod
+      .string()
+      .nullish()
+      .describe(
+        "Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set; falls back to the IWG hardcode (when applicable) or CT_TZ.",
+      ),
+    effectiveDispTz: zod
+      .string()
+      .nullish()
+      .describe(
+        "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
+      ),
   }),
   weekStart: zod.string(),
   endDate: zod.string(),
@@ -1163,6 +1199,12 @@ export const GetCustomerUploadStatusResponseItem = zod.object({
     .describe(
       "Badge \/ employee IDs that appeared in the most recent successful\nupload but didn't map to a known KFI driver. Surfaced as a\npersistent warning under the row so dispatchers don't lose the\nlist when refreshing the dashboard. Empty when the last upload\nwas clean.\n",
     ),
+  preferredDispTz: zod
+    .string()
+    .nullable()
+    .describe(
+      "Saved per-customer display-tz preference (`customer_tz_preferences.display_tz`). Pre-selects the timezone picker on this customer's upload dialog. Null when no preference is set.",
+    ),
 });
 export const GetCustomerUploadStatusResponse = zod.array(
   GetCustomerUploadStatusResponseItem,
@@ -1258,6 +1300,12 @@ export const ConfirmNewCustomerFileBody = zod.object({
       hours: zod.number().nullish(),
     }),
   ),
+  dispTz: zod
+    .string()
+    .nullish()
+    .describe(
+      "Per-upload display-tz override (must be one of `ALLOWED_TZS`). Applied to every imported row in lieu of the per-driver `display_tz` and the IWG\/CT fallback. Silently ignored when not recognized.",
+    ),
 });
 
 export const ConfirmNewCustomerFileResponse = zod.object({
@@ -1371,6 +1419,18 @@ export const ListCustomerNameAliasesResponse = zod.object({
       customer: zod.string(),
       ctUserId: zod.number().nullish(),
       isDriver: zod.boolean(),
+      displayTz: zod
+        .string()
+        .nullish()
+        .describe(
+          "Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set; falls back to the IWG hardcode (when applicable) or CT_TZ.",
+        ),
+      effectiveDispTz: zod
+        .string()
+        .nullish()
+        .describe(
+          "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
+        ),
     }),
   ),
 });
@@ -1556,6 +1616,18 @@ export const ListDriverIdAliasesResponse = zod.object({
       customer: zod.string(),
       ctUserId: zod.number().nullish(),
       isDriver: zod.boolean(),
+      displayTz: zod
+        .string()
+        .nullish()
+        .describe(
+          "Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set; falls back to the IWG hardcode (when applicable) or CT_TZ.",
+        ),
+      effectiveDispTz: zod
+        .string()
+        .nullish()
+        .describe(
+          "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
+        ),
     }),
   ),
 });
@@ -1906,7 +1978,7 @@ export const ScaleDayHoursParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(scaleDayHoursPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
   kfiId: zod.coerce.string(),
   date: zod.coerce
     .string()
@@ -1969,7 +2041,7 @@ export const ResetDayHoursParams = zod.object({
   weekStart: zod.coerce
     .string()
     .regex(resetDayHoursPathWeekStartRegExp)
-    .describe("Week start date (Monday) in YYYY-MM-DD"),
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
   kfiId: zod.coerce.string(),
   date: zod.coerce.string().regex(resetDayHoursPathDateRegExp),
 });
@@ -2316,3 +2388,144 @@ export const GetDriverWeekAuditResponseItem = zod.object({
 export const GetDriverWeekAuditResponse = zod.array(
   GetDriverWeekAuditResponseItem,
 );
+
+/**
+ * @summary List of IANA timezone strings allowed for per-driver / per-upload overrides.
+ */
+export const GetAllowedTimezonesResponse = zod.object({
+  allowed: zod
+    .array(zod.string())
+    .describe(
+      "IANA timezone strings the dispatcher is allowed to pick from. Matches `ALLOWED_TZS` on the server.",
+    ),
+});
+
+/**
+ * @summary Set or clear a driver's display-tz override (`drivers.display_tz`). Supervisor/Admin.
+ */
+export const UpdateDriverTimezoneParams = zod.object({
+  kfiId: zod.coerce.string(),
+});
+
+export const UpdateDriverTimezoneBody = zod.object({
+  displayTz: zod
+    .string()
+    .nullable()
+    .describe(
+      "IANA tz string from `ALLOWED_TZS`, or null to clear the override and fall back to IWG\/CT defaults.",
+    ),
+});
+
+export const UpdateDriverTimezoneResponse = zod.object({
+  kfiId: zod.string(),
+  name: zod.string(),
+  customer: zod.string(),
+  ctUserId: zod.number().nullish(),
+  isDriver: zod.boolean(),
+  displayTz: zod
+    .string()
+    .nullish()
+    .describe(
+      "Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set; falls back to the IWG hardcode (when applicable) or CT_TZ.",
+    ),
+  effectiveDispTz: zod
+    .string()
+    .nullish()
+    .describe(
+      "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
+    ),
+});
+
+/**
+ * @summary Re-pull this single driver's Connecteam punches for the week (applies the current `display_tz`). Supervisor/Admin.
+ */
+export const refreshConnecteamForDriverPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const RefreshConnecteamForDriverParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(refreshConnecteamForDriverPathWeekStartRegExp)
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
+  kfiId: zod.coerce.string(),
+});
+
+export const RefreshConnecteamForDriverResponse = zod.object({
+  driversFound: zod.number(),
+  punchesUpserted: zod.number(),
+  refreshedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Shift this driver-week's punches by `offsetHours` (and optionally restamp `dispTz`) — useful for fixing rows that were ingested in the wrong tz. Supervisor/Admin.
+ */
+export const shiftDriverWeekPunchesPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const ShiftDriverWeekPunchesParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(shiftDriverWeekPunchesPathWeekStartRegExp)
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
+  kfiId: zod.coerce.string(),
+});
+
+export const ShiftDriverWeekPunchesBody = zod.object({
+  offsetHours: zod
+    .number()
+    .describe(
+      "Hours to shift every matching punch by. Positive shifts later; negative shifts earlier. Must be non-zero and within -12..12.",
+    ),
+  source: zod
+    .union([zod.literal("Driver"), zod.literal("Customer"), zod.literal(null)])
+    .nullish()
+    .describe(
+      "When set, only rows from this source are shifted. Otherwise both Driver- and Customer-source rows are shifted.",
+    ),
+  newDispTz: zod
+    .string()
+    .nullish()
+    .describe(
+      "If provided (and in `ALLOWED_TZS`), every shifted row is also restamped with this tz so future reads agree with the new wall-clock time.",
+    ),
+});
+
+export const ShiftDriverWeekPunchesResponse = zod.object({
+  shifted: zod.number(),
+});
+
+/**
+ * @summary Per-customer default display-tz preferences. Auth required.
+ */
+export const ListCustomerTzPreferencesResponseItem = zod.object({
+  customer: zod.string(),
+  displayTz: zod.string(),
+  updatedAt: zod.coerce.date(),
+  updatedByEmail: zod.string().nullish(),
+});
+export const ListCustomerTzPreferencesResponse = zod.array(
+  ListCustomerTzPreferencesResponseItem,
+);
+
+/**
+ * @summary Set the default display-tz for a customer. Supervisor/Admin.
+ */
+
+export const UpsertCustomerTzPreferenceBody = zod.object({
+  customer: zod.string().min(1),
+  displayTz: zod.string(),
+});
+
+export const UpsertCustomerTzPreferenceResponse = zod.object({
+  customer: zod.string().min(1),
+  displayTz: zod.string(),
+});
+
+/**
+ * @summary Clear a customer's display-tz preference. Supervisor/Admin.
+ */
+export const DeleteCustomerTzPreferenceQueryParams = zod.object({
+  customer: zod.coerce.string(),
+});
