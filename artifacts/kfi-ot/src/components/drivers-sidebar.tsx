@@ -39,31 +39,11 @@ import { readAutoAdvancePref } from "@/hooks/use-auto-advance";
 import { cn } from "@/lib/utils";
 import { formatPersonName } from "@/lib/format-name";
 
-type FilterChip = "unreviewed" | "ot" | "mismatch" | "ct-diff";
+type FilterChip = "unreviewed";
 
 const CHIP_LABELS: Record<FilterChip, string> = {
   unreviewed: "Un-reviewed",
-  ot: "Has OT",
-  mismatch: "Mismatch",
-  "ct-diff": "Differs from CT",
 };
-
-function driverDiffersFromConnecteam(driver: {
-  connecteamParity?: { status?: string } | null;
-}): boolean {
-  return driver.connecteamParity?.status === "differ";
-}
-
-function driverHasMismatch(driver: {
-  driverHours: number;
-  customerHours: number;
-}): boolean {
-  return (
-    driver.driverHours > 0 &&
-    driver.customerHours > 0 &&
-    Math.abs(driver.driverHours - driver.customerHours) > 0.05
-  );
-}
 
 interface SidebarProps {
   weekStart: string;
@@ -209,9 +189,6 @@ function DriversList({
             if (!hay.includes(needle)) return false;
           }
           if (chips.has("unreviewed") && driver.reviewed) return false;
-          if (chips.has("ot") && !driver.hasOvertime) return false;
-          if (chips.has("mismatch") && !driverHasMismatch(driver)) return false;
-          if (chips.has("ct-diff") && !driverDiffersFromConnecteam(driver)) return false;
           return true;
         }),
       }))
@@ -460,9 +437,6 @@ function FilterCountBadge({ weekStart, search, chips }: FilterCountProps) {
           if (!hay.includes(needle)) continue;
         }
         if (chips.has("unreviewed") && driver.reviewed) continue;
-        if (chips.has("ot") && !driver.hasOvertime) continue;
-        if (chips.has("mismatch") && !driverHasMismatch(driver)) continue;
-        if (chips.has("ct-diff") && !driverDiffersFromConnecteam(driver)) continue;
         matched += 1;
       }
     }
@@ -496,7 +470,7 @@ function FilterControls({
   onToggleChip,
   weekStart,
 }: FilterControlsProps) {
-  const chipKeys: FilterChip[] = ["unreviewed", "ot", "mismatch", "ct-diff"];
+  const chipKeys: FilterChip[] = ["unreviewed"];
   return (
     <div className="px-3 py-2 border-b border-border bg-muted/20 space-y-2">
       <div className="relative">
@@ -556,7 +530,7 @@ function FilterControls({
 }
 
 const FILTERS_STORAGE_PREFIX = "kfi-ot:drivers-sidebar:filters:v1";
-const VALID_CHIPS: readonly FilterChip[] = ["unreviewed", "ot", "mismatch", "ct-diff"];
+const VALID_CHIPS: readonly FilterChip[] = ["unreviewed"];
 
 interface PersistedFilters {
   search: string;
@@ -650,12 +624,6 @@ function SidebarHeader({ onCollapse }: { onCollapse?: () => void }) {
         <h3 className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
           Drivers by Customer
         </h3>
-        <p
-          className="text-[11px] text-muted-foreground mt-1 leading-tight"
-          title="Shortcuts: j/↓ next driver · k/↑ previous driver · n next unreviewed · p previous unreviewed · r toggle reviewed · ? for help"
-        >
-          Click bubble to review · click name to open · double-click row to review · <span className="font-mono">j/k</span> to jump · <span className="font-mono">n/p</span> for unreviewed.
-        </p>
       </div>
       {onCollapse && (
         <Button
