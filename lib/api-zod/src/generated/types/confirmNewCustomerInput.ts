@@ -23,4 +23,6 @@ export interface ConfirmNewCustomerInput {
    * @nullable
    */
   dispTz?: string | null;
+  /** Zero-based indices into `rows` that the dispatcher chose to skip in the preview dialog. Excluded rows are dropped silently and do not count toward `skippedUnmapped`. Out-of-range indices are ignored. */
+  excludedIndices?: number[];
 }

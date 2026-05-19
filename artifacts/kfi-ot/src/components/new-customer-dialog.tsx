@@ -31,6 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import {
   Loader2,
@@ -98,6 +99,7 @@ export function NewCustomerDialog({
   const [extractError, setExtractError] = useState<string | null>(null);
   const [preview, setPreview] = useState<ExtractPreview | null>(null);
   const [editedRows, setEditedRows] = useState<ExtractedRow[]>([]);
+  const [excluded, setExcluded] = useState<Set<number>>(new Set());
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [forgottenAliases, setForgottenAliases] = useState<Set<string>>(
     new Set(),
@@ -114,6 +116,7 @@ export function NewCustomerDialog({
       setExtractError(null);
       setPreview(null);
       setEditedRows([]);
+      setExcluded(new Set());
       setMapping({});
       setForgottenAliases(new Set());
       setForgettingName(null);
@@ -203,15 +206,40 @@ export function NewCustomerDialog({
     for (const [name, val] of Object.entries(mapping)) {
       cleanMapping[name] = val === UNMAPPED ? null : val;
     }
-    const payloadRows = editedRows
-      .filter((r) => r.date && (r.timeIn || r.hours) && (r.timeOut || r.hours))
-      .map((r) => ({
-        driverNameOnDoc: r.driverNameOnDoc,
-        date: r.date,
-        clockIn: r.timeIn ?? "",
-        clockOut: r.timeOut ?? "",
-        hours: r.hours ?? null,
-      }));
+    // Preserve original row indices so the server's `excludedIndices` line
+    // up with the rows we send. We filter out structurally invalid rows
+    // (missing date or both time/hours) AFTER mapping the indices, then
+    // translate any "kept" exclusions through the same filter so the index
+    // arithmetic is correct.
+    const keptRows: Array<{
+      payload: {
+        driverNameOnDoc: string;
+        date: string;
+        clockIn: string;
+        clockOut: string;
+        hours: number | null;
+      };
+      originalIndex: number;
+    }> = [];
+    editedRows.forEach((r, idx) => {
+      if (!r.date) return;
+      if (!(r.timeIn || r.hours)) return;
+      if (!(r.timeOut || r.hours)) return;
+      keptRows.push({
+        payload: {
+          driverNameOnDoc: r.driverNameOnDoc,
+          date: r.date,
+          clockIn: r.timeIn ?? "",
+          clockOut: r.timeOut ?? "",
+          hours: r.hours ?? null,
+        },
+        originalIndex: idx,
+      });
+    });
+    const payloadRows = keptRows.map((k) => k.payload);
+    const excludedIndices = keptRows
+      .map((k, newIdx) => (excluded.has(k.originalIndex) ? newIdx : -1))
+      .filter((i) => i >= 0);
     confirmMut.mutate(
       {
         weekStart,
@@ -220,6 +248,7 @@ export function NewCustomerDialog({
           sampleId: preview.sampleId,
           mapping: cleanMapping,
           rows: payloadRows,
+          excludedIndices,
           ...(dispTz !== "__auto__" ? { dispTz } : {}),
         },
       },
@@ -250,10 +279,21 @@ export function NewCustomerDialog({
   const goBack = () => {
     setPreview(null);
     setEditedRows([]);
+    setExcluded(new Set());
     setMapping({});
   };
 
+  const toggleExclude = (idx: number) => {
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
   const hasPreview = preview !== null;
+  const keptCount = editedRows.length - excluded.size;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -310,7 +350,9 @@ export function NewCustomerDialog({
                 <div>
                   <span className="font-semibold">{preview.customer}</span>
                   <span className="text-muted-foreground">
-                    {" "}· week of {preview.weekStart} · {editedRows.length} extracted rows
+                    {" "}· week of {preview.weekStart} · {keptCount} of{" "}
+                    {editedRows.length} rows selected
+                    {excluded.size > 0 ? ` · ${excluded.size} excluded` : ""}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -439,12 +481,14 @@ export function NewCustomerDialog({
                   Extracted rows
                 </h4>
                 <p className="text-xs text-muted-foreground mb-3">
-                  Edit any cell. Rows whose driver is unmapped will be skipped.
+                  Untick "Keep" to drop a row. Rows whose driver is unmapped
+                  are also skipped automatically.
                 </p>
                 <div className="border border-border rounded overflow-hidden">
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-10">Keep</TableHead>
                         <TableHead>Driver (on doc)</TableHead>
                         <TableHead>Date</TableHead>
                         <TableHead>In</TableHead>
@@ -468,12 +512,23 @@ export function NewCustomerDialog({
                             : matchedName
                               ? formatPersonName(matchedName)
                               : target;
-                        const skipped = target === UNMAPPED;
+                        const unmapped = target === UNMAPPED;
+                        const isExcluded = excluded.has(idx);
+                        const dim = unmapped || isExcluded;
                         return (
                           <TableRow
                             key={idx}
-                            className={skipped ? "opacity-50" : ""}
+                            data-testid={`row-new-customer-${idx}`}
+                            className={dim ? "opacity-50" : ""}
                           >
+                            <TableCell>
+                              <Checkbox
+                                checked={!isExcluded}
+                                onCheckedChange={() => toggleExclude(idx)}
+                                data-testid={`checkbox-keep-new-${idx}`}
+                                aria-label={`Keep row ${idx + 1}`}
+                              />
+                            </TableCell>
                             <TableCell className="text-xs font-medium">
                               {formatPersonName(r.driverNameOnDoc)}
                             </TableCell>

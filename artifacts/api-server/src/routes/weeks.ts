@@ -2175,8 +2175,16 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
     hours: number;
     dispTz: string;
   }> = [];
+  // Per-row exclusions chosen by the dispatcher in the preview dialog.
+  // Excluded rows are dropped silently and do NOT count toward
+  // `skippedUnmapped` — that field is reserved for rows the system had to
+  // skip (unmapped driver, out-of-week date, zero hours), not rows the user
+  // explicitly opted out of.
+  const excludedSet = new Set(parsed.data.excludedIndices ?? []);
   let skipped = 0;
-  for (const r of parsed.data.rows) {
+  for (let i = 0; i < parsed.data.rows.length; i++) {
+    const r = parsed.data.rows[i];
+    if (excludedSet.has(i)) continue;
     if (r.date < startDate || r.date > endDate) {
       skipped++;
       continue;

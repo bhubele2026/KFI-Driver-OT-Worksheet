@@ -1549,6 +1549,7 @@ export const ConfirmNewCustomerFileParams = zod.object({
 export const confirmNewCustomerFileBodyRowsItemDateRegExp = new RegExp(
   "^\\d{4}-\\d{2}-\\d{2}$",
 );
+export const confirmNewCustomerFileBodyExcludedIndicesItemMin = 0;
 
 export const ConfirmNewCustomerFileBody = zod.object({
   customer: zod.string().min(1),
@@ -1573,6 +1574,12 @@ export const ConfirmNewCustomerFileBody = zod.object({
     .nullish()
     .describe(
       "Per-upload display-tz override (must be one of `ALLOWED_TZS`). Applied to every imported row in lieu of the per-driver `display_tz` and the IWG\/CT fallback. Silently ignored when not recognized.",
+    ),
+  excludedIndices: zod
+    .array(zod.number().min(confirmNewCustomerFileBodyExcludedIndicesItemMin))
+    .optional()
+    .describe(
+      "Zero-based indices into `rows` that the dispatcher chose to skip in the preview dialog. Excluded rows are dropped silently and do not count toward `skippedUnmapped`. Out-of-range indices are ignored.",
     ),
 });
 
