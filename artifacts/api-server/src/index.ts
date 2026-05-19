@@ -12,6 +12,7 @@ import {
   startRateLimitEventsCleanup,
 } from "./lib/rateLimit";
 import { startAiExtractSampleCleanup } from "./lib/aiExtractSampleCleanup";
+import { startHiddenNotesDigest } from "./lib/hiddenNotesDigest";
 import { initIpBlocklist } from "./lib/ipBlocklist";
 import { startRealtimeHeartbeat } from "./lib/realtime";
 
@@ -70,6 +71,7 @@ async function main() {
       logger.warn({ err }, "rate limit events cleanup failed"),
   });
   startAiExtractSampleCleanup();
+  startHiddenNotesDigest();
   startRealtimeHeartbeat();
   setRateLimitEventSink((event) => {
     pool

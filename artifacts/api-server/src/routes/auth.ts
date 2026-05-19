@@ -20,6 +20,7 @@ import {
   verifyPassword,
 } from "../lib/auth.js";
 import { isMailerConfigured, sendMail } from "../lib/mailer.js";
+import { appBaseUrl } from "../lib/appBaseUrl.js";
 import {
   checkLoginLimits,
   clearBucket,
@@ -119,18 +120,6 @@ function publicUser(user: {
     passwordResetLastSentAt: user.passwordResetLastSentAt ?? null,
     preferredLanguage: lang,
   };
-}
-
-// Build link origins from server config, never from request headers.
-function appBaseUrl(): string | null {
-  const explicit = process.env.APP_BASE_URL;
-  if (explicit) return explicit.replace(/\/+$/, "");
-  const replitDomains = process.env.REPLIT_DOMAINS;
-  if (replitDomains) {
-    const first = replitDomains.split(",")[0].trim();
-    if (first) return `https://${first}`;
-  }
-  return null;
 }
 
 function requireAppBaseUrl(res: import("express").Response): string | null {
