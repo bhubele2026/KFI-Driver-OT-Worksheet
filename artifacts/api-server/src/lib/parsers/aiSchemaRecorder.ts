@@ -133,13 +133,13 @@ export async function recordAiSchemaIfPossible(args: {
   buffer: Buffer;
   aiResult: ParseResult;
   log: { warn: (obj: object, msg: string) => void };
-}): Promise<void> {
+}): Promise<boolean> {
   const { customer, fileName, buffer, aiResult, log } = args;
   try {
     const signature = computeHeaderSignature(fileName, buffer);
-    if (!signature) return;
+    if (!signature) return false;
     const first = aiResult.punches[0];
-    if (!first) return;
+    if (!first) return false;
     // Reverse-look up the rawBadge: aiResult.punches[].kfiId is the
     // mapped value, but the xlsx contains the raw badge. We need the
     // raw value; AI returned it via `badgeOrId` upstream. Skip if we
@@ -154,7 +154,7 @@ export async function recordAiSchemaIfPossible(args: {
       clockOut: first.clockOut,
     };
     const roles = inferColumnRoles(buffer, sample);
-    if (!roles) return;
+    if (!roles) return false;
     await db
       .insert(schema.customerColumnSchemasTable)
       .values({
@@ -176,8 +176,10 @@ export async function recordAiSchemaIfPossible(args: {
           source: "ai",
         },
       });
+    return true;
   } catch (err) {
     log.warn({ err, customer, fileName }, "recordAiSchemaIfPossible failed");
+    return false;
   }
 }
 

@@ -75,7 +75,7 @@ function friendlyUploadError(raw: string): string {
     lower.includes("ai extraction timed out") ||
     lower.includes("timed out after")
   ) {
-    return "The AI reader took too long and was canceled. Try the original spreadsheet (much faster than a scan), or retry in a moment.";
+    return "The AI reader took longer than the maximum allowed and was canceled. Try the original spreadsheet (much faster than a scan), or retry in a moment.";
   }
   // The new server-side "0 punches" message already explains exactly what
   // happened (unrecognized drivers, out-of-window dates, etc.) and points
@@ -1423,20 +1423,35 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   e.target.value = "";
                 }}
               />
-              {st.uploading && st.uploadStartedAt != null && (
-                <span
-                  className="text-xs text-muted-foreground font-mono tabular-nums whitespace-nowrap"
-                  aria-live="polite"
-                  data-testid={`upload-elapsed-${s.customer}`}
-                >
-                  Reading…{" "}
-                  {Math.max(
-                    0,
-                    Math.floor((Date.now() - st.uploadStartedAt) / 1000),
-                  )}
-                  s
-                </span>
-              )}
+              {st.uploading && st.uploadStartedAt != null && (() => {
+                const elapsed = Math.max(
+                  0,
+                  Math.floor((Date.now() - st.uploadStartedAt) / 1000),
+                );
+                // Past 15s we're almost certainly in the AI fallback path.
+                // Tell the dispatcher this is expected on a first-time
+                // upload of a new layout, and that the next one will be
+                // fast (cache → readWithRoles). Task #255.
+                const hint =
+                  elapsed > 15
+                    ? "First-time AI read can take a few minutes — next upload of this format will be instant."
+                    : null;
+                return (
+                  <span
+                    className="text-xs text-muted-foreground font-mono tabular-nums whitespace-nowrap"
+                    aria-live="polite"
+                    data-testid={`upload-elapsed-${s.customer}`}
+                    title={hint ?? undefined}
+                  >
+                    Reading… {elapsed}s
+                    {hint ? (
+                      <span className="ml-2 hidden lg:inline font-sans normal-case text-[10px] text-muted-foreground/80">
+                        {hint}
+                      </span>
+                    ) : null}
+                  </span>
+                );
+              })()}
               <Button
                 variant={uploaded ? "outline" : "default"}
                 size="sm"

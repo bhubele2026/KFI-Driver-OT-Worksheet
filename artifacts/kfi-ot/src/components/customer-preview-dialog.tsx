@@ -71,6 +71,7 @@ export interface CustomerPreviewData {
   autoIgnoredIds?: CustomerPreviewUnmappedId[];
   existingPunchCount: number;
   extractSource?: "legacy-parser" | "cache" | "ai";
+  cacheWritten?: boolean;
 }
 
 function errMessage(err: unknown, fallback: string): string {
@@ -298,6 +299,15 @@ export function CustomerPreviewDialog({
               {preview.extractSource === "ai" ? (
                 <span className="text-muted-foreground/80">
                   · Review every row before confirming.
+                </span>
+              ) : null}
+              {preview.extractSource === "ai" && preview.cacheWritten ? (
+                <span
+                  className="ml-1 inline-flex items-center rounded border border-emerald-500/40 bg-emerald-50/60 dark:bg-emerald-950/20 px-2 py-0.5 text-[10px] font-medium text-emerald-800 dark:text-emerald-200"
+                  data-testid="chip-cache-warmed"
+                  title="The column layout for this file was learned. Future uploads of the same format will skip AI entirely."
+                >
+                  Next upload of this format will be instant
                 </span>
               ) : null}
             </div>

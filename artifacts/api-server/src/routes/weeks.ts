@@ -1482,6 +1482,11 @@ weeksRouter.post(
     //   - 'cache': AI-discovered column roles fed a generic reader (fast).
     //   - 'ai': fell through to Gemini (slow, but uniform).
     let extractSource: "legacy-parser" | "cache" | "ai" = "ai";
+    // True only when the AI path succeeded AND `recordAiSchemaIfPossible`
+    // wrote a `customer_column_schemas` row for the file's header
+    // signature. Surfaced to the dispatcher so they know the next upload
+    // of this format will skip AI entirely (cache → readWithRoles). Task #255.
+    let cacheWritten = false;
 
     // ---- Uniform per-row pipeline (Task #250) -------------------------
     // Every per-row upload (`explicitCustomer` set, including drag-drop
@@ -1617,7 +1622,7 @@ weeksRouter.post(
         // header signature skips AI and uses the generic reader.
         // Fire-and-forget: failure here only costs the next upload
         // another AI call.
-        await recordAiSchemaIfPossible({
+        cacheWritten = await recordAiSchemaIfPossible({
           customer: detectedCustomer,
           fileName,
           buffer: req.file.buffer,
@@ -1907,6 +1912,7 @@ weeksRouter.post(
       autoIgnoredIds: autoIgnored,
       existingPunchCount,
       extractSource,
+      cacheWritten,
     });
   },
 );

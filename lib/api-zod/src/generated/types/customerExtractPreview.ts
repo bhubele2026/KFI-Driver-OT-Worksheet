@@ -49,4 +49,13 @@ ignore from /admin/customer-ignored-externals if needed.
   the AI extraction (see `docs/promote-ai-customer-to-parser.md`).
  */
   extractSource?: CustomerExtractPreviewExtractSource;
+  /** True only when `extractSource` is `ai` AND the column-roles
+cache row was successfully written for this file's header
+signature. Tells the dispatcher the next upload of the same
+xlsx layout will skip AI entirely and take the fast
+`cache` → `readWithRoles` branch (sub-100ms). Always false
+for legacy-parser / cache hits, images, and PDFs (the schema
+cache is xlsx-only today).
+ */
+  cacheWritten?: boolean;
 }

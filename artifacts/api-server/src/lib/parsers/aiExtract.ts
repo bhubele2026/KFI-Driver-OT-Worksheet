@@ -117,7 +117,17 @@ const ROW_SCHEMA = {
   required: ["rows"],
 };
 
-function xlsxToText(buffer: Buffer): string {
+// Max characters of CSV text we'll ship to Gemini for an xlsx upload.
+// Bumped from the original 200k after Task #255: real weekly customer
+// exports (Trienda Kronos pivot, ~21 drivers × 7 days × ~5 cols) clear
+// 200k once a few text-heavy columns are present, and silent truncation
+// was the difference between a successful first-time AI extract (which
+// then warms the schema cache for sub-second future uploads) and a
+// 0-rows-after-AI dead end. 1 MB is still well under Gemini's input
+// token ceiling for `gemini-2.5-flash` and keeps the prompt cost bounded.
+const XLSX_CSV_MAX_CHARS = 1_000_000;
+
+function xlsxToText(buffer: Buffer, log?: SalvageLogger): string {
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
   const out: string[] = [];
   for (const name of wb.SheetNames) {
@@ -126,7 +136,15 @@ function xlsxToText(buffer: Buffer): string {
     out.push(`# Sheet: ${name}`);
     out.push(XLSX.utils.sheet_to_csv(ws, { blankrows: false }));
   }
-  return out.join("\n").slice(0, 200_000);
+  const joined = out.join("\n");
+  if (joined.length > XLSX_CSV_MAX_CHARS) {
+    log?.warn(
+      { rawChars: joined.length, cap: XLSX_CSV_MAX_CHARS },
+      "xlsx CSV exceeded prompt cap — truncating before Gemini call",
+    );
+    return joined.slice(0, XLSX_CSV_MAX_CHARS);
+  }
+  return joined;
 }
 
 function buildPrompt(customer: string, weekStart: string, weekEnd: string) {
@@ -347,17 +365,25 @@ export async function aiExtractRows(
     }
   } else {
     parts.push({
-      text: `\n\n--- SPREADSHEET (CSV) ---\n${xlsxToText(buffer)}\n--- END SPREADSHEET ---`,
+      text: `\n\n--- SPREADSHEET (CSV) ---\n${xlsxToText(buffer, log)}\n--- END SPREADSHEET ---`,
     });
   }
 
-  // Hard 90s ceiling on the Gemini call. Without this an unresponsive
+  // Per-format ceiling on the Gemini call. Without this an unresponsive
   // upstream leaves the dispatcher staring at a frozen "Uploading…"
-  // spinner for minutes with no feedback. The race doesn't actually
-  // abort the HTTP request (the @google/genai SDK doesn't expose an
-  // AbortSignal here) but it does free the request handler so the
-  // dispatcher gets an actionable error and can Cancel + retry.
-  const AI_TIMEOUT_MS = 90_000;
+  // spinner with no feedback. The race doesn't actually abort the HTTP
+  // request (the @google/genai SDK doesn't expose an AbortSignal here)
+  // but it does free the request handler so the dispatcher gets an
+  // actionable error and can Cancel + retry.
+  //
+  // Images keep the original 90s budget — they're usually quick and the
+  // dispatcher is actively watching a photo upload. xlsx + PDF get a
+  // much wider window (5 min) because Task #255's product call is that
+  // the FIRST AI extract on a new/drifted customer file must succeed
+  // even if it takes a few minutes, so the schema cache learns the
+  // column roles and future uploads of the same layout skip AI entirely
+  // via the cache → readWithRoles fast path (sub-100ms).
+  const AI_TIMEOUT_MS = isImage ? 90_000 : 300_000;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {

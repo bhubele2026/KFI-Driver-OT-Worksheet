@@ -1461,6 +1461,12 @@ export const ExtractCustomerFileResponse = zod.object({
     .describe(
       "Which extraction strategy the uniform per-row pipeline used:\n- `legacy-parser`: the schema cache routed to a hand-written\n  parser (fast, deterministic).\n- `cache`: an AI-discovered column-roles row was found and a\n  generic role-based reader produced the rows (fast).\n- `ai`: fell through to Gemini extraction (slow, but uniform).\n  For known-customer rows this signals format drift —\n  consider updating the deterministic parser or promoting\n  the AI extraction (see `docs\/promote-ai-customer-to-parser.md`).\n",
     ),
+  cacheWritten: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True only when `extractSource` is `ai` AND the column-roles\ncache row was successfully written for this file's header\nsignature. Tells the dispatcher the next upload of the same\nxlsx layout will skip AI entirely and take the fast\n`cache` → `readWithRoles` branch (sub-100ms). Always false\nfor legacy-parser \/ cache hits, images, and PDFs (the schema\ncache is xlsx-only today).\n",
+    ),
 });
 
 /**
