@@ -117,16 +117,6 @@ const ROW_SCHEMA = {
   required: ["rows"],
 };
 
-// Max characters of CSV text we'll ship to Gemini for an xlsx upload.
-// Bumped from the original 200k after Task #255: real weekly customer
-// exports (Trienda Kronos pivot, ~21 drivers × 7 days × ~5 cols) clear
-// 200k once a few text-heavy columns are present, and silent truncation
-// was the difference between a successful first-time AI extract (which
-// then warms the schema cache for sub-second future uploads) and a
-// 0-rows-after-AI dead end. 1 MB is still well under Gemini's input
-// token ceiling for `gemini-2.5-flash` and keeps the prompt cost bounded.
-const XLSX_CSV_MAX_CHARS = 1_000_000;
-
 // Threshold above which we stop sending the entire workbook in one
 // Gemini call and instead split into row-range chunks (Task #255).
 // Below this the single-call path is materially cheaper (one round trip,
@@ -140,26 +130,6 @@ export const XLSX_CHUNK_THRESHOLD_CHARS = 300_000;
 // as a safety net for pathologically wide rows.
 const XLSX_CHUNK_MAX_CHARS = 250_000;
 const XLSX_CHUNK_MAX_ROWS = 400;
-
-function xlsxToText(buffer: Buffer, log?: SalvageLogger): string {
-  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
-  const out: string[] = [];
-  for (const name of wb.SheetNames) {
-    const ws = wb.Sheets[name];
-    if (!ws) continue;
-    out.push(`# Sheet: ${name}`);
-    out.push(XLSX.utils.sheet_to_csv(ws, { blankrows: false }));
-  }
-  const joined = out.join("\n");
-  if (joined.length > XLSX_CSV_MAX_CHARS) {
-    log?.warn(
-      { rawChars: joined.length, cap: XLSX_CSV_MAX_CHARS },
-      "xlsx CSV exceeded prompt cap — truncating before Gemini call",
-    );
-    return joined.slice(0, XLSX_CSV_MAX_CHARS);
-  }
-  return joined;
-}
 
 /**
  * Split a workbook into one-or-more CSV chunks suitable for separate
@@ -176,9 +146,9 @@ export function xlsxToChunks(
   log?: SalvageLogger,
 ): string[] {
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
-  // Total-size shortcut: small workbook → single chunk via the old path
-  // (preserves prior prompt shape and keeps the cost identical for the
-  // overwhelmingly common case).
+  // Total-size shortcut: small workbook → single chunk that mirrors the
+  // pre-Task-#255 single-call prompt shape (preserves cost for the
+  // overwhelmingly common case where a weekly export fits comfortably).
   const single = (() => {
     const out: string[] = [];
     for (const name of wb.SheetNames) {
@@ -190,13 +160,6 @@ export function xlsxToChunks(
     return out.join("\n");
   })();
   if (single.length <= XLSX_CHUNK_THRESHOLD_CHARS) {
-    if (single.length > XLSX_CSV_MAX_CHARS) {
-      log?.warn(
-        { rawChars: single.length, cap: XLSX_CSV_MAX_CHARS },
-        "xlsx CSV exceeded prompt cap — truncating before Gemini call",
-      );
-      return [single.slice(0, XLSX_CSV_MAX_CHARS)];
-    }
     return [single];
   }
 

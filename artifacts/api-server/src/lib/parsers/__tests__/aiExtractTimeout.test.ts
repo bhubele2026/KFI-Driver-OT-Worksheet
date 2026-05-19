@@ -45,13 +45,13 @@ test("AI timeout: images 90s, xlsx/pdf 5 minutes (Task #255)", () => {
   );
 });
 
-test("xlsx CSV prompt cap is at least 1MB so realistic exports aren't silently truncated", () => {
-  const m = source.match(/const XLSX_CSV_MAX_CHARS = ([\d_]+);/);
-  assert.ok(m, "XLSX_CSV_MAX_CHARS constant must exist");
-  const value = parseInt(m[1].replace(/_/g, ""), 10);
+test("chunk threshold sits well below Gemini per-call limits", () => {
+  // Behavioral guard: the threshold must stay below 500k chars so an
+  // oversized workbook reliably triggers chunking rather than getting
+  // truncated and silently dropping rows.
   assert.ok(
-    value >= 1_000_000,
-    `XLSX_CSV_MAX_CHARS should be >= 1M (was ${value})`,
+    XLSX_CHUNK_THRESHOLD_CHARS <= 500_000,
+    `XLSX_CHUNK_THRESHOLD_CHARS should be <= 500k (was ${XLSX_CHUNK_THRESHOLD_CHARS})`,
   );
 });
 
