@@ -1992,6 +1992,42 @@ export const RemoveParserPromotionSnoozeQueryParams = zod.object({
 });
 
 /**
+ * @summary List every customer currently marked inactive (admin-only).
+ */
+export const ListInactiveCustomersResponseItem = zod.object({
+  customer: zod.string(),
+  inactiveAt: zod.coerce.date(),
+  inactiveByEmail: zod.string().nullish(),
+});
+export const ListInactiveCustomersResponse = zod.array(
+  ListInactiveCustomersResponseItem,
+);
+
+/**
+ * @summary Mark a customer inactive so it disappears from the per-week customer-files
+panel. Historical punches, prior upload attempts, aliases, and AI samples
+for the customer are untouched. Admin-only.
+
+ */
+
+export const MarkCustomerInactiveBody = zod.object({
+  customer: zod.string().min(1),
+});
+
+export const MarkCustomerInactiveResponse = zod.object({
+  customer: zod.string(),
+  inactiveAt: zod.coerce.date(),
+  inactiveByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Reactivate a customer so it re-appears on the customer-files panel. Admin-only.
+ */
+export const ReactivateCustomerQueryParams = zod.object({
+  customer: zod.coerce.string(),
+});
+
+/**
  * @summary List every admin-managed customer-id → KFI driver mapping (admin-only).
  */
 export const ListDriverIdAliasesResponse = zod.object({

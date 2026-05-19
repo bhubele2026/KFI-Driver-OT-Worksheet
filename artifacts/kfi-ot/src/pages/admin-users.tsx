@@ -783,6 +783,15 @@ export default function AdminUsers() {
               {t("adminNav.parserSnoozes")}
             </Button>
           </Link>
+          <Link href="/admin/inactive-customers">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
+            >
+              Inactive customers
+            </Button>
+          </Link>
           <Link href="/admin/driver-id-aliases">
             <Button
               variant="ghost"

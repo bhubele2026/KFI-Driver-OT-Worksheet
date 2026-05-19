@@ -6,9 +6,11 @@ import {
   useGetMe,
   useCreateParserPromotionSnooze,
   useGetAllowedTimezones,
+  useMarkCustomerInactive,
   getGetCustomerUploadStatusQueryKey,
   getGetWeekSummaryQueryKey,
   getListParserPromotionSnoozesQueryKey,
+  getListInactiveCustomersQueryKey,
 } from "@workspace/api-client-react";
 import {
   Select,
@@ -161,6 +163,11 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const [bulkRunning, setBulkRunning] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragDepth = useRef(0);
+  // When the user is dragging over a specific row, suppress the whole-panel
+  // overlay so the per-row drop target reads as the active target.
+  const [rowDragCustomer, setRowDragCustomer] = useState<string | null>(null);
+  const rowDragDepth = useRef<Record<string, number>>({});
+  const markInactiveMutation = useMarkCustomerInactive();
   const [preview, setPreview] = useState<CustomerPreviewData | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [overrideTz, setOverrideTz] = useState<string>("__auto__");
@@ -190,6 +197,33 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           toast({
             title: "Couldn't snooze suggestion",
             description: errMessage(err, "Snooze failed"),
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  const markInactive = (customer: string) => {
+    markInactiveMutation.mutate(
+      { data: { customer } },
+      {
+        onSuccess: () => {
+          toast({
+            title: `Hid "${customer}"`,
+            description:
+              "Existing punches and uploads are kept. Reactivate from Admin · Inactive customers to bring it back.",
+          });
+          queryClient.invalidateQueries({
+            queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
+          });
+          queryClient.invalidateQueries({
+            queryKey: getListInactiveCustomersQueryKey(),
+          });
+        },
+        onError: (err) =>
+          toast({
+            title: "Couldn't mark inactive",
+            description: errMessage(err, "Mark inactive failed"),
             variant: "destructive",
           }),
       },
@@ -498,6 +532,85 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
 
   const dismissBulk = () => setBulkItems([]);
 
+  // Per-row drop: bypasses the filename-based classifier entirely and forces
+  // the dropped file through the per-row extract route for that customer.
+  // Multi-file or unsupported drops are rejected with a toast.
+  const handleRowDragEnter = (
+    customer: string,
+    e: React.DragEvent<HTMLLIElement>,
+  ) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    rowDragDepth.current[customer] =
+      (rowDragDepth.current[customer] ?? 0) + 1;
+    setRowDragCustomer(customer);
+    // Cancel any whole-panel overlay state so the user sees the row target.
+    dragDepth.current = 0;
+    setIsDragOver(false);
+  };
+
+  const handleRowDragOver = (e: React.DragEvent<HTMLLIElement>) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleRowDragLeave = (
+    customer: string,
+    e: React.DragEvent<HTMLLIElement>,
+  ) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const next = Math.max(0, (rowDragDepth.current[customer] ?? 0) - 1);
+    rowDragDepth.current[customer] = next;
+    if (next === 0 && rowDragCustomer === customer) {
+      setRowDragCustomer(null);
+    }
+  };
+
+  const handleRowDrop = (
+    customer: string,
+    e: React.DragEvent<HTMLLIElement>,
+  ) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    rowDragDepth.current[customer] = 0;
+    setRowDragCustomer(null);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length === 0) return;
+    if (files.length > 1) {
+      toast({
+        title: "Drop a single file per customer",
+        description: `Per-row upload accepts one file at a time. Use the panel-wide drop zone to bulk-upload ${files.length} files.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    const file = files[0];
+    const lower = file.name.toLowerCase();
+    const ok =
+      lower.endsWith(".pdf") ||
+      lower.endsWith(".xlsx") ||
+      lower.endsWith(".xls") ||
+      /\.(jpe?g|png|heic|heif|webp)$/i.test(lower);
+    if (!ok) {
+      toast({
+        title: "Unsupported file type",
+        description: `Only .xlsx, .pdf, and image files (JPG, PNG, HEIC, WEBP) are accepted. "${file.name}" was skipped.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    // Per-row drop intentionally bypasses filename-based routing — the
+    // dispatcher picked the customer by aiming at this row, so we trust
+    // that signal over the filename keyword.
+    void extractFor(customer, file);
+  };
+
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
     if (!Array.from(e.dataTransfer.types).includes("Files")) return;
     e.preventDefault();
@@ -560,7 +673,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   return (
     <Card
       className={`relative overflow-hidden border-border/60 transition-colors ${
-        isDragOver
+        isDragOver && !rowDragCustomer
           ? "ring-2 ring-primary ring-offset-2 ring-offset-background border-primary/60"
           : ""
       }`}
@@ -569,7 +682,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {isDragOver && (
+      {isDragOver && !rowDragCustomer && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-primary/10 backdrop-blur-[1px]">
           <div className="rounded-lg border-2 border-dashed border-primary bg-background/95 px-6 py-4 shadow-lg flex items-center gap-3">
             <UploadCloud className="h-6 w-6 text-primary" />
@@ -929,11 +1042,28 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
             // sheet; the server routes it through AI extract + preview.
             .concat([".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"])
             .join(",");
+          const isRowDragTarget = rowDragCustomer === s.customer;
           return (
             <li
               key={s.customer}
-              className="px-4 py-2.5 flex items-center gap-3 hover:bg-muted/20"
+              className={`relative px-4 py-2.5 flex items-center gap-3 hover:bg-muted/20 transition-colors ${
+                isRowDragTarget
+                  ? "bg-primary/10 ring-2 ring-primary ring-inset"
+                  : ""
+              }`}
+              onDragEnter={(e) => handleRowDragEnter(s.customer, e)}
+              onDragOver={handleRowDragOver}
+              onDragLeave={(e) => handleRowDragLeave(s.customer, e)}
+              onDrop={(e) => handleRowDrop(s.customer, e)}
             >
+              {isRowDragTarget && (
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-primary/5">
+                  <div className="rounded border-2 border-dashed border-primary bg-background/95 px-3 py-1.5 shadow text-xs font-display font-semibold flex items-center gap-2">
+                    <UploadCloud className="h-4 w-4 text-primary" />
+                    Drop to upload as {s.customer}
+                  </div>
+                </div>
+              )}
               <div className="shrink-0">
                 {showError ? (
                   <AlertCircle className="h-4 w-4 text-destructive" />
@@ -1099,6 +1229,47 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 )}
                 {uploaded ? "Re-upload" : "Upload"}
               </Button>
+              {me?.isAdmin && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 shrink-0"
+                      title={`Row actions for ${s.customer}`}
+                      data-testid={`row-actions-${s.customer}`}
+                      disabled={
+                        markInactiveMutation.isPending &&
+                        markInactiveMutation.variables?.data.customer ===
+                          s.customer
+                      }
+                    >
+                      {markInactiveMutation.isPending &&
+                      markInactiveMutation.variables?.data.customer ===
+                        s.customer ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <span aria-hidden className="text-base leading-none">
+                          ⋯
+                        </span>
+                      )}
+                      <span className="sr-only">Row actions</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuLabel className="text-xs">
+                      {s.customer}
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => markInactive(s.customer)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      Mark inactive (hide from this panel)
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </li>
           );
         })}

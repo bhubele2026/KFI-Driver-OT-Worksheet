@@ -55,6 +55,7 @@ import type {
   ForgetCustomerNameAliasParams,
   HealthStatus,
   HiddenNotesUnseenCount,
+  InactiveCustomer,
   Invite,
   InviteWithLink,
   IpBlocklistEntry,
@@ -67,6 +68,7 @@ import type {
   LoginCredentials,
   MailerStatus,
   ManualPunchInput,
+  MarkCustomerInactiveBody,
   ParserPromotionSnooze,
   PasswordResetLink,
   PasswordResetRequestResult,
@@ -80,6 +82,7 @@ import type {
   RateLimitLockout,
   RateLimitLockoutTimeseriesPoint,
   RateLimitLockoutTopOffender,
+  ReactivateCustomerParams,
   RefreshConnecteamDriverResult,
   RefreshResult,
   RegistrationStatus,
@@ -5256,6 +5259,270 @@ export const useRemoveParserPromotionSnooze = <
   TContext
 > => {
   return useMutation(getRemoveParserPromotionSnoozeMutationOptions(options));
+};
+
+/**
+ * @summary List every customer currently marked inactive (admin-only).
+ */
+export const getListInactiveCustomersUrl = () => {
+  return `/api/customer-active-state`;
+};
+
+export const listInactiveCustomers = async (
+  options?: RequestInit,
+): Promise<InactiveCustomer[]> => {
+  return customFetch<InactiveCustomer[]>(getListInactiveCustomersUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListInactiveCustomersQueryKey = () => {
+  return [`/api/customer-active-state`] as const;
+};
+
+export const getListInactiveCustomersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listInactiveCustomers>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listInactiveCustomers>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListInactiveCustomersQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listInactiveCustomers>>
+  > = ({ signal }) => listInactiveCustomers({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listInactiveCustomers>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListInactiveCustomersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listInactiveCustomers>>
+>;
+export type ListInactiveCustomersQueryError = ErrorType<void>;
+
+/**
+ * @summary List every customer currently marked inactive (admin-only).
+ */
+
+export function useListInactiveCustomers<
+  TData = Awaited<ReturnType<typeof listInactiveCustomers>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listInactiveCustomers>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListInactiveCustomersQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Mark a customer inactive so it disappears from the per-week customer-files
+panel. Historical punches, prior upload attempts, aliases, and AI samples
+for the customer are untouched. Admin-only.
+
+ */
+export const getMarkCustomerInactiveUrl = () => {
+  return `/api/customer-active-state`;
+};
+
+export const markCustomerInactive = async (
+  markCustomerInactiveBody: MarkCustomerInactiveBody,
+  options?: RequestInit,
+): Promise<InactiveCustomer> => {
+  return customFetch<InactiveCustomer>(getMarkCustomerInactiveUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(markCustomerInactiveBody),
+  });
+};
+
+export const getMarkCustomerInactiveMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markCustomerInactive>>,
+    TError,
+    { data: BodyType<MarkCustomerInactiveBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markCustomerInactive>>,
+  TError,
+  { data: BodyType<MarkCustomerInactiveBody> },
+  TContext
+> => {
+  const mutationKey = ["markCustomerInactive"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markCustomerInactive>>,
+    { data: BodyType<MarkCustomerInactiveBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return markCustomerInactive(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkCustomerInactiveMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markCustomerInactive>>
+>;
+export type MarkCustomerInactiveMutationBody =
+  BodyType<MarkCustomerInactiveBody>;
+export type MarkCustomerInactiveMutationError = ErrorType<void>;
+
+/**
+ * @summary Mark a customer inactive so it disappears from the per-week customer-files
+panel. Historical punches, prior upload attempts, aliases, and AI samples
+for the customer are untouched. Admin-only.
+
+ */
+export const useMarkCustomerInactive = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markCustomerInactive>>,
+    TError,
+    { data: BodyType<MarkCustomerInactiveBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markCustomerInactive>>,
+  TError,
+  { data: BodyType<MarkCustomerInactiveBody> },
+  TContext
+> => {
+  return useMutation(getMarkCustomerInactiveMutationOptions(options));
+};
+
+/**
+ * @summary Reactivate a customer so it re-appears on the customer-files panel. Admin-only.
+ */
+export const getReactivateCustomerUrl = (params: ReactivateCustomerParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/customer-active-state?${stringifiedParams}`
+    : `/api/customer-active-state`;
+};
+
+export const reactivateCustomer = async (
+  params: ReactivateCustomerParams,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getReactivateCustomerUrl(params), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getReactivateCustomerMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reactivateCustomer>>,
+    TError,
+    { params: ReactivateCustomerParams },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reactivateCustomer>>,
+  TError,
+  { params: ReactivateCustomerParams },
+  TContext
+> => {
+  const mutationKey = ["reactivateCustomer"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reactivateCustomer>>,
+    { params: ReactivateCustomerParams }
+  > = (props) => {
+    const { params } = props ?? {};
+
+    return reactivateCustomer(params, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReactivateCustomerMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reactivateCustomer>>
+>;
+
+export type ReactivateCustomerMutationError = ErrorType<void>;
+
+/**
+ * @summary Reactivate a customer so it re-appears on the customer-files panel. Admin-only.
+ */
+export const useReactivateCustomer = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reactivateCustomer>>,
+    TError,
+    { params: ReactivateCustomerParams },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof reactivateCustomer>>,
+  TError,
+  { params: ReactivateCustomerParams },
+  TContext
+> => {
+  return useMutation(getReactivateCustomerMutationOptions(options));
 };
 
 /**

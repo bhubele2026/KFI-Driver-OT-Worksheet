@@ -1483,6 +1483,18 @@ export interface UpsertCustomerTzPreferenceInput {
   displayTz: string;
 }
 
+export interface InactiveCustomer {
+  customer: string;
+  inactiveAt: string;
+  /** @nullable */
+  inactiveByEmail?: string | null;
+}
+
+export interface MarkCustomerInactiveBody {
+  /** @minLength 1 */
+  customer: string;
+}
+
 export type ListRateLimitEventTimeseriesParams = {
   /**
    * @minimum 1
@@ -1542,6 +1554,10 @@ export type ListCustomerAliasAuditLogParams = {
 };
 
 export type RemoveParserPromotionSnoozeParams = {
+  customer: string;
+};
+
+export type ReactivateCustomerParams = {
   customer: string;
 };
 

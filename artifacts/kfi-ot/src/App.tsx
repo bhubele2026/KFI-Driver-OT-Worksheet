@@ -18,6 +18,7 @@ import AdminUsers from "@/pages/admin-users";
 import AdminAiSamples from "@/pages/admin-ai-samples";
 import AdminCustomerAliases from "@/pages/admin-customer-aliases";
 import AdminParserSnoozes from "@/pages/admin-parser-snoozes";
+import AdminInactiveCustomers from "@/pages/admin-inactive-customers";
 import AdminDriverIdAliases from "@/pages/admin-driver-id-aliases";
 import AdminDeletedNotes from "@/pages/admin-deleted-notes";
 import AdminRealtime from "@/pages/admin-realtime";
@@ -104,6 +105,7 @@ function Router() {
         <Route path="/admin/ai-samples" component={AdminAiSamples} />
         <Route path="/admin/customer-aliases" component={AdminCustomerAliases} />
         <Route path="/admin/parser-snoozes" component={AdminParserSnoozes} />
+        <Route path="/admin/inactive-customers" component={AdminInactiveCustomers} />
         <Route path="/admin/driver-id-aliases" component={AdminDriverIdAliases} />
         <Route path="/admin/notes" component={AdminDeletedNotes} />
         <Route path="/admin/realtime" component={AdminRealtime} />

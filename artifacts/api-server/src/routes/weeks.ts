@@ -11,6 +11,7 @@ import {
   CreateManualPunchBody,
   CreateParserPromotionSnoozeBody,
   CreateDriverIdAliasBody,
+  MarkCustomerInactiveBody,
   ResetWeekBody,
   SetReviewedBody,
   UpdateCustomerNameAliasBody,
@@ -1253,6 +1254,16 @@ weeksRouter.post(
       });
       return;
     }
+    // Reject uploads targeted at an inactive customer. Filename routing still
+    // recognizes inactive customers (so it doesn't silently fall back to the
+    // "could not detect" branch), but we never write punches for them — admins
+    // must reactivate first.
+    const inactiveSet = await loadInactiveCustomerSet();
+    if (inactiveSet.has(result.customer.toLowerCase())) {
+      const msg = `Customer "${result.customer}" is inactive — reactivate it under Admin · Inactive customers before uploading.`;
+      res.status(400).json({ error: msg });
+      return;
+    }
     if (result.punches.length === 0) {
       req.log.warn(
         { fileName, customer: result.customer },
@@ -1467,6 +1478,17 @@ weeksRouter.post(
           "Could not detect customer from filename. Include the customer name (penda, trienda, greystone, lsi, burnett, adient, iwg, delallo, zenople) in the file name.",
       });
       return;
+    }
+    // Reject extracts targeted at an inactive customer before we stash any
+    // bytes or run an AI fallback. Filename routing still recognized the
+    // customer; we just refuse to proceed until an admin reactivates.
+    {
+      const inactiveSet = await loadInactiveCustomerSet();
+      if (inactiveSet.has(result.customer.toLowerCase())) {
+        const msg = `Customer "${result.customer}" is inactive — reactivate it under Admin · Inactive customers before uploading.`;
+        res.status(400).json({ error: msg });
+        return;
+      }
     }
     // Track whether we fell back to AI extraction so the preview dialog can
     // warn the dispatcher and so /confirm-customer-file knows to replay the
@@ -2113,13 +2135,18 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
   }
   const prefFor = (name: string): string | null =>
     tzPrefByLower.get(name.toLowerCase()) ?? null;
+  const inactiveSet = await loadInactiveCustomerSet();
+  const isInactive = (name: string) => inactiveSet.has(name.toLowerCase());
   const knownNames = new Set(KNOWN_CUSTOMERS.map((c) => c.displayName));
   const byName = new Map<string, (typeof rows)[number]>();
   for (const r of rows) {
     if (r.customer) byName.set(r.customer, r);
   }
   const attemptByName = new Map(attempts.map((a) => [a.customer, a]));
-  const out = KNOWN_CUSTOMERS.map((c) => {
+  // Filter inactive customers out of the per-week panel. Historical punches,
+  // upload attempts, aliases, and AI samples are untouched — only the row's
+  // visibility on this dashboard changes.
+  const out = KNOWN_CUSTOMERS.filter((c) => !isInactive(c.displayName)).map((c) => {
     const r = byName.get(c.displayName);
     const a = attemptByName.get(c.displayName);
     return {
@@ -2164,7 +2191,7 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       aiOnlyNames.add(a.customer);
     }
   }
-  const aiOnly = [...aiOnlyNames].sort().map((name) => {
+  const aiOnly = [...aiOnlyNames].filter((name) => !isInactive(name)).sort().map((name) => {
     const r = byName.get(name);
     const a = attemptByName.get(name);
     return {
@@ -2335,6 +2362,133 @@ weeksRouter.delete(
   },
 );
 
+// Helper: load the set of customer names currently marked inactive, lowercased
+// for case-insensitive comparisons. Used both by /customer-uploads (to filter
+// inactive rows out of the dashboard) and by every upload route (to reject
+// uploads targeted at an inactive customer with a clear error).
+async function loadInactiveCustomerSet(): Promise<Set<string>> {
+  const rows = await db
+    .select({ customer: schema.customerActiveStateTable.customer })
+    .from(schema.customerActiveStateTable);
+  return new Set(rows.map((r) => r.customer.toLowerCase()));
+}
+
+weeksRouter.get(
+  "/customer-active-state",
+  requireAdmin,
+  async (_req, res) => {
+    const rows = await db
+      .select({
+        customer: schema.customerActiveStateTable.customer,
+        inactiveAt: schema.customerActiveStateTable.inactiveAt,
+        inactiveByUserId: schema.customerActiveStateTable.inactiveByUserId,
+      })
+      .from(schema.customerActiveStateTable)
+      .orderBy(desc(schema.customerActiveStateTable.inactiveAt));
+    const actorIds = new Set<number>();
+    for (const r of rows) if (r.inactiveByUserId) actorIds.add(r.inactiveByUserId);
+    const emailById = new Map<number, string>();
+    if (actorIds.size > 0) {
+      const actors = await db
+        .select({ id: schema.usersTable.id, email: schema.usersTable.email })
+        .from(schema.usersTable)
+        .where(inArray(schema.usersTable.id, [...actorIds]));
+      for (const a of actors) emailById.set(a.id, a.email);
+    }
+    res.json(
+      rows.map((r) => ({
+        customer: r.customer,
+        inactiveAt: new Date(r.inactiveAt).toISOString(),
+        inactiveByEmail: r.inactiveByUserId
+          ? emailById.get(r.inactiveByUserId) ?? null
+          : null,
+      })),
+    );
+  },
+);
+
+weeksRouter.post(
+  "/customer-active-state",
+  requireAdmin,
+  async (req, res) => {
+    const parsed = MarkCustomerInactiveBody.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "Invalid input", details: parsed.error.issues });
+      return;
+    }
+    const customer = parsed.data.customer.trim();
+    if (!customer) {
+      res.status(400).json({ error: "customer is required" });
+      return;
+    }
+    const inactiveAt = new Date();
+    // Case-insensitive upsert via delete-then-insert, mirroring the parser
+    // snooze pattern: the unique index is on lower(customer) and Drizzle's
+    // onConflict can't target a functional index.
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(schema.customerActiveStateTable)
+        .where(
+          sql`lower(${schema.customerActiveStateTable.customer}) = lower(${customer})`,
+        );
+      await tx.insert(schema.customerActiveStateTable).values({
+        customer,
+        inactiveAt,
+        inactiveByUserId: req.session.userId ?? null,
+      });
+      await tx.insert(schema.userAuditLogTable).values({
+        actorUserId: req.session.userId ?? null,
+        targetUserId: null,
+        targetEmail: `customer-inactive:${customer}`,
+        action: "customer-inactive",
+      });
+    });
+    let inactiveByEmail: string | null = null;
+    if (req.session.userId) {
+      const actor = await db.query.usersTable.findFirst({
+        where: eq(schema.usersTable.id, req.session.userId),
+        columns: { email: true },
+      });
+      inactiveByEmail = actor?.email ?? null;
+    }
+    res.json({
+      customer,
+      inactiveAt: inactiveAt.toISOString(),
+      inactiveByEmail,
+    });
+  },
+);
+
+weeksRouter.delete(
+  "/customer-active-state",
+  requireAdmin,
+  async (req, res) => {
+    const customer = String(req.query.customer ?? "").trim();
+    if (!customer) {
+      res.status(400).json({ error: "customer is required" });
+      return;
+    }
+    await db.transaction(async (tx) => {
+      const removed = await tx
+        .delete(schema.customerActiveStateTable)
+        .where(
+          sql`lower(${schema.customerActiveStateTable.customer}) = lower(${customer})`,
+        )
+        .returning({ customer: schema.customerActiveStateTable.customer });
+      if (removed.length === 0) return;
+      await tx.insert(schema.userAuditLogTable).values({
+        actorUserId: req.session.userId ?? null,
+        targetUserId: null,
+        targetEmail: `customer-inactive:${removed[0].customer}`,
+        action: "customer-reactivate",
+      });
+    });
+    res.status(204).end();
+  },
+);
+
 weeksRouter.post(
   "/weeks/:weekStart/extract-new-customer",
   upload.single("file"),
@@ -2352,6 +2506,15 @@ weeksRouter.post(
     if (!customer) {
       res.status(400).json({ error: "Customer name is required" });
       return;
+    }
+    {
+      const inactiveSet = await loadInactiveCustomerSet();
+      if (inactiveSet.has(customer.toLowerCase())) {
+        res.status(400).json({
+          error: `Customer "${customer}" is inactive — reactivate it under Admin · Inactive customers before uploading.`,
+        });
+        return;
+      }
     }
     const lower = req.file.originalname.toLowerCase();
     const isImage =
@@ -2516,6 +2679,15 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
   if (!customer) {
     res.status(400).json({ error: "Customer name is required" });
     return;
+  }
+  {
+    const inactiveSet = await loadInactiveCustomerSet();
+    if (inactiveSet.has(customer.toLowerCase())) {
+      res.status(400).json({
+        error: `Customer "${customer}" is inactive — reactivate it under Admin · Inactive customers before uploading.`,
+      });
+      return;
+    }
   }
   const overrideTzRaw =
     typeof parsed.data.dispTz === "string" ? parsed.data.dispTz.trim() : "";

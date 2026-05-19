@@ -1078,6 +1078,54 @@ paths:
         "204": { description: Removed (or no snooze existed) }
         "400": { description: Invalid input }
 
+  /customer-active-state:
+    get:
+      operationId: listInactiveCustomers
+      tags: [ingest]
+      summary: List every customer currently marked inactive (admin-only).
+      responses:
+        "200":
+          description: Inactive customers ordered by `inactiveAt` desc, joined with the actor email.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/InactiveCustomer" }
+        "403": { description: Admin only }
+    post:
+      operationId: markCustomerInactive
+      tags: [ingest]
+      summary: |
+        Mark a customer inactive so it disappears from the per-week customer-files
+        panel. Historical punches, prior upload attempts, aliases, and AI samples
+        for the customer are untouched. Admin-only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MarkCustomerInactiveBody" }
+      responses:
+        "200":
+          description: Created or updated inactive marker.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InactiveCustomer" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+    delete:
+      operationId: reactivateCustomer
+      tags: [ingest]
+      summary: Reactivate a customer so it re-appears on the customer-files panel. Admin-only.
+      parameters:
+        - name: customer
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Removed (or no inactive marker existed) }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+
   /driver-id-aliases:
     get:
       operationId: listDriverIdAliases
@@ -3366,3 +3414,18 @@ components:
       properties:
         customer: { type: string, minLength: 1 }
         displayTz: { type: string }
+
+    InactiveCustomer:
+      type: object
+      required: [customer, inactiveAt]
+      properties:
+        customer: { type: string }
+        inactiveAt: { type: string, format: date-time }
+        inactiveByEmail:
+          type: ["string", "null"]
+
+    MarkCustomerInactiveBody:
+      type: object
+      required: [customer]
+      properties:
+        customer: { type: string, minLength: 1 }
