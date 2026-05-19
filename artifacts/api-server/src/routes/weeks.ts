@@ -2311,9 +2311,19 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       preferredDispTz: prefFor(c.displayName),
     };
   });
-  // Append any AI-only customers that aren't in KNOWN_CUSTOMERS so the
-  // dispatcher can re-upload (via the AI flow) and engineers can see how
-  // often each candidate has been hand-imported.
+  // Append any non-known customers so the dispatcher always has a row to
+  // upload against. Three sources are unioned:
+  //   1. Customers that already have Customer-source punches imported this
+  //      week (rows) — AI-imported customers from a previous upload.
+  //   2. Customers with a prior AI upload attempt (attempts where
+  //      lastSource === "ai").
+  //   3. Every distinct customer assigned to an active (non-archived)
+  //      driver in the drivers table. This guarantees that *every* customer
+  //      coming out of Connecteam — e.g. Schuette Metals — gets an upload
+  //      row even on weeks where no file has been uploaded yet. Without
+  //      this, brand-new or never-AI-imported customers were invisible on
+  //      the panel and the dispatcher had to use "New customer file…" every
+  //      single week, which is exactly the friction the user reported.
   const aiOnlyNames = new Set<string>();
   for (const r of rows) {
     if (r.customer && !knownNames.has(r.customer)) aiOnlyNames.add(r.customer);
@@ -2323,9 +2333,26 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       aiOnlyNames.add(a.customer);
     }
   }
+  const driverCustomerRows = await db
+    .selectDistinct({ customer: schema.driversTable.customer })
+    .from(schema.driversTable)
+    .where(eq(schema.driversTable.isArchived, false));
+  for (const r of driverCustomerRows) {
+    const name = (r.customer ?? "").trim();
+    if (!name) continue;
+    if (knownNames.has(name)) continue;
+    aiOnlyNames.add(name);
+  }
   const aiOnly = [...aiOnlyNames].filter((name) => !isInactive(name)).sort().map((name) => {
     const r = byName.get(name);
     const a = attemptByName.get(name);
+    const aiWeeks = aiWeekCountByCustomer.get(name) ?? 0;
+    const aliases = aliasCountByCustomer.get(name) ?? 0;
+    // Only badge as "AI-imported" when there's actual AI history. A row that
+    // exists purely because a driver in the active roster is assigned to this
+    // customer (no upload attempts, no punches yet) shouldn't wear an "AI · 0
+    // weeks" badge — it's just an empty upload row waiting for the dispatcher.
+    const hasAiHistory = aiWeeks > 0 || a != null || (r?.punchCount ?? 0) > 0;
     return {
       customer: name,
       extensions: ["pdf", "xlsx"],
@@ -2342,19 +2369,17 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
         ? new Date(a.lastSuccessAt).toISOString()
         : null,
       lastError: a?.lastError ?? null,
-      lastSource: a?.lastSource ?? "ai",
+      lastSource: a?.lastSource ?? (hasAiHistory ? "ai" : null),
       lastSkippedAt: a?.lastSkippedAt
         ? new Date(a.lastSkippedAt).toISOString()
         : null,
       lastUnmappedIds: a?.lastUnmappedIds ?? [],
-      isAiImported: true,
-      aiImportWeekCount: aiWeekCountByCustomer.get(name) ?? 0,
-      aliasCount: aliasCountByCustomer.get(name) ?? 0,
-      promotionCandidate: isPromotionCandidate(
-        aiWeekCountByCustomer.get(name) ?? 0,
-        aliasCountByCustomer.get(name) ?? 0,
-        name,
-      ),
+      isAiImported: hasAiHistory,
+      aiImportWeekCount: aiWeeks,
+      aliasCount: aliases,
+      promotionCandidate: hasAiHistory
+        ? isPromotionCandidate(aiWeeks, aliases, name)
+        : false,
       preferredDispTz: prefFor(name),
     };
   });
