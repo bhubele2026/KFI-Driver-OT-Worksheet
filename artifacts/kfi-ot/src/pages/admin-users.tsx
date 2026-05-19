@@ -2400,6 +2400,7 @@ function LockoutPressureChart({
                 dataKey={name}
                 stackId="lockouts"
                 fill={colorFor(name, i)}
+                isAnimationActive={false}
                 radius={
                   i === limiterNames.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]
                 }

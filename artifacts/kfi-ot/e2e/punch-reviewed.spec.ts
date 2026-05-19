@@ -107,11 +107,45 @@ test.afterAll(async () => {
 test("per-punch reviewed checkbox updates counters, persists, auto-clears on edit, and respects locks", async ({
   page,
 }) => {
+  // Land on "/" first so AuthGate fires the dev-bypass POST, then wait for
+  // /api/auth/me to return a logged-in user before navigating into the
+  // driver-detail route. Without this anchor the second goto can race the
+  // bypass and land on /login, leaving the heading never to appear.
   await page.goto("/");
+  await page.waitForResponse(
+    (r) =>
+      r.url().includes("/api/auth/me") &&
+      r.status() === 200 &&
+      r.request().method() === "GET",
+    { timeout: 20_000 },
+  );
+  // The very first /auth/me may pre-date the dev-bypass session cookie and
+  // return `null`. Poll until the client-side query reports a logged-in user
+  // (the dashboard heading is the most stable anchor).
+  await page.waitForFunction(
+    async () => {
+      const res = await fetch("/api/auth/me", { credentials: "include" });
+      if (!res.ok) return false;
+      const body = (await res.json().catch(() => null)) as { id?: unknown } | null;
+      return !!body?.id;
+    },
+    null,
+    { timeout: 20_000 },
+  );
+
   await page.goto(`/weeks/${WEEK_START}/drivers/${DRIVER.kfiId}`);
+  // Wait for the driver-week payload itself so the heading render isn't gated
+  // on cold-start latency.
+  await page.waitForResponse(
+    (r) =>
+      r.url().includes(
+        `/api/weeks/${WEEK_START}/drivers/${encodeURIComponent(DRIVER.kfiId)}`,
+      ) && r.status() === 200,
+    { timeout: 20_000 },
+  );
   await expect(
     page.getByRole("heading", { name: DRIVER.name }),
-  ).toBeVisible({ timeout: 15000 });
+  ).toBeVisible({ timeout: 20_000 });
 
   const weekPill = page.getByTestId("pill-punch-reviewed-progress");
   const firstPunch = seededPunches[0];

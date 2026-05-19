@@ -90,15 +90,51 @@ test.afterAll(async () => {
 test("admin clicks a chart bar, sees top offenders, and clears a bucket", async ({
   page,
 }) => {
-  // Sign in via the dev auth bypass (POSTed by AuthGate on first load).
+  // Sign in via the dev auth bypass (POSTed by AuthGate on first load) and
+  // wait for the session to actually settle before navigating away. Without
+  // this, the /admin/users goto can race the bypass and redirect to /login.
   await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await page.waitForFunction(
+    async () => {
+      const res = await fetch("/api/auth/me", { credentials: "include" });
+      if (!res.ok) return false;
+      const body = (await res.json().catch(() => null)) as
+        | { id?: unknown; isAdmin?: unknown }
+        | null;
+      return !!body?.id;
+    },
+    null,
+    { timeout: 20_000 },
+  );
 
   await page.goto("/admin/users");
   await expect(
     page.getByRole("heading", { name: "Admin · Users" }),
-  ).toBeVisible();
-  await expect(page.getByText("Security activity")).toBeVisible();
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Security activity")).toBeVisible({
+    timeout: 15_000,
+  });
+
+  // Poll the timeseries endpoint directly until our seeded LIMITER shows up.
+  // The chart's bar-render heuristic depends on the data already being
+  // present; otherwise the rightmost-bar pick targets an empty day. We poll
+  // from page context (so cookies attach) rather than waitForResponse, which
+  // can't be retried if the very first React-Query response races the seed.
+  await page.waitForFunction(
+    async (limiterName) => {
+      const res = await fetch(
+        "/api/auth/rate-limit-events/timeseries?days=7",
+        { credentials: "include" },
+      );
+      if (!res.ok) return false;
+      const body = (await res.json().catch(() => null)) as
+        | Array<{ name?: string; count?: number }>
+        | null;
+      return Array.isArray(body) && body.some((p) => p.name === limiterName);
+    },
+    LIMITER,
+    { timeout: 15_000 },
+  );
 
   // The seeded live bucket should be listed in the Active rate-limit buckets
   // table above the chart. The same KEY_TOP also appears in the Recent
