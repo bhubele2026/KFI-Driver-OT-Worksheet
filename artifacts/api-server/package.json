@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "//pdfjs-dist": "PINNED to v4. v5+ requires browser-only globals (DOMMatrix, Path2D, ImageData) and crashes Node on every PDF upload — see src/lib/parsers/__tests__/pdfjs-runtime.test.ts for the regression guard before bumping.",
   "scripts": {
     "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
