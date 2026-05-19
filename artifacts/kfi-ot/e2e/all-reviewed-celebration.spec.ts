@@ -203,7 +203,7 @@ test("bubble click toggles reviewed without navigating, bad is a no-op, and last
   await expect(splash).toHaveCount(0);
 });
 
-test("dashboard-only: toggling the last unreviewed driver from the week summary fires the splash, even after driver-detail recorded its own baseline first", async ({
+test("dashboard-only: toggling the last unreviewed driver from the sidebar fires the splash on the week summary, even after driver-detail recorded its own baseline first", async ({
   page,
 }) => {
   // Reset reviewed state for this week so we start from zero-reviewed.
@@ -223,29 +223,23 @@ test("dashboard-only: toggling the last unreviewed driver from the week summary 
   await expect(splash).toHaveCount(0);
 
   // 2. Navigate to the week dashboard (same SPA, no reload) and mark every
-  //    driver reviewed from there. The last toggle should trigger the
-  //    splash on the dashboard surface.
+  //    driver reviewed from the sidebar bubbles. The last toggle should
+  //    trigger the splash on the dashboard surface.
   await page.goto(`/weeks/${WEEK_START}`);
   await expect(summaryPill).toBeVisible();
   await expect(summaryPill).toHaveText("0 / 3 reviewed");
   await expect(splash).toHaveCount(0);
 
-  await page
-    .getByTestId(`checkbox-reviewed-${DRIVERS[0].kfiId}`)
-    .click();
+  await page.getByTestId(`sidebar-bubble-${DRIVERS[0].kfiId}`).click();
   await expect(summaryPill).toHaveText("1 / 3 reviewed");
   await expect(splash).toHaveCount(0);
 
-  await page
-    .getByTestId(`checkbox-reviewed-${DRIVERS[1].kfiId}`)
-    .click();
+  await page.getByTestId(`sidebar-bubble-${DRIVERS[1].kfiId}`).click();
   await expect(summaryPill).toHaveText("2 / 3 reviewed");
   await expect(splash).toHaveCount(0);
 
   // Final toggle — splash must appear on the dashboard.
-  await page
-    .getByTestId(`checkbox-reviewed-${DRIVERS[2].kfiId}`)
-    .click();
+  await page.getByTestId(`sidebar-bubble-${DRIVERS[2].kfiId}`).click();
   await expect(summaryPill).toHaveText("All reviewed");
   await expect(splash).toBeVisible();
 

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { formatPersonName } from "@/lib/format-name";
 import { useLocation, Link, useParams } from "wouter";
 import {
   useGetWeekSummary,
@@ -12,7 +11,6 @@ import {
   useLogout,
   useGetMe,
   getGetMeQueryKey,
-  useSetReviewed,
   useGetZenopleReadiness,
   getDownloadZenopleExportUrl,
 } from "@workspace/api-client-react";
@@ -32,14 +30,6 @@ import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   Select,
   SelectContent,
@@ -69,7 +59,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Loader2,
   RefreshCw,
@@ -80,10 +69,6 @@ import {
   ChevronLeft,
   Printer,
   Lock,
-  XCircle,
-  StickyNote,
-  Check,
-  Pencil,
   Trash2,
   Globe,
 } from "lucide-react";
@@ -236,7 +221,6 @@ export default function WeekSummary() {
   });
 
   const refreshCt = useRefreshConnecteam();
-  const setReviewed = useSetReviewed();
   const resetWeekMut = useResetWeek();
   const [sidebarCollapsed, , toggleSidebar] = useSidebarCollapsed();
 
@@ -353,26 +337,6 @@ export default function WeekSummary() {
           toast({
             title: t("weekSummary.refreshFailedTitle"),
             description: errMessage(err, t("weekSummary.refreshFailedDesc")),
-            variant: "destructive",
-          });
-        },
-      },
-    );
-  };
-
-  const toggleReviewed = (kfiId: string, currentVal: boolean) => {
-    setReviewed.mutate(
-      { weekStart, kfiId, data: { reviewed: !currentVal } },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({
-            queryKey: getGetWeekSummaryQueryKey(weekStart),
-          });
-        },
-        onError: () => {
-          toast({
-            title: t("weekSummary.errorTitle"),
-            description: t("weekSummary.updateReviewFailed"),
             variant: "destructive",
           });
         },
@@ -1017,255 +981,6 @@ export default function WeekSummary() {
               </div>
 
               <CustomerUploadPanel weekStart={weekStart} />
-
-              <div className="space-y-6">
-                {summary.customers.length === 0 ? (
-                  <Card>
-                    <CardContent className="py-12 text-center text-muted-foreground">
-                      {t("weekSummary.noActiveDrivers")}
-                    </CardContent>
-                  </Card>
-                ) : (
-                  summary.customers.map((group) => (
-                    <Card
-                      key={group.customer}
-                      className="overflow-hidden border-border/60 shadow-sm"
-                    >
-                      <div className="bg-muted/40 px-4 py-3 border-b border-border">
-                        <h3 className="font-display font-semibold text-lg flex items-center gap-2 flex-wrap">
-                          {group.customer}
-                          <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                            {t("weekSummary.table.drivers", { count: group.drivers.length })}
-                          </span>
-                          <ReviewedPill
-                            reviewed={
-                              group.drivers.filter((d) => d.reviewed).length
-                            }
-                            total={group.drivers.length}
-                            testId={`pill-customer-reviewed-${group.customer}`}
-                          />
-                        </h3>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow className="bg-muted/10 hover:bg-muted/10">
-                              <TableHead className="w-[200px]">
-                                {t("weekSummary.table.driver")}
-                              </TableHead>
-                              <TableHead className="text-right">
-                                {t("weekSummary.table.driverHrs")}
-                              </TableHead>
-                              <TableHead className="text-right">
-                                {t("weekSummary.table.custHrs")}
-                              </TableHead>
-                              <TableHead className="text-right">{t("weekSummary.table.diff")}</TableHead>
-                              <TableHead className="text-right">{t("weekSummary.table.reg")}</TableHead>
-                              <TableHead className="text-right">{t("weekSummary.table.ot")}</TableHead>
-                              <TableHead className="text-xs">
-                                {t("weekSummary.table.lastTouched")}
-                              </TableHead>
-                              <TableHead className="text-center w-[100px]">
-                                {t("weekSummary.table.reviewed")}
-                              </TableHead>
-                              <TableHead className="w-[50px]"></TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {group.drivers.map((driver) => {
-                              const diff = Math.abs(
-                                driver.driverHours - driver.customerHours,
-                              );
-                              const hasMismatch =
-                                driver.driverHours > 0 &&
-                                driver.customerHours > 0 &&
-                                diff > 0.05;
-
-                              return (
-                                <TableRow key={driver.kfiId} className="group">
-                                  <TableCell className="font-medium">
-                                    <div className="flex flex-col">
-                                      <span className="truncate flex items-center gap-1.5">
-                                        {formatPersonName(driver.name)}
-                                        {driver.noteCount > 0 && (
-                                          <Link
-                                            href={`/weeks/${weekStart}/drivers/${driver.kfiId}#notes`}
-                                            className="inline-flex items-center gap-0.5 text-[10px] font-mono text-primary bg-primary/10 hover:bg-primary/20 focus-visible:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 px-1 py-0.5 rounded transition-colors cursor-pointer"
-                                            title={t("weekSummary.table.noteCount", { count: driver.noteCount })}
-                                            aria-label={t("weekSummary.table.noteCount", { count: driver.noteCount })}
-                                            data-testid={`badge-note-count-${driver.kfiId}`}
-                                          >
-                                            <StickyNote className="h-2.5 w-2.5" />
-                                            {driver.noteCount}
-                                          </Link>
-                                        )}
-                                        {driver.connecteamParity?.status === "match" ? (
-                                          <span
-                                            className="inline-flex items-center gap-0.5 text-[10px] font-mono text-emerald-700 dark:text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.5 rounded"
-                                            title="Every day's dashboard total reconciles to the Connecteam baseline within 0.005h."
-                                            data-testid={`badge-ct-parity-match-${driver.kfiId}`}
-                                          >
-                                            <Check className="h-2.5 w-2.5" />
-                                            CT
-                                          </span>
-                                        ) : driver.connecteamParity?.status === "differ" ? (
-                                          <span
-                                            className="inline-flex items-center gap-0.5 text-[10px] font-mono text-warning bg-warning/15 border border-warning/40 px-1 py-0.5 rounded"
-                                            title={`${driver.connecteamParity.diffCount} day${driver.connecteamParity.diffCount === 1 ? "" : "s"} diverge from the Connecteam baseline. Open the driver to see which.`}
-                                            data-testid={`badge-ct-parity-diff-${driver.kfiId}`}
-                                          >
-                                            <AlertTriangle className="h-2.5 w-2.5" />
-                                            CT {driver.connecteamParity.diffCount}
-                                          </span>
-                                        ) : null}
-                                        {driver.hasOverriddenDay && (
-                                          <span
-                                            className="inline-flex items-center gap-0.5 text-[10px] font-mono px-1 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                                            title="One or more daily totals on this driver-week were dispatcher-overridden"
-                                            data-testid={`badge-driver-overridden-${driver.kfiId}`}
-                                          >
-                                            <Pencil className="h-2.5 w-2.5" />
-                                            OVR
-                                          </span>
-                                        )}
-                                        {driver.hasCustomerTzMismatch && (
-                                          <Link
-                                            href={`/weeks/${weekStart}/drivers/${driver.kfiId}`}
-                                            className="inline-flex items-center gap-0.5 text-[10px] font-mono px-1 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 focus-visible:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40 transition-colors"
-                                            title="A customer-source feed on this driver-week is landing in a different timezone than the driver default. Open the driver to review or shift."
-                                            aria-label="Customer timezone mismatch on this driver-week"
-                                            data-testid={`badge-customer-tz-mismatch-${driver.kfiId}`}
-                                          >
-                                            <Globe className="h-2.5 w-2.5" />
-                                            TZ
-                                          </Link>
-                                        )}
-                                      </span>
-                                      <span className="text-xs text-muted-foreground font-mono">
-                                        {driver.kfiId}
-                                      </span>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="text-right font-mono text-blue-600 dark:text-blue-400">
-                                    {driver.driverHours > 0
-                                      ? driver.driverHours.toFixed(2)
-                                      : "-"}
-                                  </TableCell>
-                                  <TableCell className="text-right font-mono text-emerald-600 dark:text-emerald-400">
-                                    {driver.customerHours > 0
-                                      ? driver.customerHours.toFixed(2)
-                                      : "-"}
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    {hasMismatch ? (
-                                      <span className="inline-flex items-center gap-1 text-destructive font-mono bg-destructive/10 px-1.5 py-0.5 rounded text-xs font-semibold">
-                                        <AlertTriangle className="h-3 w-3" />
-                                        {diff.toFixed(2)}
-                                      </span>
-                                    ) : (
-                                      <span className="text-muted-foreground font-mono">
-                                        -
-                                      </span>
-                                    )}
-                                  </TableCell>
-                                  <TableCell className="text-right font-mono">
-                                    {driver.regularHours.toFixed(2)}
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    {driver.overtimeHours > 0 ? (
-                                      <span className="font-mono text-warning font-semibold">
-                                        {driver.overtimeHours.toFixed(2)}
-                                      </span>
-                                    ) : (
-                                      <span className="text-muted-foreground font-mono">
-                                        -
-                                      </span>
-                                    )}
-                                  </TableCell>
-                                  <TableCell className="text-xs text-muted-foreground font-mono whitespace-nowrap">
-                                    {driver.lastTouchedByEmail ? (
-                                      <span title={driver.lastTouchedAt ? new Date(driver.lastTouchedAt).toLocaleString() : ""}>
-                                        {driver.lastTouchedByEmail}
-                                      </span>
-                                    ) : (
-                                      "—"
-                                    )}
-                                  </TableCell>
-                                  <TableCell className="text-center">
-                                    <div
-                                      className="inline-flex items-center justify-center gap-1.5"
-                                      data-testid={`driver-status-${driver.kfiId}`}
-                                    >
-                                      {driver.reviewStatus === "bad" ? (
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            toggleReviewed(driver.kfiId, true)
-                                          }
-                                          title={t("weekSummary.status.markedBadClear")}
-                                          data-testid={`status-bad-${driver.kfiId}`}
-                                          className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 rounded px-1.5 py-0.5"
-                                        >
-                                          <XCircle className="h-4 w-4" />
-                                          <span className="text-[10px] font-mono uppercase">
-                                            {t("weekSummary.status.bad")}
-                                          </span>
-                                        </button>
-                                      ) : (
-                                        <Checkbox
-                                          checked={driver.reviewed}
-                                          onCheckedChange={() =>
-                                            toggleReviewed(
-                                              driver.kfiId,
-                                              driver.reviewed,
-                                            )
-                                          }
-                                          aria-label={
-                                            driver.reviewed
-                                              ? t("weekSummary.status.markedGoodClear")
-                                              : t("weekSummary.status.markGood")
-                                          }
-                                          data-testid={`checkbox-reviewed-${driver.kfiId}`}
-                                        />
-                                      )}
-                                      {driver.locked && (
-                                        <span
-                                          className="inline-flex items-center text-amber-600 dark:text-amber-400"
-                                          data-testid={`status-locked-${driver.kfiId}`}
-                                          title={
-                                            driver.lockedByEmail
-                                              ? t("weekSummary.status.lockedBy", { email: driver.lockedByEmail })
-                                              : t("weekSummary.status.lockedShort")
-                                          }
-                                        >
-                                          <Lock className="h-3.5 w-3.5" />
-                                        </span>
-                                      )}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Link
-                                      href={`/weeks/${weekStart}/drivers/${driver.kfiId}`}
-                                    >
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                      >
-                                        <ChevronRight className="h-4 w-4" />
-                                      </Button>
-                                    </Link>
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </Card>
-                  ))
-                )}
-              </div>
             </>
           ) : null}
         </main>
@@ -1273,3 +988,4 @@ export default function WeekSummary() {
     </div>
   );
 }
+
