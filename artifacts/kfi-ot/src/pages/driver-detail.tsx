@@ -2153,7 +2153,7 @@ export default function DriverDetail() {
                         )}
                       </TableCell>
                     </TableRow>
-                    {(punchNotes.length > 0 || noteOpen) && (
+                    {noteOpen && (
                       <TableRow
                         className="bg-muted/30 hover:bg-muted/30"
                         data-testid={`row-punch-notes-${p.id}`}
