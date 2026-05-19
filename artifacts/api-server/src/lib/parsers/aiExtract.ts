@@ -127,6 +127,20 @@ const ROW_SCHEMA = {
 // token ceiling for `gemini-2.5-flash` and keeps the prompt cost bounded.
 const XLSX_CSV_MAX_CHARS = 1_000_000;
 
+// Threshold above which we stop sending the entire workbook in one
+// Gemini call and instead split into row-range chunks (Task #255).
+// Below this the single-call path is materially cheaper (one round trip,
+// one prompt overhead). Above it Gemini reliably hits maxOutputTokens
+// mid-row on weekly customer exports, so chunking pays off even with
+// the extra round trips. Each chunk re-includes the sheet header so
+// Gemini can interpret columns without seeing the whole spreadsheet.
+export const XLSX_CHUNK_THRESHOLD_CHARS = 300_000;
+// Rough rows-per-chunk target. The chunker measures by chars (so wide
+// columns produce smaller chunks than narrow ones) but caps row count
+// as a safety net for pathologically wide rows.
+const XLSX_CHUNK_MAX_CHARS = 250_000;
+const XLSX_CHUNK_MAX_ROWS = 400;
+
 function xlsxToText(buffer: Buffer, log?: SalvageLogger): string {
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
   const out: string[] = [];
@@ -145,6 +159,88 @@ function xlsxToText(buffer: Buffer, log?: SalvageLogger): string {
     return joined.slice(0, XLSX_CSV_MAX_CHARS);
   }
   return joined;
+}
+
+/**
+ * Split a workbook into one-or-more CSV chunks suitable for separate
+ * Gemini calls. Each chunk is self-describing: it begins with a
+ * `# Sheet: …` marker and the header row from that sheet, so the model
+ * can interpret the columns without seeing the rest of the workbook.
+ *
+ * Returns a single-element array when the workbook fits under
+ * `XLSX_CHUNK_THRESHOLD_CHARS` — callers shouldn't pay the multi-RT
+ * cost for small files.
+ */
+export function xlsxToChunks(
+  buffer: Buffer,
+  log?: SalvageLogger,
+): string[] {
+  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  // Total-size shortcut: small workbook → single chunk via the old path
+  // (preserves prior prompt shape and keeps the cost identical for the
+  // overwhelmingly common case).
+  const single = (() => {
+    const out: string[] = [];
+    for (const name of wb.SheetNames) {
+      const ws = wb.Sheets[name];
+      if (!ws) continue;
+      out.push(`# Sheet: ${name}`);
+      out.push(XLSX.utils.sheet_to_csv(ws, { blankrows: false }));
+    }
+    return out.join("\n");
+  })();
+  if (single.length <= XLSX_CHUNK_THRESHOLD_CHARS) {
+    if (single.length > XLSX_CSV_MAX_CHARS) {
+      log?.warn(
+        { rawChars: single.length, cap: XLSX_CSV_MAX_CHARS },
+        "xlsx CSV exceeded prompt cap — truncating before Gemini call",
+      );
+      return [single.slice(0, XLSX_CSV_MAX_CHARS)];
+    }
+    return [single];
+  }
+
+  const chunks: string[] = [];
+  for (const name of wb.SheetNames) {
+    const ws = wb.Sheets[name];
+    if (!ws) continue;
+    const rows = XLSX.utils.sheet_to_csv(ws, { blankrows: false }).split("\n");
+    if (rows.length === 0) continue;
+    const header = rows[0];
+    const body = rows.slice(1);
+    let i = 0;
+    let part = 1;
+    while (i < body.length) {
+      const sliceRows: string[] = [];
+      let chars = header.length + 1;
+      while (i < body.length && sliceRows.length < XLSX_CHUNK_MAX_ROWS) {
+        const r = body[i];
+        if (chars + r.length + 1 > XLSX_CHUNK_MAX_CHARS && sliceRows.length > 0) {
+          break;
+        }
+        sliceRows.push(r);
+        chars += r.length + 1;
+        i++;
+      }
+      chunks.push(
+        [
+          `# Sheet: ${name} (part ${part}, rows ${i - sliceRows.length + 1}-${i})`,
+          header,
+          ...sliceRows,
+        ].join("\n"),
+      );
+      part++;
+    }
+  }
+  log?.warn(
+    {
+      totalChars: single.length,
+      chunkCount: chunks.length,
+      threshold: XLSX_CHUNK_THRESHOLD_CHARS,
+    },
+    "xlsx CSV exceeded chunk threshold — splitting into per-chunk Gemini calls",
+  );
+  return chunks;
 }
 
 function buildPrompt(customer: string, weekStart: string, weekEnd: string) {
@@ -305,6 +401,96 @@ export function __clearAiExtractStubs(): void {
   _aiStubQueue.length = 0;
 }
 
+// Per-chunk Gemini ceiling for the chunked xlsx path. Shorter than the
+// single-call 5-minute budget because each chunk is small; we still cap
+// total wall-clock by stopping early if any chunk exceeds this.
+const XLSX_CHUNK_TIMEOUT_MS = 120_000;
+
+async function callGeminiForChunk(
+  ai: ReturnType<typeof getGeminiClient>,
+  promptText: string,
+  customer: string,
+  fileName: string,
+  log: SalvageLogger | undefined,
+): Promise<AiExtractedRow[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(
+        new Error(
+          `AI extraction timed out after ${Math.round(XLSX_CHUNK_TIMEOUT_MS / 1000)}s on one chunk — retry in a moment.`,
+        ),
+      );
+    }, XLSX_CHUNK_TIMEOUT_MS);
+  });
+  const generate = ai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: [{ role: "user", parts: [{ text: promptText }] }],
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: ROW_SCHEMA,
+      maxOutputTokens: 32768,
+    },
+  });
+  let response;
+  try {
+    response = await Promise.race([generate, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  const raw = response.text ?? "";
+  const parsed = parseOrSalvage(raw, customer, fileName, log);
+  return (parsed.rows ?? []).filter(
+    (r) =>
+      r && typeof r.driverNameOnDoc === "string" && typeof r.date === "string",
+  );
+}
+
+async function runChunkedXlsxExtract(
+  ai: ReturnType<typeof getGeminiClient>,
+  chunks: string[],
+  customer: string,
+  weekStart: string,
+  weekEnd: string,
+  fileName: string,
+  startedAt: number,
+  log: SalvageLogger | undefined,
+): Promise<AiExtractedRow[]> {
+  const merged: AiExtractedRow[] = [];
+  // Test seam: if `__pushAiExtractStub` has been used, consume one stub
+  // per chunk so unit tests can drive the chunked path deterministically.
+  for (let i = 0; i < chunks.length; i++) {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      _aiStubQueue.length > 0
+    ) {
+      const stubbed = _aiStubQueue.shift()!;
+      for (const r of stubbed) {
+        merged.push({ ...r, driverNameOnDoc: toDisplayName(r.driverNameOnDoc) });
+      }
+      continue;
+    }
+    const prompt =
+      buildPrompt(customer, weekStart, weekEnd) +
+      `\n\nThis is chunk ${i + 1} of ${chunks.length} of the same workbook. Return only the rows in this chunk.\n\n--- SPREADSHEET (CSV) ---\n${chunks[i]}\n--- END SPREADSHEET ---`;
+    const rows = await callGeminiForChunk(ai, prompt, customer, fileName, log);
+    for (const r of rows) {
+      merged.push({ ...r, driverNameOnDoc: toDisplayName(r.driverNameOnDoc) });
+    }
+  }
+  logger.info(
+    {
+      ms: Date.now() - startedAt,
+      rows: merged.length,
+      chunks: chunks.length,
+      customer,
+      fileName,
+    },
+    "AI extraction complete (chunked)",
+  );
+  return merged;
+}
+
 export async function aiExtractRows(
   fileName: string,
   buffer: Buffer,
@@ -314,9 +500,21 @@ export async function aiExtractRows(
   mimeType?: string,
   log?: SalvageLogger,
 ): Promise<AiExtractedRow[]> {
+  const lower = fileName.toLowerCase();
+  const isPdf = lower.endsWith(".pdf");
+  const isImage =
+    (mimeType && /^image\//i.test(mimeType)) ||
+    /\.(jpg|jpeg|png|webp)$/i.test(lower);
+  // Test stub seam: image + pdf paths consume a single stub here so
+  // `imageSupport.test.ts` can drive them deterministically without
+  // Gemini. The xlsx path defers stub consumption to the chunker
+  // (`runChunkedXlsxExtract`) so the chunked-merge test in
+  // `aiExtractTimeout.test.ts` can push one stub per chunk and verify
+  // the merge order.
   if (
     process.env.NODE_ENV !== "production" &&
-    _aiStubQueue.length > 0
+    _aiStubQueue.length > 0 &&
+    (isImage || isPdf)
   ) {
     const stubbed = _aiStubQueue.shift()!;
     return stubbed.map((r) => ({
@@ -325,11 +523,6 @@ export async function aiExtractRows(
     }));
   }
   const ai = getGeminiClient();
-  const lower = fileName.toLowerCase();
-  const isPdf = lower.endsWith(".pdf");
-  const isImage =
-    (mimeType && /^image\//i.test(mimeType)) ||
-    /\.(jpg|jpeg|png|webp)$/i.test(lower);
   const start = Date.now();
 
   const parts: Array<
@@ -364,8 +557,25 @@ export async function aiExtractRows(
       });
     }
   } else {
+    // Spreadsheet path: split into one-or-more CSV chunks. Small files
+    // produce a single chunk and behave exactly like before; large files
+    // get split + each chunk is sent in its own Gemini call below.
+    const chunks = xlsxToChunks(buffer, log);
+    if (chunks.length > 1) {
+      const merged = await runChunkedXlsxExtract(
+        ai,
+        chunks,
+        customer,
+        weekStart,
+        weekEnd,
+        fileName,
+        start,
+        log,
+      );
+      return merged;
+    }
     parts.push({
-      text: `\n\n--- SPREADSHEET (CSV) ---\n${xlsxToText(buffer, log)}\n--- END SPREADSHEET ---`,
+      text: `\n\n--- SPREADSHEET (CSV) ---\n${chunks[0] ?? ""}\n--- END SPREADSHEET ---`,
     });
   }
 
