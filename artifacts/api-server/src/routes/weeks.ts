@@ -55,6 +55,10 @@ import {
 } from "../lib/parsers/index.js";
 import { detectCustomerFromFileName } from "../lib/parsers/customers.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
+import type {
+  ExtractDiagnostics,
+  UnmappedIdEntry,
+} from "../lib/parsers/types.js";
 import {
   IMAGE_EXTENSIONS,
   MAX_IMAGE_BYTES,
@@ -1480,6 +1484,46 @@ weeksRouter.post(
         return;
       }
     }
+    // Build a diagnostics-rich error message for the "0 punches" outcome.
+    // The dispatcher's actual complaint is "the upload says it succeeded
+    // but I got nothing and don't know why" — so we explain exactly which
+    // bucket swallowed the rows (out-of-window dates, unmapped driver
+    // badges, no clock times) and include a sample of unmapped ids /
+    // names they can act on (add as a driver-id alias, or fix the file).
+    const explainZeroPunches = (
+      customerName: string,
+      unmapped: UnmappedIdEntry[],
+      diagnostics?: ExtractDiagnostics,
+      origin?: "parser" | "ai",
+    ): string => {
+      const lead = `Detected customer "${customerName}" but parsed 0 punches`;
+      const tail =
+        " Open Admin → Driver ID aliases to add the missing IDs, or upload a file whose name contains the right customer keyword if the wrong customer was detected.";
+      const parts: string[] = [];
+      if (diagnostics && diagnostics.rawRowCount > 0) {
+        parts.push(`${origin === "ai" ? "AI" : "Parser"} read ${diagnostics.rawRowCount} row(s)`);
+        const drops: string[] = [];
+        if (diagnostics.unmappedDriverCount > 0)
+          drops.push(`${diagnostics.unmappedDriverCount} unrecognized driver(s)`);
+        if (diagnostics.outOfWindowCount > 0)
+          drops.push(`${diagnostics.outOfWindowCount} outside this week`);
+        if (diagnostics.invalidDateCount > 0)
+          drops.push(`${diagnostics.invalidDateCount} with unreadable dates`);
+        if (diagnostics.invalidTimeCount > 0)
+          drops.push(`${diagnostics.invalidTimeCount} missing clock in / out`);
+        if (drops.length > 0) parts.push(`dropped ${drops.join(", ")}`);
+      }
+      if (unmapped.length > 0) {
+        const sample = unmapped
+          .slice(0, 5)
+          .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
+          .join("; ");
+        const more = unmapped.length > 5 ? ` and ${unmapped.length - 5} more` : "";
+        parts.push(`unrecognized: ${sample}${more}`);
+      }
+      const body = parts.length > 0 ? ` — ${parts.join("; ")}.` : ".";
+      return `${lead}${body}${tail}`;
+    };
     if (!isImage && !aiFallback && result.punches.length === 0) {
       // Deterministic parser detected the customer from the filename but
       // returned zero rows. That's almost always format drift — the source
@@ -1509,7 +1553,12 @@ weeksRouter.post(
           log: req.log,
         });
         if (aiResult.punches.length === 0) {
-          const msg = `Detected customer "${detectedCustomer}" but parsed 0 punches even with AI fallback. The file may not contain any punches in this week's window, or the format is unreadable.`;
+          const msg = explainZeroPunches(
+            detectedCustomer,
+            aiResult.unmappedIds,
+            aiResult.diagnostics,
+            "ai",
+          );
           await recordAttempt(startDate, detectedCustomer, fileName, msg, "ai");
           res.status(400).json({ error: msg });
           return;
@@ -1534,12 +1583,18 @@ weeksRouter.post(
       }
     }
     if (result.punches.length === 0) {
-      // Image branch only: AI returned zero rows.
+      // Image branch only: AI returned zero rows. (Deterministic-parser
+      // zero is handled above via the AI-fallback branch.)
       req.log.warn(
-        { fileName, customer: result.customer },
+        { fileName, customer: result.customer, diagnostics: result.diagnostics },
         "Customer file parsed to zero punches (extract)",
       );
-      const msg = `Detected customer "${result.customer}" but parsed 0 punches. The file format may have changed, or no rows match the loaded driver roster.`;
+      const msg = explainZeroPunches(
+        result.customer,
+        result.unmappedIds,
+        result.diagnostics,
+        isImage ? "ai" : "parser",
+      );
       await recordAttempt(startDate, result.customer, fileName, msg, isImage ? "ai" : "parser");
       res.status(400).json({ error: msg });
       return;

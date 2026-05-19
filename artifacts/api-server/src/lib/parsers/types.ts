@@ -56,6 +56,29 @@ export class UnmappedIdAccumulator {
   }
 }
 
+/**
+ * Bucketed counts of every row the AI extractor saw vs. accepted. Surfaced
+ * to the dispatcher so a "0 punches" outcome is explained ("AI read 47 rows;
+ * 38 had driver names we couldn't match to your roster") instead of silent.
+ * Only populated by the AI extract path — deterministic parsers don't expose
+ * these counts because the parser-specific shape is already explained by
+ * `unmappedIds` alone.
+ */
+export interface ExtractDiagnostics {
+  /** Total rows the model returned for this file. */
+  rawRowCount: number;
+  /** Rows dropped because the `date` field could not be normalized to YYYY-MM-DD. */
+  invalidDateCount: number;
+  /** Rows whose normalized date fell outside the requested week window. */
+  outOfWindowCount: number;
+  /** Rows whose driver name / badge couldn't be resolved to a known KFI driver. */
+  unmappedDriverCount: number;
+  /** Rows dropped because clock in / out / hours were missing or non-positive. */
+  invalidTimeCount: number;
+  /** Rows that made it through and became persisted punches. */
+  acceptedCount: number;
+}
+
 export interface ParseResult {
   customer: string;
   punches: ParsedPunch[];
@@ -66,4 +89,6 @@ export interface ParseResult {
    * a new hire's punches don't silently disappear from payroll.
    */
   unmappedIds: UnmappedIdEntry[];
+  /** Set by the AI extract path; absent for deterministic parsers. */
+  diagnostics?: ExtractDiagnostics;
 }

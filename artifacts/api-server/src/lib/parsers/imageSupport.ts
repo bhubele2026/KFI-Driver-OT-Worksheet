@@ -1,7 +1,11 @@
 import { topMatches } from "./fuzzy.js";
-import type { ParseResult, ParsedPunch } from "./types.js";
+import type { ExtractDiagnostics, ParseResult, ParsedPunch } from "./types.js";
 import { UnmappedIdAccumulator } from "./types.js";
-import { aiExtractRows, type AiExtractedRow } from "./aiExtract.js";
+import {
+  aiExtractRows,
+  normalizeIsoDate,
+  type AiExtractedRow,
+} from "./aiExtract.js";
 
 export const IMAGE_EXTENSIONS = [
   "jpg",
@@ -118,9 +122,28 @@ export async function extractImageForKnownCustomer(args: {
     mimeType,
     log,
   );
-  const inWindow = rawRows.filter(
-    (r) => r.date >= weekStart && r.date <= weekEnd,
-  );
+
+  // Normalize Gemini's date shape before the string-compare window filter.
+  // Without this, any row whose `date` came back as `5/12/2026` or
+  // `May 12, 2026` (both of which the model emits despite the prompt) gets
+  // silently dropped — taking the entire upload's accepted count to zero
+  // and producing the dispatcher-confusing "0 punches even with AI fallback"
+  // error.
+  let invalidDateCount = 0;
+  let outOfWindowCount = 0;
+  const inWindow: AiExtractedRow[] = [];
+  for (const r of rawRows) {
+    const iso = normalizeIsoDate(r.date);
+    if (!iso) {
+      invalidDateCount++;
+      continue;
+    }
+    if (iso < weekStart || iso > weekEnd) {
+      outOfWindowCount++;
+      continue;
+    }
+    inWindow.push({ ...r, date: iso });
+  }
 
   // Prefer drivers attached to this customer when fuzzy-matching by name.
   const customerLower = customer.toLowerCase();
@@ -131,19 +154,45 @@ export async function extractImageForKnownCustomer(args: {
 
   const unmapped = new UnmappedIdAccumulator();
   const punches: ParsedPunch[] = [];
+  let unmappedDriverCount = 0;
+  let invalidTimeCount = 0;
 
   for (const r of inWindow) {
     const kfiId = resolveKfiId(r, idMap, fuzzyPool, kfiSet);
     if (!kfiId) {
       const id = (r.badgeOrId ?? "").trim() || `name:${r.driverNameOnDoc}`;
       unmapped.add(id, r.driverNameOnDoc);
+      unmappedDriverCount++;
       continue;
     }
     const punch = toParsedPunch(r, kfiId, customer);
-    if (punch) punches.push(punch);
+    if (!punch) {
+      invalidTimeCount++;
+      continue;
+    }
+    punches.push(punch);
   }
 
-  return { customer, punches, unmappedIds: unmapped.toArray() };
+  const diagnostics: ExtractDiagnostics = {
+    rawRowCount: rawRows.length,
+    invalidDateCount,
+    outOfWindowCount,
+    unmappedDriverCount,
+    invalidTimeCount,
+    acceptedCount: punches.length,
+  };
+  if (punches.length === 0 && rawRows.length > 0) {
+    log?.warn(
+      { customer, fileName, ...diagnostics },
+      "AI extract accepted zero punches",
+    );
+  }
+  return {
+    customer,
+    punches,
+    unmappedIds: unmapped.toArray(),
+    diagnostics,
+  };
 }
 
 function resolveKfiId(

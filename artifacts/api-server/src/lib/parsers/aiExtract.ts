@@ -13,6 +13,77 @@ export interface AiExtractedRow {
   hours?: number | null;
 }
 
+/**
+ * Coerce whatever shape Gemini returns in `date` into a strict YYYY-MM-DD
+ * string. Gemini is asked for ISO dates in the prompt but routinely emits
+ * `M/D/YYYY`, `MM/DD/YY`, `May 12, 2026`, ISO datetimes with timezones,
+ * etc. The week-window filter downstream is a string compare, so anything
+ * but YYYY-MM-DD silently drops 100% of the rows. Returns null when the
+ * input genuinely can't be interpreted; callers count that into the
+ * `invalidDateCount` diagnostics bucket.
+ */
+/**
+ * Reject impossible calendar dates like 2/30/2026 or 13/01/2026 that the
+ * regex branches below would otherwise happily reformat to a valid-looking
+ * YYYY-MM-DD string. The week-window filter downstream is a string compare
+ * so an impossible date would survive — better to count it as
+ * `invalidDateCount` than to silently include it.
+ */
+function isRealCalendarDate(y: number, m: number, d: number): boolean {
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return (
+    dt.getUTCFullYear() === y &&
+    dt.getUTCMonth() === m - 1 &&
+    dt.getUTCDate() === d
+  );
+}
+
+export function normalizeIsoDate(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  // Already YYYY-MM-DD (with or without trailing time/zone).
+  let m = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10);
+    const d = parseInt(m[3], 10);
+    if (!isRealCalendarDate(y, mo, d)) return null;
+    return `${m[1]}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  // M/D/YYYY or MM/DD/YYYY (US-formatted).
+  m = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const y = parseInt(m[3], 10);
+    const mo = parseInt(m[1], 10);
+    const d = parseInt(m[2], 10);
+    if (!isRealCalendarDate(y, mo, d)) return null;
+    return `${m[3]}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  // M/D/YY (assume 2000s).
+  m = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+  if (m) {
+    const y = 2000 + parseInt(m[3], 10);
+    const mo = parseInt(m[1], 10);
+    const d = parseInt(m[2], 10);
+    if (!isRealCalendarDate(y, mo, d)) return null;
+    return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  // Last resort: let the Date constructor try. Use the UTC slice to
+  // avoid local-tz day flips for inputs like "May 12 2026". The Date
+  // constructor itself rejects impossible calendar dates by returning
+  // NaN, so no extra validation needed here.
+  const d = new Date(trimmed);
+  if (!isNaN(d.getTime())) {
+    const y = d.getUTCFullYear();
+    const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dy = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${mo}-${dy}`;
+  }
+  return null;
+}
+
 const ROW_SCHEMA = {
   type: Type.OBJECT,
   properties: {
@@ -240,7 +311,24 @@ export async function aiExtractRows(
     });
   }
 
-  const response = await ai.models.generateContent({
+  // Hard 90s ceiling on the Gemini call. Without this an unresponsive
+  // upstream leaves the dispatcher staring at a frozen "Uploading…"
+  // spinner for minutes with no feedback. The race doesn't actually
+  // abort the HTTP request (the @google/genai SDK doesn't expose an
+  // AbortSignal here) but it does free the request handler so the
+  // dispatcher gets an actionable error and can Cancel + retry.
+  const AI_TIMEOUT_MS = 90_000;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(
+        new Error(
+          `AI extraction timed out after ${Math.round(AI_TIMEOUT_MS / 1000)}s — try uploading the original spreadsheet, a smaller/cropped image, or retry in a moment.`,
+        ),
+      );
+    }, AI_TIMEOUT_MS);
+  });
+  const generate = ai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: [{ role: "user", parts }],
     config: {
@@ -253,6 +341,12 @@ export async function aiExtractRows(
       maxOutputTokens: 32768,
     },
   });
+  let response;
+  try {
+    response = await Promise.race([generate, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
   const raw = response.text ?? "";
   const parsed = parseOrSalvage(raw, customer, fileName, log);

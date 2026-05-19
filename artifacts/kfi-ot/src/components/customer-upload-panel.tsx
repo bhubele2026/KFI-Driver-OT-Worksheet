@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ToastAction } from "@/components/ui/toast";
 import { Link } from "wouter";
 import {
@@ -68,6 +68,20 @@ const UNIVERSAL_ACCEPT =
 // in the server logs; surface this in the toast instead.
 function friendlyUploadError(raw: string): string {
   const lower = raw.toLowerCase();
+  if (lower.includes("upload canceled") || lower.includes("aborted")) {
+    return "Upload canceled.";
+  }
+  if (
+    lower.includes("ai extraction timed out") ||
+    lower.includes("timed out after")
+  ) {
+    return "The AI reader took too long and was canceled. Try the original spreadsheet (much faster than a scan), or retry in a moment.";
+  }
+  // The new server-side "0 punches" message already explains exactly what
+  // happened (unrecognized drivers, out-of-window dates, etc.) and points
+  // the dispatcher at Admin → Driver ID aliases. Pass it through verbatim
+  // — rewriting it would lose the actionable diagnostics.
+  if (lower.includes("parsed 0 punches")) return raw;
   if (
     lower.includes("model did not return valid json") ||
     lower.includes("truncated") ||
@@ -154,6 +168,12 @@ async function collectFilesFromEntries(
 interface RowState {
   uploading: boolean;
   error: string | null;
+  /**
+   * When `uploading` is true, the wall-clock ms at which the upload
+   * started — used to render an elapsed-seconds counter so the dispatcher
+   * isn't staring at a frozen spinner during a 90s AI extract.
+   */
+  uploadStartedAt: number | null;
 }
 
 interface BulkItem {
@@ -269,12 +289,35 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     setRowState((prev) => ({
       ...prev,
       [customer]: {
-        ...{ uploading: false, error: null },
+        ...{ uploading: false, error: null, uploadStartedAt: null },
         ...prev[customer],
         ...patch,
       },
     }));
   };
+
+  // One AbortController per in-flight per-row upload. Used by the Cancel
+  // button next to the spinner so the dispatcher can bail out of a slow
+  // AI extract without waiting the full 90 second server-side timeout.
+  const rowAborts = useRef<Record<string, AbortController>>({});
+  const cancelRowUpload = (customer: string) => {
+    const c = rowAborts.current[customer];
+    if (c) {
+      c.abort();
+      delete rowAborts.current[customer];
+    }
+  };
+
+  // 1Hz tick to drive the elapsed-seconds badge while any row is
+  // uploading. Cheap — the badge only shows for rows whose
+  // `uploadStartedAt` is set, and the interval auto-clears when none are.
+  const [, setTick] = useState(0);
+  const anyUploading = Object.values(rowState).some((r) => r.uploading);
+  useEffect(() => {
+    if (!anyUploading) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [anyUploading]);
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({
@@ -294,7 +337,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const doUpload = async (
     customer: string,
     file: File,
-    opts?: { force?: boolean; explicitCustomer?: boolean },
+    opts?: { force?: boolean; explicitCustomer?: boolean; signal?: AbortSignal },
   ): Promise<UploadResult> => {
     const formData = new FormData();
     formData.append("file", file);
@@ -311,7 +354,12 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       const qs = opts?.force ? "?force=1" : "";
       const extractRes = await fetch(
         `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file${qs}`,
-        { method: "POST", credentials: "include", body: formData },
+        {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+          signal: opts?.signal,
+        },
       );
       const extractBody = (await extractRes.json().catch(() => null)) as
         | (CustomerPreviewData & { skipped?: boolean; error?: string })
@@ -345,6 +393,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
             customer: preview.customer,
             sampleId: preview.sampleId,
           }),
+          signal: opts?.signal,
         },
       );
       const confirmBody = (await confirmRes.json().catch(() => null)) as
@@ -372,7 +421,14 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   // → dispatcher confirms in dialog → /confirm-customer-file commits.
   // Cancel = no DB writes.
   const extractFor = async (customer: string, file: File) => {
-    setRow(customer, { uploading: true, error: null });
+    cancelRowUpload(customer);
+    const controller = new AbortController();
+    rowAborts.current[customer] = controller;
+    setRow(customer, {
+      uploading: true,
+      error: null,
+      uploadStartedAt: Date.now(),
+    });
     const formData = new FormData();
     formData.append("file", file);
     // Tell the server which customer the dispatcher aimed at. The server
@@ -382,7 +438,12 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     try {
       const res = await fetch(
         `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file`,
-        { method: "POST", credentials: "include", body: formData },
+        {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+          signal: controller.signal,
+        },
       );
       const body = (await res.json().catch(() => null)) as
         | (CustomerPreviewData & { error?: string })
@@ -399,33 +460,89 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           `File detected as "${data.customer}" but you uploaded it for "${customer}". Rename the file to include "${customer}" so it routes correctly.`,
         );
       }
-      setRow(customer, { uploading: false, error: null });
+      // Guard against a stale response clobbering a newer upload on the
+      // same row: if the dispatcher canceled or kicked off another
+      // upload while this one was in flight, drop the result on the
+      // floor instead of opening the preview / clearing the spinner.
+      if (rowAborts.current[customer] !== controller) return;
+      setRow(customer, {
+        uploading: false,
+        error: null,
+        uploadStartedAt: null,
+      });
       setPreview(data);
       setPreviewOpen(true);
     } catch (err) {
-      const raw = errMessage(err, "Upload failed");
+      const aborted =
+        controller.signal.aborted ||
+        (err instanceof DOMException && err.name === "AbortError");
+      // Same stale-request guard for the error path — a newer upload
+      // already owns this row's state.
+      if (rowAborts.current[customer] !== controller && !aborted) return;
+      const raw = aborted ? "Upload canceled." : errMessage(err, "Upload failed");
       const msg = friendlyUploadError(raw);
-      setRow(customer, { uploading: false, error: msg });
-      toast({
-        title: `${customer} extract failed`,
-        description: msg,
-        variant: "destructive",
-      });
+      if (rowAborts.current[customer] === controller) {
+        setRow(customer, {
+          uploading: false,
+          error: aborted ? null : msg,
+          uploadStartedAt: null,
+        });
+      }
+      if (!aborted) {
+        toast({
+          title: `${customer} extract failed`,
+          description: msg,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      if (rowAborts.current[customer] === controller) {
+        delete rowAborts.current[customer];
+      }
     }
   };
 
   const uploadFor = async (customer: string, file: File) => {
-    setRow(customer, { uploading: true, error: null });
+    cancelRowUpload(customer);
+    const controller = new AbortController();
+    rowAborts.current[customer] = controller;
+    setRow(customer, {
+      uploading: true,
+      error: null,
+      uploadStartedAt: Date.now(),
+    });
     // Per-row Re-upload always forces — the dispatcher explicitly chose this
     // file, so skipping it as a duplicate would be confusing. Skip detection
     // is for bulk re-runs only.
     const r = await doUpload(customer, file, {
       force: true,
       explicitCustomer: true,
+      signal: controller.signal,
     });
+    // Stale-request guard: if a newer upload kicked off on the same row
+    // (or the dispatcher canceled this one and started another), drop
+    // this result rather than clobber the live row state.
+    const isCurrent = rowAborts.current[customer] === controller;
+    if (isCurrent) delete rowAborts.current[customer];
+    const aborted = controller.signal.aborted;
     if (!r.ok) {
+      if (aborted) {
+        if (isCurrent) {
+          setRow(customer, {
+            uploading: false,
+            error: null,
+            uploadStartedAt: null,
+          });
+        }
+        return;
+      }
+      if (!isCurrent) return;
       const msg = friendlyUploadError(r.error);
-      setRow(customer, { uploading: false, error: msg });
+      setRow(customer, {
+        uploading: false,
+        error: msg,
+        uploadStartedAt: null,
+      });
       toast({
         title: `${customer} upload failed`,
         description: msg,
@@ -433,7 +550,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       });
       return;
     }
-    setRow(customer, { uploading: false, error: null });
+    if (!isCurrent) return;
+    setRow(customer, { uploading: false, error: null, uploadStartedAt: null });
     if (r.unmapped.length > 0) {
       const formatted = r.unmapped
         .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
@@ -1300,6 +1418,20 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   e.target.value = "";
                 }}
               />
+              {st.uploading && st.uploadStartedAt != null && (
+                <span
+                  className="text-xs text-muted-foreground font-mono tabular-nums whitespace-nowrap"
+                  aria-live="polite"
+                  data-testid={`upload-elapsed-${s.customer}`}
+                >
+                  Reading…{" "}
+                  {Math.max(
+                    0,
+                    Math.floor((Date.now() - st.uploadStartedAt) / 1000),
+                  )}
+                  s
+                </span>
+              )}
               <Button
                 variant={uploaded ? "outline" : "default"}
                 size="sm"
@@ -1313,6 +1445,17 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 )}
                 {uploaded ? "Re-upload" : "Upload"}
               </Button>
+              {st.uploading && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => cancelRowUpload(s.customer)}
+                  data-testid={`upload-cancel-${s.customer}`}
+                  title="Cancel upload"
+                >
+                  Cancel
+                </Button>
+              )}
               {me?.isAdmin && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
