@@ -41,6 +41,7 @@ import {
   Lightbulb,
   BellOff,
   FileQuestion,
+  FolderUp,
   X,
 } from "lucide-react";
 import { NewCustomerDialog } from "@/components/new-customer-dialog";
@@ -152,6 +153,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
   const bulkInputRef = useRef<HTMLInputElement>(null);
   const bulkItemRefs = useRef<Record<number, HTMLLIElement | null>>({});
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const [rowState, setRowState] = useState<Record<string, RowState>>({});
   const [newOpen, setNewOpen] = useState(false);
   const [newInitialFile, setNewInitialFile] = useState<File | null>(null);
@@ -339,6 +341,37 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     invalidateAll();
   };
 
+  const isAcceptedUpload = (name: string): boolean => {
+    const lower = name.toLowerCase();
+    return (
+      lower.endsWith(".pdf") ||
+      lower.endsWith(".xlsx") ||
+      lower.endsWith(".xls") ||
+      /\.(jpe?g|png|heic|heif|webp)$/i.test(lower)
+    );
+  };
+
+  const processCollectedFiles = (collected: File[]) => {
+    if (collected.length === 0) return;
+    const accepted: File[] = [];
+    const rejected: string[] = [];
+    for (const f of collected) {
+      if (isAcceptedUpload(f.name)) {
+        accepted.push(f);
+      } else {
+        rejected.push(f.name);
+      }
+    }
+    if (rejected.length > 0) {
+      toast({
+        title: `Skipped ${rejected.length} unsupported ${rejected.length === 1 ? "file" : "files"}`,
+        description: `Only .xlsx, .pdf, and image files (JPG, PNG, HEIC, WEBP) are accepted. Skipped: ${rejected.join(", ")}.`,
+        variant: "destructive",
+      });
+    }
+    if (accepted.length > 0) void runBulk(accepted);
+  };
+
   const classifyFile = (file: File): string | null => {
     const lower = file.name.toLowerCase();
     const isPdf = lower.endsWith(".pdf");
@@ -516,30 +549,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         items.length > 0
           ? await collectFilesFromEntries(items)
           : fallbackFiles;
-      if (collected.length === 0) return;
-      const accepted: File[] = [];
-      const rejected: string[] = [];
-      for (const f of collected) {
-        const lower = f.name.toLowerCase();
-        if (
-          lower.endsWith(".pdf") ||
-          lower.endsWith(".xlsx") ||
-          lower.endsWith(".xls") ||
-          /\.(jpe?g|png|heic|heif|webp)$/i.test(lower)
-        ) {
-          accepted.push(f);
-        } else {
-          rejected.push(f.name);
-        }
-      }
-      if (rejected.length > 0) {
-        toast({
-          title: `Skipped ${rejected.length} unsupported ${rejected.length === 1 ? "file" : "files"}`,
-          description: `Only .xlsx, .pdf, and image files (JPG, PNG, HEIC, WEBP) are accepted. Skipped: ${rejected.join(", ")}.`,
-          variant: "destructive",
-        });
-      }
-      if (accepted.length > 0) void runBulk(accepted);
+      processCollectedFiles(collected);
     })();
   };
 
@@ -621,6 +631,25 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
               e.target.value = "";
             }}
           />
+          <input
+            type="file"
+            ref={folderInputRef}
+            className="hidden"
+            multiple
+            // `webkitdirectory` makes the picker select a folder; the
+            // browser then hands us every file inside it (recursively).
+            // It's not in the React HTMLInputElement type yet, hence
+            // the cast.
+            {...({ webkitdirectory: "", directory: "" } as Record<
+              string,
+              string
+            >)}
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = "";
+              processCollectedFiles(files);
+            }}
+          />
           <Button
             size="sm"
             disabled={bulkRunning}
@@ -632,6 +661,17 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
               <UploadCloud className="mr-2 h-4 w-4" />
             )}
             Upload all customer files
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkRunning}
+            onClick={() => folderInputRef.current?.click()}
+            title="Pick a whole folder; all .xlsx, .pdf, and image files inside are uploaded."
+            data-testid="button-upload-folder"
+          >
+            <FolderUp className="mr-2 h-4 w-4" />
+            Folder…
           </Button>
           <Button
             variant="outline"
