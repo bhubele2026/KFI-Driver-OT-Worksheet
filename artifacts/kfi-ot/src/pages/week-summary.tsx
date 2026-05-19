@@ -114,6 +114,33 @@ export default function WeekSummary() {
   const viewers = usePresence({ weekStart });
 
   const { data: weeksList } = useListWeeks();
+
+  // Build a dropdown that always includes the last 26 Sun→Sat weeks (so the
+  // dispatcher can navigate to a prior week even if it has no DB row yet),
+  // merged with any DB-known weeks (which may extend further back). The
+  // currently-selected week is always included so the trigger never shows a
+  // blank value.
+  const weekOptions = (() => {
+    const endOf = (sundayIso: string) => {
+      const d = parseISO(sundayIso);
+      d.setDate(d.getDate() + 6);
+      return format(d, "yyyy-MM-dd");
+    };
+    const map = new Map<string, { startDate: string; endDate: string }>();
+    for (let i = 0; i < 26; i++) {
+      const s = format(addWeeks(currentSunday, -i), "yyyy-MM-dd");
+      map.set(s, { startDate: s, endDate: endOf(s) });
+    }
+    for (const w of weeksList ?? []) {
+      map.set(w.startDate, { startDate: w.startDate, endDate: w.endDate });
+    }
+    if (!map.has(weekStart)) {
+      map.set(weekStart, { startDate: weekStart, endDate: endOf(weekStart) });
+    }
+    return [...map.values()].sort((a, b) =>
+      a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0,
+    );
+  })();
   const { data: summary, isLoading, isError, error } =
     useGetWeekSummary(weekStart);
 
@@ -282,7 +309,7 @@ export default function WeekSummary() {
                 <SelectValue placeholder={t("header.selectWeek")} />
               </SelectTrigger>
               <SelectContent>
-                {weeksList?.map((w) => (
+                {weekOptions.map((w) => (
                   <SelectItem
                     key={w.startDate}
                     value={w.startDate}
