@@ -106,10 +106,14 @@ export async function aiExtractRows(
   customer: string,
   weekStart: string,
   weekEnd: string,
+  mimeType?: string,
 ): Promise<AiExtractedRow[]> {
   const ai = getGeminiClient();
   const lower = fileName.toLowerCase();
   const isPdf = lower.endsWith(".pdf");
+  const isImage =
+    (mimeType && /^image\//i.test(mimeType)) ||
+    /\.(jpg|jpeg|png|webp)$/i.test(lower);
   const start = Date.now();
 
   const parts: Array<
@@ -117,7 +121,18 @@ export async function aiExtractRows(
     | { inlineData: { mimeType: string; data: string } }
   > = [{ text: buildPrompt(customer, weekStart, weekEnd) }];
 
-  if (isPdf) {
+  if (isImage) {
+    // Caller is expected to have transcoded any HEIC bytes to JPEG already
+    // (see `normalizeImageBuffer`), and to pass an image/* mime here.
+    const effectiveMime =
+      mimeType && /^image\//i.test(mimeType) ? mimeType : "image/jpeg";
+    parts.push({
+      inlineData: {
+        mimeType: effectiveMime,
+        data: buffer.toString("base64"),
+      },
+    });
+  } else if (isPdf) {
     const text = await extractTextFromPdf(buffer);
     if (text.trim().length > 50) {
       parts.push({

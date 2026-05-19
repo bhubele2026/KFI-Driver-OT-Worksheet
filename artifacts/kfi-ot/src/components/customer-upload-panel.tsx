@@ -332,11 +332,16 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     const lower = file.name.toLowerCase();
     const isPdf = lower.endsWith(".pdf");
     const isXlsx = lower.endsWith(".xlsx") || lower.endsWith(".xls");
-    if (!isPdf && !isXlsx) return null;
+    const isImage = /\.(jpe?g|png|heic|heif|webp)$/i.test(lower);
+    if (!isPdf && !isXlsx && !isImage) return null;
     for (const s of statuses ?? []) {
       if (!s.keywords || s.keywords.length === 0) continue;
-      if (isPdf && !s.extensions.includes("pdf")) continue;
-      if (isXlsx && !s.extensions.includes("xlsx")) continue;
+      // Images are AI-extracted server-side and aren't bound to the
+      // customer's deterministic-parser extension list.
+      if (!isImage) {
+        if (isPdf && !s.extensions.includes("pdf")) continue;
+        if (isXlsx && !s.extensions.includes("xlsx")) continue;
+      }
       if (s.keywords.some((k) => lower.includes(k))) return s.customer;
     }
     return null;
@@ -487,7 +492,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         if (
           lower.endsWith(".pdf") ||
           lower.endsWith(".xlsx") ||
-          lower.endsWith(".xls")
+          lower.endsWith(".xls") ||
+          /\.(jpe?g|png|heic|heif|webp)$/i.test(lower)
         ) {
           accepted.push(f);
         } else {
@@ -497,7 +503,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       if (rejected.length > 0) {
         toast({
           title: `Skipped ${rejected.length} unsupported ${rejected.length === 1 ? "file" : "files"}`,
-          description: `Only .xlsx and .pdf customer files are accepted. Skipped: ${rejected.join(", ")}.`,
+          description: `Only .xlsx, .pdf, and image files (JPG, PNG, HEIC, WEBP) are accepted. Skipped: ${rejected.join(", ")}.`,
           variant: "destructive",
         });
       }
@@ -530,7 +536,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 Drop customer files to upload
               </div>
               <div className="text-xs text-muted-foreground">
-                .xlsx or .pdf — anything else will be skipped
+                .xlsx, .pdf, or photos (JPG/PNG/HEIC) — anything else is skipped
               </div>
             </div>
           </div>
@@ -815,6 +821,9 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           const accept = s.extensions
             .map((e) => `.${e}`)
             .concat(s.extensions.includes("xlsx") ? [".xls"] : [])
+            // Every known customer can also accept a photo of the time
+            // sheet; the server routes it through AI extract + preview.
+            .concat([".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"])
             .join(",");
           return (
             <li

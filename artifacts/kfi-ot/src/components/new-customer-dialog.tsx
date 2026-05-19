@@ -286,12 +286,14 @@ export function NewCustomerDialog({
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="ncf-file">File (.pdf or .xlsx)</Label>
+                <Label htmlFor="ncf-file">
+                  File (.pdf, .xlsx, or a photo of the timesheet)
+                </Label>
                 <Input
                   id="ncf-file"
                   ref={fileRef}
                   type="file"
-                  accept=".pdf,.xlsx,.xls"
+                  accept=".pdf,.xlsx,.xls,.jpg,.jpeg,.png,.heic,.heif,.webp"
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 />
               </div>

@@ -50,6 +50,14 @@ import {
 } from "../lib/parsers/index.js";
 import { detectCustomerFromFileName } from "../lib/parsers/customers.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
+import {
+  IMAGE_EXTENSIONS,
+  MAX_IMAGE_BYTES,
+  extractImageForKnownCustomer,
+  imageExtension,
+  isImageMime,
+  normalizeImageBuffer,
+} from "../lib/parsers/imageSupport.js";
 import { topMatches } from "../lib/parsers/fuzzy.js";
 import {
   ALLOWED_TZS,
@@ -76,6 +84,30 @@ function actorRef(req: Request): ActorRef | null {
   const user = (req as Request & { user?: { id: number; email: string } }).user;
   if (user) return { userId: user.id, email: user.email };
   return null;
+}
+
+function imagePunchesForStash(
+  punches: ReadonlyArray<{
+    kfiId: string;
+    customer: string;
+    date: string;
+    clockIn: string;
+    clockOut: string;
+    hours: number;
+    payType: "Reg" | "OT";
+    noTz?: boolean;
+  }>,
+): schema.StashedExtractedPunch[] {
+  return punches.map((p) => ({
+    kfiId: p.kfiId,
+    customer: p.customer,
+    date: p.date,
+    clockIn: p.clockIn,
+    clockOut: p.clockOut,
+    hours: p.hours,
+    payType: p.payType,
+    ...(p.noTz ? { noTz: true as const } : {}),
+  }));
 }
 
 async function loadMergedIdMap(): Promise<Record<string, string>> {
@@ -896,6 +928,20 @@ weeksRouter.post(
       res.status(400).json({ error: "No file uploaded" });
       return;
     }
+    // Images are never accepted by the legacy single-shot route — every
+    // image upload has to go through the preview / confirm flow because the
+    // AI extraction is non-deterministic and must be reviewed by a human
+    // before any punches are written.
+    if (
+      imageExtension(req.file.originalname) ||
+      isImageMime(req.file.mimetype)
+    ) {
+      res.status(400).json({
+        error:
+          "Image files must be reviewed before saving. Use the per-customer Upload button so you can confirm the extracted rows.",
+      });
+      return;
+    }
     const { startDate } = await ensureWeek(weekStart);
     const drivers = await db.select().from(schema.driversTable);
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
@@ -1095,30 +1141,86 @@ weeksRouter.post(
       res.status(400).json({ error: "No file uploaded" });
       return;
     }
-    const { startDate } = await ensureWeek(weekStart);
+    const { startDate, endDate } = await ensureWeek(weekStart);
     const drivers = await db.select().from(schema.driversTable);
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
     const nameByKfi = new Map(drivers.map((d) => [d.kfiId, d.name] as const));
     const fileName = req.file.originalname;
+    const isImage =
+      !!imageExtension(fileName) || isImageMime(req.file.mimetype);
     let result;
-    try {
-      const idMap = await loadMergedIdMap();
-      result = await detectAndParseFile(
-        fileName,
-        req.file.buffer,
-        kfiSet,
-        startDate,
-        idMap,
-      );
-    } catch (err) {
-      req.log.error({ err, fileName }, "Parse error (extract)");
-      const msg = err instanceof Error ? err.message : "Could not parse file";
-      const detected = detectCustomerFromFileName(fileName);
-      if (detected) {
-        await recordAttempt(startDate, detected, fileName, msg, "parser");
+    // Track image-derived rows so /confirm-customer-file can replay them
+    // exactly instead of re-invoking the (non-deterministic) AI extractor.
+    let stashedImageRows: ReturnType<
+      typeof imagePunchesForStash
+    > | null = null;
+    let stashedImageMime = req.file.mimetype || "application/octet-stream";
+    let stashedImageBuffer: Buffer = req.file.buffer;
+    if (isImage) {
+      if (req.file.size > MAX_IMAGE_BYTES) {
+        res.status(400).json({
+          error: `Image is ${(req.file.size / (1024 * 1024)).toFixed(1)} MB. Photos must be ${MAX_IMAGE_BYTES / (1024 * 1024)} MB or smaller.`,
+        });
+        return;
       }
-      res.status(400).json({ error: msg });
-      return;
+      const detected = detectCustomerFromFileName(fileName);
+      if (!detected) {
+        res.status(400).json({
+          error:
+            "Could not detect customer from filename. Rename the photo to include the customer name (e.g. adient-week.jpg), or use the New customer file… flow.",
+        });
+        return;
+      }
+      try {
+        const normalized = await normalizeImageBuffer(
+          fileName,
+          req.file.mimetype || "",
+          req.file.buffer,
+        );
+        stashedImageBuffer = normalized.buffer;
+        stashedImageMime = normalized.mimeType;
+        const idMap = await loadMergedIdMap();
+        result = await extractImageForKnownCustomer({
+          fileName,
+          buffer: normalized.buffer,
+          mimeType: normalized.mimeType,
+          customer: detected,
+          weekStart: startDate,
+          weekEnd: endDate,
+          idMap,
+          drivers,
+          kfiSet,
+        });
+        stashedImageRows = imagePunchesForStash(result.punches);
+      } catch (err) {
+        req.log.error({ err, fileName }, "Image AI extract error");
+        const msg =
+          err instanceof Error ? err.message : "Could not extract rows";
+        await recordAttempt(startDate, detected, fileName, msg, "ai");
+        res.status(400).json({ error: msg });
+        return;
+      }
+    } else {
+      try {
+        const idMap = await loadMergedIdMap();
+        result = await detectAndParseFile(
+          fileName,
+          req.file.buffer,
+          kfiSet,
+          startDate,
+          idMap,
+        );
+      } catch (err) {
+        req.log.error({ err, fileName }, "Parse error (extract)");
+        const msg =
+          err instanceof Error ? err.message : "Could not parse file";
+        const detected = detectCustomerFromFileName(fileName);
+        if (detected) {
+          await recordAttempt(startDate, detected, fileName, msg, "parser");
+        }
+        res.status(400).json({ error: msg });
+        return;
+      }
     }
     if (!result) {
       res.status(400).json({
@@ -1176,11 +1278,15 @@ weeksRouter.post(
         weekStart: startDate,
         customer: result.customer,
         fileName,
-        mimeType: req.file.mimetype || "application/octet-stream",
-        sizeBytes: req.file.size,
-        fileBytes: req.file.buffer,
+        mimeType: stashedImageMime,
+        sizeBytes: stashedImageBuffer.length,
+        fileBytes: stashedImageBuffer,
         uploadedBy: req.session.userId ?? null,
         expiresAt: new Date(Date.now() + PENDING_TTL_MS),
+        // When the extract was driven by AI (image upload) we persist the
+        // resolved rows so /confirm-customer-file replays them exactly
+        // instead of re-running the (non-deterministic) AI extractor.
+        extractedRows: stashedImageRows,
       })
       .returning({ id: schema.aiExtractSamplesTable.id });
 
@@ -1276,6 +1382,15 @@ weeksRouter.post(
       return;
     }
 
+    // Image samples already have their fully-resolved rows persisted (the AI
+    // extractor is non-deterministic, so we can't re-derive them here). For
+    // every other sample we re-run the deterministic parser against the
+    // stashed bytes.
+    const sampleSource: "parser" | "ai" =
+      sample.extractedRows && sample.extractedRows.length > 0
+        ? "ai"
+        : "parser";
+
     const drivers = await db.select().from(schema.driversTable);
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
     const fileName = sample.fileName;
@@ -1284,8 +1399,11 @@ weeksRouter.post(
     // the active roster — silently dropping unknown picks would let a stale
     // UI write a broken alias. The actual upsert + re-parse + commit all
     // happen inside the punch transaction below so a parse failure rolls
-    // back the alias writes too (no orphan rows).
-    const requestedAliases = parsed.data.mapNewAliases ?? [];
+    // back the alias writes too (no orphan rows). For AI samples there is
+    // nothing to re-parse, so the picker is moot and cleanedAliases stays
+    // empty — the upsert loop below is then a no-op.
+    const requestedAliases =
+      sampleSource === "ai" ? [] : (parsed.data.mapNewAliases ?? []);
     const cleanedAliases = requestedAliases
       .map((a) => ({
         externalId: a.externalId.trim(),
@@ -1304,33 +1422,51 @@ weeksRouter.post(
       );
     }
 
-    let result;
-    try {
-      // Probe-parse with the un-augmented map just to validate the file
-      // still parses to the expected customer before we open the tx.
-      // The authoritative parse (using merged-with-new-aliases map) runs
-      // inside the tx below so we never commit punches that disagree with
-      // what we just wrote to driver_id_aliases.
-      const probeMap = await loadMergedIdMap();
-      result = await detectAndParseFile(
-        fileName,
-        Buffer.from(sample.fileBytes),
-        kfiSet,
-        startDate,
-        probeMap,
-      );
-    } catch (err) {
-      req.log.error({ err, fileName }, "Parse error (confirm)");
-      const msg = err instanceof Error ? err.message : "Could not parse file";
-      await recordAttempt(startDate, customer, fileName, msg, "parser");
-      res.status(400).json({ error: msg });
-      return;
-    }
-    if (!result || result.customer !== customer) {
-      const msg = "Stashed file no longer parses to the expected customer.";
-      await recordAttempt(startDate, customer, fileName, msg, "parser");
-      res.status(400).json({ error: msg });
-      return;
+    let result: {
+      customer: string;
+      punches: schema.StashedExtractedPunch[];
+      unmappedIds: schema.UnmappedIdEntry[];
+    };
+    if (sampleSource === "ai" && sample.extractedRows) {
+      // AI-extracted samples (image uploads) already have fully-resolved
+      // rows. The probe-parse only exists to validate the file still parses
+      // to the expected customer; for AI samples we trust the stash.
+      result = {
+        customer: sample.customer,
+        punches: sample.extractedRows,
+        unmappedIds: [],
+      };
+    } else {
+      try {
+        // Probe-parse with the un-augmented map just to validate the file
+        // still parses to the expected customer before we open the tx.
+        // The authoritative parse (using merged-with-new-aliases map) runs
+        // inside the tx below so we never commit punches that disagree with
+        // what we just wrote to driver_id_aliases.
+        const probeMap = await loadMergedIdMap();
+        const probed = await detectAndParseFile(
+          fileName,
+          Buffer.from(sample.fileBytes),
+          kfiSet,
+          startDate,
+          probeMap,
+        );
+        if (!probed || probed.customer !== customer) {
+          const msg =
+            "Stashed file no longer parses to the expected customer.";
+          await recordAttempt(startDate, customer, fileName, msg, "parser");
+          res.status(400).json({ error: msg });
+          return;
+        }
+        result = probed;
+      } catch (err) {
+        req.log.error({ err, fileName }, "Parse error (confirm)");
+        const msg =
+          err instanceof Error ? err.message : "Could not parse file";
+        await recordAttempt(startDate, customer, fileName, msg, "parser");
+        res.status(400).json({ error: msg });
+        return;
+      }
     }
 
     const lockedKfiIds = await loadLockedKfiIds(startDate);
@@ -1381,17 +1517,30 @@ weeksRouter.post(
         const mergedMap: Record<string, string> = { ...EMBEDDED_MAPPING };
         for (const r of aliasRows) mergedMap[r.externalId] = r.kfiId;
 
-        const reparsed = await detectAndParseFile(
-          fileName,
-          Buffer.from(sample.fileBytes),
-          kfiSet,
-          startDate,
-          mergedMap,
-        );
-        if (!reparsed || reparsed.customer !== customer) {
-          throw new Error(
-            "Stashed file no longer parses to the expected customer.",
+        // AI samples skip the re-parse — the stashed rows ARE the
+        // authoritative result and there's no deterministic parser to run.
+        // For everything else, re-parse with the now-augmented merged map.
+        let reparsed: {
+          customer: string;
+          punches: schema.StashedExtractedPunch[];
+          unmappedIds: schema.UnmappedIdEntry[];
+        };
+        if (sampleSource === "ai") {
+          reparsed = result;
+        } else {
+          const reparsedRaw = await detectAndParseFile(
+            fileName,
+            Buffer.from(sample.fileBytes),
+            kfiSet,
+            startDate,
+            mergedMap,
           );
+          if (!reparsedRaw || reparsedRaw.customer !== customer) {
+            throw new Error(
+              "Stashed file no longer parses to the expected customer.",
+            );
+          }
+          reparsed = reparsedRaw;
         }
         finalResult = reparsed;
 
@@ -1466,7 +1615,7 @@ weeksRouter.post(
       result.customer,
       fileName,
       null,
-      "parser",
+      sampleSource,
       result.unmappedIds,
     );
     if (result.unmappedIds.length > 0) {
@@ -1847,19 +1996,54 @@ weeksRouter.post(
       return;
     }
     const lower = req.file.originalname.toLowerCase();
-    if (!lower.endsWith(".pdf") && !lower.endsWith(".xlsx") && !lower.endsWith(".xls")) {
-      res.status(400).json({ error: "Only .pdf and .xlsx files are supported" });
+    const isImage =
+      !!imageExtension(req.file.originalname) || isImageMime(req.file.mimetype);
+    if (
+      !isImage &&
+      !lower.endsWith(".pdf") &&
+      !lower.endsWith(".xlsx") &&
+      !lower.endsWith(".xls")
+    ) {
+      res.status(400).json({
+        error: `Supported file types: .pdf, .xlsx, ${IMAGE_EXTENSIONS.map((e) => `.${e}`).join(", ")}.`,
+      });
+      return;
+    }
+    if (isImage && req.file.size > MAX_IMAGE_BYTES) {
+      res.status(400).json({
+        error: `Image is ${(req.file.size / (1024 * 1024)).toFixed(1)} MB. Photos must be ${MAX_IMAGE_BYTES / (1024 * 1024)} MB or smaller.`,
+      });
       return;
     }
     const { startDate, endDate } = await ensureWeek(weekStart);
+    let extractBuffer = req.file.buffer;
+    let extractMime = req.file.mimetype || "application/octet-stream";
+    if (isImage) {
+      try {
+        const normalized = await normalizeImageBuffer(
+          req.file.originalname,
+          req.file.mimetype || "",
+          req.file.buffer,
+        );
+        extractBuffer = normalized.buffer;
+        extractMime = normalized.mimeType;
+      } catch (err) {
+        req.log.error({ err }, "HEIC conversion failed");
+        res.status(400).json({
+          error: "Could not read this image. Try saving it as JPEG or PNG and uploading again.",
+        });
+        return;
+      }
+    }
     let rows;
     try {
       rows = await aiExtractRows(
         req.file.originalname,
-        req.file.buffer,
+        extractBuffer,
         customer,
         startDate,
         endDate,
+        extractMime,
       );
     } catch (err) {
       req.log.error({ err, fileName: req.file.originalname }, "AI extract error");
@@ -1888,9 +2072,9 @@ weeksRouter.post(
         weekStart: startDate,
         customer,
         fileName: req.file.originalname,
-        mimeType: req.file.mimetype || "application/octet-stream",
-        sizeBytes: req.file.size,
-        fileBytes: req.file.buffer,
+        mimeType: extractMime,
+        sizeBytes: extractBuffer.length,
+        fileBytes: extractBuffer,
         uploadedBy: req.session.userId ?? null,
         expiresAt: new Date(Date.now() + PENDING_TTL_MS),
       })

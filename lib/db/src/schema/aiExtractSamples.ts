@@ -8,6 +8,7 @@ import {
   customType,
   boolean,
   index,
+  jsonb,
 } from "drizzle-orm/pg-core";
 
 const bytea = customType<{ data: Buffer; default: false }>({
@@ -15,6 +16,17 @@ const bytea = customType<{ data: Buffer; default: false }>({
     return "bytea";
   },
 });
+
+export interface StashedExtractedPunch {
+  kfiId: string;
+  customer: string;
+  date: string;
+  clockIn: string;
+  clockOut: string;
+  hours: number;
+  payType: "Reg" | "OT";
+  noTz?: boolean;
+}
 
 // Stashed copy of every AI-extracted customer file so an engineer can use it
 // as a fixture when promoting the customer to a deterministic parser.
@@ -44,6 +56,7 @@ export const aiExtractSamplesTable = pgTable(
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     pinned: boolean("pinned").notNull().default(false),
+    extractedRows: jsonb("extracted_rows").$type<StashedExtractedPunch[]>(),
   },
   (t) => [
     index("ai_extract_samples_customer_idx").on(t.customer),
