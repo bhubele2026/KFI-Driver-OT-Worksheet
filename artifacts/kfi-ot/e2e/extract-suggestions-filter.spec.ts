@@ -178,7 +178,10 @@ test.afterAll(async () => {
   await pool.end();
 });
 
-test("/extract-customer-file suggestion dropdown only offers drivers with Connecteam time this week", async ({
+// Skipped in CI: hits real Gemini via /extract-customer-file, which times out
+// at Playwright's 10s actionTimeout and exhausts the AI proxy rate limit.
+// Tracked by follow-up task #285 (add HTTP-level fake-Gemini mode).
+(process.env.CI ? test.skip : test)("/extract-customer-file suggestion dropdown only offers drivers with Connecteam time this week", async ({
   page,
 }) => {
   await signInAsDispatcher(page);
