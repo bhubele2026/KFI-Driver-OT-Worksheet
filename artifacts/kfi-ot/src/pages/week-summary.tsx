@@ -727,14 +727,16 @@ export default function WeekSummary() {
                                       <span className="truncate flex items-center gap-1.5">
                                         {formatPersonName(driver.name)}
                                         {driver.noteCount > 0 && (
-                                          <span
-                                            className="inline-flex items-center gap-0.5 text-[10px] font-mono text-primary bg-primary/10 px-1 py-0.5 rounded"
+                                          <Link
+                                            href={`/weeks/${weekStart}/drivers/${driver.kfiId}#notes`}
+                                            className="inline-flex items-center gap-0.5 text-[10px] font-mono text-primary bg-primary/10 hover:bg-primary/20 focus-visible:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 px-1 py-0.5 rounded transition-colors cursor-pointer"
                                             title={t("weekSummary.table.noteCount", { count: driver.noteCount })}
+                                            aria-label={t("weekSummary.table.noteCount", { count: driver.noteCount })}
                                             data-testid={`badge-note-count-${driver.kfiId}`}
                                           >
                                             <StickyNote className="h-2.5 w-2.5" />
                                             {driver.noteCount}
-                                          </span>
+                                          </Link>
                                         )}
                                         {driver.connecteamParity?.status === "match" ? (
                                           <span

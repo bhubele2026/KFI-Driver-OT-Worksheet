@@ -403,6 +403,27 @@ export default function DriverDetail() {
     return m;
   }, [notes]);
 
+  // If we arrived with a `#notes` hash (e.g. via the note-count badge on the
+  // week dashboard), scroll the notes card into view and focus the textarea
+  // once the data has loaded.
+  const notesHashHandledRef = useRef(false);
+  useEffect(() => {
+    if (notesHashHandledRef.current) return;
+    if (isLoading || !data) return;
+    if (typeof window === "undefined") return;
+    if (window.location.hash !== "#notes") return;
+    notesHashHandledRef.current = true;
+    requestAnimationFrame(() => {
+      const el = document.getElementById("notes");
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      const ta = el.querySelector<HTMLTextAreaElement>(
+        '[data-testid="input-week-note"]',
+      );
+      ta?.focus({ preventScroll: true });
+    });
+  }, [isLoading, data]);
+
   // What the server thinks the punch list will look like once we save the
   // dialog draft. Recomputed via `/preview-punch` whenever any input changes
   // (debounced) so the dispatcher sees the same RT/OT split they'll get
@@ -1500,7 +1521,7 @@ export default function DriverDetail() {
         />
 
         {/* Punch table */}
-        <Card data-testid="card-driver-notes">
+        <Card id="notes" data-testid="card-driver-notes">
           <CardHeader className="pb-2 pt-4 px-4">
             <CardTitle className="text-sm font-display tracking-tight flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-primary" />
