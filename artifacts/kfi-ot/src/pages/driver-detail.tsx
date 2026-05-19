@@ -2301,7 +2301,8 @@ function SummaryAndChecks({
     baselineStaleThresholdHours?: number;
     days: Array<{
       date: string;
-      engineHours: number;
+      dashboardHours: number;
+      customerHours: number;
       connecteamHours: number | null;
       matches: boolean | null;
     }>;
@@ -2349,12 +2350,17 @@ function SummaryAndChecks({
       : "";
   const diffDayList = (connecteamParity?.days ?? [])
     .filter((d) => d.matches === false)
-    .map(
-      (d) =>
-        `${d.date}: dashboard ${d.engineHours.toFixed(2)}h vs Connecteam ${
-          d.connecteamHours == null ? "—" : `${d.connecteamHours.toFixed(2)}h`
-        }`,
-    )
+    .map((d) => {
+      const ct =
+        d.connecteamHours == null ? "—" : `${d.connecteamHours.toFixed(2)}h`;
+      const cust = `${d.customerHours.toFixed(2)}h`;
+      const sum =
+        d.connecteamHours == null
+          ? "—"
+          : `${(d.connecteamHours + d.customerHours).toFixed(2)}h`;
+      const dash = `${d.dashboardHours.toFixed(2)}h`;
+      return `${d.date}: CT ${ct} + Customer ${cust} = ${sum} vs Dashboard ${dash}`;
+    })
     .join("\n");
   const totDriver = Number(totals.driverHours) || 0;
   const totCust = Number(totals.customerHours) || 0;

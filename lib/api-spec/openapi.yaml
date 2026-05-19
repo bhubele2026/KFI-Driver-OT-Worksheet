@@ -2565,14 +2565,30 @@ components:
               type: array
               items:
                 type: object
-                required: [date, engineHours, connecteamHours, matches]
+                required: [date, dashboardHours, customerHours, connecteamHours, matches]
                 properties:
                   date: { type: string }
-                  engineHours: { type: number }
+                  dashboardHours:
+                    type: number
+                    description: |
+                      The dashboard's computed total for this day (Driver
+                      punches + Customer-imported punches merged).
+                  customerHours:
+                    type: number
+                    description: Customer-imported hours for this day.
                   connecteamHours:
                     type: ["number", "null"]
+                    description: |
+                      Connecteam snapshot hours for this day, or null when
+                      the driver-week has never been refreshed. After a
+                      refresh, days with no recorded Connecteam shift are
+                      reported as 0 (not null).
                   matches:
                     type: ["boolean", "null"]
+                    description: |
+                      True when `|dashboardHours - (connecteamHours +
+                      customerHours)| < 0.005`, false when it diverges,
+                      and null when there's no Connecteam baseline yet.
 
     PreviewPunchInput:
       type: object

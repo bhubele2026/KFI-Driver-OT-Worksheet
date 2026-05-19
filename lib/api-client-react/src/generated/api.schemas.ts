@@ -654,10 +654,28 @@ export const DriverWeekConnecteamParityStatus = {
 
 export type DriverWeekConnecteamParityDaysItem = {
   date: string;
-  engineHours: number;
-  /** @nullable */
+  /** The dashboard's computed total for this day (Driver
+punches + Customer-imported punches merged).
+ */
+  dashboardHours: number;
+  /** Customer-imported hours for this day. */
+  customerHours: number;
+  /**
+   * Connecteam snapshot hours for this day, or null when
+the driver-week has never been refreshed. After a
+refresh, days with no recorded Connecteam shift are
+reported as 0 (not null).
+
+   * @nullable
+   */
   connecteamHours: number | null;
-  /** @nullable */
+  /**
+   * True when `|dashboardHours - (connecteamHours +
+customerHours)| < 0.005`, false when it diverges,
+and null when there's no Connecteam baseline yet.
+
+   * @nullable
+   */
   matches: boolean | null;
 };
 

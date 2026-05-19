@@ -2,13 +2,20 @@
 //
 // The driver-detail page wants two pieces of information:
 //
-//   1. For each day in the week, does the engine's computed total match the
-//      Connecteam total snapshotted at the most recent /refresh-connecteam?
+//   1. For each day in the week, does the dashboard's computed total match
+//      (Connecteam snapshot + Customer-imported hours) for that day?
 //   2. Across the whole driver-week, does every snapshotted day match? (This
 //      drives the "Matches Connecteam" / "Differs from Connecteam" badge on
 //      the Summary panel.)
 //
-// We compare to a 0.005h tolerance because both sides are rounded to 2dp.
+// The reconciliation the dispatcher actually wants is: the two source
+// documents (Connecteam punches + customer-imported time files) should add
+// up to whatever the dashboard is about to pay. Any day where
+// `(CT + Customer) != Dashboard` is a real discrepancy worth surfacing —
+// it means either a manual edit, an edited punch, or a CT shift that has
+// no matching customer record (or vice versa).
+//
+// We compare to a 0.005h tolerance because all sides are rounded to 2dp.
 //
 // "no snapshot for this day" → not-yet-refreshed; we report `null`, which the
 // frontend renders as a neutral state (neither green nor amber). A day that
@@ -19,13 +26,19 @@
 
 const EPS = 0.005;
 
-export type DailyTotalLite = { date: string; totalHours: number };
+export type DailyTotalLite = {
+  date: string;
+  totalHours: number;
+  customerHours: number;
+};
 export type ConnecteamSnapshotRow = { date: string; hours: string | number };
 
 export type DailyParity = {
   date: string;
-  /** Engine total for this day (always present). */
-  engineHours: number;
+  /** Customer-imported hours for this day. */
+  customerHours: number;
+  /** Dashboard's computed total for this day (Driver + Customer merged). */
+  dashboardHours: number;
   /** Connecteam baseline for this day, or null if no snapshot exists yet. */
   connecteamHours: number | null;
   /** true=match, false=differ, null=no baseline to compare against. */
@@ -49,30 +62,36 @@ export function buildDailyParity(
   for (const r of snapshotRows) baseline.set(r.date, Number(r.hours));
   return dailyTotals.map((d) => {
     const ct = baseline.get(d.date);
+    const customer = d.customerHours;
+    const dashboard = d.totalHours;
     if (ct === undefined) {
       if (!baselineExists) {
         return {
           date: d.date,
-          engineHours: d.totalHours,
+          customerHours: customer,
+          dashboardHours: dashboard,
           connecteamHours: null,
           matches: null,
         };
       }
       // Baseline exists but has no row for this date → Connecteam knows
       // nothing about this day, so treat it as 0.00h on the Connecteam
-      // side. Any positive engine total is a real diff.
+      // side. The day matches iff the dashboard total equals the
+      // customer-imported hours (CT contributes nothing).
       return {
         date: d.date,
-        engineHours: d.totalHours,
+        customerHours: customer,
+        dashboardHours: dashboard,
         connecteamHours: 0,
-        matches: Math.abs(d.totalHours) < EPS,
+        matches: Math.abs(dashboard - customer) < EPS,
       };
     }
     return {
       date: d.date,
-      engineHours: d.totalHours,
+      customerHours: customer,
+      dashboardHours: dashboard,
       connecteamHours: ct,
-      matches: Math.abs(d.totalHours - ct) < EPS,
+      matches: Math.abs(dashboard - (ct + customer)) < EPS,
     };
   });
 }

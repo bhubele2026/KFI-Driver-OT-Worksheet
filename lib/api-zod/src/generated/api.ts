@@ -950,9 +950,26 @@ export const GetDriverWeekResponse = zod.object({
       days: zod.array(
         zod.object({
           date: zod.string(),
-          engineHours: zod.number(),
-          connecteamHours: zod.number().nullable(),
-          matches: zod.boolean().nullable(),
+          dashboardHours: zod
+            .number()
+            .describe(
+              "The dashboard's computed total for this day (Driver\npunches + Customer-imported punches merged).\n",
+            ),
+          customerHours: zod
+            .number()
+            .describe("Customer-imported hours for this day."),
+          connecteamHours: zod
+            .number()
+            .nullable()
+            .describe(
+              "Connecteam snapshot hours for this day, or null when\nthe driver-week has never been refreshed. After a\nrefresh, days with no recorded Connecteam shift are\nreported as 0 (not null).\n",
+            ),
+          matches: zod
+            .boolean()
+            .nullable()
+            .describe(
+              "True when `|dashboardHours - (connecteamHours +\ncustomerHours)| < 0.005`, false when it diverges,\nand null when there's no Connecteam baseline yet.\n",
+            ),
         }),
       ),
     })
