@@ -29,4 +29,9 @@ export interface Punch {
   updatedByEmail?: string | null;
   /** @nullable */
   updatedAt?: Date | null;
+  reviewed?: boolean;
+  /** @nullable */
+  reviewedAt?: Date | null;
+  /** @nullable */
+  reviewedByEmail?: string | null;
 }

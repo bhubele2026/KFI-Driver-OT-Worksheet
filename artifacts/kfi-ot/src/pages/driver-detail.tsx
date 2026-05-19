@@ -6,6 +6,7 @@ import {
   useCreateManualPunch,
   useEditPunch,
   useDeletePunch,
+  useSetPunchReviewed,
   usePreviewPunch,
   previewPunch,
   useSetReviewed,
@@ -253,6 +254,7 @@ export default function DriverDetail() {
   const createPunch = useCreateManualPunch();
   const editPunch = useEditPunch();
   const deletePunch = useDeletePunch();
+  const setPunchReviewed = useSetPunchReviewed();
   const refreshCt = useRefreshConnecteam();
 
   const handleRefresh = () => {
@@ -800,6 +802,7 @@ export default function DriverDetail() {
   // Client-side running totals + OT flag, mirroring hoursEngine.computeDriverTotals.
   // The OT flag drives the running-cell color rule (warning past 40h).
   let running = 0;
+  let prevDate: string | null = null;
   const rows = sortedPunches.map((p) => {
     const before = running;
     const h = Number(p.hours) || 0;
@@ -807,10 +810,36 @@ export default function DriverDetail() {
     const otBefore = Math.max(0, before - OT_THRESHOLD);
     const otAfter = Math.max(0, running - OT_THRESHOLD);
     const otPortion = otAfter - otBefore;
-    // Highlight rows whose cumulative hours cross or sit at/past the 40h line.
     const isOt = otPortion > 0.0001 || running >= OT_THRESHOLD - 0.0001;
-    return { p, after: running, isOt };
+    const isFirstOfDate = p.date !== prevDate;
+    prevDate = p.date;
+    return { p, after: running, isOt, isFirstOfDate };
   });
+
+  // Per-day + week-level reviewed counters surfaced as small badges.
+  const dayCounts = new Map<string, { reviewed: number; total: number }>();
+  for (const p of sortedPunches) {
+    const cur = dayCounts.get(p.date) ?? { reviewed: 0, total: 0 };
+    cur.total += 1;
+    if (p.reviewed) cur.reviewed += 1;
+    dayCounts.set(p.date, cur);
+  }
+  const weekReviewedCount = sortedPunches.filter((p) => p.reviewed).length;
+  const weekPunchCount = sortedPunches.length;
+
+  const togglePunchReviewed = (punchId: number, next: boolean) => {
+    setPunchReviewed.mutate(
+      { id: punchId, data: { reviewed: next } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
+          });
+        },
+        onError: (err) => handleLockedError(err, "Failed to mark reviewed"),
+      },
+    );
+  };
 
   const customerLabel = isCustomerNameUseful(data.driver.customer)
     ? data.driver.customer
@@ -842,6 +871,23 @@ export default function DriverDetail() {
             total={flatDrivers.length}
             testId="pill-reviewed-progress"
           />
+          {weekPunchCount > 0 && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded border",
+                weekReviewedCount === weekPunchCount
+                  ? "border-emerald-400/40 text-emerald-300 bg-emerald-500/10"
+                  : "border-sidebar-border/60 text-sidebar-foreground/80 bg-sidebar-accent/30",
+              )}
+              data-testid="pill-punch-reviewed-progress"
+              title="Per-punch reviewed checkboxes"
+            >
+              {weekReviewedCount === weekPunchCount && (
+                <CheckIcon className="h-3 w-3" />
+              )}
+              {weekReviewedCount}/{weekPunchCount} punches
+            </span>
+          )}
           <div
             className="inline-flex items-center gap-2"
             data-testid="status-tristate"
@@ -1181,7 +1227,7 @@ export default function DriverDetail() {
                     </TableCell>
                   </TableRow>
                 )}
-                {rows.map(({ p, after, isOt }) => {
+                {rows.map(({ p, after, isOt, isFirstOfDate }) => {
                   const isEditing = editingPunchId === p.id;
                   const isDriver = p.source === "Driver";
                   const remaining = OT_THRESHOLD - after;
@@ -1210,7 +1256,29 @@ export default function DriverDetail() {
                         "scroll-mt-24 transition-colors",
                       )}
                     >
-                      <TableCell className="font-mono text-sm whitespace-nowrap">{p.date}</TableCell>
+                      <TableCell className="font-mono text-sm whitespace-nowrap align-top">
+                        <div>{p.date}</div>
+                        {isFirstOfDate && (() => {
+                          const dc = dayCounts.get(p.date);
+                          if (!dc) return null;
+                          const allDone = dc.total > 0 && dc.reviewed === dc.total;
+                          return (
+                            <div
+                              className={cn(
+                                "mt-1 inline-flex items-center gap-0.5 text-[9px] font-mono tracking-tight px-1 py-0 rounded border",
+                                allDone
+                                  ? "border-emerald-500/50 text-emerald-600 bg-emerald-500/5"
+                                  : "border-border text-muted-foreground",
+                              )}
+                              data-testid={`day-reviewed-count-${p.date}`}
+                              title="Reviewed punches / total on this day"
+                            >
+                              {allDone && <CheckIcon className="h-2.5 w-2.5" />}
+                              {dc.reviewed}/{dc.total}
+                            </div>
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell>
                         <SourceBadge source={p.source} />
                         <div className="flex flex-wrap items-center gap-1 mt-1">
@@ -1361,6 +1429,35 @@ export default function DriverDetail() {
                           </div>
                         ) : (
                           <div className="flex items-center justify-end gap-1 opacity-60 hover:opacity-100">
+                            <TooltipProvider delayDuration={150}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-flex items-center">
+                                    <Checkbox
+                                      checked={!!p.reviewed}
+                                      disabled={driverLocked || setPunchReviewed.isPending}
+                                      onCheckedChange={(v) =>
+                                        togglePunchReviewed(p.id, !!v)
+                                      }
+                                      aria-label="Mark this punch reviewed"
+                                      data-testid={`checkbox-punch-reviewed-${p.id}`}
+                                      className="h-4 w-4"
+                                    />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-[11px]">
+                                  {p.reviewed
+                                    ? p.reviewedByEmail
+                                      ? `Reviewed by ${p.reviewedByEmail}${
+                                          p.reviewedAt
+                                            ? ` · ${new Date(p.reviewedAt).toLocaleString()}`
+                                            : ""
+                                        }`
+                                      : "Reviewed"
+                                    : "Mark this punch reviewed"}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                             <Button
                               size="icon"
                               variant="ghost"

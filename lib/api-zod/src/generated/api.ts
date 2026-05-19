@@ -766,6 +766,9 @@ export const GetDriverWeekResponse = zod.object({
       createdByEmail: zod.string().nullish(),
       updatedByEmail: zod.string().nullish(),
       updatedAt: zod.coerce.date().nullish(),
+      reviewed: zod.boolean().optional(),
+      reviewedAt: zod.coerce.date().nullish(),
+      reviewedByEmail: zod.string().nullish(),
     }),
   ),
   dailyTotals: zod.array(
@@ -1541,6 +1544,9 @@ export const CreateManualPunchResponse = zod.object({
   createdByEmail: zod.string().nullish(),
   updatedByEmail: zod.string().nullish(),
   updatedAt: zod.coerce.date().nullish(),
+  reviewed: zod.boolean().optional(),
+  reviewedAt: zod.coerce.date().nullish(),
+  reviewedByEmail: zod.string().nullish(),
 });
 
 /**
@@ -1650,6 +1656,9 @@ export const EditPunchResponse = zod.object({
   createdByEmail: zod.string().nullish(),
   updatedByEmail: zod.string().nullish(),
   updatedAt: zod.coerce.date().nullish(),
+  reviewed: zod.boolean().optional(),
+  reviewedAt: zod.coerce.date().nullish(),
+  reviewedByEmail: zod.string().nullish(),
 });
 
 /**
@@ -1657,6 +1666,43 @@ export const EditPunchResponse = zod.object({
  */
 export const DeletePunchParams = zod.object({
   id: zod.coerce.number(),
+});
+
+/**
+ * Per-punch review checkbox. Stamps `reviewedBy` / `reviewedAt` (or
+nulls them when `reviewed: false`). Returns the updated punch.
+Rejected with 423 when the driver-week is locked.
+
+ * @summary Mark or unmark a single punch as reviewed
+ */
+export const SetPunchReviewedParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const SetPunchReviewedBody = zod.object({
+  reviewed: zod.boolean(),
+});
+
+export const SetPunchReviewedResponse = zod.object({
+  id: zod.number(),
+  weekStart: zod.string(),
+  kfiId: zod.string(),
+  customer: zod.string().nullish(),
+  source: zod.enum(["Driver", "Customer"]),
+  date: zod.string(),
+  clockIn: zod.string(),
+  clockOut: zod.string(),
+  hours: zod.number(),
+  payType: zod.string().nullish(),
+  dispTz: zod.string(),
+  isManual: zod.boolean(),
+  edited: zod.boolean().optional(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+  updatedAt: zod.coerce.date().nullish(),
+  reviewed: zod.boolean().optional(),
+  reviewedAt: zod.coerce.date().nullish(),
+  reviewedByEmail: zod.string().nullish(),
 });
 
 /**

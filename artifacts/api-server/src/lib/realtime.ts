@@ -21,7 +21,7 @@ export type RealtimeEvent =
       type: "punch-changed";
       weekStart: string;
       kfiId: string;
-      action: "create" | "update" | "delete";
+      action: "create" | "update" | "delete" | "reviewed";
       punchId?: number | null;
       actor: ActorRef | null;
     }

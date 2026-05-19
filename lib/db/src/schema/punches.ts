@@ -39,6 +39,8 @@ export const punchesTable = pgTable(
     fileOrigin: text("file_origin"),
     createdBy: integer("created_by"),
     updatedBy: integer("updated_by"),
+    reviewedBy: integer("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

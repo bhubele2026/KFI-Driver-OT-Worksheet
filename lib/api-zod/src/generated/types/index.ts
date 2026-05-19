@@ -90,6 +90,7 @@ export * from "./removeIpBlocklistBody";
 export * from "./removeParserPromotionSnoozeParams";
 export * from "./requestPasswordResetBody";
 export * from "./resetPasswordBody";
+export * from "./setPunchReviewedBody";
 export * from "./setReviewed200";
 export * from "./setReviewedBody";
 export * from "./suggestedIpBlock";

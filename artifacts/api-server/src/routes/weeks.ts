@@ -240,6 +240,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
   for (const p of punches) {
     if (p.updatedBy) actorIds.add(p.updatedBy);
     if (p.createdBy) actorIds.add(p.createdBy);
+    if (p.reviewedBy) actorIds.add(p.reviewedBy);
   }
   for (const d of deletions) {
     if (d.deletedBy) actorIds.add(d.deletedBy);
@@ -499,6 +500,7 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
   for (const p of punches) {
     if (p.createdBy) actorIds.add(p.createdBy);
     if (p.updatedBy) actorIds.add(p.updatedBy);
+    if (p.reviewedBy) actorIds.add(p.reviewedBy);
   }
   if (reviewed?.lockedByUserId) actorIds.add(reviewed.lockedByUserId);
   const actorEmailById = new Map<number, string>();
@@ -3238,7 +3240,7 @@ weeksRouter.get("/admin/notes/deleted", requireAdmin, async (req, res) => {
   );
 });
 
-function serializePunch(
+export function serializePunch(
   p: typeof schema.punchesTable.$inferSelect,
   emailById?: Map<number, string>,
 ) {
@@ -3261,6 +3263,10 @@ function serializePunch(
     updatedByEmail:
       p.updatedBy && emailById ? emailById.get(p.updatedBy) ?? null : null,
     updatedAt: p.updatedAt ? new Date(p.updatedAt).toISOString() : null,
+    reviewed: p.reviewedAt != null,
+    reviewedAt: p.reviewedAt ? new Date(p.reviewedAt).toISOString() : null,
+    reviewedByEmail:
+      p.reviewedBy && emailById ? emailById.get(p.reviewedBy) ?? null : null,
   };
 }
 
@@ -3590,5 +3596,3 @@ weeksRouter.post("/editing", (req, res) => {
 weeksRouter.get("/admin/realtime", requireAdmin, (_req, res) => {
   res.json(realtimeSnapshot());
 });
-
-export { serializePunch };

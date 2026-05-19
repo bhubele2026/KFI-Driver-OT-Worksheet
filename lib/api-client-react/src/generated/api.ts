@@ -76,6 +76,7 @@ import type {
   RemoveParserPromotionSnoozeParams,
   RequestPasswordResetBody,
   ResetPasswordBody,
+  SetPunchReviewedBody,
   SetReviewed200,
   SetReviewedBody,
   SuggestedIpBlock,
@@ -5150,6 +5151,97 @@ export const useDeletePunch = <
   TContext
 > => {
   return useMutation(getDeletePunchMutationOptions(options));
+};
+
+/**
+ * Per-punch review checkbox. Stamps `reviewedBy` / `reviewedAt` (or
+nulls them when `reviewed: false`). Returns the updated punch.
+Rejected with 423 when the driver-week is locked.
+
+ * @summary Mark or unmark a single punch as reviewed
+ */
+export const getSetPunchReviewedUrl = (id: number) => {
+  return `/api/punches/${id}/reviewed`;
+};
+
+export const setPunchReviewed = async (
+  id: number,
+  setPunchReviewedBody: SetPunchReviewedBody,
+  options?: RequestInit,
+): Promise<Punch> => {
+  return customFetch<Punch>(getSetPunchReviewedUrl(id), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(setPunchReviewedBody),
+  });
+};
+
+export const getSetPunchReviewedMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setPunchReviewed>>,
+    TError,
+    { id: number; data: BodyType<SetPunchReviewedBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setPunchReviewed>>,
+  TError,
+  { id: number; data: BodyType<SetPunchReviewedBody> },
+  TContext
+> => {
+  const mutationKey = ["setPunchReviewed"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setPunchReviewed>>,
+    { id: number; data: BodyType<SetPunchReviewedBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return setPunchReviewed(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetPunchReviewedMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setPunchReviewed>>
+>;
+export type SetPunchReviewedMutationBody = BodyType<SetPunchReviewedBody>;
+export type SetPunchReviewedMutationError = ErrorType<void>;
+
+/**
+ * @summary Mark or unmark a single punch as reviewed
+ */
+export const useSetPunchReviewed = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setPunchReviewed>>,
+    TError,
+    { id: number; data: BodyType<SetPunchReviewedBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setPunchReviewed>>,
+  TError,
+  { id: number; data: BodyType<SetPunchReviewedBody> },
+  TContext
+> => {
+  return useMutation(getSetPunchReviewedMutationOptions(options));
 };
 
 /**

@@ -413,6 +413,11 @@ export interface Punch {
   updatedByEmail?: string | null;
   /** @nullable */
   updatedAt?: string | null;
+  reviewed?: boolean;
+  /** @nullable */
+  reviewedAt?: string | null;
+  /** @nullable */
+  reviewedByEmail?: string | null;
 }
 
 export interface DailyTotals {
@@ -1079,6 +1084,10 @@ export type ListCustomerAliasAuditLogParams = {
 
 export type RemoveParserPromotionSnoozeParams = {
   customer: string;
+};
+
+export type SetPunchReviewedBody = {
+  reviewed: boolean;
 };
 
 export type SetReviewedBody = {
