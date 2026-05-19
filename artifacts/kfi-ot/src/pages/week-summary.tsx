@@ -7,6 +7,7 @@ import {
   getGetWeekSummaryQueryKey,
   getGetCustomerUploadStatusQueryKey,
   useLogout,
+  useGetMe,
   getGetMeQueryKey,
   useSetReviewed,
 } from "@workspace/api-client-react";
@@ -59,6 +60,9 @@ import {
 import { AdminLink } from "@/components/admin-link";
 import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
 import { LanguageToggle } from "@/components/language-toggle";
+import { PresenceChip } from "@/components/presence-chip";
+import { useLiveUpdates } from "@/hooks/use-live-updates";
+import { usePresence } from "@/hooks/use-presence";
 import { Logo } from "@/components/logo";
 import { useTranslation } from "react-i18next";
 import {
@@ -92,12 +96,20 @@ export default function WeekSummary() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const logout = useLogout();
+  const { data: me } = useGetMe();
 
   const today = new Date();
   const currentMonday = getMonday(today);
   const defaultWeekStart = format(currentMonday, "yyyy-MM-dd");
 
   const weekStart = params.weekStart || defaultWeekStart;
+
+  useLiveUpdates({
+    weekStart,
+    selfEmail: me?.email ?? null,
+    enableToasts: true,
+  });
+  const viewers = usePresence({ weekStart });
 
   const { data: weeksList } = useListWeeks();
   const { data: summary, isLoading, isError, error } =
@@ -286,6 +298,7 @@ export default function WeekSummary() {
         </div>
 
         <div className="flex items-center gap-3">
+          <PresenceChip viewers={viewers} selfEmail={me?.email ?? null} />
           <HiddenNotesBadge variant="compact" />
           <LanguageToggle />
           <AdminLink />

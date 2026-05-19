@@ -42,6 +42,22 @@ import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { topMatches } from "../lib/parsers/fuzzy.js";
 import { diffHours, localStrToSortMs, mondayOf, weekEndOf } from "../lib/time.js";
 import { makeTimesheetsHandler } from "../lib/timesheets.js";
+import {
+  publish as publishRealtime,
+  subscribe as subscribeRealtime,
+  upsertPresence,
+  getPresence,
+  startEditing,
+  stopEditing,
+  snapshot as realtimeSnapshot,
+  type ActorRef,
+} from "../lib/realtime.js";
+
+function actorRef(req: Request): ActorRef | null {
+  const user = (req as Request & { user?: { id: number; email: string } }).user;
+  if (user) return { userId: user.id, email: user.email };
+  return null;
+}
 
 async function loadMergedIdMap(): Promise<Record<string, string>> {
   const rows = await db
@@ -758,6 +774,11 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
         })
         .where(eq(schema.weeksTable.startDate, startDate));
     });
+    publishRealtime({
+      type: "week-refreshed",
+      weekStart: startDate,
+      actor: actorRef(req),
+    });
     res.json({
       driversFound: users.length,
       punchesUpserted: punches.length,
@@ -897,6 +918,12 @@ weeksRouter.post(
         "Customer file contained badge IDs not in the KFI roster",
       );
     }
+    publishRealtime({
+      type: "customer-upload",
+      weekStart: startDate,
+      customer: result.customer,
+      actor: actorRef(req),
+    });
     res.json({
       customer: result.customer,
       fileName,
@@ -1508,6 +1535,12 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
     }
   }
 
+  publishRealtime({
+    type: "customer-upload",
+    weekStart: startDate,
+    customer,
+    actor: actorRef(req),
+  });
   res.json({
     customer,
     imported: toInsert.length,
@@ -2336,6 +2369,14 @@ weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
       createdBy: req.session.userId ?? null,
     })
     .returning();
+  publishRealtime({
+    type: "punch-changed",
+    weekStart: startDate,
+    kfiId: parsed.data.kfiId,
+    action: "create",
+    punchId: row.id,
+    actor: actorRef(req),
+  });
   res.json(serializePunch(row));
 });
 
@@ -2611,6 +2652,13 @@ weeksRouter.put("/weeks/:weekStart/reviewed/:kfiId", async (req, res) => {
             : "review-clear",
     });
   });
+  publishRealtime({
+    type: "review-changed",
+    weekStart,
+    kfiId,
+    status,
+    actor: actorRef(req),
+  });
   res.json({ reviewed: status !== null, status });
 });
 
@@ -2681,7 +2729,16 @@ weeksRouter.post(
         action: "lock",
       });
     });
-    res.json(await readLockState(weekStart, kfiId));
+    const state = await readLockState(weekStart, kfiId);
+    publishRealtime({
+      type: "lock-changed",
+      weekStart,
+      kfiId,
+      locked: state.locked,
+      lockedByEmail: state.lockedByEmail,
+      actor: actorRef(req),
+    });
+    res.json(state);
   },
 );
 
@@ -2733,7 +2790,16 @@ weeksRouter.delete(
         action: "unlock",
       });
     });
-    res.json(await readLockState(weekStart, kfiId));
+    const state = await readLockState(weekStart, kfiId);
+    publishRealtime({
+      type: "lock-changed",
+      weekStart,
+      kfiId,
+      locked: state.locked,
+      lockedByEmail: state.lockedByEmail,
+      actor: actorRef(req),
+    });
+    res.json(state);
   },
 );
 
@@ -2923,6 +2989,13 @@ weeksRouter.post(
         .limit(1);
       punchExists = live.length > 0;
     }
+    publishRealtime({
+      type: "note-changed",
+      weekStart: row.weekStart,
+      kfiId: row.kfiId,
+      action: "create",
+      actor: actorRef(req),
+    });
     res.json({
       id: row.id,
       weekStart: row.weekStart,
@@ -2945,6 +3018,7 @@ weeksRouter.delete("/notes/:id", requireAdmin, async (req, res) => {
     return;
   }
   const userId = req.session.userId ?? null;
+  let softDeleted: { weekStart: string; kfiId: string } | null = null;
   await db.transaction(async (tx) => {
     const existing = await tx.query.driverNotesTable.findFirst({
       where: eq(schema.driverNotesTable.id, id),
@@ -2970,7 +3044,20 @@ weeksRouter.delete("/notes/:id", requireAdmin, async (req, res) => {
       targetEmail: null,
       action: "soft-delete-note",
     });
+    softDeleted = { weekStart: existing.weekStart, kfiId: existing.kfiId };
   });
+  // Publish AFTER the transaction commits so a rolled-back delete never
+  // fans out a ghost realtime event to other dispatchers.
+  if (softDeleted) {
+    const { weekStart, kfiId } = softDeleted as { weekStart: string; kfiId: string };
+    publishRealtime({
+      type: "note-changed",
+      weekStart,
+      kfiId,
+      action: "soft-delete",
+      actor: actorRef(req),
+    });
+  }
   if (!res.headersSent) res.status(204).end();
 });
 
@@ -3010,6 +3097,13 @@ weeksRouter.post("/notes/:id/restore", requireAdmin, async (req, res) => {
     restored = { weekStart: existing.weekStart, kfiId: existing.kfiId };
   });
   if (res.headersSent || restored == null) return;
+  publishRealtime({
+    type: "note-changed",
+    weekStart: restored.weekStart,
+    kfiId: restored.kfiId,
+    action: "restore",
+    actor: actorRef(req),
+  });
   // Re-load via the existing helper so the response shape matches the
   // driver-detail "live" notes payload exactly.
   const rows = await loadNotesForDriverWeek(restored.weekStart, restored.kfiId);
@@ -3384,6 +3478,113 @@ ${groupHtml || "<p>No active drivers found for this week.</p>"}
 </body></html>`;
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(html);
+});
+
+// ---------------------------------------------------------------------------
+// Realtime: SSE event stream + presence + editing intent.
+// Auth is provided by the router-level `requireAuth` middleware. The bus is
+// in-memory and single-process — see lib/realtime.ts for the Postgres
+// LISTEN/NOTIFY upgrade path documented in replit.md.
+// ---------------------------------------------------------------------------
+
+weeksRouter.get("/events", (req, res) => {
+  const actor = actorRef(req);
+  if (!actor) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const weekStart = String(req.query.weekStart ?? "");
+  if (!isWeek(weekStart)) {
+    res.status(400).json({ error: "weekStart query param is required (YYYY-MM-DD Monday)" });
+    return;
+  }
+  const kfiId =
+    typeof req.query.kfiId === "string" && req.query.kfiId.trim()
+      ? req.query.kfiId.trim()
+      : null;
+
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  // Disable nginx-style buffering so events flush immediately through any
+  // upstream proxy that honors this hint.
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+  // Initial comment primes the stream so EventSource considers it open.
+  res.write(": connected\n\n");
+
+  const unsubscribe = subscribeRealtime({
+    res,
+    userId: actor.userId,
+    email: actor.email,
+    weekStart,
+    kfiId,
+  });
+  req.on("close", () => {
+    unsubscribe();
+  });
+});
+
+weeksRouter.post("/presence", (req, res) => {
+  const actor = actorRef(req);
+  if (!actor) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const weekStart = String(req.body?.weekStart ?? "");
+  if (!isWeek(weekStart)) {
+    res.status(400).json({ error: "weekStart is required" });
+    return;
+  }
+  const kfiIdRaw = req.body?.kfiId;
+  const kfiId = typeof kfiIdRaw === "string" && kfiIdRaw.trim() ? kfiIdRaw.trim() : null;
+  const viewers = upsertPresence({
+    userId: actor.userId,
+    email: actor.email,
+    weekStart,
+    kfiId,
+  });
+  res.json({ viewers });
+});
+
+weeksRouter.get("/presence", (req, res) => {
+  const weekStart = String(req.query.weekStart ?? "");
+  if (!isWeek(weekStart)) {
+    res.status(400).json({ error: "weekStart is required" });
+    return;
+  }
+  res.json({ viewers: getPresence(weekStart) });
+});
+
+weeksRouter.post("/editing", (req, res) => {
+  const actor = actorRef(req);
+  if (!actor) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const weekStart = String(req.body?.weekStart ?? "");
+  const kfiId = String(req.body?.kfiId ?? "").trim();
+  if (!isWeek(weekStart) || !kfiId) {
+    res.status(400).json({ error: "weekStart and kfiId are required" });
+    return;
+  }
+  const action = req.body?.action === "stop" ? "stop" : "start";
+  const punchIdRaw = req.body?.punchId;
+  const punchId =
+    typeof punchIdRaw === "number" && Number.isFinite(punchIdRaw)
+      ? punchIdRaw
+      : null;
+  if (action === "start") {
+    startEditing({ userId: actor.userId, email: actor.email, weekStart, kfiId, punchId });
+  } else {
+    stopEditing({ userId: actor.userId, email: actor.email, weekStart, kfiId, punchId });
+  }
+  res.json({ ok: true });
+});
+
+weeksRouter.get("/admin/realtime", requireAdmin, (_req, res) => {
+  res.json(realtimeSnapshot());
 });
 
 export { serializePunch };

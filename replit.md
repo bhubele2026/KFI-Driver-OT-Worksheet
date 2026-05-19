@@ -79,6 +79,14 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 
 - Visual feel: serious payroll-reconciliation tool. Deep navy + teal palette. Syne for headings, DM Mono for tabular numerics. No emojis in UI.
 
+## Realtime (live shared worksheet)
+
+- Single in-process `EventHub` (`artifacts/api-server/src/lib/realtime.ts`) fans out punch/review/lock/refresh/customer-upload/note events plus presence + editing-lock pubs to subscribed SSE clients. Routes: `GET /weeks/:weekStart/events?kfiId=` (SSE; emits `:ping` every 25s and prunes presence/editing TTLs on tick), `POST /presence` (15s TTL heartbeat — client beats every 5s), `GET /presence?weekStart=`, `POST /editing` (action: start/stop, 12s TTL), `GET /admin/realtime` (admin-only snapshot for `/admin/realtime`).
+- Every mutating route in `weeks.ts` / `punches.ts` calls `publishRealtime(...)` after the DB commit so the event is never sent for a rolled-back write. Actor identity comes from `req.user` via `actorRef(req)` (never trusted from the body).
+- Client: `src/lib/realtime.ts` is a ref-counted EventSource singleton — every hook subscribing to the same `(weekStart, kfiId)` shares one network connection, and a CLOSED state triggers exponential backoff reconnect (1s → 15s cap). Hooks: `useLiveUpdates` (surgically invalidates `getGetWeekSummary`/`DriverWeek`/`CustomerUploadStatus`/`ListDriverNotes`/`DriverWeekAudit` query keys + emits lock/review/refresh/upload toasts, suppressing self-noise), `usePresence` (5s heartbeat, pauses on `document.hidden`), `useEditingLock` (claim/release + `editorsForPunch(punchId | null)` for the row-level "X is editing" pill).
+- UI surfaces: `<PresenceChip />` (header avatar bubbles + tooltip listing email + driver context), `<EditingIndicator emails={…} />` (amber inline pill next to the row), and `/admin/realtime` for ops snapshot.
+- Single-process scope is intentional: the deployment runs one API instance so an in-memory hub is correct. If the API ever fans out to multiple replicas, swap `publishRealtime` for a Postgres `LISTEN/NOTIFY` channel (use `pg`'s `client.query("LISTEN realtime")` on a dedicated long-lived connection) and `NOTIFY` from the same transaction as the mutation — the public `publish/subscribe` API stays unchanged.
+
 ## Gotchas
 
 - Schema/codegen flow: edit `lib/api-spec/openapi.yaml` → `pnpm --filter @workspace/api-spec run codegen` → use the new hooks/Zod by their generated names (don't guess — Orval names vary).

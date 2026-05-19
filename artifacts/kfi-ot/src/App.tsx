@@ -20,6 +20,7 @@ import AdminCustomerAliases from "@/pages/admin-customer-aliases";
 import AdminParserSnoozes from "@/pages/admin-parser-snoozes";
 import AdminDriverIdAliases from "@/pages/admin-driver-id-aliases";
 import AdminDeletedNotes from "@/pages/admin-deleted-notes";
+import AdminRealtime from "@/pages/admin-realtime";
 import WeekSummary from "@/pages/week-summary";
 import DriverDetail from "@/pages/driver-detail";
 
@@ -104,6 +105,7 @@ function Router() {
         <Route path="/admin/parser-snoozes" component={AdminParserSnoozes} />
         <Route path="/admin/driver-id-aliases" component={AdminDriverIdAliases} />
         <Route path="/admin/notes" component={AdminDeletedNotes} />
+        <Route path="/admin/realtime" component={AdminRealtime} />
         <Route path="/admin/i18n" component={AdminI18nStatus} />
         <Route path="/" component={WeekSummary} />
         <Route path="/weeks/:weekStart" component={WeekSummary} />

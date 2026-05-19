@@ -13,6 +13,7 @@ import {
 } from "./lib/rateLimit";
 import { startAiExtractSampleCleanup } from "./lib/aiExtractSampleCleanup";
 import { initIpBlocklist } from "./lib/ipBlocklist";
+import { startRealtimeHeartbeat } from "./lib/realtime";
 
 if (process.env.NODE_ENV === "production") {
   if (!process.env.APP_BASE_URL && !process.env.REPLIT_DOMAINS) {
@@ -69,6 +70,7 @@ async function main() {
       logger.warn({ err }, "rate limit events cleanup failed"),
   });
   startAiExtractSampleCleanup();
+  startRealtimeHeartbeat();
   setRateLimitEventSink((event) => {
     pool
       .query(

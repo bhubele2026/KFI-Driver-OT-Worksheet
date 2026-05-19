@@ -6,6 +6,13 @@ import { requireAuth } from "../lib/auth.js";
 import { assertNotLocked } from "../lib/locks.js";
 import { serializePunch } from "./weeks.js";
 import { diffHours } from "../lib/time.js";
+import { publish as publishRealtime, type ActorRef } from "../lib/realtime.js";
+
+function actorRef(req: import("express").Request): ActorRef | null {
+  const user = (req as import("express").Request & { user?: { id: number; email: string } }).user;
+  if (user) return { userId: user.id, email: user.email };
+  return null;
+}
 
 export const punchesRouter = Router();
 
@@ -53,6 +60,14 @@ punchesRouter.patch("/punches/:id", async (req, res) => {
     })
     .where(eq(schema.punchesTable.id, id))
     .returning();
+  publishRealtime({
+    type: "punch-changed",
+    weekStart: row.weekStart,
+    kfiId: row.kfiId,
+    action: "update",
+    punchId: row.id,
+    actor: actorRef(req),
+  });
   res.json(serializePunch(row));
 });
 
@@ -84,6 +99,14 @@ punchesRouter.delete("/punches/:id", async (req, res) => {
     await tx
       .delete(schema.punchesTable)
       .where(eq(schema.punchesTable.id, id));
+  });
+  publishRealtime({
+    type: "punch-changed",
+    weekStart: existing.weekStart,
+    kfiId: existing.kfiId,
+    action: "delete",
+    punchId: existing.id,
+    actor: actorRef(req),
   });
   res.status(204).end();
 });

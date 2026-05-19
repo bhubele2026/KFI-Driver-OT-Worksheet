@@ -45,6 +45,11 @@ import { LanguageToggle } from "@/components/language-toggle";
 import { useTranslation } from "react-i18next";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useAutoAdvancePref } from "@/hooks/use-auto-advance";
+import { PresenceChip } from "@/components/presence-chip";
+import { EditingIndicator } from "@/components/editing-indicator";
+import { useLiveUpdates } from "@/hooks/use-live-updates";
+import { usePresence } from "@/hooks/use-presence";
+import { useEditingLock } from "@/hooks/use-editing-lock";
 
 const OT_THRESHOLD = 40;
 
@@ -120,6 +125,18 @@ export default function DriverDetail() {
   const { data, isLoading, isError } = useGetDriverWeek(weekStart, kfiId);
   const { data: weekSummary } = useGetWeekSummary(weekStart);
   const { data: me } = useGetMe();
+  useLiveUpdates({
+    weekStart,
+    kfiId,
+    selfEmail: me?.email ?? null,
+    enableToasts: true,
+  });
+  const viewers = usePresence({ weekStart, kfiId });
+  const { editorsForPunch, claim, release } = useEditingLock({
+    weekStart,
+    kfiId,
+    selfEmail: me?.email ?? null,
+  });
   const meRole = (me as { role?: string } | undefined)?.role;
   const canLock = !!me?.isAdmin || meRole === "supervisor";
   const { data: auditLog } = useGetDriverWeekAudit(weekStart, kfiId);
@@ -682,9 +699,14 @@ export default function DriverDetail() {
     setEditingPunchId(p.id);
     setEditClockIn(stripDatePrefix(p.clockIn));
     setEditClockOut(stripDatePrefix(p.clockOut));
+    // Tell other dispatchers we've claimed this row so they don't stomp on
+    // the same punch mid-edit; the server fans the event out via SSE and
+    // expires the claim after 12s if we never release.
+    claim(p.id);
   };
 
   const cancelEdit = () => {
+    if (editingPunchId !== null) release(editingPunchId);
     setEditingPunchId(null);
   };
 
@@ -694,6 +716,7 @@ export default function DriverDetail() {
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getGetDriverWeekQueryKey(weekStart, kfiId) });
+          release(id);
           setEditingPunchId(null);
           toast({ title: "Punch updated" });
         },
@@ -801,6 +824,7 @@ export default function DriverDetail() {
           </Link>
         </div>
         <div className="flex items-center gap-3">
+          <PresenceChip viewers={viewers} selfEmail={me?.email ?? null} />
           <LanguageToggle />
           <ReviewedPill
             reviewed={flatDrivers.filter((d) => d.reviewed).length}
@@ -933,9 +957,21 @@ export default function DriverDetail() {
         <main className="print-sheet flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden print:p-0 print:max-w-none print:mx-0 print:overflow-visible print:space-y-4">
         {/* Title block */}
         <div className="space-y-2">
-          <h1 className="font-display font-bold text-3xl tracking-tight leading-none">
-            {data.driver.name}
-          </h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="font-display font-bold text-3xl tracking-tight leading-none">
+              {data.driver.name}
+            </h1>
+            <EditingIndicator
+              emails={Array.from(
+                new Set(
+                  data.punches
+                    .map((p) => editorsForPunch(p.id))
+                    .flat()
+                    .concat(editorsForPunch(null)),
+                ),
+              )}
+            />
+          </div>
           <p className="text-sm text-muted-foreground font-mono">
             {t("driverDetail.customer")} <span className="text-foreground">{customerLabel}</span>
             <span className="mx-2 text-muted-foreground/60">·</span>
