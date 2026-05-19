@@ -11,6 +11,11 @@ import type { ClientBase } from "pg";
 export interface PayrollSeedRow {
   zenopleCustomer: string;
   person: string;
+  // Optional roster override. When set, this kfi_id is used directly and
+  // fingerprint matching is skipped. Used for the handful of drivers whose
+  // Zenople `person` carries extra middle tokens the roster doesn't (e.g.
+  // "BAEZ CABALLERO, FELIX ANDRES" vs roster "Felix Baez Caballero").
+  kfiId?: string;
   ssn: string;
   jobId: number;
   personId: number;
@@ -28,7 +33,7 @@ export interface PayrollSeedRow {
 export const PAYROLL_SEED_ROWS: PayrollSeedRow[] = [
   { zenopleCustomer: "Adient", person: "ANGULO ALFARO, JOSE R", ssn: "XXX-XX-8299", jobId: 820, personId: 2004863, assignmentId: 3203, driverRtPayRate: 13.75, driverRtBillRate: 0 },
   { zenopleCustomer: "Adient", person: "RIVERA, OMAR", ssn: "XXX-XX-1740", jobId: 558, personId: 2002909, assignmentId: 2540, rtPayRate: 18.25, rtBillRate: 25.37, otPayRate: 27.38, otBillRate: 37.24, driverRtPayRate: 13.75, driverRtBillRate: 0, driverOtPayRate: 27.38, driverOtBillRate: 0 },
-  { zenopleCustomer: "Burnett Dairy - Grantsburg", person: "BAEZ CABALLERO, FELIX ANDRES", ssn: "XXX-XX-5416", jobId: 559, personId: 2003283, assignmentId: 2541, rtPayRate: 21.93, rtBillRate: 31.58, otPayRate: 32.9, otBillRate: 43.43, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 32.9, driverOtBillRate: 0 },
+  { zenopleCustomer: "Burnett Dairy - Grantsburg", person: "BAEZ CABALLERO, FELIX ANDRES", kfiId: "2003283", ssn: "XXX-XX-5416", jobId: 559, personId: 2003283, assignmentId: 2541, rtPayRate: 21.93, rtBillRate: 31.58, otPayRate: 32.9, otBillRate: 43.43, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 32.9, driverOtBillRate: 0 },
   { zenopleCustomer: "Burnett Dairy - Grantsburg", person: "GUERRERO, ISIDRO", ssn: "XXX-XX-4533", jobId: 740, personId: 2005207, assignmentId: 3116, rtPayRate: 17.5, rtBillRate: 25.9, otPayRate: 26.25, otBillRate: 35.44, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 26.25, driverOtBillRate: 0 },
   { zenopleCustomer: "Burnett Dairy - Grantsburg", person: "MEDINA JR, WILLIE A", ssn: "XXX-XX-1825", jobId: 740, personId: 2004792, assignmentId: 2966, rtPayRate: 19.55, rtBillRate: 28.93, otPayRate: 29.33, otBillRate: 39.6, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 29.33, driverOtBillRate: 0 },
   { zenopleCustomer: "DeLallo Foods", person: "ALCIDE, DAVIDSON", ssn: "XXX-XX-0656", jobId: 748, personId: 2005003, assignmentId: 3028, rtPayRate: 17, rtBillRate: 25.33, otPayRate: 25.5, otBillRate: 29.58, driverRtPayRate: 0, driverRtBillRate: 0, driverOtPayRate: 25.5, driverOtBillRate: 0 },
@@ -38,13 +43,17 @@ export const PAYROLL_SEED_ROWS: PayrollSeedRow[] = [
   { zenopleCustomer: "Landscape Structures", person: "PATTERSON, TYREK J", ssn: "XXX-XX-6484", jobId: 719, personId: 2004786, assignmentId: 2901, rtPayRate: 19, rtBillRate: 28.22, otPayRate: 28.5, otBillRate: 40.47, driverRtPayRate: 11.13, driverRtBillRate: 0, driverOtPayRate: 28.5, driverOtBillRate: 0 },
   { zenopleCustomer: "Landscape Structures", person: "RODRIGUEZ GONZALEZ , BENJAMIN", ssn: "XXX-XX-6279", jobId: 602, personId: 2003681, assignmentId: 2619, rtPayRate: 22, rtBillRate: 32.67, otPayRate: 33, otBillRate: 46.86, driverRtPayRate: 11.13, driverRtBillRate: 0, driverOtPayRate: 36, driverOtBillRate: 0 },
   { zenopleCustomer: "Landscape Structures", person: "VILLARREAL, SEBASTIAN", ssn: "XXX-XX-3409", jobId: 775, personId: 2005166, assignmentId: 3105, rtPayRate: 22, rtBillRate: 32.67, otPayRate: 33, otBillRate: 46.86, driverRtPayRate: 11.13, driverRtBillRate: 0, driverOtPayRate: 33, driverOtBillRate: 0 },
-  { zenopleCustomer: "Penda Corp", person: "CHONCOA, ASHLEY MARIE", ssn: "XXX-XX-8858", jobId: 805, personId: 2005310, assignmentId: 3126, rtPayRate: 18.5, rtBillRate: 25.53, otPayRate: 27.75, otBillRate: 38.3, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 27.75, driverOtBillRate: 0 },
+  { zenopleCustomer: "Penda Corp", person: "CHONCOA, ASHLEY MARIE", kfiId: "2005310", ssn: "XXX-XX-8858", jobId: 805, personId: 2005310, assignmentId: 3126, rtPayRate: 18.5, rtBillRate: 25.53, otPayRate: 27.75, otBillRate: 38.3, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 27.75, driverOtBillRate: 0 },
   { zenopleCustomer: "Penda Corp", person: "GOLAS QUEVEDO, ROBERTO", ssn: "XXX-XX-8415", jobId: 704, personId: 2003546, assignmentId: 2851, rtPayRate: 22.5, rtBillRate: 31.05, otPayRate: 33.75, otBillRate: 46.58, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 33.75, driverOtBillRate: 0 },
-  { zenopleCustomer: "Schuette Metals", person: "ALEXANDER, GIOVANNI OSHEA LYNN", ssn: "XXX-XX-7564", jobId: 809, personId: 2005077, assignmentId: 3188, rtPayRate: 19, rtBillRate: 28.31, otPayRate: 28.5, otBillRate: 41.04, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 28.5, driverOtBillRate: 0 },
+  { zenopleCustomer: "Schuette Metals", person: "ALEXANDER, GIOVANNI OSHEA LYNN", kfiId: "2005077", ssn: "XXX-XX-7564", jobId: 809, personId: 2005077, assignmentId: 3188, rtPayRate: 19, rtBillRate: 28.31, otPayRate: 28.5, otBillRate: 41.04, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 28.5, driverOtBillRate: 0 },
   { zenopleCustomer: "Trienda Holdings", person: "LOPEZ MOLINA, JESUS", ssn: "XXX-XX-7888", jobId: 813, personId: 2005279, assignmentId: 3167, driverRtPayRate: 25, driverRtBillRate: 0, driverOtPayRate: 37.5, driverOtBillRate: 0 },
   { zenopleCustomer: "WB Manufacturing", person: "LIRA, JESUS O", ssn: "XXX-XX-0509", jobId: 747, personId: 2005037, assignmentId: 3052, rtPayRate: 25.5, rtBillRate: 39.02, otPayRate: 38.25, otBillRate: 58.52, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 38.25, driverOtBillRate: 0 },
   { zenopleCustomer: "Shuster's Building Components", person: "Balderas, Richard", ssn: "XXX-XX-1230", jobId: 462, personId: 2004992, assignmentId: 3008, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 25.5, driverOtBillRate: 0 },
-  { zenopleCustomer: "Shuster's Building Components", person: "MOODY, GAGE COREY", ssn: "XXX-XX-6071", jobId: 736, personId: 2005141, assignmentId: 3165, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 25.5, driverOtBillRate: 0 },
+  // Gage's xlsx rows are ShiftDifferential + Driver only (no RT/OT customer
+  // rows). ShiftDifferential is intentionally ignored, so RT/OT pay+bill are
+  // zeroed to clear the strict readiness gate. The dispatcher can refine via
+  // the admin "Pay & bill rates" card if she ever takes customer-side hours.
+  { zenopleCustomer: "Shuster's Building Components", person: "MOODY, GAGE COREY", kfiId: "2005141", ssn: "XXX-XX-6071", jobId: 736, personId: 2005141, assignmentId: 3165, rtPayRate: 0, rtBillRate: 0, otPayRate: 0, otBillRate: 0, driverRtPayRate: 10, driverRtBillRate: 0, driverOtPayRate: 25.5, driverOtBillRate: 0 },
 ];
 
 /**
@@ -100,8 +109,15 @@ export async function seedDriverPayrollProfiles(
     unmatched: [],
   };
 
+  // Build a set of valid kfiIds so an explicit override is validated against
+  // the actual roster (an override for a kfi_id that no longer exists falls
+  // back to the unmatched list, just like a fingerprint miss would).
+  const kfiIdSet = new Set(rosterRes.rows.map((r) => r.kfi_id));
+
   for (const row of PAYROLL_SEED_ROWS) {
-    const kfiId = byFp.get(fingerprintName(row.person));
+    const overrideKfiId =
+      row.kfiId && kfiIdSet.has(row.kfiId) ? row.kfiId : undefined;
+    const kfiId = overrideKfiId ?? byFp.get(fingerprintName(row.person));
     if (!kfiId) {
       result.unmatched.push(row.person);
       continue;
