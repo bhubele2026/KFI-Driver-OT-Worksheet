@@ -14,19 +14,6 @@ export interface AiExtractedRow {
 }
 
 /**
- * Check if the given year, month, and day form a valid calendar date.
- * Prevents AI hallucinations like "2026-02-30".
- */
-function isRealCalendarDate(y: number, m: number, d: number): boolean {
-  const date = new Date(Date.UTC(y, m - 1, d));
-  return (
-    date.getUTCFullYear() === y &&
-    date.getUTCMonth() === m - 1 &&
-    date.getUTCDate() === d
-  );
-}
-
-/**
  * Coerce whatever shape Gemini returns in `date` into a strict YYYY-MM-DD
  * string. Gemini is asked for ISO dates in the prompt but routinely emits
  * `M/D/YYYY`, `MM/DD/YY`, `May 12, 2026`, ISO datetimes with timezones,
@@ -34,13 +21,12 @@ function isRealCalendarDate(y: number, m: number, d: number): boolean {
  * but YYYY-MM-DD silently drops 100% of the rows. Returns null when the
  * input genuinely can't be interpreted or is an impossible calendar date
  * (e.g. 2/30); callers count that into the `invalidDateCount` diagnostics bucket.
- */
-/**
- * Reject impossible calendar dates like 2/30/2026 or 13/01/2026 that the
- * regex branches below would otherwise happily reformat to a valid-looking
- * YYYY-MM-DD string. The week-window filter downstream is a string compare
- * so an impossible date would survive — better to count it as
- * `invalidDateCount` than to silently include it.
+ *
+ * `isRealCalendarDate` rejects impossible calendar dates like 2/30/2026 or
+ * 13/01/2026 that the regex branches below would otherwise happily
+ * reformat to a valid-looking YYYY-MM-DD string. The week-window filter
+ * downstream is a string compare so an impossible date would survive —
+ * better to count it as `invalidDateCount` than to silently include it.
  */
 function isRealCalendarDate(y: number, m: number, d: number): boolean {
   if (m < 1 || m > 12 || d < 1 || d > 31) return false;

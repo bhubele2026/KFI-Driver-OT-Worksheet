@@ -1351,7 +1351,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       </Badge>
                     ))}
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    {s.extensions.join(" / ")}
+                    Any file
                   </span>
                 </div>
                 <div className="text-xs text-muted-foreground font-mono mt-0.5 truncate">
