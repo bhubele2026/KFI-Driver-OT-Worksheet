@@ -56,6 +56,8 @@ import {
 import { detectCustomerFromFileName } from "../lib/parsers/customers.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { lookupSchema } from "../lib/parsers/schemaLookup.js";
+import { readWithRoles } from "../lib/parsers/genericRoleReader.js";
+import { recordAiSchemaIfPossible } from "../lib/parsers/aiSchemaRecorder.js";
 import { dispatchLegacyParser } from "../lib/parsers/parserDispatch.js";
 import type {
   ExtractDiagnostics,
@@ -1544,6 +1546,32 @@ weeksRouter.post(
           "Legacy parser threw — falling through to AI",
         );
       }
+    } else if (schemaHit.kind === "cache") {
+      // AI-discovered column-roles cache hit: skip AI entirely and run
+      // the generic role-based xlsx reader. Falls through to AI if the
+      // reader can't parse (stale roles) — re-running AI on the same
+      // header signature will overwrite the cache row.
+      try {
+        const idMap = await loadMergedIdMap();
+        const parsed = readWithRoles(
+          detectedCustomer,
+          req.file.buffer,
+          schemaHit.columnRoles,
+          kfiSet,
+          idMap,
+          startDate,
+          endDate,
+        );
+        if (parsed && parsed.punches.length > 0) {
+          result = parsed;
+          extractSource = "cache";
+        }
+      } catch (err) {
+        req.log.warn(
+          { err, fileName, customer: detectedCustomer, sig: schemaHit.headerSignature },
+          "Cached role reader threw — falling through to AI",
+        );
+      }
     }
 
     // Step 3: AI extraction. Triggered when the cache missed, when the
@@ -1584,6 +1612,17 @@ weeksRouter.post(
         result = aiResult;
         stashedImageRows = imagePunchesForStash(aiResult.punches);
         extractSource = "ai";
+        // Learn the column layout so the next upload of the same
+        // header signature skips AI and uses the generic reader.
+        // Fire-and-forget: failure here only costs the next upload
+        // another AI call.
+        await recordAiSchemaIfPossible({
+          customer: detectedCustomer,
+          fileName,
+          buffer: req.file.buffer,
+          aiResult,
+          log: req.log,
+        });
       } catch (err) {
         req.log.error({ err, fileName }, "AI extract error");
         const msg =
