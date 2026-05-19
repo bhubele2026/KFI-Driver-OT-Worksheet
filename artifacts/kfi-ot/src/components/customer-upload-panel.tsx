@@ -52,6 +52,41 @@ import {
   type CustomerPreviewData,
 } from "@/components/customer-preview-dialog";
 
+// Single source of truth for the file extensions any customer row will
+// accept in its `<input accept=...>` and in the bulk dropzone. Every
+// row accepts every supported extension; the server routes by the
+// explicit customer field + content rather than filename and falls
+// through to AI extraction when the deterministic parser can't handle
+// the file. Keep this in sync with `isAcceptedUpload` below.
+const UNIVERSAL_ACCEPT =
+  ".pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.heic,.heif,.webp";
+
+// Translate raw server errors into copy a payroll dispatcher can act
+// on. Most AI-extract failures bubble up the underlying Gemini message
+// (e.g. truncated JSON, "model did not return valid JSON", or a column
+// position) which is noise to the operator. Keep the original around
+// in the server logs; surface this in the toast instead.
+function friendlyUploadError(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("model did not return valid json") ||
+    lower.includes("truncated") ||
+    lower.includes("salvage")
+  ) {
+    return "AI couldn't read this file end-to-end. Try uploading the original spreadsheet or a clearer scan, then re-try.";
+  }
+  if (
+    lower.includes("did not return") ||
+    lower.includes("ai extract") ||
+    lower.includes("gemini") ||
+    lower.includes("column") ||
+    lower.includes("position")
+  ) {
+    return "AI couldn't read this file. Try a clearer scan or the original export, then re-try.";
+  }
+  return raw;
+}
+
 function errMessage(err: unknown, fallback: string): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
@@ -368,7 +403,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       setPreview(data);
       setPreviewOpen(true);
     } catch (err) {
-      const msg = errMessage(err, "Upload failed");
+      const raw = errMessage(err, "Upload failed");
+      const msg = friendlyUploadError(raw);
       setRow(customer, { uploading: false, error: msg });
       toast({
         title: `${customer} extract failed`,
@@ -388,10 +424,11 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       explicitCustomer: true,
     });
     if (!r.ok) {
-      setRow(customer, { uploading: false, error: r.error });
+      const msg = friendlyUploadError(r.error);
+      setRow(customer, { uploading: false, error: msg });
       toast({
         title: `${customer} upload failed`,
-        description: r.error,
+        description: msg,
         variant: "destructive",
       });
       return;
@@ -451,19 +488,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
 
   const classifyFile = (file: File): string | null => {
     const lower = file.name.toLowerCase();
-    const isPdf = lower.endsWith(".pdf");
-    const isXlsx = lower.endsWith(".xlsx") || lower.endsWith(".xls");
-    const isCsv = lower.endsWith(".csv");
-    const isImage = /\.(jpe?g|png|heic|heif|webp)$/i.test(lower);
-    if (!isPdf && !isXlsx && !isCsv && !isImage) return null;
+    if (!isAcceptedUpload(lower)) return null;
+    // Route by keyword only. The server now accepts any supported
+    // extension on any customer row (extension-mismatched files fall
+    // through to AI extraction), so we no longer gate by the customer's
+    // deterministic parser extension list.
     for (const s of statuses ?? []) {
       if (!s.keywords || s.keywords.length === 0) continue;
-      // Images and CSVs are AI-extracted server-side and aren't bound to
-      // the customer's deterministic-parser extension list.
-      if (!isImage && !isCsv) {
-        if (isPdf && !s.extensions.includes("pdf")) continue;
-        if (isXlsx && !s.extensions.includes("xlsx")) continue;
-      }
       if (s.keywords.some((k) => lower.includes(k))) return s.customer;
     }
     return null;
@@ -529,12 +560,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       } else {
         failed++;
         if (firstFailedIdx === null) firstFailedIdx = i;
+        const msg = friendlyUploadError(r.error);
         setBulkItems((prev) =>
           prev.map((it, idx) =>
-            idx === i ? { ...it, status: "error", error: r.error } : it,
+            idx === i ? { ...it, status: "error", error: msg } : it,
           ),
         );
-        setRow(customer, { uploading: false, error: r.error });
+        setRow(customer, { uploading: false, error: msg });
       }
     }
     setBulkRunning(false);
@@ -780,7 +812,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           <input
             type="file"
             ref={bulkInputRef}
-            accept=".pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.heic,.heif,.webp"
+            accept={UNIVERSAL_ACCEPT}
             multiple
             className="hidden"
             onChange={(e) => {
@@ -1080,23 +1112,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           // Suppress the hint when we're actively showing an error to
           // avoid two competing statuses on the same row.
           const showSkipped = !!s.lastSkippedAt && !showError;
-          const accept = s.extensions
-            .map((e) => `.${e}`)
-            .concat(s.extensions.includes("xlsx") ? [".xls"] : [])
-            // Every known customer can also accept a photo of the time
-            // sheet or a CSV export; the server routes the file through
-            // AI extract + preview when the extension isn't covered by
-            // the deterministic parser.
-            .concat([
-              ".csv",
-              ".jpg",
-              ".jpeg",
-              ".png",
-              ".heic",
-              ".heif",
-              ".webp",
-            ])
-            .join(",");
+          // Every row accepts every supported extension — the server
+          // routes by the explicit customer field + content rather than
+          // filename, falling back to AI extraction whenever the
+          // deterministic parser can't handle the file. Keeping this
+          // fixed (not derived from s.extensions) is what makes
+          // "upload any format on any row" actually work in the picker.
+          const accept = UNIVERSAL_ACCEPT;
           const isRowDragTarget = rowDragCustomer === s.customer;
           return (
             <li
