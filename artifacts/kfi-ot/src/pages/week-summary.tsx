@@ -63,6 +63,7 @@ import {
   XCircle,
   StickyNote,
   Check,
+  Pencil,
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
 import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
@@ -763,6 +764,16 @@ export default function WeekSummary() {
                                             CT {driver.connecteamParity.diffCount}
                                           </span>
                                         ) : null}
+                                        {driver.hasOverriddenDay && (
+                                          <span
+                                            className="inline-flex items-center gap-0.5 text-[10px] font-mono px-1 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                            title="One or more daily totals on this driver-week were dispatcher-overridden"
+                                            data-testid={`badge-driver-overridden-${driver.kfiId}`}
+                                          >
+                                            <Pencil className="h-2.5 w-2.5" />
+                                            OVR
+                                          </span>
+                                        )}
                                       </span>
                                       <span className="text-xs text-muted-foreground font-mono">
                                         {driver.kfiId}

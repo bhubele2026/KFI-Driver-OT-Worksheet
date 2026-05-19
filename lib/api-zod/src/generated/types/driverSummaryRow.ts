@@ -30,6 +30,12 @@ export interface DriverSummaryRow {
   lastTouchedAt?: Date | null;
   /** Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context. */
   noteCount: number;
+  /** True when at least one day in this driver-week has its total
+dispatcher-overridden (every contributing punch on that day is
+flagged `edited=true`). Drives a small indicator on the driver
+row in the week dashboard.
+ */
+  hasOverriddenDay: boolean;
   /**
    * Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set.
    * @nullable

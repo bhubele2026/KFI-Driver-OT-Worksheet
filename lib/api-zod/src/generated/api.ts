@@ -734,6 +734,11 @@ export const GetWeekSummaryResponse = zod.object({
         .describe(
           "Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context.",
         ),
+      hasOverriddenDay: zod
+        .boolean()
+        .describe(
+          "True when at least one day in this driver-week has its total\ndispatcher-overridden (every contributing punch on that day is\nflagged `edited=true`). Drives a small indicator on the driver\nrow in the week dashboard.\n",
+        ),
       displayTz: zod
         .string()
         .nullish()
@@ -787,6 +792,11 @@ export const GetWeekSummaryResponse = zod.object({
             .number()
             .describe(
               "Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context.",
+            ),
+          hasOverriddenDay: zod
+            .boolean()
+            .describe(
+              "True when at least one day in this driver-week has its total\ndispatcher-overridden (every contributing punch on that day is\nflagged `edited=true`). Drives a small indicator on the driver\nrow in the week dashboard.\n",
             ),
           displayTz: zod
             .string()
@@ -887,6 +897,11 @@ export const GetDriverWeekResponse = zod.object({
       totalHours: zod.number(),
       regularHours: zod.number(),
       overtimeHours: zod.number(),
+      hasOverrides: zod
+        .boolean()
+        .describe(
+          "True when every contributing punch on this day is flagged\n`edited=true` — i.e. the day total was dispatcher-overridden via\n`\/days\/:date\/scale-hours` (which stamps `edited` on every row it\nscales). False for engine-derived totals, including days where\nonly some punches were tweaked inline.\n",
+        ),
     }),
   ),
   totals: zod.object({

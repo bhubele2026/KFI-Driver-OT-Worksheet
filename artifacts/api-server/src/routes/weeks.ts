@@ -438,6 +438,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       status: "match" | "differ" | "unknown";
       diffCount: number;
     };
+    hasOverriddenDay: boolean;
   }
   const rows: SummaryRow[] = [];
   for (const [kfiId, ps] of byKfi.entries()) {
@@ -513,6 +514,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
         status: paritySummary.status,
         diffCount: paritySummary.diffCount,
       },
+      hasOverriddenDay: dailyTotals.some((d) => d.hasOverrides),
     });
   }
   rows.sort(

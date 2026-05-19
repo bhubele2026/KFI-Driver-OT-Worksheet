@@ -10,6 +10,7 @@ function p(opts: {
   hours: number;
   source: "Driver" | "Customer";
   date?: string;
+  edited?: boolean;
 }): Punch {
   return {
     id: 0,
@@ -24,7 +25,7 @@ function p(opts: {
     payType: null,
     dispTz: "America/Chicago",
     isManual: false,
-    edited: false,
+    edited: opts.edited ?? false,
     ctExternalKey: null,
     fileOrigin: null,
     createdBy: null,
@@ -164,4 +165,29 @@ test("computeDailyTotals: per-day rt + ot reconciles to per-day total", () => {
       `day ${d.date}: driver+customer != total`,
     );
   }
+});
+
+// hasOverrides drives the "Overridden" badge on the day-total row. It must
+// only flip true when EVERY contributing punch on that day is `edited=true`
+// — that's the post-condition of /scale-hours (which stamps `edited` on
+// every row it scales). A day where the dispatcher tweaked just one punch
+// inline must stay engine-derived, and empty days never flag.
+test("computeDailyTotals: hasOverrides = all contributing punches edited", () => {
+  const punches = [
+    // Day A: scaled day total → every punch marked edited.
+    p({ clockIn: "2026-01-05 8:00 AM", hours: 4.25, source: "Driver", date: "2026-01-05", edited: true }),
+    p({ clockIn: "2026-01-05 1:00 PM", hours: 3.75, source: "Driver", date: "2026-01-05", edited: true }),
+    // Day B: only one of two punches edited inline.
+    p({ clockIn: "2026-01-06 8:00 AM", hours: 4.0, source: "Driver", date: "2026-01-06", edited: true }),
+    p({ clockIn: "2026-01-06 1:00 PM", hours: 4.0, source: "Customer", date: "2026-01-06", edited: false }),
+    // Day C: engine-derived.
+    p({ clockIn: "2026-01-07 8:00 AM", hours: 8.0, source: "Driver", date: "2026-01-07" }),
+  ];
+  const daily = computeDailyTotals(punches, "2026-01-05", "2026-01-11");
+  const byDate = new Map(daily.map((d) => [d.date, d]));
+  assert.equal(byDate.get("2026-01-05")?.hasOverrides, true);
+  assert.equal(byDate.get("2026-01-06")?.hasOverrides, false);
+  assert.equal(byDate.get("2026-01-07")?.hasOverrides, false);
+  // Empty days never flag (no contributing punches).
+  assert.equal(byDate.get("2026-01-08")?.hasOverrides, false);
 });

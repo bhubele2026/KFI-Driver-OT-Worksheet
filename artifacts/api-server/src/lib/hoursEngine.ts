@@ -110,6 +110,13 @@ export interface DailyTotal {
   totalHours: number;
   regularHours: number;
   overtimeHours: number;
+  /**
+   * True when every contributing punch on this day is flagged `edited=true`
+   * — i.e. the day total was dispatcher-overridden via `/scale-hours`
+   * (which stamps `edited` on every row it scales). Days with no punches
+   * are not overridden.
+   */
+  hasOverrides: boolean;
 }
 
 /** Per-day breakdown for the driver detail page. */
@@ -118,9 +125,12 @@ export function computeDailyTotals(
   weekStart: string,
   weekEnd: string,
 ): DailyTotal[] {
-  const byDate = new Map<string, { d: number; c: number; rt: number; ot: number }>();
+  const byDate = new Map<
+    string,
+    { d: number; c: number; rt: number; ot: number; count: number; editedCount: number }
+  >();
   for (const dt of listDates(weekStart, weekEnd)) {
-    byDate.set(dt, { d: 0, c: 0, rt: 0, ot: 0 });
+    byDate.set(dt, { d: 0, c: 0, rt: 0, ot: 0, count: 0, editedCount: 0 });
   }
 
   // Daily driver/customer totals are simple sums.
@@ -130,6 +140,8 @@ export function computeDailyTotals(
     const h = Number(p.hours);
     if (p.source === "Driver") slot.d += h;
     else slot.c += h;
+    slot.count += 1;
+    if (p.edited) slot.editedCount += 1;
   }
 
   // Daily RT/OT requires the same chronological 40h split, but credited
@@ -168,6 +180,7 @@ export function computeDailyTotals(
       totalHours,
       regularHours,
       overtimeHours,
+      hasOverrides: v.count > 0 && v.editedCount === v.count,
     };
   });
 }

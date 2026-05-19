@@ -13,4 +13,11 @@ export interface DailyTotals {
   totalHours: number;
   regularHours: number;
   overtimeHours: number;
+  /** True when every contributing punch on this day is flagged
+`edited=true` — i.e. the day total was dispatcher-overridden via
+`/days/:date/scale-hours` (which stamps `edited` on every row it
+scales). False for engine-derived totals, including days where
+only some punches were tweaked inline.
+ */
+  hasOverrides: boolean;
 }

@@ -973,8 +973,32 @@ export default function DriverDetail() {
   // Per-day totals keyed by YYYY-MM-DD. Used by the inline day-total row
   // inserted after the last punch of each date.
   const dailyTotalByDate = new Map<string, number>();
+  const dayOverridesByDate = new Map<string, boolean>();
   for (const d of data.dailyTotals ?? []) {
     dailyTotalByDate.set(d.date, Number(d.totalHours) || 0);
+    dayOverridesByDate.set(d.date, !!d.hasOverrides);
+  }
+
+  // For each overridden day, find the most-recently-updated punch on that
+  // date so the badge tooltip can show "overridden by X on Y". Reuses the
+  // per-punch attribution data already on the DriverWeek payload.
+  const dayLastTouchByDate = new Map<
+    string,
+    { email: string | null; at: string | null }
+  >();
+  for (const p of sortedPunches) {
+    if (!dayOverridesByDate.get(p.date)) continue;
+    const prev = dayLastTouchByDate.get(p.date);
+    const at = p.updatedAt ?? null;
+    if (
+      !prev ||
+      (at && (!prev.at || new Date(at).getTime() > new Date(prev.at).getTime()))
+    ) {
+      dayLastTouchByDate.set(p.date, {
+        email: p.updatedByEmail ?? p.createdByEmail ?? null,
+        at,
+      });
+    }
   }
 
   const customerLabel = isCustomerNameUseful(data.driver.customer)
@@ -1966,6 +1990,11 @@ export default function DriverDetail() {
                     {isLastOfDay && (() => {
                       const dayTotal =
                         dailyTotalByDate.get(p.date) ?? 0;
+                      const isOverridden = dayOverridesByDate.get(p.date) ?? false;
+                      const lastTouch = dayLastTouchByDate.get(p.date);
+                      const overrideTitle = isOverridden
+                        ? `Day total overridden${lastTouch?.email ? ` by ${lastTouch.email}` : ""}${lastTouch?.at ? ` on ${new Date(lastTouch.at).toLocaleString()}` : ""}`
+                        : "";
                       const isEditingThisDay = editingDay === p.date;
                       const isSavingThisDay =
                         (scaleDayHours.isPending || resetDayHours.isPending) &&
@@ -1980,9 +2009,24 @@ export default function DriverDetail() {
                             className="font-mono text-xs uppercase tracking-wider text-muted-foreground"
                           >
                             Daily total — {p.date}
-                            <span className="ml-2 text-[10px] normal-case tracking-normal text-muted-foreground/70">
-                              click value to override
-                            </span>
+                            {isOverridden ? (
+                              <span
+                                className="ml-2 inline-flex items-center gap-1 text-[10px] normal-case tracking-normal font-medium px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                title={overrideTitle}
+                                data-testid={`badge-day-overridden-${p.date}`}
+                              >
+                                Overridden
+                                {lastTouch?.email && (
+                                  <span className="font-mono text-amber-700/80 dark:text-amber-300/80">
+                                    · {lastTouch.email}
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="ml-2 text-[10px] normal-case tracking-normal text-muted-foreground/70">
+                                click value to override
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell className="text-right font-mono font-semibold text-base">
                             {isEditingThisDay ? (

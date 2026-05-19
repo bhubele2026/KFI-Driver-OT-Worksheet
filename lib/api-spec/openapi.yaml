@@ -1986,6 +1986,7 @@ components:
           hasOvertime,
           locked,
           noteCount,
+          hasOverriddenDay,
         ]
       properties:
         kfiId: { type: string }
@@ -2012,6 +2013,13 @@ components:
         noteCount:
           type: integer
           description: Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context.
+        hasOverriddenDay:
+          type: boolean
+          description: |
+            True when at least one day in this driver-week has its total
+            dispatcher-overridden (every contributing punch on that day is
+            flagged `edited=true`). Drives a small indicator on the driver
+            row in the week dashboard.
         displayTz:
           type: ["string", "null"]
           description: Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set.
@@ -2221,6 +2229,7 @@ components:
           totalHours,
           regularHours,
           overtimeHours,
+          hasOverrides,
         ]
       properties:
         date: { type: string }
@@ -2229,6 +2238,14 @@ components:
         totalHours: { type: number }
         regularHours: { type: number }
         overtimeHours: { type: number }
+        hasOverrides:
+          type: boolean
+          description: |
+            True when every contributing punch on this day is flagged
+            `edited=true` — i.e. the day total was dispatcher-overridden via
+            `/days/:date/scale-hours` (which stamps `edited` on every row it
+            scales). False for engine-derived totals, including days where
+            only some punches were tweaked inline.
 
     Check:
       type: object
