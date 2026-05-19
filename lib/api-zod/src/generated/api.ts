@@ -1928,6 +1928,18 @@ export const ListDriverNotesResponseItem = zod.object({
       'Snapshot of the author\'s role at write-time (\"reviewer\" \/ \"supervisor\" \/ \"admin\"). Denormalized so changing the author\'s role later doesn\'t retroactively rewrite history.',
     ),
   createdAt: zod.coerce.date(),
+  lastHiddenAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      'When this note was most recently soft-deleted, or null if it has never been hidden. Persists across restore so the driver-detail panel can render a \"previously hidden by …\" audit tag (admin viewers only) on restored notes.',
+    ),
+  lastHiddenByEmail: zod
+    .string()
+    .nullish()
+    .describe(
+      "Email of the admin who most recently hid this note. Persists across restore. Null when the note has never been hidden or the hide-actor's user row has been deleted.",
+    ),
 });
 export const ListDriverNotesResponse = zod.array(ListDriverNotesResponseItem);
 
@@ -1982,6 +1994,18 @@ export const CreateDriverNoteResponse = zod.object({
       'Snapshot of the author\'s role at write-time (\"reviewer\" \/ \"supervisor\" \/ \"admin\"). Denormalized so changing the author\'s role later doesn\'t retroactively rewrite history.',
     ),
   createdAt: zod.coerce.date(),
+  lastHiddenAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      'When this note was most recently soft-deleted, or null if it has never been hidden. Persists across restore so the driver-detail panel can render a \"previously hidden by …\" audit tag (admin viewers only) on restored notes.',
+    ),
+  lastHiddenByEmail: zod
+    .string()
+    .nullish()
+    .describe(
+      "Email of the admin who most recently hid this note. Persists across restore. Null when the note has never been hidden or the hide-actor's user row has been deleted.",
+    ),
 });
 
 /**
@@ -2022,6 +2046,18 @@ export const RestoreDriverNoteResponse = zod.object({
       'Snapshot of the author\'s role at write-time (\"reviewer\" \/ \"supervisor\" \/ \"admin\"). Denormalized so changing the author\'s role later doesn\'t retroactively rewrite history.',
     ),
   createdAt: zod.coerce.date(),
+  lastHiddenAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      'When this note was most recently soft-deleted, or null if it has never been hidden. Persists across restore so the driver-detail panel can render a \"previously hidden by …\" audit tag (admin viewers only) on restored notes.',
+    ),
+  lastHiddenByEmail: zod
+    .string()
+    .nullish()
+    .describe(
+      "Email of the admin who most recently hid this note. Persists across restore. Null when the note has never been hidden or the hide-actor's user row has been deleted.",
+    ),
 });
 
 /**

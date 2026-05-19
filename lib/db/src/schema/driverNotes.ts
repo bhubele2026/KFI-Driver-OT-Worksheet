@@ -41,6 +41,17 @@ export const driverNotesTable = pgTable(
       () => usersTable.id,
       { onDelete: "set null" },
     ),
+    // Persistent "last hidden" trail so the driver-detail notes panel can
+    // surface "previously hidden by …" on restored notes. Unlike
+    // deleted_at/deleted_by_user_id (which are cleared on restore), these
+    // columns are stamped on every soft-delete and never cleared, so the
+    // hide-actor context survives a restore. Read by the audit tag rendered
+    // on the driver-detail panel for admins.
+    lastHiddenAt: timestamp("last_hidden_at", { withTimezone: true }),
+    lastHiddenByUserId: integer("last_hidden_by_user_id").references(
+      () => usersTable.id,
+      { onDelete: "set null" },
+    ),
   },
   (t) => [
     index("idx_driver_notes_week_kfi").on(t.weekStart, t.kfiId),

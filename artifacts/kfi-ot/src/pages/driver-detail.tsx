@@ -1281,6 +1281,7 @@ export default function DriverDetail() {
                     key={n.id}
                     note={n}
                     canDelete={!!me?.isAdmin}
+                    isAdmin={!!me?.isAdmin}
                     onDelete={() => handleSoftDeleteNote(n.id)}
                   />
                 ))}
@@ -1609,6 +1610,7 @@ export default function DriverDetail() {
                                     key={n.id}
                                     note={n}
                                     canDelete={!!me?.isAdmin}
+                                    isAdmin={!!me?.isAdmin}
                                     onDelete={() => handleSoftDeleteNote(n.id)}
                                   />
                                 ))}
@@ -2148,6 +2150,7 @@ function SummaryRow({
 function NoteItem({
   note,
   canDelete,
+  isAdmin,
   onDelete,
 }: {
   note: {
@@ -2158,8 +2161,11 @@ function NoteItem({
     createdAt: string;
     punchExists: boolean;
     punchId?: number | null;
+    lastHiddenAt?: string | null;
+    lastHiddenByEmail?: string | null;
   };
   canDelete: boolean;
+  isAdmin: boolean;
   onDelete: () => void;
 }) {
   const roleLabel =
@@ -2202,6 +2208,16 @@ function NoteItem({
           {note.punchId != null && !note.punchExists && (
             <span className="text-[10px] uppercase tracking-wider px-1 py-0 rounded border border-warning/40 bg-warning/10 text-warning">
               orphaned punch
+            </span>
+          )}
+          {isAdmin && note.lastHiddenAt && (
+            <span
+              className="text-[10px] uppercase tracking-wider px-1 py-0 rounded border border-dashed border-muted-foreground/60 bg-muted/40 text-muted-foreground"
+              title={`Previously hidden by ${note.lastHiddenByEmail ?? "(deleted user)"} at ${new Date(note.lastHiddenAt).toLocaleString()}`}
+              data-testid={`note-previously-hidden-${note.id}`}
+            >
+              previously hidden by {note.lastHiddenByEmail ?? "(deleted user)"}{" "}
+              · {new Date(note.lastHiddenAt).toLocaleString()}
             </span>
           )}
         </div>

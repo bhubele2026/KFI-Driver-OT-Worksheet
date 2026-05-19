@@ -159,9 +159,18 @@ test("admin can hide a note, see it on /admin/notes, and restore it", async ({
   );
   expect(afterRestore.rows[0].deleted_at).toBeNull();
 
-  // 5. Driver-detail shows the restored note live again.
+  // 5. Driver-detail shows the restored note live again, with the
+  // admin-only "previously hidden by …" audit tag inline on the note
+  // (driven by driver_notes.last_hidden_{at,by_user_id} which persist
+  // across restore).
   await page.goto(`/weeks/${WEEK_START}/drivers/${DRIVER.kfiId}`);
   await expect(page.getByRole("heading", { name: DRIVER.name })).toBeVisible();
   await expect(page.getByTestId(`note-item-${noteId}`)).toBeVisible();
   await expect(page.getByTestId(`note-item-${noteId}`)).toContainText(NOTE_BODY);
+  await expect(
+    page.getByTestId(`note-previously-hidden-${noteId}`),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId(`note-previously-hidden-${noteId}`),
+  ).toContainText("previously hidden by");
 });

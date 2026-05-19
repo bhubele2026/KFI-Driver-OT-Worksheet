@@ -3037,6 +3037,12 @@ weeksRouter.get(
 // ---------------------------------------------------------------------------
 
 async function loadNotesForDriverWeek(weekStart: string, kfiId: string) {
+  // Self-alias usersTable so we can join the author and the last-hide-actor
+  // independently in one round-trip. last_hidden_{at,by_user_id} is set on
+  // every soft-delete and intentionally not cleared on restore, so the
+  // driver-detail panel can render a "previously hidden by …" tag on
+  // restored notes (admin viewers only).
+  const hiderUsers = alias(schema.usersTable, "hider_users");
   const rows = await db
     .select({
       id: schema.driverNotesTable.id,
@@ -3048,11 +3054,18 @@ async function loadNotesForDriverWeek(weekStart: string, kfiId: string) {
       authorEmail: schema.usersTable.email,
       authorRole: schema.driverNotesTable.authorRole,
       createdAt: schema.driverNotesTable.createdAt,
+      lastHiddenAt: schema.driverNotesTable.lastHiddenAt,
+      lastHiddenByUserId: schema.driverNotesTable.lastHiddenByUserId,
+      lastHiddenByEmail: hiderUsers.email,
     })
     .from(schema.driverNotesTable)
     .leftJoin(
       schema.usersTable,
       eq(schema.usersTable.id, schema.driverNotesTable.authorUserId),
+    )
+    .leftJoin(
+      hiderUsers,
+      eq(hiderUsers.id, schema.driverNotesTable.lastHiddenByUserId),
     )
     .where(
       and(
@@ -3088,6 +3101,12 @@ async function loadNotesForDriverWeek(weekStart: string, kfiId: string) {
     authorEmail: r.authorEmail ?? null,
     authorRole: r.authorRole,
     createdAt: new Date(r.createdAt).toISOString(),
+    // null when the note has never been hidden. When set, the note was
+    // previously soft-deleted and later restored — the driver-detail panel
+    // renders a "previously hidden by …" tag for admin viewers.
+    lastHiddenAt:
+      r.lastHiddenAt == null ? null : new Date(r.lastHiddenAt).toISOString(),
+    lastHiddenByEmail: r.lastHiddenByEmail ?? null,
   }));
 }
 
@@ -3194,6 +3213,9 @@ weeksRouter.post(
       authorEmail: user.email,
       authorRole: row.authorRole,
       createdAt: new Date(row.createdAt).toISOString(),
+      // Freshly-created notes have never been hidden.
+      lastHiddenAt: null,
+      lastHiddenByEmail: null,
     });
   },
 );
@@ -3218,9 +3240,20 @@ weeksRouter.delete("/notes/:id", requireAdmin, async (req, res) => {
       res.status(204).end();
       return;
     }
+    // Also stamp last_hidden_{at,by_user_id} — these columns are
+    // intentionally NOT cleared on restore, so the driver-detail panel can
+    // surface a "previously hidden by …" tag once an admin restores the
+    // note. deleted_{at,by_user_id} still drive the "currently hidden"
+    // state.
+    const now = new Date();
     await tx
       .update(schema.driverNotesTable)
-      .set({ deletedAt: new Date(), deletedByUserId: userId })
+      .set({
+        deletedAt: now,
+        deletedByUserId: userId,
+        lastHiddenAt: now,
+        lastHiddenByUserId: userId,
+      })
       .where(eq(schema.driverNotesTable.id, id));
     // Audit the soft-delete on the user_audit_log so admin actions on notes
     // are append-only attributable. targetUserId is the note's author so the

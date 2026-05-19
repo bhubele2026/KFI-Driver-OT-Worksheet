@@ -974,6 +974,16 @@ export interface DriverNote {
   /** Snapshot of the author's role at write-time ("reviewer" / "supervisor" / "admin"). Denormalized so changing the author's role later doesn't retroactively rewrite history. */
   authorRole: string;
   createdAt: string;
+  /**
+   * When this note was most recently soft-deleted, or null if it has never been hidden. Persists across restore so the driver-detail panel can render a "previously hidden by …" audit tag (admin viewers only) on restored notes.
+   * @nullable
+   */
+  lastHiddenAt?: string | null;
+  /**
+   * Email of the admin who most recently hid this note. Persists across restore. Null when the note has never been hidden or the hide-actor's user row has been deleted.
+   * @nullable
+   */
+  lastHiddenByEmail?: string | null;
 }
 
 export interface CreateDriverNoteInput {
