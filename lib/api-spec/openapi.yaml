@@ -1815,15 +1815,13 @@ paths:
     get:
       operationId: listCustomerTzPreferences
       tags: [timezones]
-      summary: Per-customer default display-tz preferences. Auth required.
+      summary: Per-customer default display-tz preferences plus the canonical KNOWN_CUSTOMERS roster, so the admin page can render a row for every customer (with or without a saved preference). Auth required.
       responses:
         "200":
-          description: Preferences
+          description: Preferences and the canonical customer roster
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/CustomerTzPreference" }
+              schema: { $ref: "#/components/schemas/CustomerTzPreferenceList" }
     put:
       operationId: upsertCustomerTzPreference
       tags: [timezones]
@@ -3771,6 +3769,18 @@ components:
         updatedAt: { type: string, format: date-time }
         updatedByEmail:
           type: ["string", "null"]
+
+    CustomerTzPreferenceList:
+      type: object
+      required: [preferences, knownCustomers]
+      properties:
+        preferences:
+          type: array
+          items: { $ref: "#/components/schemas/CustomerTzPreference" }
+        knownCustomers:
+          type: array
+          items: { type: string }
+          description: Canonical display names from `KNOWN_CUSTOMERS` (parsers/customers.ts). The admin page renders a row for every entry here, even when no preference is saved, so dispatchers can audit which customers fall back to the per-driver default.
 
     UpsertCustomerTzPreferenceInput:
       type: object

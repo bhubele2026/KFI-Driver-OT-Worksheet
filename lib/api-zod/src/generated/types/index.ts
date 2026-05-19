@@ -42,6 +42,7 @@ export * from "./customerIgnoredExternal";
 export * from "./customerNameAlias";
 export * from "./customerNameAliasList";
 export * from "./customerTzPreference";
+export * from "./customerTzPreferenceList";
 export * from "./customerUploadStatus";
 export * from "./dailyTotals";
 export * from "./dayHoursResult";

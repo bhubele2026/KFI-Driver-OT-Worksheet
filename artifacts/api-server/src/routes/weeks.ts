@@ -6218,14 +6218,15 @@ weeksRouter.get("/customer-tz-preferences", requireAuth, async (_req, res) => {
       .where(inArray(schema.usersTable.id, [...actorIds]));
     for (const a of actors) emailById.set(a.id, a.email);
   }
-  res.json(
-    rows.map((r) => ({
+  res.json({
+    preferences: rows.map((r) => ({
       customer: r.customer,
       displayTz: r.displayTz,
       updatedAt: new Date(r.updatedAt).toISOString(),
       updatedByEmail: r.updatedBy ? emailById.get(r.updatedBy) ?? null : null,
     })),
-  );
+    knownCustomers: KNOWN_CUSTOMERS.map((c) => c.displayName),
+  });
 });
 
 weeksRouter.put(
@@ -6260,6 +6261,12 @@ weeksRouter.put(
         displayTz,
         updatedBy: userId,
       });
+      await tx.insert(schema.userAuditLogTable).values({
+        actorUserId: userId,
+        targetUserId: null,
+        targetEmail: `customer-tz:${customer}|tz=${displayTz}`,
+        action: "customer-tz-set",
+      });
     });
     res.json({ customer, displayTz });
   },
@@ -6274,11 +6281,22 @@ weeksRouter.delete(
       res.status(400).json({ error: "customer is required" });
       return;
     }
-    await db
-      .delete(schema.customerTzPreferencesTable)
-      .where(
-        sql`lower(${schema.customerTzPreferencesTable.customer}) = lower(${customer})`,
-      );
+    const userId = req.session.userId ?? null;
+    await db.transaction(async (tx) => {
+      const removed = await tx
+        .delete(schema.customerTzPreferencesTable)
+        .where(
+          sql`lower(${schema.customerTzPreferencesTable.customer}) = lower(${customer})`,
+        )
+        .returning({ customer: schema.customerTzPreferencesTable.customer });
+      if (removed.length === 0) return;
+      await tx.insert(schema.userAuditLogTable).values({
+        actorUserId: userId,
+        targetUserId: null,
+        targetEmail: `customer-tz:${removed[0].customer}`,
+        action: "customer-tz-clear",
+      });
+    });
     res.status(204).end();
   },
 );

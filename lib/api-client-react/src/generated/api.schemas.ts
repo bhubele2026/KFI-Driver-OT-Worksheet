@@ -1704,6 +1704,12 @@ export interface CustomerTzPreference {
   updatedByEmail?: string | null;
 }
 
+export interface CustomerTzPreferenceList {
+  preferences: CustomerTzPreference[];
+  /** Canonical display names from `KNOWN_CUSTOMERS` (parsers/customers.ts). The admin page renders a row for every entry here, even when no preference is saved, so dispatchers can audit which customers fall back to the per-driver default. */
+  knownCustomers: string[];
+}
+
 export interface UpsertCustomerTzPreferenceInput {
   /** @minLength 1 */
   customer: string;

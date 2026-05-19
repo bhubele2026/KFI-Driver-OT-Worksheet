@@ -86,6 +86,36 @@ export default function AdminTimezones() {
 
   const tzOptions = allowed?.allowed ?? [DEFAULT_TZ_FALLBACK];
 
+  const preferences = prefs?.preferences ?? [];
+  const knownCustomers = prefs?.knownCustomers ?? [];
+  const prefByLowerCustomer = new Map(
+    preferences.map((p) => [p.customer.toLowerCase(), p]),
+  );
+  // Show every known customer first (always-visible audit list), then any
+  // extras that have a saved preference but aren't in KNOWN_CUSTOMERS
+  // (typically AI-only customers seeded via /confirm-new-customer).
+  const knownLower = new Set(knownCustomers.map((c) => c.toLowerCase()));
+  const extras = preferences.filter(
+    (p) => !knownLower.has(p.customer.toLowerCase()),
+  );
+  const customerRows: Array<{
+    customer: string;
+    isKnown: boolean;
+    pref: (typeof preferences)[number] | undefined;
+  }> = [
+    ...knownCustomers.map((customer) => ({
+      customer,
+      isKnown: true,
+      pref: prefByLowerCustomer.get(customer.toLowerCase()),
+    })),
+    ...extras
+      .slice()
+      .sort((a, b) =>
+        a.customer.toLowerCase().localeCompare(b.customer.toLowerCase()),
+      )
+      .map((pref) => ({ customer: pref.customer, isKnown: false, pref })),
+  ];
+
   const invalidatePrefs = () =>
     qc.invalidateQueries({
       queryKey: getListCustomerTzPreferencesQueryKey(),
@@ -272,11 +302,6 @@ export default function AdminTimezones() {
 
             {prefsLoading ? (
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            ) : (prefs ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground italic">
-                No customer preferences yet. Customers without a preference use{" "}
-                <span className="font-mono">{DEFAULT_TZ_FALLBACK}</span>.
-              </p>
             ) : (
               <Table>
                 <TableHeader>
@@ -289,51 +314,81 @@ export default function AdminTimezones() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(prefs ?? []).map((p) => (
-                    <TableRow key={p.customer}>
-                      <TableCell className="font-medium text-sm">
-                        {p.customer}
-                      </TableCell>
-                      <TableCell>
-                        <Select
-                          value={p.displayTz}
-                          onValueChange={(v) => changeCustomerTz(p.customer, v)}
-                        >
-                          <SelectTrigger className="h-7 w-[200px] text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {tzOptions.map((tz) => (
+                  {customerRows.map((row) => {
+                    const p = row.pref;
+                    const hasPref = !!p;
+                    return (
+                      <TableRow key={`${row.isKnown ? "known" : "extra"}:${row.customer}`}>
+                        <TableCell className="font-medium text-sm">
+                          <div className="flex items-center gap-2">
+                            <span>{row.customer}</span>
+                            {!row.isKnown ? (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-normal"
+                              >
+                                AI-only
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={hasPref ? p!.displayTz : "__default__"}
+                            onValueChange={(v) => {
+                              if (v === "__default__") {
+                                if (hasPref) removePref(row.customer);
+                              } else {
+                                changeCustomerTz(row.customer, v);
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-7 w-[220px] text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
                               <SelectItem
-                                key={tz}
-                                value={tz}
+                                value="__default__"
                                 className="text-xs"
                               >
-                                {tz}
+                                (driver default)
                               </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground whitespace-nowrap">
-                        {format(new Date(p.updatedAt), "yyyy-MM-dd HH:mm")}
-                      </TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground">
-                        {p.updatedByEmail ?? "—"}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => removePref(p.customer)}
-                          disabled={del.isPending}
-                          title="Clear preference"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                              {tzOptions.map((tz) => (
+                                <SelectItem
+                                  key={tz}
+                                  value={tz}
+                                  className="text-xs"
+                                >
+                                  {tz}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell className="text-xs font-mono text-muted-foreground whitespace-nowrap">
+                          {hasPref
+                            ? format(new Date(p!.updatedAt), "yyyy-MM-dd HH:mm")
+                            : "—"}
+                        </TableCell>
+                        <TableCell className="text-xs font-mono text-muted-foreground">
+                          {hasPref ? p!.updatedByEmail ?? "—" : "—"}
+                        </TableCell>
+                        <TableCell>
+                          {hasPref ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => removePref(row.customer)}
+                              disabled={del.isPending}
+                              title="Clear preference"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          ) : null}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}

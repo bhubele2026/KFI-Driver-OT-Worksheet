@@ -3357,17 +3357,23 @@ export const ShiftDriverWeekPunchesResponse = zod.object({
 });
 
 /**
- * @summary Per-customer default display-tz preferences. Auth required.
+ * @summary Per-customer default display-tz preferences plus the canonical KNOWN_CUSTOMERS roster, so the admin page can render a row for every customer (with or without a saved preference). Auth required.
  */
-export const ListCustomerTzPreferencesResponseItem = zod.object({
-  customer: zod.string(),
-  displayTz: zod.string(),
-  updatedAt: zod.coerce.date(),
-  updatedByEmail: zod.string().nullish(),
+export const ListCustomerTzPreferencesResponse = zod.object({
+  preferences: zod.array(
+    zod.object({
+      customer: zod.string(),
+      displayTz: zod.string(),
+      updatedAt: zod.coerce.date(),
+      updatedByEmail: zod.string().nullish(),
+    }),
+  ),
+  knownCustomers: zod
+    .array(zod.string())
+    .describe(
+      "Canonical display names from `KNOWN_CUSTOMERS` (parsers\/customers.ts). The admin page renders a row for every entry here, even when no preference is saved, so dispatchers can audit which customers fall back to the per-driver default.",
+    ),
 });
-export const ListCustomerTzPreferencesResponse = zod.array(
-  ListCustomerTzPreferencesResponseItem,
-);
 
 /**
  * @summary Set the default display-tz for a customer. Supervisor/Admin.

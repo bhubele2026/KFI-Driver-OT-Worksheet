@@ -41,7 +41,7 @@ import type {
   CustomerIgnoredExternal,
   CustomerNameAlias,
   CustomerNameAliasList,
-  CustomerTzPreference,
+  CustomerTzPreferenceList,
   CustomerUploadStatus,
   DayHoursResult,
   DeleteCustomerTzPreferenceParams,
@@ -8752,7 +8752,7 @@ export const useShiftDriverWeekPunches = <
 };
 
 /**
- * @summary Per-customer default display-tz preferences. Auth required.
+ * @summary Per-customer default display-tz preferences plus the canonical KNOWN_CUSTOMERS roster, so the admin page can render a row for every customer (with or without a saved preference). Auth required.
  */
 export const getListCustomerTzPreferencesUrl = () => {
   return `/api/customer-tz-preferences`;
@@ -8760,8 +8760,8 @@ export const getListCustomerTzPreferencesUrl = () => {
 
 export const listCustomerTzPreferences = async (
   options?: RequestInit,
-): Promise<CustomerTzPreference[]> => {
-  return customFetch<CustomerTzPreference[]>(
+): Promise<CustomerTzPreferenceList> => {
+  return customFetch<CustomerTzPreferenceList>(
     getListCustomerTzPreferencesUrl(),
     {
       ...options,
@@ -8807,7 +8807,7 @@ export type ListCustomerTzPreferencesQueryResult = NonNullable<
 export type ListCustomerTzPreferencesQueryError = ErrorType<unknown>;
 
 /**
- * @summary Per-customer default display-tz preferences. Auth required.
+ * @summary Per-customer default display-tz preferences plus the canonical KNOWN_CUSTOMERS roster, so the admin page can render a row for every customer (with or without a saved preference). Auth required.
  */
 
 export function useListCustomerTzPreferences<
