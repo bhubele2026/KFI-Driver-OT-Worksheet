@@ -361,6 +361,93 @@ export async function inferPdfColumnRoles(
 }
 
 /**
+ * Pure decision step for {@link recordAiSchemaIfPossible}: given the
+ * AI result + the original buffer, return what should happen to the
+ * `customer_column_schemas` row keyed on `(customer, signature,
+ * format)`. Three outcomes:
+ *
+ *   - `upsert`: roles were confidently inferred — write/overwrite the
+ *     cached fast-path entry.
+ *   - `delete-stale` (Task #258): AI succeeded but new roles couldn't
+ *     be inferred from the same buffer. The existing cache row, if
+ *     any, is stale (it returned 0 rows for this upload), so wipe it
+ *     so the next upload re-runs AI directly instead of paying the
+ *     "cache → 0 → AI" tax forever.
+ *   - `skip`: nothing actionable (no signature, no format, image
+ *     upload, empty AI result).
+ *
+ * Exposed for hermetic testing. No DB / no network.
+ */
+export type SchemaCacheMutation =
+  | {
+      action: "upsert";
+      format: "xlsx" | "pdf";
+      signature: string;
+      columnRoles: Record<string, unknown>;
+    }
+  | { action: "delete-stale"; format: "xlsx" | "pdf"; signature: string }
+  | { action: "skip"; reason: string };
+
+export async function deriveSchemaCacheMutation(args: {
+  customer: string;
+  fileName: string;
+  buffer: Buffer;
+  aiResult: ParseResult;
+  weekStart: string;
+}): Promise<SchemaCacheMutation> {
+  const { fileName, buffer, aiResult, weekStart } = args;
+  const signature = await computeHeaderSignature(fileName, buffer);
+  if (!signature) return { action: "skip", reason: "no-signature" };
+  const first = aiResult.punches[0];
+  if (!first) return { action: "skip", reason: "no-ai-rows" };
+  const lower = fileName.toLowerCase();
+  const format: "xlsx" | "pdf" | null =
+    lower.endsWith(".xlsx") || lower.endsWith(".xls")
+      ? "xlsx"
+      : lower.endsWith(".pdf")
+        ? "pdf"
+        : null;
+  if (!format) return { action: "skip", reason: "unsupported-format" };
+
+  const rawBadge = pickRawBadge(first);
+  let roles: unknown;
+  if (format === "xlsx") {
+    roles = inferColumnRoles(buffer, {
+      rawBadge,
+      dateIso: first.date,
+      clockIn: first.clockIn,
+      clockOut: first.clockOut,
+    });
+  } else {
+    const fallbackYear = parseInt(weekStart.slice(0, 4));
+    roles = await inferPdfColumnRoles(
+      buffer,
+      {
+        rawBadge,
+        clockIn: first.clockIn,
+        clockOut: first.clockOut,
+        hours: first.hours,
+      },
+      fallbackYear,
+    );
+  }
+  if (!roles) {
+    // AI succeeded but we couldn't infer roles from this buffer. Any
+    // existing cache row under the same (customer, signature, format)
+    // is by definition stale — it just produced 0 rows for the same
+    // file. Wipe it so the next upload doesn't pay the "cache → 0 →
+    // AI" tax indefinitely.
+    return { action: "delete-stale", format, signature };
+  }
+  return {
+    action: "upsert",
+    format,
+    signature,
+    columnRoles: roles as Record<string, unknown>,
+  };
+}
+
+/**
  * After a successful AI extraction on a customer-file upload, derive
  * column roles for the file's layout and upsert a
  * `customer_column_schemas` row keyed on `(customer, signature,
@@ -370,9 +457,18 @@ export async function inferPdfColumnRoles(
  * skipping AI entirely.
  *
  * No-op for image uploads (no stable signature), when no signature
- * can be computed, when AI returned 0 punches, or when roles can't be
- * confidently inferred. Designed to never throw — failure here only
- * costs the next upload another AI call.
+ * can be computed, when AI returned 0 punches, or for unsupported
+ * file formats. When AI succeeded but roles can't be inferred from
+ * this buffer (Task #258), any stale `(customer, signature, format)`
+ * row is deleted so the next upload re-runs AI directly instead of
+ * burning time on the stale cache → 0 → AI fallback every week.
+ * Designed to never throw — failure here only costs the next upload
+ * another AI call.
+ *
+ * Returns `true` only when fresh roles were written; `false` for both
+ * skip and delete-stale outcomes (the response's `cacheWritten` chip
+ * means "next upload will be instant", which isn't true after a
+ * delete).
  */
 export async function recordAiSchemaIfPossible(args: {
   customer: string;
@@ -382,67 +478,43 @@ export async function recordAiSchemaIfPossible(args: {
   weekStart: string;
   log: { warn: (obj: object, msg: string) => void };
 }): Promise<boolean> {
-  const { customer, fileName, buffer, aiResult, weekStart, log } = args;
+  const { customer, fileName, log } = args;
   try {
-    const signature = await computeHeaderSignature(fileName, buffer);
-    if (!signature) return false;
-    const first = aiResult.punches[0];
-    if (!first) return false;
-    const lower = fileName.toLowerCase();
-    const format: "xlsx" | "pdf" | null =
-      lower.endsWith(".xlsx") || lower.endsWith(".xls")
-        ? "xlsx"
-        : lower.endsWith(".pdf")
-          ? "pdf"
-          : null;
-    if (!format) return false;
-
-    const rawBadge = pickRawBadge(first);
-    let roles: unknown;
-    if (format === "xlsx") {
-      roles = inferColumnRoles(buffer, {
-        rawBadge,
-        dateIso: first.date,
-        clockIn: first.clockIn,
-        clockOut: first.clockOut,
-      });
-    } else {
-      const fallbackYear = parseInt(weekStart.slice(0, 4));
-      roles = await inferPdfColumnRoles(
-        buffer,
-        {
-          rawBadge,
-          clockIn: first.clockIn,
-          clockOut: first.clockOut,
-          hours: first.hours,
-        },
-        fallbackYear,
-      );
-    }
-    if (!roles) return false;
-
-    await db
-      .insert(schema.customerColumnSchemasTable)
-      .values({
-        customer,
-        headerSignature: signature,
-        source: "ai",
-        parserName: null,
-        format,
-        columnRoles: roles as Record<string, unknown>,
-      })
-      .onConflictDoUpdate({
-        target: [
-          schema.customerColumnSchemasTable.customer,
-          schema.customerColumnSchemasTable.headerSignature,
-          schema.customerColumnSchemasTable.format,
-        ],
-        set: {
-          columnRoles: roles as Record<string, unknown>,
+    const mutation = await deriveSchemaCacheMutation(args);
+    if (mutation.action === "skip") return false;
+    if (mutation.action === "upsert") {
+      await db
+        .insert(schema.customerColumnSchemasTable)
+        .values({
+          customer,
+          headerSignature: mutation.signature,
           source: "ai",
-        },
-      });
-    return true;
+          parserName: null,
+          format: mutation.format,
+          columnRoles: mutation.columnRoles,
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.customerColumnSchemasTable.customer,
+            schema.customerColumnSchemasTable.headerSignature,
+            schema.customerColumnSchemasTable.format,
+          ],
+          set: {
+            columnRoles: mutation.columnRoles,
+            source: "ai",
+          },
+        });
+      return true;
+    }
+    // delete-stale
+    await db.execute(
+      sql`DELETE FROM customer_column_schemas
+          WHERE lower(customer) = lower(${customer})
+            AND header_signature = ${mutation.signature}
+            AND format = ${mutation.format}
+            AND source = 'ai'`,
+    );
+    return false;
   } catch (err) {
     log.warn({ err, customer, fileName }, "recordAiSchemaIfPossible failed");
     return false;

@@ -31,7 +31,9 @@ import {
   inferPdfColumnRoles,
   buildEmployeeAnchorRegex,
   buildDataRowRegex,
+  deriveSchemaCacheMutation,
 } from "../aiSchemaRecorder.js";
+import type { ParseResult } from "../types.js";
 import { readPdfWithRoles } from "../genericRoleReader.js";
 import {
   computeHeaderSignature,
@@ -230,6 +232,189 @@ test("buildEmployeeAnchorRegex captures the badge surrounded by literal context"
   assert.equal(m1![1], "TELD7777");
   // Should NOT match an unrelated bare token (no parens around it).
   assert.equal(r.exec("Total hours TELD9999 reported"), null);
+});
+
+/**
+ * Task #258: the recorder must self-heal when a customer's PDF layout
+ * drifts. After a successful AI re-run, the (customer, signature,
+ * 'pdf') row should be overwritten with the newly-inferred roles so
+ * the next upload uses the fresh template — never the stale roles
+ * that just returned 0.
+ *
+ * Two different PDF layouts under the same customer are fed through
+ * `deriveSchemaCacheMutation` (the pure decision step the recorder
+ * wraps). Both produce `upsert` mutations targeting the same
+ * (customer, format) key — and the inferred roles differ — so when
+ * the recorder applies them the second upsert overwrites the first
+ * (regardless of whether their signatures collide or not, the route
+ * always rewrites whichever row corresponds to the upload it just
+ * processed). When the first layout's cached roles would have
+ * returned 0 on the new buffer, the cache is now guaranteed to point
+ * at the fresh template.
+ */
+test("PDF schema cache self-heals: second AI run overwrites stale roles for the same customer", async () => {
+  // Layout 1: badge in parens, time/hours per row.
+  const buffer1 = await buildAdientLikePdf([
+    {
+      name: "BAILEY, R.",
+      badge: "TELD9001",
+      punches: [
+        { date: "May 12, 2026", timeIn: "6:00 AM", timeOut: "2:30 PM", hours: "8.50" },
+      ],
+    },
+  ]);
+  const ai1: ParseResult = {
+    customer: "Adient",
+    punches: [
+      {
+        kfiId: "TELD9001",
+        customer: "Adient",
+        date: "2026-05-12",
+        clockIn: "2026-05-12 6:00 AM",
+        clockOut: "2026-05-12 2:30 PM",
+        hours: 8.5,
+        payType: "Reg",
+        rawBadge: "TELD9001",
+      },
+    ],
+    unmappedIds: [],
+  };
+  const decision1 = await deriveSchemaCacheMutation({
+    customer: "Adient",
+    fileName: "adient-w1.pdf",
+    buffer: buffer1,
+    aiResult: ai1,
+    weekStart: "2026-05-10",
+  });
+  assert.equal(decision1.action, "upsert");
+  assert.equal(decision1.format, "pdf");
+
+  // Layout 2 — same vendor, but format drifted: badge prefix changed
+  // (TELE…) and per-row column spacing widened. The OLD cached roles
+  // (from layout 1) would not match layout 2's data rows, so a real
+  // upload would have produced 0 rows via the cache → AI fallback.
+  // Build a second AI result from layout 2's actual content.
+  const buffer2 = await (async () => {
+    const doc = new PDFDocument({ size: "LETTER", margin: 50 });
+    const chunks: Buffer[] = [];
+    return new Promise<Buffer>((resolve, reject) => {
+      doc.on("data", (c) => chunks.push(c as Buffer));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+      doc.font("Courier");
+      doc.fontSize(11);
+      doc.text("Adient Time Detail Report");
+      doc.text("Period: 05/17/2026 - 05/23/2026");
+      doc.moveDown(0.5);
+      // Different anchor: "Employee: NAME ID: BADGE" with no parens.
+      doc.text("Employee: BAILEY, R. ID: TELE9001");
+      doc.text("May 19, 2026   7:15 AM   3:45 PM   8.50");
+      doc.end();
+    });
+  })();
+  const ai2: ParseResult = {
+    customer: "Adient",
+    punches: [
+      {
+        kfiId: "TELE9001",
+        customer: "Adient",
+        date: "2026-05-19",
+        clockIn: "2026-05-19 7:15 AM",
+        clockOut: "2026-05-19 3:45 PM",
+        hours: 8.5,
+        payType: "Reg",
+        rawBadge: "TELE9001",
+      },
+    ],
+    unmappedIds: [],
+  };
+  const decision2 = await deriveSchemaCacheMutation({
+    customer: "Adient",
+    fileName: "adient-w2.pdf",
+    buffer: buffer2,
+    aiResult: ai2,
+    weekStart: "2026-05-17",
+  });
+  assert.equal(decision2.action, "upsert");
+  assert.equal(decision2.format, "pdf");
+
+  // The newly inferred roles must NOT equal the prior cached roles —
+  // otherwise we'd be re-writing the same stale template and never
+  // self-healing.
+  assert.notDeepEqual(
+    decision2.action === "upsert" ? decision2.columnRoles : null,
+    decision1.action === "upsert" ? decision1.columnRoles : null,
+    "second AI run should produce different roles than the first",
+  );
+
+  // And the fresh roles must actually read the new layout's punches —
+  // proving the upsert with `decision2.columnRoles` lets the next
+  // upload skip AI on layout 2 instead of falling through it forever.
+  if (decision2.action !== "upsert") throw new Error("unreachable");
+  const idMap = { TELE9001: "TELE9001" };
+  const parsed2 = await readPdfWithRoles(
+    "Adient",
+    buffer2,
+    decision2.columnRoles,
+    new Set(Object.values(idMap)),
+    idMap,
+    "2026-05-17",
+    "2026-05-23",
+  );
+  assert.ok(parsed2, "fresh roles produce a ParseResult");
+  assert.equal(parsed2.punches.length, 1);
+  assert.equal(parsed2.punches[0].kfiId, "TELE9001");
+  assert.equal(parsed2.punches[0].clockIn, "2026-05-19 7:15 AM");
+});
+
+/**
+ * Task #258: complementary self-heal path — when AI succeeded but the
+ * recorder can't infer roles from the new buffer (rawBadge isn't
+ * locatable on any line), the decision is `delete-stale` so the
+ * recorder wipes whatever stale row existed for the same key.
+ * Without this, a stuck stale row keeps returning 0 on the cache
+ * branch forever, and the dispatcher pays an AI round-trip on every
+ * upload.
+ */
+test("PDF self-heal: AI success + unrecoverable layout returns delete-stale", async () => {
+  const buffer = await buildAdientLikePdf([
+    {
+      name: "BAILEY, R.",
+      badge: "TELD9001",
+      punches: [
+        { date: "May 12, 2026", timeIn: "6:00 AM", timeOut: "2:30 PM", hours: "8.50" },
+      ],
+    },
+  ]);
+  // AI reported a badge that simply isn't in the PDF (e.g. AI hallucinated
+  // a renamed employee, or the buffer doesn't have the literal token).
+  // Inference must fail → delete-stale, not skip, so the stale row gets
+  // cleared and the next upload re-runs AI directly.
+  const aiResult: ParseResult = {
+    customer: "Adient",
+    punches: [
+      {
+        kfiId: "TELD9999",
+        customer: "Adient",
+        date: "2026-05-12",
+        clockIn: "2026-05-12 6:00 AM",
+        clockOut: "2026-05-12 2:30 PM",
+        hours: 8.5,
+        payType: "Reg",
+        rawBadge: "NOTINFILE",
+      },
+    ],
+    unmappedIds: [],
+  };
+  const decision = await deriveSchemaCacheMutation({
+    customer: "Adient",
+    fileName: "adient-drift.pdf",
+    buffer,
+    aiResult,
+    weekStart: "2026-05-10",
+  });
+  assert.equal(decision.action, "delete-stale");
+  assert.equal(decision.format, "pdf");
 });
 
 test("buildDataRowRegex captures both times and tolerates other punches with different values", () => {
