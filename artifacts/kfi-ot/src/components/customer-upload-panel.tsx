@@ -78,6 +78,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const [newInitialFile, setNewInitialFile] = useState<File | null>(null);
   const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
   const [bulkRunning, setBulkRunning] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragDepth = useRef(0);
   const snoozeMutation = useCreateParserPromotionSnooze();
 
   const snooze = (customer: string, snoozeWeeks: number | null) => {
@@ -285,12 +287,92 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
 
   const dismissBulk = () => setBulkItems([]);
 
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setIsDragOver(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setIsDragOver(false);
+    if (bulkRunning) {
+      toast({
+        title: "Upload already in progress",
+        description: "Wait for the current bulk upload to finish before dropping more files.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const dropped = Array.from(e.dataTransfer.files ?? []);
+    if (dropped.length === 0) return;
+    const accepted: File[] = [];
+    const rejected: string[] = [];
+    for (const f of dropped) {
+      const lower = f.name.toLowerCase();
+      if (lower.endsWith(".pdf") || lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
+        accepted.push(f);
+      } else {
+        rejected.push(f.name);
+      }
+    }
+    if (rejected.length > 0) {
+      toast({
+        title: `Skipped ${rejected.length} unsupported ${rejected.length === 1 ? "file" : "files"}`,
+        description: `Only .xlsx and .pdf customer files are accepted. Skipped: ${rejected.join(", ")}.`,
+        variant: "destructive",
+      });
+    }
+    if (accepted.length > 0) void runBulk(accepted);
+  };
+
   const promotionCandidates = (statuses ?? []).filter(
     (s) => s.promotionCandidate,
   );
 
   return (
-    <Card className="overflow-hidden border-border/60">
+    <Card
+      className={`relative overflow-hidden border-border/60 transition-colors ${
+        isDragOver
+          ? "ring-2 ring-primary ring-offset-2 ring-offset-background border-primary/60"
+          : ""
+      }`}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDragOver && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-primary/10 backdrop-blur-[1px]">
+          <div className="rounded-lg border-2 border-dashed border-primary bg-background/95 px-6 py-4 shadow-lg flex items-center gap-3">
+            <UploadCloud className="h-6 w-6 text-primary" />
+            <div>
+              <div className="font-display font-semibold text-sm">
+                Drop customer files to upload
+              </div>
+              <div className="text-xs text-muted-foreground">
+                .xlsx or .pdf — anything else will be skipped
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="bg-muted/40 px-4 py-3 border-b border-border flex items-center justify-between gap-3">
         <div>
           <h3 className="font-display font-semibold text-base">
