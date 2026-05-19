@@ -43,6 +43,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
 import { ReviewedPill } from "@/components/reviewed-pill";
+import { AllReviewedSplash } from "@/components/all-reviewed-splash";
+import { useAllReviewedCelebration } from "@/hooks/use-all-reviewed-celebration";
 import { Logo } from "@/components/logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { useTranslation } from "react-i18next";
@@ -247,6 +249,13 @@ export default function DriverDetail() {
       g.drivers.map((d) => ({ kfiId: d.kfiId, reviewed: d.reviewed })),
     );
   }, [weekSummary]);
+  const reviewedDriverCount = flatDrivers.filter((d) => d.reviewed).length;
+  const { splashVisible: allReviewedSplashVisible, dismiss: dismissAllReviewedSplash } =
+    useAllReviewedCelebration({
+      weekStart,
+      reviewed: reviewedDriverCount,
+      total: flatDrivers.length,
+    });
   type Punch = NonNullable<typeof data>["punches"][number];
   type PreviewResult = Awaited<ReturnType<typeof previewPunch>>;
 
@@ -1097,6 +1106,10 @@ export default function DriverDetail() {
         </div>
 
         <main className="print-sheet flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden print:p-0 print:max-w-none print:mx-0 print:overflow-visible print:space-y-4">
+          <AllReviewedSplash
+            visible={allReviewedSplashVisible}
+            onDismiss={dismissAllReviewedSplash}
+          />
         {/* Title block */}
         <div className="space-y-2">
           <div className="flex items-center gap-3 flex-wrap">

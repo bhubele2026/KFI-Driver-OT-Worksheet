@@ -196,47 +196,75 @@ function DriversList({
           <ul>
             {group.drivers.map((driver) => {
               const isActive = driver.kfiId === selectedKfiId;
+              const status = (driver as { reviewStatus?: string }).reviewStatus;
+              const isBad = status === "bad";
+              const navigate = () => {
+                setLocation(`/weeks/${weekStart}/drivers/${driver.kfiId}`);
+                onNavigate?.();
+              };
+              const bubbleLabel = driver.reviewed
+                ? `Mark ${driver.name} unreviewed`
+                : `Mark ${driver.name} reviewed`;
               return (
                 <li key={driver.kfiId}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLocation(`/weeks/${weekStart}/drivers/${driver.kfiId}`);
-                      onNavigate?.();
-                    }}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={navigate}
                     onDoubleClick={(e) => {
+                      if (isBad) return;
                       e.preventDefault();
                       toggleReviewed(driver.kfiId, driver.reviewed);
                     }}
-                    title="Click to open · Double-click to toggle reviewed"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        navigate();
+                      }
+                    }}
+                    title="Click bubble to review · click name to open · double-click row to review"
                     data-testid={`sidebar-driver-${driver.kfiId}`}
                     className={cn(
-                      "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 transition-colors group select-none",
+                      "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 transition-colors group select-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       isActive
                         ? "bg-accent text-accent-foreground border-l-2 border-primary pl-[14px] font-medium"
                         : "hover:bg-accent hover:text-accent-foreground",
                     )}
                   >
-                    {(() => {
-                      const status = (driver as { reviewStatus?: string })
-                        .reviewStatus;
-                      if (status === "bad") {
-                        return (
-                          <XCircle
-                            className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400 shrink-0"
-                            data-testid={`sidebar-status-bad-${driver.kfiId}`}
-                          />
-                        );
-                      }
-                      if (driver.reviewed || status === "good") {
-                        return (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                        );
-                      }
-                      return (
-                        <Circle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
-                      );
-                    })()}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isBad) return;
+                        toggleReviewed(driver.kfiId, driver.reviewed);
+                      }}
+                      onDoubleClick={(e) => {
+                        // Swallow so the row's dblclick doesn't toggle a
+                        // second time after the bubble's single click.
+                        e.stopPropagation();
+                      }}
+                      disabled={isBad}
+                      aria-label={isBad ? `${driver.name} flagged bad` : bubbleLabel}
+                      title={isBad ? "Marked bad — clear from driver page" : bubbleLabel}
+                      data-testid={`sidebar-bubble-${driver.kfiId}`}
+                      className={cn(
+                        "inline-flex items-center justify-center h-5 w-5 rounded-full shrink-0 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        isBad
+                          ? "cursor-not-allowed"
+                          : "hover:bg-foreground/10 cursor-pointer",
+                      )}
+                    >
+                      {isBad ? (
+                        <XCircle
+                          className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400"
+                          data-testid={`sidebar-status-bad-${driver.kfiId}`}
+                        />
+                      ) : driver.reviewed || status === "good" ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                      ) : (
+                        <Circle className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground/70" />
+                      )}
+                    </button>
                     <span className="flex-1 truncate">{driver.name}</span>
                     {(driver as { locked?: boolean }).locked && (
                       <Lock
@@ -249,7 +277,7 @@ function DriversList({
                         OT
                       </span>
                     )}
-                  </button>
+                  </div>
                 </li>
               );
             })}
@@ -476,7 +504,7 @@ function SidebarHeader({ onCollapse }: { onCollapse?: () => void }) {
           className="text-[11px] text-muted-foreground mt-1 leading-tight"
           title="Shortcuts: j/↓ next driver · k/↑ previous driver · n next unreviewed · p previous unreviewed · r toggle reviewed · ? for help"
         >
-          Click to open · double-click to review · <span className="font-mono">j/k</span> to jump · <span className="font-mono">n/p</span> for unreviewed.
+          Click bubble to review · click name to open · double-click row to review · <span className="font-mono">j/k</span> to jump · <span className="font-mono">n/p</span> for unreviewed.
         </p>
       </div>
       {onCollapse && (
