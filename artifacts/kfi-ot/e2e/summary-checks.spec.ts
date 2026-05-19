@@ -171,3 +171,66 @@ test("Summary and Checks panels render the per-source split and reconcile", asyn
     await expect(checks.getByTestId(slug)).toBeVisible();
   }
 });
+
+test("Printable timesheet mirrors the on-screen Summary + Checks panels", async ({
+  page,
+}) => {
+  // Trigger the dev auth bypass via the root before fetching the timesheet
+  // — the printable view honors the same cookie session as the dashboard.
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  const res = await page.request.get(`/api/weeks/${WEEK_START}/timesheets`);
+  expect(res.status()).toBe(200);
+  const html = await res.text();
+
+  // Isolate the only driver's section so cross-driver matches can't leak in.
+  const sectionParts = html.split(`<h2>${DRIVER_NAME}</h2>`);
+  expect(sectionParts.length).toBeGreaterThanOrEqual(2);
+  const section = sectionParts[1].split("</section>")[0];
+
+  // Seven Summary rows, in the same order as the on-screen page.
+  expect(section).toMatch(/data-testid="card-summary"/);
+  expect(section).toMatch(/<th>Total Driver<\/th><td class="num">6\.54</);
+  expect(section).toMatch(/<th>Total Customer<\/th><td class="num">48\.07</);
+  expect(section).toMatch(/<th>Total Hours<\/th><td class="num">54\.61</);
+  expect(section).toMatch(/<th>RT<\/th><td class="num">40\.00</);
+  expect(section).toMatch(/<th>OT<\/th><td class="num ot-num">14\.61</);
+  expect(section).toMatch(/<th>Driver RT<\/th><td class="num">4\.61</);
+  expect(section).toMatch(/<th>Driver OT<\/th><td class="num ot-num">1\.93</);
+
+  // Checks panel in the green "all reconcile" state, with all six labels.
+  expect(section).toMatch(/data-testid="card-checks"/);
+  expect(section).toMatch(/sum-checks ok/);
+  expect(section).toMatch(/Checks — all reconcile/);
+  for (const label of [
+    /Total = Driver \+ Customer/,
+    /Customer = Total − Driver/,
+    /Driver = Total − Customer/,
+    /RT = min\(Total, 40\)/,
+    /OT = max\(0, Total − 40\)/,
+    /RT \+ OT = Total/,
+  ]) {
+    expect(section).toMatch(label);
+  }
+  expect(section).not.toMatch(/check-warn/);
+
+  // Punch rows: single chronological sequence interleaving Customer →
+  // Driver → Customer by clock-in time, NOT grouped by source.
+  const tbody = section.split("<tbody>")[1].split("</tbody>")[0];
+  const dateOrder = [...tbody.matchAll(/<td class="mono">(\d{4}-\d{2}-\d{2})<\/td>/g)]
+    .map((m) => m[1]);
+  expect(dateOrder).toEqual(["2031-04-07", "2031-04-10", "2031-04-11"]);
+  const sourceOrder = [
+    ...tbody.matchAll(/<tr(?:\s[^>]*)?>\s*<td class="mono">\d{4}-\d{2}-\d{2}<\/td>\s*<td>([^<]+)/g),
+  ].map((m) => m[1].trim());
+  expect(sourceOrder).toEqual(["Customer", "Driver", "Customer"]);
+
+  // PDF format request also returns a valid PDF (drives drawSummaryAndChecks).
+  const pdfRes = await page.request.get(
+    `/api/weeks/${WEEK_START}/timesheets?format=pdf`,
+  );
+  expect(pdfRes.status()).toBe(200);
+  const pdfBuf = Buffer.from(await pdfRes.body());
+  expect(pdfBuf.subarray(0, 5).toString("ascii")).toBe("%PDF-");
+  expect(pdfBuf.subarray(-10).toString("ascii")).toMatch(/%%EOF\s*$/);
+});

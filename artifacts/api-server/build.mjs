@@ -100,6 +100,10 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      // pdfkit ships .afm font files under its package's `data/` dir and
+      // loads them at runtime via fs paths relative to its own module. If
+      // bundled, those paths break (ENOENT on dist/data/Helvetica.afm).
+      "pdfkit",
     ],
     sourcemap: "linked",
     plugins: [

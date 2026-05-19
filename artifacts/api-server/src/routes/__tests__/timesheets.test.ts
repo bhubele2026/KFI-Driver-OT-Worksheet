@@ -313,6 +313,155 @@ test("GET /weeks/:weekStart/timesheets renders note-count badge and week-level n
   }
 });
 
+test("GET /weeks/:weekStart/timesheets renders the seven-row Summary, reconciling Checks panel, and chronological Driver+Customer rows", async () => {
+  // Mixed Driver+Customer week that crosses the 40h boundary mid-shift.
+  // Monday   35.39h Customer  →  running 35.39
+  // Thursday  6.54h Driver    →  running 41.93  (4.61 RT + 1.93 OT)
+  // Friday   12.68h Customer  →  running 54.61  (entirely OT)
+  // → Total Driver 6.54, Total Customer 48.07, RT 40.00, OT 14.61,
+  //   Driver RT 4.61, Driver OT 1.93.
+  const drivers: Driver[] = [
+    driver("D-MIX", "Mixed Source Driver", "Adient"),
+  ];
+  const punches: Punch[] = [
+    p({
+      kfiId: "D-MIX",
+      date: "2026-04-27",
+      clockIn: "2026-04-27 8:00 AM",
+      clockOut: "2026-04-28 7:23 PM",
+      hours: "35.390",
+      source: "Customer",
+      customer: "Adient",
+    }),
+    p({
+      kfiId: "D-MIX",
+      date: "2026-04-30",
+      clockIn: "2026-04-30 9:00 AM",
+      clockOut: "2026-04-30 3:32 PM",
+      hours: "6.540",
+      source: "Driver",
+    }),
+    p({
+      kfiId: "D-MIX",
+      date: "2026-05-01",
+      clockIn: "2026-05-01 10:00 AM",
+      clockOut: "2026-05-01 10:41 PM",
+      hours: "12.680",
+      source: "Customer",
+      customer: "Adient",
+    }),
+  ];
+  const { url, close } = await startServer({ drivers, punches });
+  try {
+    const res = await fetch(`${url}/weeks/${WEEK_START}/timesheets`);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    const section = html.split('<h2>Mixed Source Driver</h2>')[1]
+      .split("</section>")[0];
+
+    // Summary card with seven rows.
+    assert.match(section, /data-testid="card-summary"/);
+    assert.match(section, /<th>Total Driver<\/th><td class="num">6\.54</);
+    assert.match(section, /<th>Total Customer<\/th><td class="num">48\.07</);
+    assert.match(section, /<th>Total Hours<\/th><td class="num">54\.61</);
+    assert.match(section, /<th>RT<\/th><td class="num">40\.00</);
+    assert.match(section, /<th>OT<\/th><td class="num ot-num">14\.61</);
+    assert.match(section, /<th>Driver RT<\/th><td class="num">4\.61</);
+    assert.match(section, /<th>Driver OT<\/th><td class="num ot-num">1\.93</);
+
+    // Checks card in the "all reconcile" state.
+    assert.match(section, /data-testid="card-checks"/);
+    assert.match(section, /sum-checks ok/);
+    assert.match(section, /Checks — all reconcile/);
+    // All six reconciliation labels present.
+    for (const label of [
+      "Total = Driver \\+ Customer",
+      "Customer = Total − Driver",
+      "Driver = Total − Customer",
+      "RT = min\\(Total, 40\\)",
+      "OT = max\\(0, Total − 40\\)",
+      "RT \\+ OT = Total",
+    ]) {
+      assert.match(section, new RegExp(label));
+    }
+    // No mismatch markers should be present in the green-path render.
+    assert.doesNotMatch(section, /check-warn/);
+
+    // Punch rows render in a single chronological sequence interleaving
+    // Driver and Customer (Customer 2026-04-27 → Driver 2026-04-30 →
+    // Customer 2026-05-01) rather than grouping by source.
+    const tbody = section.split("<tbody>")[1].split("</tbody>")[0];
+    const dateOrder = [...tbody.matchAll(/<td class="mono">(\d{4}-\d{2}-\d{2})<\/td>/g)]
+      .map((m) => m[1]);
+    assert.deepEqual(dateOrder, [
+      "2026-04-27",
+      "2026-04-30",
+      "2026-05-01",
+    ]);
+    // And the source column (column 2) interleaves Customer/Driver/Customer.
+    const sourceOrder = [...tbody.matchAll(/<tr(?:\s[^>]*)?>\s*<td class="mono">\d{4}-\d{2}-\d{2}<\/td>\s*<td>([^<]+)/g)]
+      .map((m) => m[1].trim());
+    assert.deepEqual(sourceOrder, ["Customer", "Driver", "Customer"]);
+  } finally {
+    await close();
+  }
+});
+
+test("GET /weeks/:weekStart/timesheets?format=pdf renders a mixed-source driver-week with no errors (Summary + Checks block included)", async () => {
+  // Drives the same seven-row Summary + six-row Checks paths in the PDF
+  // renderer (drawSummaryAndChecks) as the HTML test above. pdfkit's
+  // content streams are Flate-encoded so grepping the binary for label
+  // strings isn't reliable; instead we assert the renderer produces a
+  // valid single-page PDF without throwing on the mixed-source totals
+  // (totalDriver / totalCustomer / driverRt / driverOt all non-zero).
+  const drivers: Driver[] = [
+    driver("D-MIX-PDF", "Mixed Source Driver", "Adient"),
+  ];
+  const punches: Punch[] = [
+    p({
+      kfiId: "D-MIX-PDF",
+      date: "2026-04-27",
+      clockIn: "2026-04-27 8:00 AM",
+      clockOut: "2026-04-28 7:23 PM",
+      hours: "35.390",
+      source: "Customer",
+      customer: "Adient",
+    }),
+    p({
+      kfiId: "D-MIX-PDF",
+      date: "2026-04-30",
+      clockIn: "2026-04-30 9:00 AM",
+      clockOut: "2026-04-30 3:32 PM",
+      hours: "6.540",
+      source: "Driver",
+    }),
+    p({
+      kfiId: "D-MIX-PDF",
+      date: "2026-05-01",
+      clockIn: "2026-05-01 10:00 AM",
+      clockOut: "2026-05-01 10:41 PM",
+      hours: "12.680",
+      source: "Customer",
+      customer: "Adient",
+    }),
+  ];
+  const { url, close } = await startServer({ drivers, punches });
+  try {
+    const res = await fetch(
+      `${url}/weeks/${WEEK_START}/timesheets?format=pdf`,
+    );
+    assert.equal(res.status, 200);
+    const buf = Buffer.from(await res.arrayBuffer());
+    assert.equal(buf.subarray(0, 5).toString("ascii"), "%PDF-");
+    assert.match(buf.subarray(-10).toString("ascii"), /%%EOF\s*$/);
+    const pageCount = (buf.toString("binary").match(/\/Type\s*\/Page[^s]/g) ?? [])
+      .length;
+    assert.equal(pageCount, 1, "single driver → single page");
+  } finally {
+    await close();
+  }
+});
+
 test("GET /weeks/:weekStart/timesheets rejects malformed week strings with 400", async () => {
   const { url, close } = await startServer({ drivers: [], punches: [] });
   try {

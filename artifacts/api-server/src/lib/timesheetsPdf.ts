@@ -147,7 +147,7 @@ function drawSheet(
     doc.moveDown(0.4);
   }
 
-  drawStats(doc, sheet);
+  drawSummaryAndChecks(doc, sheet);
 
   if (sheet.checks.length > 0) {
     doc.moveDown(0.4);
@@ -255,62 +255,189 @@ function drawWeekNotes(
   doc.x = doc.page.margins.left;
 }
 
-function drawStats(doc: PDFKit.PDFDocument, sheet: TimesheetSheet): void {
+/**
+ * Render the per-driver Summary + Checks blocks side-by-side. Mirrors the
+ * on-screen `SummaryAndChecks` component in `driver-detail.tsx` — the seven
+ * Summary rows (Total Driver, Total Customer, Total Hours, RT, OT,
+ * Driver RT, Driver OT) and the six reconciliation Checks, all derived from
+ * `totalDriver` / `totalCustomer` only (NOT the engine output) so a
+ * mismatch is a meaningful signal of either bad data or an engine
+ * regression. Tolerance matches the on-screen 0.015h band.
+ */
+function drawSummaryAndChecks(
+  doc: PDFKit.PDFDocument,
+  sheet: TimesheetSheet,
+): void {
   const { totals } = sheet;
-  const cells: Array<{ label: string; value: string; color: string }> = [
-    {
-      label: "Driver Hrs",
-      value: totals.totalDriver.toFixed(2),
-      color: COLOR_DRIVER,
-    },
-    {
-      label: "Customer Hrs",
-      value: totals.totalCustomer.toFixed(2),
-      color: COLOR_CUSTOMER,
-    },
-    { label: "Total", value: totals.totalHours.toFixed(2), color: COLOR_INK },
-    {
-      label: "Regular",
-      value: totals.regularHours.toFixed(2),
-      color: COLOR_INK,
-    },
-    {
-      label: "Overtime",
-      value: totals.overtimeHours.toFixed(2),
-      color: COLOR_OT_INK,
-    },
+  const totDriver = totals.totalDriver;
+  const totCust = totals.totalCustomer;
+  const total = totals.totalHours;
+  const rt = totals.regularHours;
+  const ot = totals.overtimeHours;
+  const driverRt = totals.driverRt;
+  const driverOt = totals.driverOt;
+  const checkTotal = totDriver + totCust;
+  const checkCustomer = total - totDriver;
+  const checkDriver = total - totCust;
+  const checkRt = Math.min(checkTotal, 40);
+  const checkOt = Math.max(0, checkTotal - 40);
+  const rtPlusOt = rt + ot;
+  const eq = (a: number, b: number) => Math.abs(a - b) < 0.015;
+  const summaryRows: Array<{
+    label: string;
+    value: number;
+    warn?: boolean;
+  }> = [
+    { label: "Total Driver", value: totDriver },
+    { label: "Total Customer", value: totCust },
+    { label: "Total Hours", value: total },
+    { label: "RT", value: rt },
+    { label: "OT", value: ot, warn: ot > 0.005 },
+    { label: "Driver RT", value: driverRt },
+    { label: "Driver OT", value: driverOt, warn: driverOt > 0.005 },
   ];
+  const checks: Array<{
+    label: string;
+    expected: number;
+    actual: number;
+  }> = [
+    { label: "Total = Driver + Customer", expected: total, actual: checkTotal },
+    {
+      label: "Customer = Total - Driver",
+      expected: totCust,
+      actual: checkCustomer,
+    },
+    {
+      label: "Driver = Total - Customer",
+      expected: totDriver,
+      actual: checkDriver,
+    },
+    { label: "RT = min(Total, 40)", expected: rt, actual: checkRt },
+    { label: "OT = max(0, Total - 40)", expected: ot, actual: checkOt },
+    { label: "RT + OT = Total", expected: total, actual: rtPlusOt },
+  ];
+  const allOk = checks.every((c) => eq(c.expected, c.actual));
+
   const x = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const gap = 10;
+  const colWidth = (width - gap) / 2;
+  const headerHeight = 16;
+  const rowHeight = 14;
+  const summaryHeight = headerHeight + summaryRows.length * rowHeight;
+  const checksHeight = headerHeight + checks.length * rowHeight;
+  const boxHeight = Math.max(summaryHeight, checksHeight);
   const y = doc.y;
-  const height = 42;
+
+  // Summary card.
   doc
     .save()
     .lineWidth(0.5)
     .strokeColor(COLOR_BORDER)
     .fillColor(COLOR_PANEL)
-    .roundedRect(x, y, width, height, 4)
+    .rect(x, y, colWidth, headerHeight)
     .fillAndStroke()
     .restore();
-  const cellWidth = width / cells.length;
-  cells.forEach((c, i) => {
-    const cx = x + i * cellWidth + 10;
+  doc
+    .save()
+    .lineWidth(0.5)
+    .strokeColor(COLOR_BORDER)
+    .rect(x, y + headerHeight, colWidth, boxHeight - headerHeight)
+    .stroke()
+    .restore();
+  doc
+    .font(SANS_BOLD)
+    .fontSize(9)
+    .fillColor(COLOR_INK)
+    .text("SUMMARY", x + 8, y + 4, {
+      width: colWidth - 16,
+      characterSpacing: 0.5,
+      lineBreak: false,
+    });
+  let sy = y + headerHeight;
+  for (const row of summaryRows) {
     doc
-      .font(SANS_BOLD)
-      .fontSize(7)
+      .font(SANS)
+      .fontSize(9)
       .fillColor(COLOR_MUTED)
-      .text(c.label.toUpperCase(), cx, y + 7, {
-        width: cellWidth - 20,
-        characterSpacing: 0.5,
+      .text(row.label, x + 8, sy + 3, {
+        width: colWidth - 80,
+        lineBreak: false,
       });
     doc
       .font(MONO_BOLD)
-      .fontSize(14)
-      .fillColor(c.color)
-      .text(c.value, cx, y + 19, { width: cellWidth - 20 });
-  });
+      .fontSize(9)
+      .fillColor(row.warn ? COLOR_OT_INK : COLOR_INK)
+      .text(row.value.toFixed(2), x + colWidth - 60, sy + 3, {
+        width: 52,
+        align: "right",
+        lineBreak: false,
+      });
+    sy += rowHeight;
+  }
+
+  // Checks card.
+  const cx0 = x + colWidth + gap;
+  const checkHdrBg = allOk ? "#f0fdf4" : COLOR_OT_BG;
+  const checkHdrInk = allOk ? "#166534" : COLOR_OT_INK;
+  const checkBorder = allOk ? "#86efac" : COLOR_ALERT_BORDER;
+  doc
+    .save()
+    .lineWidth(0.5)
+    .strokeColor(checkBorder)
+    .fillColor(checkHdrBg)
+    .rect(cx0, y, colWidth, headerHeight)
+    .fillAndStroke()
+    .restore();
+  doc
+    .save()
+    .lineWidth(0.5)
+    .strokeColor(checkBorder)
+    .rect(cx0, y + headerHeight, colWidth, boxHeight - headerHeight)
+    .stroke()
+    .restore();
+  doc
+    .font(SANS_BOLD)
+    .fontSize(9)
+    .fillColor(checkHdrInk)
+    .text(
+      allOk ? "CHECKS - ALL RECONCILE" : "CHECKS - MISMATCH",
+      cx0 + 8,
+      y + 4,
+      {
+        width: colWidth - 16,
+        characterSpacing: 0.5,
+        lineBreak: false,
+      },
+    );
+  let cy = y + headerHeight;
+  for (const c of checks) {
+    const ok = eq(c.expected, c.actual);
+    doc
+      .font(SANS)
+      .fontSize(9)
+      .fillColor(COLOR_MUTED)
+      .text(c.label, cx0 + 8, cy + 3, {
+        width: colWidth - 60,
+        lineBreak: false,
+      });
+    const mark = ok
+      ? "OK"
+      : `x ${c.actual.toFixed(2)} vs ${c.expected.toFixed(2)}`;
+    doc
+      .font(MONO_BOLD)
+      .fontSize(9)
+      .fillColor(ok ? "#16a34a" : COLOR_OT_INK)
+      .text(mark, cx0 + colWidth - 100, cy + 3, {
+        width: 92,
+        align: "right",
+        lineBreak: false,
+      });
+    cy += rowHeight;
+  }
+
   doc.fillColor(COLOR_INK);
-  doc.y = y + height + 4;
+  doc.y = y + boxHeight + 4;
   doc.x = doc.page.margins.left;
 }
 

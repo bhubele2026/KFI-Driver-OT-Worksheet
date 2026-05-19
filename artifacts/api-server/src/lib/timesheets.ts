@@ -123,6 +123,11 @@ export function buildTimesheets(
     const checks = computeChecks(ps);
     if (options.overtimeOnly && totals.overtimeHours <= 0) continue;
     if (options.alertsOnly && checks.length === 0) continue;
+    // Invariant: rows are a single chronological sequence interleaving
+    // Driver and Customer punches by clock-in time — the same ordering the
+    // hours engine uses for the 40h RT/OT split. Do NOT group by source
+    // here; the on-screen and printable views both rely on this order so
+    // the per-row Running total and the boundary-crossing OT tint line up.
     const sortedPs = [...ps].sort((a, b) => {
       const ta = localStrToSortMs(a.clockIn) ?? isoDateToUtcMs(a.date);
       const tb = localStrToSortMs(b.clockIn) ?? isoDateToUtcMs(b.date);
@@ -372,7 +377,7 @@ export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {
               .map((b) => `<li>${esc(b)}</li>`)
               .join("")}</ul></div>`
           : "";
-      const checksHtml =
+      const alertsHtml =
         s.checks.length > 0
           ? `<div class="alerts"><div class="alerts-title">Validation Alerts</div><ul>${s.checks
               .map(
@@ -381,6 +386,63 @@ export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {
               )
               .join("")}</ul></div>`
           : "";
+      // Mirrors driver-detail.tsx → SummaryAndChecks. Checks derive from
+      // totalDriver / totalCustomer only (not the engine output) so a
+      // mismatch is a meaningful signal of either bad data or an engine
+      // regression. Tolerance matches the on-screen 0.015h band.
+      const totDriver = s.totals.totalDriver;
+      const totCust = s.totals.totalCustomer;
+      const total = s.totals.totalHours;
+      const rt = s.totals.regularHours;
+      const ot = s.totals.overtimeHours;
+      const driverRt = s.totals.driverRt;
+      const driverOt = s.totals.driverOt;
+      const checkTotal = totDriver + totCust;
+      const checkCustomer = total - totDriver;
+      const checkDriver = total - totCust;
+      const checkRt = Math.min(checkTotal, 40);
+      const checkOt = Math.max(0, checkTotal - 40);
+      const rtPlusOt = rt + ot;
+      const eq = (a: number, b: number) => Math.abs(a - b) < 0.015;
+      const reconChecks: Array<{ label: string; expected: number; actual: number }> = [
+        { label: "Total = Driver + Customer", expected: total, actual: checkTotal },
+        { label: "Customer = Total − Driver", expected: totCust, actual: checkCustomer },
+        { label: "Driver = Total − Customer", expected: totDriver, actual: checkDriver },
+        { label: "RT = min(Total, 40)", expected: rt, actual: checkRt },
+        { label: "OT = max(0, Total − 40)", expected: ot, actual: checkOt },
+        { label: "RT + OT = Total", expected: total, actual: rtPlusOt },
+      ];
+      const allOk = reconChecks.every((c) => eq(c.expected, c.actual));
+      const otCls = ot > 0.005 ? " ot-num" : "";
+      const driverOtCls = driverOt > 0.005 ? " ot-num" : "";
+      const summaryRows: Array<{ label: string; value: number; cls: string }> = [
+        { label: "Total Driver", value: totDriver, cls: "" },
+        { label: "Total Customer", value: totCust, cls: "" },
+        { label: "Total Hours", value: total, cls: "" },
+        { label: "RT", value: rt, cls: "" },
+        { label: "OT", value: ot, cls: otCls },
+        { label: "Driver RT", value: driverRt, cls: "" },
+        { label: "Driver OT", value: driverOt, cls: driverOtCls },
+      ];
+      const summaryHtml = `<div class="sum-card" data-testid="card-summary">
+    <div class="sum-card-hdr">Summary</div>
+    <table>${summaryRows
+      .map(
+        (r) =>
+          `<tr><th>${esc(r.label)}</th><td class="num${r.cls}">${r.value.toFixed(2)}</td></tr>`,
+      )
+      .join("")}</table>
+  </div>`;
+      const checksPanelHtml = `<div class="sum-card sum-checks ${allOk ? "ok" : "warn"}" data-testid="card-checks">
+    <div class="sum-card-hdr">Checks ${allOk ? "— all reconcile" : "— mismatch"}</div>
+    <table>${reconChecks
+      .map((c) => {
+        const ok = eq(c.expected, c.actual);
+        return `<tr><th>${esc(c.label)}</th><td class="num">${ok ? "<span class=\"check-ok\">✓</span>" : `<span class=\"check-warn\">✗ ${c.actual.toFixed(2)} vs ${c.expected.toFixed(2)}</span>`}</td></tr>`;
+      })
+      .join("")}</table>
+  </div>`;
+      const summaryChecksHtml = `<div class="summary-checks-grid">${summaryHtml}${checksPanelHtml}</div>`;
       const rowsHtml =
         s.rows.length === 0
           ? `<tr><td colspan="7" class="empty">No punches recorded for this week.</td></tr>`
@@ -416,14 +478,8 @@ export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {
     </div>
   </header>
   ${weekNotesHtml}
-  <div class="stats">
-    <div><span>Driver Hrs</span><strong class="src-driver">${s.totals.totalDriver.toFixed(2)}</strong></div>
-    <div><span>Customer Hrs</span><strong class="src-cust">${s.totals.totalCustomer.toFixed(2)}</strong></div>
-    <div><span>Total</span><strong>${s.totals.totalHours.toFixed(2)}</strong></div>
-    <div><span>Regular</span><strong>${s.totals.regularHours.toFixed(2)}</strong></div>
-    <div><span>Overtime</span><strong class="ot-num">${s.totals.overtimeHours.toFixed(2)}</strong></div>
-  </div>
-  ${checksHtml}
+  ${summaryChecksHtml}
+  ${alertsHtml}
   <table>
     <thead><tr>
       <th>Date</th><th>Source</th><th>Clock In</th><th>Clock Out</th>
@@ -456,9 +512,20 @@ export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {
   .sheet-head h2 { font-size: 20px; margin: 0 0 4px; }
   .sheet-meta { color: #475569; font-size: 12px; }
   .sheet-meta strong { color: #0f172a; font-weight: 600; }
-  .stats { display: flex; gap: 18px; flex-wrap: wrap; padding: 10px 14px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; margin: 12px 0; }
-  .stats div { font-size: 11px; text-transform: uppercase; color: #475569; letter-spacing: 0.04em; }
-  .stats strong { display: block; font-size: 18px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: #0f172a; margin-top: 2px; font-weight: 700; }
+  .summary-checks-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
+  @media (max-width: 700px) { .summary-checks-grid { grid-template-columns: 1fr; } }
+  .sum-card { border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; background: #fff; }
+  .sum-card-hdr { padding: 8px 12px; font-size: 12px; font-weight: 700; color: #0f172a; background: #f1f5f9; border-bottom: 1px solid #cbd5e1; letter-spacing: 0.02em; }
+  .sum-card table { width: 100%; border-collapse: collapse; }
+  .sum-card th { background: #fff; font-weight: 500; text-transform: none; letter-spacing: 0; font-size: 11px; color: #475569; padding: 5px 10px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+  .sum-card td { padding: 5px 10px; border-bottom: 1px solid #e2e8f0; }
+  .sum-card tr:last-child th, .sum-card tr:last-child td { border-bottom: 0; }
+  .sum-checks.ok { border-color: #86efac; }
+  .sum-checks.ok .sum-card-hdr { background: #f0fdf4; color: #166534; border-bottom-color: #bbf7d0; }
+  .sum-checks.warn { border-color: #f59e0b; }
+  .sum-checks.warn .sum-card-hdr { background: #fffbeb; color: #b45309; border-bottom-color: #fcd34d; }
+  .check-ok { color: #16a34a; font-weight: 700; }
+  .check-warn { color: #b45309; font-weight: 700; font-size: 11px; }
   .note-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; margin-left: 8px; border-radius: 999px; background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; vertical-align: middle; }
   .week-notes { margin: 8px 0 12px; padding: 8px 12px; border: 1px solid #c7d2fe; background: #eef2ff; border-radius: 4px; }
   .week-notes-title { font-size: 11px; font-weight: 600; text-transform: uppercase; color: #3730a3; letter-spacing: 0.04em; margin-bottom: 4px; }
