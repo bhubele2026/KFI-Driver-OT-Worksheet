@@ -996,10 +996,7 @@ export default function DriverDetail() {
     const isOt = otPortion > 0.0001 || running >= OT_THRESHOLD - 0.0001;
     const isFirstOfDate = p.date !== prevDate;
     prevDate = p.date;
-    // True when this is the last punch on its date (in chronological order),
-    // so the day-total row should appear immediately after it.
-    const isLastOfDay = sortedPunches[idx + 1]?.date !== p.date;
-    return { p, after: running, isOt, isFirstOfDate, isLastOfDay };
+    return { p, after: running, isOt, isFirstOfDate };
   });
 
   // Per-day + week-level reviewed counters surfaced as small badges.
@@ -1696,7 +1693,7 @@ export default function DriverDetail() {
                     </TableCell>
                   </TableRow>
                 )}
-                {rows.map(({ p, after, isOt, isFirstOfDate, isLastOfDay }) => {
+                {rows.map(({ p, after, isOt, isFirstOfDate }) => {
                   const isEditing = editingPunchId === p.id;
                   const isDriver = p.source === "Driver";
                   const remaining = OT_THRESHOLD - after;
@@ -1722,31 +1719,140 @@ export default function DriverDetail() {
                       data-testid={`row-punch-${p.id}`}
                       className={cn(
                         isOt && "bg-warning/10 hover:bg-warning/15",
-                        "scroll-mt-24 transition-colors",
+                        "scroll-mt-24 transition-colors [&>td]:py-1.5",
                       )}
                     >
-                      <TableCell className="font-mono text-sm whitespace-nowrap align-top">
+                      <TableCell className="font-mono text-xs whitespace-nowrap align-top">
                         <div>{p.date}</div>
-                        {isFirstOfDate && (() => {
-                          const dc = dayCounts.get(p.date);
-                          if (!dc) return null;
-                          const allDone = dc.total > 0 && dc.reviewed === dc.total;
-                          return (
-                            <div
-                              className={cn(
-                                "mt-1 inline-flex items-center gap-0.5 text-[9px] font-mono tracking-tight px-1 py-0 rounded border",
-                                allDone
-                                  ? "border-emerald-500/50 text-emerald-600 bg-emerald-500/5"
-                                  : "border-border text-muted-foreground",
-                              )}
-                              data-testid={`day-reviewed-count-${p.date}`}
-                              title="Reviewed punches / total on this day"
-                            >
-                              {allDone && <CheckIcon className="h-2.5 w-2.5" />}
-                              {dc.reviewed}/{dc.total}
-                            </div>
-                          );
-                        })()}
+                        {isFirstOfDate && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {(() => {
+                              const dayTotal = dailyTotalByDate.get(p.date) ?? 0;
+                              const isOverridden =
+                                dayOverridesByDate.get(p.date) ?? false;
+                              const lastTouch = dayLastTouchByDate.get(p.date);
+                              const overrideTitle = isOverridden
+                                ? `Day total overridden${lastTouch?.email ? ` by ${lastTouch.email}` : ""}${lastTouch?.at ? ` on ${new Date(lastTouch.at).toLocaleString()}` : ""}`
+                                : "Click to set this day's total — punches will be scaled proportionally";
+                              const isEditingThisDay = editingDay === p.date;
+                              const isSavingThisDay =
+                                (scaleDayHours.isPending ||
+                                  resetDayHours.isPending) &&
+                                editingDay === p.date;
+                              return (
+                                <span
+                                  className="inline-flex items-center gap-0.5"
+                                  data-testid={`row-day-total-${p.date}`}
+                                >
+                                  {isEditingThisDay ? (
+                                    <>
+                                      <Input
+                                        autoFocus
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        max="24"
+                                        className="h-5 w-14 font-mono text-[11px] px-1 py-0"
+                                        value={editingDayValue}
+                                        onChange={(e) =>
+                                          setEditingDayValue(e.target.value)
+                                        }
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") {
+                                            e.preventDefault();
+                                            saveEditDay(p.date);
+                                          } else if (e.key === "Escape") {
+                                            e.preventDefault();
+                                            cancelEditDay();
+                                          }
+                                        }}
+                                        data-testid={`input-day-total-${p.date}`}
+                                      />
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-5 w-5 text-green-600"
+                                        onClick={() => saveEditDay(p.date)}
+                                        disabled={isSavingThisDay}
+                                        data-testid={`button-save-day-total-${p.date}`}
+                                      >
+                                        {isSavingThisDay ? (
+                                          <Loader2 className="h-3 w-3 animate-spin" />
+                                        ) : (
+                                          <Save className="h-3 w-3" />
+                                        )}
+                                      </Button>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-5 w-5 text-muted-foreground"
+                                        onClick={cancelEditDay}
+                                        data-testid={`button-cancel-day-total-${p.date}`}
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          startEditDay(p.date, dayTotal)
+                                        }
+                                        className={cn(
+                                          "font-mono text-[11px] tabular-nums px-1 py-0 rounded hover:underline decoration-dotted underline-offset-2 cursor-pointer",
+                                          isOverridden
+                                            ? "border border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300 font-medium"
+                                            : "text-muted-foreground hover:text-foreground",
+                                        )}
+                                        title={overrideTitle}
+                                        data-testid={`button-edit-day-total-${p.date}`}
+                                      >
+                                        {dayTotal.toFixed(2)}h
+                                      </button>
+                                      {isOverridden && (
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-5 w-5 text-amber-700 dark:text-amber-300 hover:text-foreground print:hidden"
+                                          onClick={() => handleResetDay(p.date)}
+                                          disabled={resetDayHours.isPending}
+                                          title="Reset this day back to the engine-derived total"
+                                          data-testid={`button-reset-day-total-${p.date}`}
+                                        >
+                                          <Undo2 className="h-3 w-3" />
+                                        </Button>
+                                      )}
+                                    </>
+                                  )}
+                                </span>
+                              );
+                            })()}
+                            {(() => {
+                              const dc = dayCounts.get(p.date);
+                              if (!dc) return null;
+                              const allDone =
+                                dc.total > 0 && dc.reviewed === dc.total;
+                              return (
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-0.5 text-[9px] font-mono tracking-tight px-1 py-0 rounded border",
+                                    allDone
+                                      ? "border-emerald-500/50 text-emerald-600 bg-emerald-500/5"
+                                      : "border-border text-muted-foreground",
+                                  )}
+                                  data-testid={`day-reviewed-count-${p.date}`}
+                                  title="Reviewed punches / total on this day"
+                                >
+                                  {allDone && (
+                                    <CheckIcon className="h-2.5 w-2.5" />
+                                  )}
+                                  {dc.reviewed}/{dc.total}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>
                         <SourceBadge source={p.source} />
@@ -1775,11 +1881,11 @@ export default function DriverDetail() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className={cn("font-mono text-base whitespace-nowrap", sourceCellTint)}>
+                      <TableCell className={cn("font-mono text-xs whitespace-nowrap", sourceCellTint)}>
                         {isEditing ? (
                           <Input
                             autoFocus
-                            className="h-8 w-28 font-mono text-sm"
+                            className="h-7 w-24 font-mono text-xs"
                             placeholder="7:30 AM"
                             value={editClockIn}
                             onChange={(e) => {
@@ -1801,10 +1907,10 @@ export default function DriverDetail() {
                           formatClockCell(p.clockIn)
                         )}
                       </TableCell>
-                      <TableCell className={cn("font-mono text-base whitespace-nowrap", sourceCellTint)}>
+                      <TableCell className={cn("font-mono text-xs whitespace-nowrap", sourceCellTint)}>
                         {isEditing ? (
                           <Input
-                            className="h-8 w-28 font-mono text-sm"
+                            className="h-7 w-24 font-mono text-xs"
                             placeholder="3:45 PM"
                             value={editClockOut}
                             onChange={(e) => {
@@ -1826,7 +1932,7 @@ export default function DriverDetail() {
                           formatClockCell(p.clockOut)
                         )}
                       </TableCell>
-                      <TableCell className={cn("text-right font-mono font-medium text-base", sourceCellTint)}>
+                      <TableCell className={cn("text-right font-mono font-medium text-xs", sourceCellTint)}>
                         {isEditing && editPreview
                           ? editPreview.hours.toFixed(2)
                           : p.hours.toFixed(2)}
@@ -1852,7 +1958,7 @@ export default function DriverDetail() {
                             <TooltipTrigger asChild>
                               <span
                                 className={cn(
-                                  "font-mono text-base tabular-nums cursor-help",
+                                  "font-mono text-xs tabular-nums cursor-help",
                                   isOt ? "text-warning font-semibold" : "text-muted-foreground",
                                 )}
                               >
@@ -1868,7 +1974,7 @@ export default function DriverDetail() {
                       </TableCell>
                       <TableCell
                         className={cn(
-                          "text-right font-medium text-sm",
+                          "text-right font-medium text-xs",
                           isDriver ? "text-sidebar dark:text-sidebar-foreground" : "text-primary",
                         )}
                       >
@@ -2048,133 +2154,6 @@ export default function DriverDetail() {
                         </TableCell>
                       </TableRow>
                     )}
-                    {isLastOfDay && (() => {
-                      const dayTotal =
-                        dailyTotalByDate.get(p.date) ?? 0;
-                      const isOverridden = dayOverridesByDate.get(p.date) ?? false;
-                      const lastTouch = dayLastTouchByDate.get(p.date);
-                      const overrideTitle = isOverridden
-                        ? `Day total overridden${lastTouch?.email ? ` by ${lastTouch.email}` : ""}${lastTouch?.at ? ` on ${new Date(lastTouch.at).toLocaleString()}` : ""}`
-                        : "";
-                      const isEditingThisDay = editingDay === p.date;
-                      const isSavingThisDay =
-                        (scaleDayHours.isPending || resetDayHours.isPending) &&
-                        editingDay === p.date;
-                      return (
-                        <TableRow
-                          className="bg-muted/40 hover:bg-muted/50 border-t-2 border-border"
-                          data-testid={`row-day-total-${p.date}`}
-                        >
-                          <TableCell
-                            colSpan={4}
-                            className="font-mono text-xs uppercase tracking-wider text-muted-foreground"
-                          >
-                            Daily total — {p.date}
-                            {isOverridden ? (
-                              <span
-                                className="ml-2 inline-flex items-center gap-1 text-[10px] normal-case tracking-normal font-medium px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                                title={overrideTitle}
-                                data-testid={`badge-day-overridden-${p.date}`}
-                              >
-                                Overridden
-                                {lastTouch?.email && (
-                                  <span className="font-mono text-amber-700/80 dark:text-amber-300/80">
-                                    · {lastTouch.email}
-                                  </span>
-                                )}
-                              </span>
-                            ) : (
-                              <span className="ml-2 text-[10px] normal-case tracking-normal text-muted-foreground/70">
-                                click value to override
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right font-mono font-semibold text-base">
-                            {isEditingThisDay ? (
-                              <Input
-                                autoFocus
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                max="24"
-                                className="h-8 w-20 font-mono text-sm ml-auto"
-                                value={editingDayValue}
-                                onChange={(e) =>
-                                  setEditingDayValue(e.target.value)
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    saveEditDay(p.date);
-                                  } else if (e.key === "Escape") {
-                                    e.preventDefault();
-                                    cancelEditDay();
-                                  }
-                                }}
-                                data-testid={`input-day-total-${p.date}`}
-                              />
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => startEditDay(p.date, dayTotal)}
-                                className="font-mono text-base font-semibold hover:underline decoration-dotted underline-offset-4 cursor-pointer"
-                                title="Click to set this day's total — punches will be scaled proportionally"
-                                data-testid={`button-edit-day-total-${p.date}`}
-                              >
-                                {dayTotal.toFixed(2)}
-                              </button>
-                            )}
-                          </TableCell>
-                          <TableCell />
-                          <TableCell className="text-right text-[10px] uppercase tracking-wider text-muted-foreground">
-                            Day
-                          </TableCell>
-                          <TableCell className="text-right print:hidden">
-                            {isEditingThisDay ? (
-                              <div className="flex items-center justify-end gap-1">
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-7 w-7 text-green-600"
-                                  onClick={() => saveEditDay(p.date)}
-                                  disabled={isSavingThisDay}
-                                  data-testid={`button-save-day-total-${p.date}`}
-                                >
-                                  {isSavingThisDay ? (
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                  ) : (
-                                    <Save className="h-3 w-3" />
-                                  )}
-                                </Button>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-7 w-7 text-muted-foreground"
-                                  onClick={cancelEditDay}
-                                  data-testid={`button-cancel-day-total-${p.date}`}
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-end gap-1 opacity-60 hover:opacity-100">
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                                  onClick={() => handleResetDay(p.date)}
-                                  disabled={resetDayHours.isPending}
-                                  title="Reset this day back to the engine-derived total"
-                                  data-testid={`button-reset-day-total-${p.date}`}
-                                >
-                                  <Undo2 className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })()}
                     </Fragment>
                   );
                 })}
