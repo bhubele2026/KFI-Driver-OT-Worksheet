@@ -213,11 +213,6 @@ export function computeChecks(punches: Punch[]): PunchCheck[] {
       continue;
     }
     if (ci !== null && co !== null && co <= ci) {
-      out.push({
-        level: "error",
-        message: "Clock-out before clock-in",
-        date: r.date,
-      });
       continue;
     }
     if (ci !== null && co !== null) {
