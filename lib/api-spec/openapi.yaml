@@ -688,6 +688,53 @@ paths:
               schema: { $ref: "#/components/schemas/RefreshResult" }
         "502": { description: Upstream Connecteam error }
 
+  /weeks/{weekStart}/reset:
+    post:
+      operationId: resetWeek
+      tags: [ingest]
+      summary: Destructive reset of all data for a week (admin)
+      description: |
+        Admin-only. Wipes data scoped to `(weekStart)` inside a single
+        transaction, then publishes a `week-reset` realtime event and
+        writes a `user_audit_log` entry. Blocks with 409 if any driver in
+        the week is locked — the admin must unlock first.
+
+        Scopes:
+          - `punches-only`: hard-delete every row in `punches` for the
+            week (manual + imported + Driver + Customer). One row per
+            deleted punch is appended to `punch_deletions` so the deletes
+            remain attributable.
+          - `punches-and-reviewed`: above plus delete every
+            `reviewed_drivers` row for the week (clears review status; no
+            locked rows exist since the route would have 409'd).
+          - `all`: above plus soft-delete every `driver_notes` row for
+            the week, wipe `customer_upload_attempts` for the week, wipe
+            `connecteam_daily_snapshots` for the week, and clear
+            `weeks.last_refreshed_at` / `last_refreshed_by`.
+
+        The `confirm` field must equal the `weekStart` path param exactly
+        (the UI uses type-to-confirm) — mismatched values return 400.
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetWeekBody" }
+      responses:
+        "200":
+          description: Reset result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResetWeekResult" }
+        "400": { description: Invalid input or confirm mismatch }
+        "403": { description: Admin only }
+        "409":
+          description: One or more drivers in the week are locked; unlock first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResetWeekLockedError" }
+
   /weeks/{weekStart}/upload-customer-file:
     post:
       operationId: uploadCustomerFile
@@ -2514,6 +2561,59 @@ components:
         driversFound: { type: integer }
         punchesUpserted: { type: integer }
         refreshedAt: { type: string, format: date-time }
+
+    ResetWeekBody:
+      type: object
+      required: [scope, confirm]
+      properties:
+        scope:
+          type: string
+          enum: [punches-only, punches-and-reviewed, all]
+          description: |
+            What to wipe. See the route description for exact semantics.
+        confirm:
+          type: string
+          description: |
+            Must exactly equal the `weekStart` path parameter. The UI is a
+            type-to-confirm dialog; the server re-checks so a malicious
+            client can't bypass it.
+
+    ResetWeekResult:
+      type: object
+      required:
+        [
+          scope,
+          weekStart,
+          punchesDeleted,
+          reviewedDeleted,
+          notesSoftDeleted,
+          customerUploadAttemptsDeleted,
+          snapshotsDeleted,
+          weekRefreshCleared,
+        ]
+      properties:
+        scope:
+          type: string
+          enum: [punches-only, punches-and-reviewed, all]
+        weekStart: { type: string, format: date }
+        punchesDeleted: { type: integer }
+        reviewedDeleted: { type: integer }
+        notesSoftDeleted: { type: integer }
+        customerUploadAttemptsDeleted: { type: integer }
+        snapshotsDeleted: { type: integer }
+        weekRefreshCleared:
+          type: boolean
+          description: True when `weeks.last_refreshed_at/by` was cleared (only on `scope=all`).
+
+    ResetWeekLockedError:
+      type: object
+      required: [error, lockedKfiIds]
+      properties:
+        error: { type: string }
+        lockedKfiIds:
+          type: array
+          items: { type: string }
+          description: KFI ids of drivers whose week is currently locked.
 
     UploadResult:
       type: object

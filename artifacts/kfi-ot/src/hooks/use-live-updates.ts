@@ -109,6 +109,37 @@ export function useLiveUpdates({
             }
             break;
 
+          case "week-reset":
+            // A destructive admin reset wipes data for the entire week, so
+            // invalidate every cache surface this page might be looking at.
+            qc.invalidateQueries({
+              queryKey: getGetWeekSummaryQueryKey(event.weekStart),
+            });
+            qc.invalidateQueries({
+              queryKey: getGetCustomerUploadStatusQueryKey(event.weekStart),
+            });
+            if (kfiId) {
+              qc.invalidateQueries({
+                queryKey: getGetDriverWeekQueryKey(event.weekStart, kfiId),
+              });
+              qc.invalidateQueries({
+                queryKey: getGetDriverWeekAuditQueryKey(event.weekStart, kfiId),
+              });
+              qc.invalidateQueries({
+                queryKey: getListDriverNotesQueryKey(event.weekStart, kfiId),
+              });
+            }
+            if (enableToasts && !isSelf) {
+              toast({
+                title: "Week reset",
+                description: event.actor?.email
+                  ? `${event.actor.email} wiped ${event.punchesDeleted} punch${event.punchesDeleted === 1 ? "" : "es"} (${event.scope}).`
+                  : `${event.punchesDeleted} punch${event.punchesDeleted === 1 ? "" : "es"} wiped (${event.scope}).`,
+                variant: "destructive",
+              });
+            }
+            break;
+
           case "customer-upload":
             qc.invalidateQueries({
               queryKey: getGetWeekSummaryQueryKey(event.weekStart),

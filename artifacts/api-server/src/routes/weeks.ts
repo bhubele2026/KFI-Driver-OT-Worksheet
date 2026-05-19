@@ -10,6 +10,7 @@ import {
   CreateManualPunchBody,
   CreateParserPromotionSnoozeBody,
   CreateDriverIdAliasBody,
+  ResetWeekBody,
   SetReviewedBody,
   UpdateCustomerNameAliasBody,
   UpdateDriverIdAliasBody,
@@ -956,6 +957,174 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
       .json({ error: err instanceof Error ? err.message : "Connecteam error" });
   }
 });
+
+weeksRouter.post(
+  "/weeks/:weekStart/reset",
+  requireAdmin,
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    const parsed = ResetWeekBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+      return;
+    }
+    const { scope, confirm } = parsed.data;
+    // Type-to-confirm: the dialog asks the admin to type the week start
+    // date. Re-check server-side so a malicious client can't bypass it.
+    if (confirm !== weekStart) {
+      res.status(400).json({
+        error: "Confirmation does not match the week start date.",
+      });
+      return;
+    }
+    // Lock-gate: a reset is too destructive to silently skip locked rows
+    // like the Connecteam refresh does. If any driver-week is locked the
+    // admin must explicitly unlock first.
+    const lockedKfiIds = await loadLockedKfiIds(weekStart);
+    if (lockedKfiIds.size > 0) {
+      res.status(409).json({
+        error: `Cannot reset week: ${lockedKfiIds.size} driver-week${
+          lockedKfiIds.size === 1 ? " is" : "s are"
+        } locked. Unlock first.`,
+        lockedKfiIds: [...lockedKfiIds].sort(),
+      });
+      return;
+    }
+    const userId = req.session.userId ?? null;
+    const now = new Date();
+    let punchesDeleted = 0;
+    let reviewedDeleted = 0;
+    let notesSoftDeleted = 0;
+    let customerUploadAttemptsDeleted = 0;
+    let snapshotsDeleted = 0;
+    let weekRefreshCleared = false;
+    try {
+      await db.transaction(async (tx) => {
+        // 1. Always: hard-delete every punch for the week, but first snapshot
+        //    enough context per row into punch_deletions so the wipe remains
+        //    attributable during reconciliation disputes.
+        const punches = await tx
+          .select({
+            id: schema.punchesTable.id,
+            kfiId: schema.punchesTable.kfiId,
+            customer: schema.punchesTable.customer,
+            source: schema.punchesTable.source,
+          })
+          .from(schema.punchesTable)
+          .where(eq(schema.punchesTable.weekStart, weekStart));
+        if (punches.length > 0) {
+          await tx.insert(schema.punchDeletionsTable).values(
+            punches.map((p) => ({
+              punchId: p.id,
+              weekStart,
+              kfiId: p.kfiId,
+              customer: p.customer,
+              source: p.source,
+              deletedBy: userId,
+              deletedAt: now,
+            })),
+          );
+          const del = await tx
+            .delete(schema.punchesTable)
+            .where(eq(schema.punchesTable.weekStart, weekStart))
+            .returning({ id: schema.punchesTable.id });
+          punchesDeleted = del.length;
+        }
+        // 2. punches-and-reviewed + all: wipe every reviewed_drivers row for
+        //    the week. No row will have lockedAt set because the 409 above
+        //    would have fired.
+        if (scope === "punches-and-reviewed" || scope === "all") {
+          const del = await tx
+            .delete(schema.reviewedDriversTable)
+            .where(eq(schema.reviewedDriversTable.weekStart, weekStart))
+            .returning({ kfiId: schema.reviewedDriversTable.kfiId });
+          reviewedDeleted = del.length;
+        }
+        // 3. all: also soft-delete every driver_notes row, wipe
+        //    customer_upload_attempts + connecteam_daily_snapshots, and
+        //    clear weeks.last_refreshed_at/by so the dashboard goes back to
+        //    a fully blank slate.
+        if (scope === "all") {
+          const notesDel = await tx
+            .update(schema.driverNotesTable)
+            .set({
+              deletedAt: now,
+              deletedByUserId: userId,
+              lastHiddenAt: now,
+              lastHiddenByUserId: userId,
+            })
+            .where(
+              and(
+                eq(schema.driverNotesTable.weekStart, weekStart),
+                sql`${schema.driverNotesTable.deletedAt} IS NULL`,
+              ),
+            )
+            .returning({ id: schema.driverNotesTable.id });
+          notesSoftDeleted = notesDel.length;
+          const uploadsDel = await tx
+            .delete(schema.customerUploadAttemptsTable)
+            .where(
+              eq(schema.customerUploadAttemptsTable.weekStart, weekStart),
+            )
+            .returning({ customer: schema.customerUploadAttemptsTable.customer });
+          customerUploadAttemptsDeleted = uploadsDel.length;
+          const snapDel = await tx
+            .delete(schema.connecteamDailySnapshotsTable)
+            .where(
+              eq(schema.connecteamDailySnapshotsTable.weekStart, weekStart),
+            )
+            .returning({ kfiId: schema.connecteamDailySnapshotsTable.kfiId });
+          snapshotsDeleted = snapDel.length;
+          await tx
+            .update(schema.weeksTable)
+            .set({ lastRefreshedAt: null, lastRefreshedBy: null })
+            .where(eq(schema.weeksTable.startDate, weekStart));
+          weekRefreshCleared = true;
+        }
+        // 4. Append-only admin audit. targetEmail carries a synthetic
+        //    `week-reset:<weekStart>|scope=<scope>|punches=N` so the admin
+        //    users page can render a human-readable label without a join.
+        await tx.insert(schema.userAuditLogTable).values({
+          actorUserId: userId,
+          targetUserId: null,
+          targetEmail: `week-reset:${weekStart}|scope=${scope}|punches=${punchesDeleted}|reviewed=${reviewedDeleted}|notes=${notesSoftDeleted}`,
+          action: "week-reset",
+        });
+      });
+    } catch (err) {
+      req.log.error({ err, weekStart, scope }, "week reset failed");
+      res.status(500).json({
+        error: err instanceof Error ? err.message : "Week reset failed",
+      });
+      return;
+    }
+    // Publish AFTER the transaction commits so a rolled-back reset never
+    // fans out a ghost realtime event.
+    publishRealtime({
+      type: "week-reset",
+      weekStart,
+      scope,
+      punchesDeleted,
+      reviewedDeleted,
+      notesSoftDeleted,
+      actor: actorRef(req),
+    });
+    res.json({
+      scope,
+      weekStart,
+      punchesDeleted,
+      reviewedDeleted,
+      notesSoftDeleted,
+      customerUploadAttemptsDeleted,
+      snapshotsDeleted,
+      weekRefreshCleared,
+    });
+  },
+);
 
 weeksRouter.post(
   "/weeks/:weekStart/upload-customer-file",

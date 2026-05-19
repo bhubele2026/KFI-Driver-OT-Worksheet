@@ -1975,7 +1975,7 @@ export default function AdminUsers() {
                               )
                             </span>
                           </span>
-                        ) : renderParserSnoozeLabel(entry.action, entry.targetEmail) ?? (
+                        ) : renderWeekResetLabel(entry.action, entry.targetEmail) ?? renderParserSnoozeLabel(entry.action, entry.targetEmail) ?? (
                           <span className="font-mono">{entry.targetEmail ?? "—"}</span>
                         )}
                       </TableCell>
@@ -2182,6 +2182,42 @@ function UserAuditHistory({
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+function renderWeekResetLabel(
+  action: string,
+  targetEmail: string | null | undefined,
+): ReactNode | null {
+  if (action !== "week-reset") return null;
+  if (!targetEmail) return null;
+  const rest = targetEmail.startsWith("week-reset:")
+    ? targetEmail.slice("week-reset:".length)
+    : targetEmail;
+  const [weekStart, ...metaParts] = rest.split("|");
+  const meta = Object.fromEntries(
+    metaParts.map((p) => {
+      const [k, ...rest] = p.split("=");
+      return [k, rest.join("=")];
+    }),
+  );
+  const scope = meta.scope ?? "punches-only";
+  const punches = meta.punches ?? "0";
+  const reviewed = meta.reviewed ?? "0";
+  const notes = meta.notes ?? "0";
+  const scopeLabel =
+    scope === "all"
+      ? "everything"
+      : scope === "punches-and-reviewed"
+        ? "punches + reviewed"
+        : "punches only";
+  return (
+    <span>
+      Reset week <span className="font-mono">{weekStart}</span>{" "}
+      <span className="text-muted-foreground">
+        ({scopeLabel}; {punches} punches, {reviewed} reviewed, {notes} notes)
+      </span>
+    </span>
   );
 }
 

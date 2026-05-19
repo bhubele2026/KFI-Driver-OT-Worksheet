@@ -5,6 +5,7 @@ import {
   useGetWeekSummary,
   useListWeeks,
   useRefreshConnecteam,
+  useResetWeek,
   getGetWeekSummaryQueryKey,
   getGetCustomerUploadStatusQueryKey,
   useLogout,
@@ -41,6 +42,18 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -64,6 +77,7 @@ import {
   StickyNote,
   Check,
   Pencil,
+  Trash2,
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
 import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
@@ -167,7 +181,75 @@ export default function WeekSummary() {
 
   const refreshCt = useRefreshConnecteam();
   const setReviewed = useSetReviewed();
+  const resetWeekMut = useResetWeek();
   const [sidebarCollapsed, , toggleSidebar] = useSidebarCollapsed();
+
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetScope, setResetScope] = useState<
+    "punches-only" | "punches-and-reviewed" | "all"
+  >("punches-only");
+  const [resetConfirmText, setResetConfirmText] = useState("");
+
+  const openResetDialog = () => {
+    setResetScope("punches-only");
+    setResetConfirmText("");
+    setResetOpen(true);
+  };
+
+  const handleReset = () => {
+    resetWeekMut.mutate(
+      { weekStart, data: { scope: resetScope, confirm: resetConfirmText } },
+      {
+        onSuccess: (data) => {
+          setResetOpen(false);
+          setResetConfirmText("");
+          queryClient.invalidateQueries({
+            queryKey: getGetWeekSummaryQueryKey(weekStart),
+          });
+          queryClient.invalidateQueries({
+            queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
+          });
+          toast({
+            title: "Week reset",
+            description: `Deleted ${data.punchesDeleted} punch${
+              data.punchesDeleted === 1 ? "" : "es"
+            }${
+              data.reviewedDeleted > 0
+                ? `, ${data.reviewedDeleted} review row${
+                    data.reviewedDeleted === 1 ? "" : "s"
+                  }`
+                : ""
+            }${
+              data.notesSoftDeleted > 0
+                ? `, ${data.notesSoftDeleted} note${
+                    data.notesSoftDeleted === 1 ? "" : "s"
+                  } hidden`
+                : ""
+            }.`,
+          });
+        },
+        onError: (err) => {
+          const e = err as unknown as {
+            status?: number;
+            data?: { error?: string; lockedKfiIds?: string[] };
+          };
+          if (e.status === 409 && e.data?.lockedKfiIds?.length) {
+            toast({
+              title: "Reset blocked: locked drivers",
+              description: `Unlock first: ${e.data.lockedKfiIds.join(", ")}`,
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Reset failed",
+              description: errMessage(err, "Could not reset week."),
+              variant: "destructive",
+            });
+          }
+        },
+      },
+    );
+  };
 
   const goWeek = (delta: number) => {
     const base = parseISO(weekStart);
@@ -536,10 +618,142 @@ export default function WeekSummary() {
                 {t("weekSummary.refreshConnecteam")}
               </Button>
               {me?.isAdmin ? (
-                <ZenopleExportButton weekStart={weekStart} />
+                <>
+                  <ZenopleExportButton weekStart={weekStart} />
+                  <Button
+                    variant="destructive"
+                    onClick={openResetDialog}
+                    data-testid="button-open-reset-week"
+                    disabled={resetWeekMut.isPending}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Reset Week
+                  </Button>
+                </>
               ) : null}
             </div>
           </div>
+
+          <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
+            <AlertDialogContent data-testid="dialog-reset-week">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reset week {weekStart}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This is a destructive admin action. Choose what to wipe,
+                  then type the week start date below to confirm. Every
+                  deleted punch is still recorded in the deletion audit
+                  log, so this remains attributable.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <RadioGroup
+                value={resetScope}
+                onValueChange={(v) =>
+                  setResetScope(
+                    v as "punches-only" | "punches-and-reviewed" | "all",
+                  )
+                }
+                className="gap-3 py-2"
+              >
+                <div className="flex items-start gap-3">
+                  <RadioGroupItem
+                    value="punches-only"
+                    id="reset-scope-punches"
+                    className="mt-1"
+                    data-testid="radio-reset-scope-punches-only"
+                  />
+                  <div className="space-y-0.5">
+                    <Label htmlFor="reset-scope-punches" className="font-medium">
+                      Punches only
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Delete every driver + customer + manual punch for
+                      this week. Review status and notes are preserved.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <RadioGroupItem
+                    value="punches-and-reviewed"
+                    id="reset-scope-reviewed"
+                    className="mt-1"
+                    data-testid="radio-reset-scope-punches-and-reviewed"
+                  />
+                  <div className="space-y-0.5">
+                    <Label
+                      htmlFor="reset-scope-reviewed"
+                      className="font-medium"
+                    >
+                      Punches + reviewed flags
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Also clear every "reviewed" mark for this week.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <RadioGroupItem
+                    value="all"
+                    id="reset-scope-all"
+                    className="mt-1"
+                    data-testid="radio-reset-scope-all"
+                  />
+                  <div className="space-y-0.5">
+                    <Label htmlFor="reset-scope-all" className="font-medium">
+                      Everything (full reset)
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Also hide every note, clear customer-upload history,
+                      wipe Connecteam parity baselines, and unmark the
+                      week as refreshed.
+                    </p>
+                  </div>
+                </div>
+              </RadioGroup>
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="reset-confirm"
+                  className="text-xs uppercase tracking-wide text-muted-foreground"
+                >
+                  Type <span className="font-mono">{weekStart}</span> to confirm
+                </Label>
+                <Input
+                  id="reset-confirm"
+                  value={resetConfirmText}
+                  onChange={(e) => setResetConfirmText(e.target.value)}
+                  placeholder={weekStart}
+                  className="font-mono"
+                  data-testid="input-reset-confirm"
+                  autoComplete="off"
+                />
+              </div>
+              <AlertDialogFooter>
+                <AlertDialogCancel
+                  disabled={resetWeekMut.isPending}
+                  data-testid="button-reset-cancel"
+                >
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleReset();
+                  }}
+                  disabled={
+                    resetConfirmText !== weekStart || resetWeekMut.isPending
+                  }
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  data-testid="button-reset-confirm"
+                >
+                  {resetWeekMut.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="mr-2 h-4 w-4" />
+                  )}
+                  Reset week
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {isLoading ? (
             <div className="py-12 flex justify-center">

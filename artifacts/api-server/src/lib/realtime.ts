@@ -46,6 +46,15 @@ export type RealtimeEvent =
       actor: ActorRef | null;
     }
   | {
+      type: "week-reset";
+      weekStart: string;
+      scope: "punches-only" | "punches-and-reviewed" | "all";
+      punchesDeleted: number;
+      reviewedDeleted: number;
+      notesSoftDeleted: number;
+      actor: ActorRef | null;
+    }
+  | {
       type: "customer-upload";
       weekStart: string;
       customer: string;

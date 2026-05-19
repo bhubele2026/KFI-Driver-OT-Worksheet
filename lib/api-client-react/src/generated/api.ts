@@ -85,6 +85,9 @@ import type {
   RemoveParserPromotionSnoozeParams,
   RequestPasswordResetBody,
   ResetPasswordBody,
+  ResetWeekBody,
+  ResetWeekLockedError,
+  ResetWeekResult,
   ScaleDayHoursInput,
   SetPunchReviewedBody,
   SetReviewed200,
@@ -3457,6 +3460,114 @@ export const useRefreshConnecteam = <
   TContext
 > => {
   return useMutation(getRefreshConnecteamMutationOptions(options));
+};
+
+/**
+ * Admin-only. Wipes data scoped to `(weekStart)` inside a single
+transaction, then publishes a `week-reset` realtime event and
+writes a `user_audit_log` entry. Blocks with 409 if any driver in
+the week is locked — the admin must unlock first.
+
+Scopes:
+  - `punches-only`: hard-delete every row in `punches` for the
+    week (manual + imported + Driver + Customer). One row per
+    deleted punch is appended to `punch_deletions` so the deletes
+    remain attributable.
+  - `punches-and-reviewed`: above plus delete every
+    `reviewed_drivers` row for the week (clears review status; no
+    locked rows exist since the route would have 409'd).
+  - `all`: above plus soft-delete every `driver_notes` row for
+    the week, wipe `customer_upload_attempts` for the week, wipe
+    `connecteam_daily_snapshots` for the week, and clear
+    `weeks.last_refreshed_at` / `last_refreshed_by`.
+
+The `confirm` field must equal the `weekStart` path param exactly
+(the UI uses type-to-confirm) — mismatched values return 400.
+
+ * @summary Destructive reset of all data for a week (admin)
+ */
+export const getResetWeekUrl = (weekStart: string) => {
+  return `/api/weeks/${weekStart}/reset`;
+};
+
+export const resetWeek = async (
+  weekStart: string,
+  resetWeekBody: ResetWeekBody,
+  options?: RequestInit,
+): Promise<ResetWeekResult> => {
+  return customFetch<ResetWeekResult>(getResetWeekUrl(weekStart), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(resetWeekBody),
+  });
+};
+
+export const getResetWeekMutationOptions = <
+  TError = ErrorType<void | ResetWeekLockedError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetWeek>>,
+    TError,
+    { weekStart: string; data: BodyType<ResetWeekBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resetWeek>>,
+  TError,
+  { weekStart: string; data: BodyType<ResetWeekBody> },
+  TContext
+> => {
+  const mutationKey = ["resetWeek"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resetWeek>>,
+    { weekStart: string; data: BodyType<ResetWeekBody> }
+  > = (props) => {
+    const { weekStart, data } = props ?? {};
+
+    return resetWeek(weekStart, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResetWeekMutationResult = NonNullable<
+  Awaited<ReturnType<typeof resetWeek>>
+>;
+export type ResetWeekMutationBody = BodyType<ResetWeekBody>;
+export type ResetWeekMutationError = ErrorType<void | ResetWeekLockedError>;
+
+/**
+ * @summary Destructive reset of all data for a week (admin)
+ */
+export const useResetWeek = <
+  TError = ErrorType<void | ResetWeekLockedError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetWeek>>,
+    TError,
+    { weekStart: string; data: BodyType<ResetWeekBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof resetWeek>>,
+  TError,
+  { weekStart: string; data: BodyType<ResetWeekBody> },
+  TContext
+> => {
+  return useMutation(getResetWeekMutationOptions(options));
 };
 
 /**

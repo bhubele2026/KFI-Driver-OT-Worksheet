@@ -1130,6 +1130,67 @@ export const RefreshConnecteamResponse = zod.object({
 });
 
 /**
+ * Admin-only. Wipes data scoped to `(weekStart)` inside a single
+transaction, then publishes a `week-reset` realtime event and
+writes a `user_audit_log` entry. Blocks with 409 if any driver in
+the week is locked — the admin must unlock first.
+
+Scopes:
+  - `punches-only`: hard-delete every row in `punches` for the
+    week (manual + imported + Driver + Customer). One row per
+    deleted punch is appended to `punch_deletions` so the deletes
+    remain attributable.
+  - `punches-and-reviewed`: above plus delete every
+    `reviewed_drivers` row for the week (clears review status; no
+    locked rows exist since the route would have 409'd).
+  - `all`: above plus soft-delete every `driver_notes` row for
+    the week, wipe `customer_upload_attempts` for the week, wipe
+    `connecteam_daily_snapshots` for the week, and clear
+    `weeks.last_refreshed_at` / `last_refreshed_by`.
+
+The `confirm` field must equal the `weekStart` path param exactly
+(the UI uses type-to-confirm) — mismatched values return 400.
+
+ * @summary Destructive reset of all data for a week (admin)
+ */
+export const resetWeekPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const ResetWeekParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(resetWeekPathWeekStartRegExp)
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
+});
+
+export const ResetWeekBody = zod.object({
+  scope: zod
+    .enum(["punches-only", "punches-and-reviewed", "all"])
+    .describe("What to wipe. See the route description for exact semantics.\n"),
+  confirm: zod
+    .string()
+    .describe(
+      "Must exactly equal the `weekStart` path parameter. The UI is a\ntype-to-confirm dialog; the server re-checks so a malicious\nclient can't bypass it.\n",
+    ),
+});
+
+export const ResetWeekResponse = zod.object({
+  scope: zod.enum(["punches-only", "punches-and-reviewed", "all"]),
+  weekStart: zod.coerce.date(),
+  punchesDeleted: zod.number(),
+  reviewedDeleted: zod.number(),
+  notesSoftDeleted: zod.number(),
+  customerUploadAttemptsDeleted: zod.number(),
+  snapshotsDeleted: zod.number(),
+  weekRefreshCleared: zod
+    .boolean()
+    .describe(
+      "True when `weeks.last_refreshed_at\/by` was cleared (only on `scope=all`).",
+    ),
+});
+
+/**
  * @summary DEPRECATED. Upload a known-customer time export (xlsx/pdf) and write punches in a single round-trip.
 The dashboard now uses the two-step extract/confirm flow below so dispatchers can preview before saving.
 Kept for back-compat; new callers should not use it.

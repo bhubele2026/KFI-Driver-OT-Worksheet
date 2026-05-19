@@ -43,6 +43,15 @@ export type RealtimeEvent =
     }
   | { type: "week-refreshed"; weekStart: string; actor: ActorRef | null }
   | {
+      type: "week-reset";
+      weekStart: string;
+      scope: "punches-only" | "punches-and-reviewed" | "all";
+      punchesDeleted: number;
+      reviewedDeleted: number;
+      notesSoftDeleted: number;
+      actor: ActorRef | null;
+    }
+  | {
       type: "customer-upload";
       weekStart: string;
       customer: string;

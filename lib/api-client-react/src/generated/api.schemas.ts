@@ -828,6 +828,57 @@ export interface RefreshResult {
   refreshedAt: string;
 }
 
+/**
+ * What to wipe. See the route description for exact semantics.
+
+ */
+export type ResetWeekBodyScope =
+  (typeof ResetWeekBodyScope)[keyof typeof ResetWeekBodyScope];
+
+export const ResetWeekBodyScope = {
+  "punches-only": "punches-only",
+  "punches-and-reviewed": "punches-and-reviewed",
+  all: "all",
+} as const;
+
+export interface ResetWeekBody {
+  /** What to wipe. See the route description for exact semantics.
+   */
+  scope: ResetWeekBodyScope;
+  /** Must exactly equal the `weekStart` path parameter. The UI is a
+type-to-confirm dialog; the server re-checks so a malicious
+client can't bypass it.
+ */
+  confirm: string;
+}
+
+export type ResetWeekResultScope =
+  (typeof ResetWeekResultScope)[keyof typeof ResetWeekResultScope];
+
+export const ResetWeekResultScope = {
+  "punches-only": "punches-only",
+  "punches-and-reviewed": "punches-and-reviewed",
+  all: "all",
+} as const;
+
+export interface ResetWeekResult {
+  scope: ResetWeekResultScope;
+  weekStart: string;
+  punchesDeleted: number;
+  reviewedDeleted: number;
+  notesSoftDeleted: number;
+  customerUploadAttemptsDeleted: number;
+  snapshotsDeleted: number;
+  /** True when `weeks.last_refreshed_at/by` was cleared (only on `scope=all`). */
+  weekRefreshCleared: boolean;
+}
+
+export interface ResetWeekLockedError {
+  error: string;
+  /** KFI ids of drivers whose week is currently locked. */
+  lockedKfiIds: string[];
+}
+
 export type UnmappedIdSuggestionsItem = {
   kfiId: string;
   name: string;
