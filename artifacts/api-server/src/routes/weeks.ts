@@ -3362,6 +3362,22 @@ weeksRouter.get("/weeks/:weekStart/report", async (req, res) => {
     .from(schema.reviewedDriversTable)
     .where(eq(schema.reviewedDriversTable.weekStart, weekStart));
   const reviewed = new Set(reviewedRows.map((r) => r.kfiId));
+  const noteCountRows = await db
+    .select({
+      kfiId: schema.driverNotesTable.kfiId,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(schema.driverNotesTable)
+    .where(
+      and(
+        eq(schema.driverNotesTable.weekStart, weekStart),
+        sql`${schema.driverNotesTable.deletedAt} IS NULL`,
+      ),
+    )
+    .groupBy(schema.driverNotesTable.kfiId);
+  const reportNoteCountByKfi = new Map<string, number>();
+  for (const r of noteCountRows)
+    reportNoteCountByKfi.set(r.kfiId, Number(r.count));
   const byKfi = new Map<string, typeof punches>();
   for (const p of punches) {
     const arr = byKfi.get(p.kfiId) ?? [];
@@ -3377,6 +3393,7 @@ weeksRouter.get("/weeks/:weekStart/report", async (req, res) => {
     regularHours: number;
     overtimeHours: number;
     reviewed: boolean;
+    noteCount: number;
   };
   const rows: Row[] = [];
   let totDriver = 0,
@@ -3400,6 +3417,7 @@ weeksRouter.get("/weeks/:weekStart/report", async (req, res) => {
       regularHours: t.regularHours,
       overtimeHours: t.overtimeHours,
       reviewed: reviewed.has(kfiId),
+      noteCount: reportNoteCountByKfi.get(kfiId) ?? 0,
     });
   }
   rows.sort(
@@ -3419,7 +3437,7 @@ weeksRouter.get("/weeks/:weekStart/report", async (req, res) => {
         <th>Driver</th><th>KFI ID</th>
         <th class="num">Driver Hrs</th><th class="num">Customer Hrs</th>
         <th class="num">Diff</th><th class="num">Regular</th>
-        <th class="num">Overtime</th><th>Reviewed</th>
+        <th class="num">Overtime</th><th class="num">Notes</th><th>Reviewed</th>
       </tr></thead>
       <tbody>
         ${g.drivers
@@ -3435,6 +3453,7 @@ weeksRouter.get("/weeks/:weekStart/report", async (req, res) => {
               <td class="num">${mismatch ? diff.toFixed(2) : "-"}</td>
               <td class="num">${d.regularHours.toFixed(2)}</td>
               <td class="num${d.overtimeHours > 0 ? " ot" : ""}">${d.overtimeHours > 0 ? d.overtimeHours.toFixed(2) : "-"}</td>
+              <td class="num${d.noteCount > 0 ? " notes" : ""}">${d.noteCount > 0 ? d.noteCount : "-"}</td>
               <td>${d.reviewed ? "✓" : ""}</td>
             </tr>`;
           })
@@ -3464,6 +3483,7 @@ weeksRouter.get("/weeks/:weekStart/report", async (req, res) => {
   td.num, th.num { text-align: right; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
   td.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: #475569; font-size: 12px; }
   td.ot { color: #b45309; font-weight: 600; }
+  td.notes { color: #3730a3; font-weight: 600; }
   tr.mismatch { background: #fef2f2; }
   tr.mismatch td.num:nth-child(5) { color: #b91c1c; font-weight: 600; }
   .actions { margin-bottom: 16px; }
