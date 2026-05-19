@@ -586,7 +586,7 @@ export default function AdminUsers() {
             description: tooSoon
               ? msg
               : /not configured/i.test(msg)
-                ? "Ask the admin to set SMTP_HOST/SMTP_PORT. Copy the link instead."
+                ? "Ask the admin to connect SendGrid via Replit integrations. Copy the link instead."
                 : msg,
             variant: tooSoon ? "default" : "destructive",
           });
@@ -632,7 +632,7 @@ export default function AdminUsers() {
             description: tooSoon
               ? msg
               : /not configured/i.test(msg)
-                ? "Ask the admin to set SMTP_HOST/SMTP_PORT, or use Generate link instead."
+                ? "Ask the admin to connect SendGrid via Replit integrations, or use Generate link instead."
                 : msg,
             variant: tooSoon ? "default" : "destructive",
           });
@@ -834,18 +834,24 @@ export default function AdminUsers() {
             <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
             <div className="flex-1 space-y-1">
               <div className="font-semibold">
-                {t("adminUsers.smtpWarning")}
+                Email is not connected
               </div>
               <p className="text-xs text-muted-foreground">
                 Invites and password resets will <strong>not</strong> be
                 emailed — you'll need to copy and share the links manually.
-                Set <code className="font-mono">SMTP_HOST</code>,{" "}
-                <code className="font-mono">SMTP_PORT</code>,{" "}
-                <code className="font-mono">SMTP_USER</code>,{" "}
-                <code className="font-mono">SMTP_PASS</code>, and{" "}
-                <code className="font-mono">MAIL_FROM</code> to enable email
-                delivery.
+                Connect SendGrid from the Replit integrations panel to enable
+                email delivery.
               </p>
+              <div className="pt-1">
+                <a
+                  href="https://docs.replit.com/replit-workspace/integrations"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-medium text-amber-700 dark:text-amber-300 underline underline-offset-2"
+                >
+                  Open Replit integrations →
+                </a>
+              </div>
             </div>
             <Button
               type="button"

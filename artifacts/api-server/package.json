@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.52.0",
+    "@sendgrid/mail": "^8.1.6",
     "@swc/helpers": "^0.5.21",
     "@types/pg": "^8.18.0",
     "@workspace/api-zod": "workspace:*",

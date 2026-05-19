@@ -2,7 +2,7 @@ import { and, desc, eq, gte, isNotNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, schema } from "./db.js";
 import { logger } from "./logger.js";
-import { isMailerConfigured, sendMail } from "./mailer.js";
+import { refreshMailerConfigured, sendMail } from "./mailer.js";
 import { appBaseUrl } from "./appBaseUrl.js";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -154,7 +154,7 @@ export type DigestResult = {
 export async function runHiddenNotesDigest(
   now: Date = new Date(),
 ): Promise<DigestResult> {
-  if (!isMailerConfigured()) {
+  if (!(await refreshMailerConfigured())) {
     return {
       hiddenCount: 0,
       adminCount: 0,

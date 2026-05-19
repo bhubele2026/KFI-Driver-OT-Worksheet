@@ -19,7 +19,7 @@ import {
   requireAdmin,
   verifyPassword,
 } from "../lib/auth.js";
-import { isMailerConfigured, sendMail } from "../lib/mailer.js";
+import { refreshMailerConfigured, sendMail } from "../lib/mailer.js";
 import { appBaseUrl } from "../lib/appBaseUrl.js";
 import {
   checkLoginLimits,
@@ -171,7 +171,7 @@ async function sendAccountLockedEmail(
   user: { id: number; email: string },
   lockedAt: Date,
 ): Promise<void> {
-  if (!isMailerConfigured()) return;
+  if (!(await refreshMailerConfigured())) return;
   const base = appBaseUrl();
   if (!base) {
     req.log?.error(
@@ -443,7 +443,7 @@ authRouter.post("/auth/invites", requireAdmin, async (req, res) => {
 });
 
 authRouter.post("/auth/invites/:token/resend", requireAdmin, async (req, res) => {
-  if (!isMailerConfigured()) {
+  if (!(await refreshMailerConfigured())) {
     res
       .status(503)
       .json({ error: "Email is not configured on the server. Copy the link instead." });
@@ -727,8 +727,13 @@ authRouter.post("/auth/reset-password", tokenSubmitLimiter, async (req, res) => 
   res.json(publicUser(result.user));
 });
 
-authRouter.get("/auth/mailer-status", requireAdmin, (_req, res) => {
-  res.json({ configured: isMailerConfigured() });
+authRouter.get("/auth/mailer-status", requireAdmin, async (_req, res) => {
+  // Always re-check the connector lookup here so the admin banner reflects
+  // live state: an admin who just connected SendGrid via Replit integrations
+  // should see the banner disappear on the next /admin/users refresh, not
+  // after a server restart.
+  const configured = await refreshMailerConfigured();
+  res.json({ configured });
 });
 
 // ----- Rate-limit visibility -----
@@ -1059,7 +1064,7 @@ authRouter.post(
   "/auth/users/:id/send-password-reset",
   requireAdmin,
   async (req, res) => {
-    if (!isMailerConfigured()) {
+    if (!(await refreshMailerConfigured())) {
       res
         .status(503)
         .json({ error: "Email is not configured on the server. Generate a link instead." });

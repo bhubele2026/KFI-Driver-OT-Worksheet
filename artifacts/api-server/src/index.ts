@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { isMailerConfigured } from "./lib/mailer";
+import { initMailer, isMailerConfigured } from "./lib/mailer";
 import { ensureAtLeastOneAdmin } from "./lib/adminBootstrap";
 import { repairBogusObjectCustomers } from "./lib/repairBogusCustomers";
 import { pool } from "./lib/db";
@@ -21,11 +21,6 @@ if (process.env.NODE_ENV === "production") {
   if (!process.env.APP_BASE_URL && !process.env.REPLIT_DOMAINS) {
     throw new Error("APP_BASE_URL is required in production");
   }
-  if (!isMailerConfigured()) {
-    throw new Error(
-      "SMTP_HOST/SMTP_PORT must be set in production so password reset and invite emails can be delivered",
-    );
-  }
 }
 
 const rawPort = process.env["PORT"];
@@ -43,6 +38,17 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function main() {
+  // Prime the SendGrid connector lookup so isMailerConfigured() reflects
+  // reality before anything reads it (admin banner, prod boot check, etc).
+  await initMailer().catch((err) => {
+    logger.warn({ err }, "initMailer failed");
+  });
+  if (process.env.NODE_ENV === "production" && !isMailerConfigured()) {
+    throw new Error(
+      "SendGrid integration is not connected — wire it up via Replit integrations (or set SENDGRID_API_KEY) so password reset and invite emails can be delivered",
+    );
+  }
+
   try {
     await ensureAtLeastOneAdmin();
   } catch (err) {
