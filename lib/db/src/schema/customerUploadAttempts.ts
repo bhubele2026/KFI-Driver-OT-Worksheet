@@ -44,6 +44,15 @@ export const customerUploadAttemptsTable = pgTable(
     // (no successful import has happened yet) or by legacy rows pre-dating
     // this feature.
     lastContentHash: text("last_content_hash"),
+    // Timestamp of the most recent attempt that short-circuited via the
+    // same-hash skip path (i.e. the uploaded bytes matched lastContentHash,
+    // so we returned `{ skipped: true }` without re-parsing). Stamped only
+    // by the skip branch; cleared back to null on the next real attempt
+    // (success or error) by `recordAttempt`. Surfaced on the dashboard as a
+    // subtle "Latest file already imported" hint on the customer row so
+    // dispatchers can tell at a glance which rows are no-op re-uploads
+    // without having to find the matching line in the bulk-results panel.
+    lastSkippedAt: timestamp("last_skipped_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("customer_upload_attempts_week_customer_idx").on(

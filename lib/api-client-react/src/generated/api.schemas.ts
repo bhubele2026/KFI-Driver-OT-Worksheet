@@ -900,6 +900,19 @@ export interface CustomerUploadStatus {
    * @nullable
    */
   lastSource?: string | null;
+  /**
+   * Timestamp of the most recent upload attempt that short-circuited
+via the same-hash skip path (bytes matched the previously-imported
+file, server returned `{ skipped: true }` without re-parsing).
+Non-null means the dispatcher's most recent try for this
+(week, customer) was a no-op re-upload of the file that's already
+imported. Cleared on the next real attempt (success or error).
+The dashboard surfaces this as a subtle "Latest file already
+imported" hint on the customer row.
+
+   * @nullable
+   */
+  lastSkippedAt?: string | null;
   /** Badge / employee IDs that appeared in the most recent successful
 upload but didn't map to a known KFI driver. Surfaced as a
 persistent warning under the row so dispatchers don't lose the

@@ -875,6 +875,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           const uploaded = s.punchCount > 0;
           const lastError = st.error ?? s.lastError ?? null;
           const showError = !!lastError && (st.error || !uploaded);
+          // `lastSkippedAt` is non-null only when the most recent attempt
+          // for this (week, customer) short-circuited via the same-hash
+          // skip path. A subsequent real attempt (success or error) clears
+          // it server-side, so we don't need extra freshness logic here.
+          // Suppress the hint when we're actively showing an error to
+          // avoid two competing statuses on the same row.
+          const showSkipped = !!s.lastSkippedAt && !showError;
           const accept = s.extensions
             .map((e) => `.${e}`)
             .concat(s.extensions.includes("xlsx") ? [".xls"] : [])
@@ -919,6 +926,17 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       className="text-[10px] text-muted-foreground"
                     >
                       Not uploaded
+                    </Badge>
+                  )}
+                  {showSkipped && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] text-muted-foreground gap-1 border-muted-foreground/30"
+                      title="Your most recent upload for this customer was identical to the file already imported, so it was skipped. Use Re-upload to force a fresh import anyway."
+                      data-testid={`badge-skipped-${s.customer}`}
+                    >
+                      <CheckCircle2 className="h-3 w-3" />
+                      Latest file already imported
                     </Badge>
                   )}
                   {s.isAiImported &&

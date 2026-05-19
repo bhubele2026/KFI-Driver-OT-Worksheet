@@ -2598,6 +2598,18 @@ components:
         lastSource:
           type: ["string", "null"]
           description: Where the last attempt came from — "parser" (known-customer route) or "ai" (new-customer flow).
+        lastSkippedAt:
+          type: ["string", "null"]
+          format: date-time
+          description: |
+            Timestamp of the most recent upload attempt that short-circuited
+            via the same-hash skip path (bytes matched the previously-imported
+            file, server returned `{ skipped: true }` without re-parsing).
+            Non-null means the dispatcher's most recent try for this
+            (week, customer) was a no-op re-upload of the file that's already
+            imported. Cleared on the next real attempt (success or error).
+            The dashboard surfaces this as a subtle "Latest file already
+            imported" hint on the customer row.
         lastUnmappedIds:
           type: array
           items:

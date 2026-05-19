@@ -175,6 +175,9 @@ async function recordAttempt(
       // same bytes should still be attempted (it might now succeed after a
       // mapping fix).
       lastContentHash: error ? null : contentHash,
+      // A real attempt (success or error) supersedes any prior skip marker —
+      // the row's most recent event is no longer a no-op re-upload.
+      lastSkippedAt: null,
     })
     .onConflictDoUpdate({
       target: [
@@ -195,6 +198,43 @@ async function recordAttempt(
         lastContentHash: error
           ? sql`${schema.customerUploadAttemptsTable.lastContentHash}`
           : contentHash,
+        lastSkippedAt: null,
+      },
+    });
+}
+
+// Stamp a no-op skip on the (week, customer) attempt row. Only touches
+// lastAttemptAt / lastFileName / lastSkippedAt — the prior success
+// metadata (lastSuccessAt, lastSource, lastUnmappedIds, lastContentHash)
+// still reflects what's actually imported and must stay intact, since the
+// whole point of the skip path is that nothing changed.
+async function recordSkip(
+  weekStart: string,
+  customer: string,
+  fileName: string,
+): Promise<void> {
+  const now = new Date();
+  await db
+    .insert(schema.customerUploadAttemptsTable)
+    .values({
+      weekStart,
+      customer,
+      lastAttemptAt: now,
+      lastFileName: fileName,
+      lastSkippedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        schema.customerUploadAttemptsTable.weekStart,
+        schema.customerUploadAttemptsTable.customer,
+      ],
+      set: {
+        lastAttemptAt: now,
+        lastFileName: fileName,
+        lastSkippedAt: now,
+        // A successful skip means there is no current error to surface —
+        // the prior good import is still in place.
+        lastError: null,
       },
     });
 }
@@ -976,6 +1016,7 @@ weeksRouter.post(
         .limit(1);
       const p = prior[0];
       if (p?.lastContentHash && p.lastSuccessAt && p.lastContentHash === contentHash) {
+        await recordSkip(startDate, detected, fileName);
         res.json({
           customer: detected,
           fileName,
@@ -1847,6 +1888,9 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
         : null,
       lastError: a?.lastError ?? null,
       lastSource: a?.lastSource ?? null,
+      lastSkippedAt: a?.lastSkippedAt
+        ? new Date(a.lastSkippedAt).toISOString()
+        : null,
       lastUnmappedIds: a?.lastUnmappedIds ?? [],
       isAiImported: false,
       aiImportWeekCount: aiWeekCountByCustomer.get(c.displayName) ?? 0,
@@ -1889,6 +1933,9 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
         : null,
       lastError: a?.lastError ?? null,
       lastSource: a?.lastSource ?? "ai",
+      lastSkippedAt: a?.lastSkippedAt
+        ? new Date(a.lastSkippedAt).toISOString()
+        : null,
       lastUnmappedIds: a?.lastUnmappedIds ?? [],
       isAiImported: true,
       aiImportWeekCount: aiWeekCountByCustomer.get(name) ?? 0,

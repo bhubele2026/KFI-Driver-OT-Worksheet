@@ -1451,6 +1451,12 @@ export const GetCustomerUploadStatusResponseItem = zod.object({
     .describe(
       'Where the last attempt came from — \"parser\" (known-customer route) or \"ai\" (new-customer flow).',
     ),
+  lastSkippedAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "Timestamp of the most recent upload attempt that short-circuited\nvia the same-hash skip path (bytes matched the previously-imported\nfile, server returned `{ skipped: true }` without re-parsing).\nNon-null means the dispatcher's most recent try for this\n(week, customer) was a no-op re-upload of the file that's already\nimported. Cleared on the next real attempt (success or error).\nThe dashboard surfaces this as a subtle \"Latest file already\nimported\" hint on the customer row.\n",
+    ),
   lastUnmappedIds: zod
     .array(
       zod.object({
