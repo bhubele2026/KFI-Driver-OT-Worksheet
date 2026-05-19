@@ -57,6 +57,15 @@ interface Expected {
    * minPunches / totalHours when the fixture is rotated.
    */
   expectedUnmappedIds: string[];
+  /**
+   * Optional map of `id → expected sampleName` pinned for this fixture. Used
+   * to lock in that a parser actually captures the employee name from the
+   * source file's name column (Task #224) — a future refactor that drops the
+   * name read will fail loudly here instead of silently regressing the
+   * mapping dialog back to "(no name on doc)". Only a sampling per parser
+   * is pinned; the full set lives in the source file itself.
+   */
+  expectedSampleNameById?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +113,10 @@ const BASELINES: Record<string, Expected[]> = {
       tolerance: 0.5,
       // Adient's Kronos pivot includes every TELD employee at the depot;
       // only the handful that map through EMBEDDED_MAPPING are KFI drivers.
+      expectedSampleNameById: {
+        TELD1003: "ORTEGA, MIGUEL E",
+        TELD1004: "YOSHIMURA, ROMEL",
+      },
       expectedUnmappedIds: [
         "TELD1003", "TELD1004", "TELD1005", "TELD1006", "TELD1013",
         "TELD1023", "TELD1025", "TELD1026", "TELD1067", "TELD1068",
@@ -125,6 +138,10 @@ const BASELINES: Record<string, Expected[]> = {
       minPunches: 15,
       totalHours: 140.38,
       tolerance: 0.5,
+      expectedSampleNameById: {
+        "74490468": "Mata, Miguel",
+        "74490469": "Ayala, Andres",
+      },
       expectedUnmappedIds: [
         "74490468", "74490469", "74490471", "74490472", "74490485",
         "74490497", "74490506", "74490507", "74490552", "74490554",
@@ -148,6 +165,10 @@ const BASELINES: Record<string, Expected[]> = {
       minPunches: 9,
       totalHours: 111.23,
       tolerance: 0.5,
+      expectedSampleNameById: {
+        "2000395": "Ayala, Sydney Marie",
+        "2001117": "Rodriguez, Esequiel",
+      },
       expectedUnmappedIds: [
         "2000395", "2001117", "2001231", "2001233", "2001234", "2001240",
         "2001245", "2001281", "2001286", "2001291", "2001305", "2001379",
@@ -170,6 +191,10 @@ const BASELINES: Record<string, Expected[]> = {
       minPunches: 4,
       totalHours: 47.03,
       tolerance: 0.5,
+      expectedSampleNameById: {
+        "2000598": "Carlos, Juan",
+        "2000600": "Gonzalez, Jose",
+      },
       expectedUnmappedIds: [
         "2000598", "2000600", "2000607", "2001115", "2001246", "2001249",
         "2001274", "2001287", "2001307", "2001677", "2001716", "2001719",
@@ -193,6 +218,10 @@ const BASELINES: Record<string, Expected[]> = {
       tolerance: 0.5,
       // LSI's export uses a position-id format suffixed with "N" for
       // non-driver staff; none of these are KFI drivers.
+      expectedSampleNameById: {
+        "04588028N": "Franklin, Nicholas",
+        "04892360N": "Womack, Gabriel",
+      },
       expectedUnmappedIds: [
         "04588028N", "04892360N", "05914223N", "07882138N", "11951467N",
         "20944976N", "23984111N", "24193668N", "27849992N", "28302936N",
@@ -217,6 +246,10 @@ const BASELINES: Record<string, Expected[]> = {
       totalHours: 45.0,
       tolerance: 0.5,
       // IWG badges that aren't in EMBEDDED_MAPPING — non-KFI plant staff.
+      expectedSampleNameById: {
+        "104652": "Disla-Rosario, Juan",
+        "104654": "Ortiz, Jacobo",
+      },
       expectedUnmappedIds: [
         "104652", "104654", "104656", "104658", "104664",
         "104666", "104668", "104669", "104671",
@@ -356,6 +389,27 @@ for (const weekStart of fixtureWeeks) {
           want,
           `unmappedIds drift for ${e.file}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`,
         );
+      }
+      // Task #224: pin sampleName capture for parsers that read an
+      // employee-name column from the source file. The mapping dialog
+      // shows "(no name on doc)" when sampleName is null, so silently
+      // losing this read regresses the dispatcher's UX badly. Pinning
+      // one or two ids per parser is enough to catch a regression.
+      if (e.expectedSampleNameById) {
+        const byId = new Map(
+          result.unmappedIds.map((u) => [u.id, u.sampleName] as const),
+        );
+        for (const [id, expectedName] of Object.entries(e.expectedSampleNameById)) {
+          assert.ok(
+            byId.has(id),
+            `expectedSampleNameById id ${id} not in unmappedIds for ${e.file}`,
+          );
+          assert.equal(
+            byId.get(id),
+            expectedName,
+            `sampleName drift for ${e.file} id ${id}: got ${JSON.stringify(byId.get(id))}, want ${JSON.stringify(expectedName)}`,
+          );
+        }
       }
       // Sanity: every punch should have non-empty kfiId, date, and positive hours.
       for (const p of result.punches) {

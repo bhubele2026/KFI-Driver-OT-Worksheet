@@ -35,6 +35,7 @@ export function parsePendaTrienda(
   const hdr = rows[0];
   if (!hdr) return [];
   const empNumIdx = findHeader(hdr, (s) => s.includes("employee number"));
+  const nameIdx = findHeader(hdr, (s) => s.includes("employee name"));
   const startIdx = findHeader(hdr, (s) => s.includes("time start"));
   const endIdx = findHeader(hdr, (s) => s.includes("time end"));
   const hoursIdx = findHeader(hdr, (s) => s === "hours");
@@ -50,7 +51,13 @@ export function parsePendaTrienda(
     const mapped = idMap[empId] ?? (kfiSet.has(empId) ? empId : "");
     const kfiId = mapped && kfiSet.has(mapped) ? mapped : "";
     if (!kfiId) {
-      if (/^\d+$/.test(empId)) unmappedIds.add(empId);
+      if (/^\d+$/.test(empId)) {
+        const sampleName =
+          nameIdx >= 0 && r[nameIdx] != null
+            ? String(r[nameIdx]).trim() || null
+            : null;
+        unmappedIds.add(empId, sampleName);
+      }
       continue;
     }
     if (r[startIdx] == null || r[endIdx] == null) continue;
@@ -95,6 +102,7 @@ export function parseGreystone(
     hdr,
     (s) => s.includes("person id") || s.includes("file number"),
   );
+  const nameIdx = findHeader(hdr, (s) => s.includes("payroll name"));
   const dtIdx = findHeader(
     hdr,
     (s) => s.includes("pay date") || s.startsWith("week "),
@@ -113,7 +121,13 @@ export function parseGreystone(
     if (r[fnIdx] == null) continue;
     const kfiId = String(Math.round(Number(r[fnIdx])));
     if (!kfiSet.has(kfiId)) {
-      if (/^\d+$/.test(kfiId)) unmappedIds.add(kfiId);
+      if (/^\d+$/.test(kfiId)) {
+        const sampleName =
+          nameIdx >= 0 && r[nameIdx] != null
+            ? String(r[nameIdx]).trim() || null
+            : null;
+        unmappedIds.add(kfiId, sampleName);
+      }
       continue;
     }
     if (r[inIdx] == null || r[outIdx] == null) continue;
@@ -239,6 +253,8 @@ export function parseLSI(
   const hdr = rows[0];
   if (!hdr) return [];
   const posIdx = findHeader(hdr, (s) => s.includes("position"));
+  const lastIdx = findHeader(hdr, (s) => s === "last name");
+  const firstIdx = findHeader(hdr, (s) => s === "first name");
   const inIdx = findHeader(hdr, (s) => s === "in time");
   const outIdx = findHeader(hdr, (s) => s === "out time");
   const hrIdx = findHeader(hdr, (s) => s === "hours");
@@ -253,7 +269,20 @@ export function parseLSI(
     const mapped = idMap[posId] ?? idMap[posId + "N"] ?? "";
     const kfiId = mapped && kfiSet.has(mapped) ? mapped : "";
     if (!kfiId) {
-      if (posId) unmappedIds.add(posId);
+      if (posId) {
+        const last =
+          lastIdx >= 0 && r[lastIdx] != null
+            ? String(r[lastIdx]).trim()
+            : "";
+        const first =
+          firstIdx >= 0 && r[firstIdx] != null
+            ? String(r[firstIdx]).trim()
+            : "";
+        const sampleName = last && first
+          ? `${last}, ${first}`
+          : last || first || null;
+        unmappedIds.add(posId, sampleName);
+      }
       continue;
     }
     if (r[inIdx] == null || r[outIdx] == null) continue;
@@ -282,6 +311,7 @@ export function parseZenople(
   if (!hdr) return [];
   const custIdx = findHeader(hdr, (s) => s === "customer");
   const pidIdx = findHeader(hdr, (s) => s.includes("person id"));
+  const personIdx = findHeader(hdr, (s) => s === "person");
   const dtIdx = findHeader(hdr, (s) => s.includes("work date"));
   const inIdx = findHeader(hdr, (s) => s.includes("clock in"));
   const outIdx = findHeader(hdr, (s) => s.includes("clock out"));
@@ -292,7 +322,13 @@ export function parseZenople(
     const r = rows[i];
     const kfiId = r[pidIdx] != null ? String(r[pidIdx]).trim() : "";
     if (!kfiSet.has(kfiId)) {
-      if (kfiId) unmappedIds.add(kfiId);
+      if (kfiId) {
+        const sampleName =
+          personIdx >= 0 && r[personIdx] != null
+            ? String(r[personIdx]).trim() || null
+            : null;
+        unmappedIds.add(kfiId, sampleName);
+      }
       continue;
     }
     if (r[inIdx] == null || r[outIdx] == null) continue;
@@ -330,6 +366,8 @@ export function parseBurnett(
   const hdr = rows[0];
   if (!hdr) return [];
   const empIdx = findHeader(hdr, (s) => s.includes("employee id"));
+  const lastIdx = findHeader(hdr, (s) => s === "last name");
+  const firstIdx = findHeader(hdr, (s) => s.includes("first name"));
   const dateIdx = findHeader(hdr, (s) => s === "work date");
   const inIdx = findHeader(
     hdr,
@@ -350,7 +388,20 @@ export function parseBurnett(
     const mapped = idMap[empId] ?? (kfiSet.has(empId) ? empId : "");
     const kfiId = mapped && kfiSet.has(mapped) ? mapped : "";
     if (!kfiId) {
-      if (/^\d+$/.test(empId)) unmappedIds.add(empId);
+      if (/^\d+$/.test(empId)) {
+        const last =
+          lastIdx >= 0 && r[lastIdx] != null
+            ? String(r[lastIdx]).trim()
+            : "";
+        const first =
+          firstIdx >= 0 && r[firstIdx] != null
+            ? String(r[firstIdx]).trim()
+            : "";
+        const sampleName = last && first
+          ? `${last}, ${first}`
+          : last || first || null;
+        unmappedIds.add(empId, sampleName);
+      }
       continue;
     }
     if (r[inIdx] == null || r[outIdx] == null) continue;

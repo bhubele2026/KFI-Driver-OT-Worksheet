@@ -6,6 +6,7 @@ import type { ParsedPunch, UnmappedIdAccumulator } from "./types.js";
 
 interface OcrPunchRow {
   badge: string;
+  name?: string; // "LASTNAME, FIRST" if present on the timesheet
   date: string; // MM/DD or YYYY-MM-DD
   clockIn?: string; // "H:MM AM/PM"
   clockOut?: string; // "H:MM AM/PM"
@@ -21,6 +22,7 @@ const PUNCH_SCHEMA = {
         type: Type.OBJECT,
         properties: {
           badge: { type: Type.STRING },
+          name: { type: Type.STRING },
           date: { type: Type.STRING },
           clockIn: { type: Type.STRING },
           clockOut: { type: Type.STRING },
@@ -83,7 +85,7 @@ export async function ocrDelalloPDF(
             text: [
               "This is a scanned DeLallo daily-punches payroll PDF.",
               "Extract every punch row for every employee shown on every page.",
-              'For each row return: badge (the employee Badge # as a string of digits), date (use "MM/DD" if no year is shown), clockIn ("H:MM AM/PM" or "H:MM:SS AM/PM"), clockOut (same format), and hours (the daily hours number, e.g. 8.50).',
+              'For each row return: badge (the employee Badge # as a string of digits), name (the employee\'s name as printed on the timesheet, typically "LASTNAME, FIRST" — copy it verbatim if present; omit if not shown), date (use "MM/DD" if no year is shown), clockIn ("H:MM AM/PM" or "H:MM:SS AM/PM"), clockOut (same format), and hours (the daily hours number, e.g. 8.50).',
               "If a row has no clock-in/clock-out times leave them empty but still include the row if hours > 0.",
               "Do not invent rows. Skip lines that are not punch rows (totals, headers, footers, signatures).",
               "Return strictly the JSON object matching the provided schema.",
@@ -114,7 +116,13 @@ export async function ocrDelalloPDF(
     const badge = String(row.badge ?? "").trim();
     const kfiId = idMap[badge];
     if (!kfiId || !kfiSet.has(kfiId)) {
-      if (/^\d+$/.test(badge)) unmappedIds.add(badge);
+      if (/^\d+$/.test(badge)) {
+        const sampleName =
+          typeof row.name === "string" && row.name.trim().length > 0
+            ? row.name.trim()
+            : null;
+        unmappedIds.add(badge, sampleName);
+      }
       continue;
     }
     const date = normalizeDate(String(row.date).trim(), year);
