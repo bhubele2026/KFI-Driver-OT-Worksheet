@@ -1893,8 +1893,15 @@ weeksRouter.post(
       return { ...u, suggestions };
     });
 
+    // Canonicalize the response customer to the dispatcher's explicit
+    // pick when they aimed at a specific row (per-row picker / drag-drop
+    // / bulk-classifier). This kills any spurious "detected as X but you
+    // uploaded for Y" mismatch downstream when filename keyword routing
+    // disagrees with the dispatcher's intent (e.g. typo'd filenames like
+    // "DeLalllo_week.xlsx" landed on the DeLallo row).
+    const responseCustomer = explicitCustomer ?? result.customer;
     res.json({
-      customer: result.customer,
+      customer: responseCustomer,
       fileName,
       weekStart: startDate,
       sampleId: sample.id,

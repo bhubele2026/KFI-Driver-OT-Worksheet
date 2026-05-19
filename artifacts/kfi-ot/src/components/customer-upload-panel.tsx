@@ -374,12 +374,6 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       const preview = extractBody as CustomerPreviewData & {
         skipped?: boolean;
       };
-      if (preview.customer && preview.customer !== customer) {
-        return {
-          ok: false,
-          error: `File detected as "${preview.customer}" but you uploaded it for "${customer}". Rename the file to include "${customer}" so it routes correctly.`,
-        };
-      }
       if (preview.skipped) {
         return { ok: true, punches: 0, unmapped: [], skipped: true };
       }
@@ -460,11 +454,6 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         );
       }
       const data = body as CustomerPreviewData;
-      if (data.customer && data.customer !== customer) {
-        throw new Error(
-          `File detected as "${data.customer}" but you uploaded it for "${customer}". Rename the file to include "${customer}" so it routes correctly.`,
-        );
-      }
       // Guard against a stale response clobbering a newer upload on the
       // same row: if the dispatcher canceled or kicked off another
       // upload while this one was in flight, drop the result on the

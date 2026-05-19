@@ -216,9 +216,73 @@ function buildPrompt(customer: string, weekStart: string, weekEnd: string) {
     `- date: the punch date as YYYY-MM-DD. Resolve year from the week window if the document only shows MM/DD.`,
     `- timeIn / timeOut: clock in/out as "H:MM AM" or "H:MM PM". Omit if the document only shows total hours.`,
     `- hours: the daily worked hours as a decimal number when shown (e.g. 8.50). Omit if not present.`,
-    `Return one row per shift per driver per date. Skip totals, summary, header, footer, and signature lines. Do not invent rows.`,
+    `CRITICAL: Return one output row for EVERY non-empty data row in the document. Do NOT merge, sum, or combine multiple rows for the same driver/date — even when pay-category columns (e.g. "Reg", "OT 1.5", "SHIFT PREM", "PREM-NIGHT") split one shift across several lines, emit each line as its own output row exactly as it appears. The caller deduplicates downstream; your job is faithful row-by-row transcription.`,
+    `The ONLY lines to skip are: column headers, completely blank rows, page footers/signatures, and grand-total / subtotal rows that have no driver name. When in doubt, include the row.`,
+    `Do not invent rows that aren't in the document.`,
     `Return strictly JSON matching the provided schema.`,
   ].join("\n");
+}
+
+/**
+ * Server-side dedupe applied to merged AI rows BEFORE downstream
+ * resolution. The prompt deliberately asks Gemini to emit one row per
+ * non-empty data row (so it stops dropping "OT" and "PREM" pay-category
+ * splits on Trienda/Kronos exports), which means a single driver-shift
+ * can come back as N rows differing only by pay-category column. We
+ * collapse those here.
+ *
+ * Key: `(lower(name)+'|'+lower(badge), date, timeIn||'', timeOut||'')`.
+ * - When both clock times are present: first-wins (these are real
+ *   duplicates — same shift, different pay buckets). Hours from
+ *   subsequent matches are discarded; the hours engine recomputes
+ *   from clock times anyway.
+ * - When BOTH clock times are absent on every duplicate (pure
+ *   hours-only export — rare): hours are summed across the bucket so a
+ *   row like "Reg 32 / OT 8" still totals to 40 instead of 32.
+ */
+function normalizeTimeForKey(t: string | null | undefined): string {
+  // Collapse "06:00 am", " 6:00 AM ", "6:00AM" all to "6:00 AM" so
+  // pay-category split rows that differ only in formatting still
+  // collide on the same key. Returns empty string for null/blank.
+  if (!t) return "";
+  const m = t
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .match(/^0?(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+  if (!m) return t.trim().toUpperCase();
+  return `${parseInt(m[1], 10)}:${m[2]} ${m[3]}`;
+}
+
+export function dedupeAiRows(rows: AiExtractedRow[]): AiExtractedRow[] {
+  const byKey = new Map<string, AiExtractedRow>();
+  for (const r of rows) {
+    const name = (r.driverNameOnDoc ?? "").trim().toLowerCase();
+    const badge = (r.badgeOrId ?? "").trim().toLowerCase();
+    // Normalize date to YYYY-MM-DD so a single shift split across pay
+    // categories with date emitted as "5/12/2026" on one line and
+    // "2026-05-12" on another still collides on the same key. Falls back
+    // to the raw string for genuinely unparseable inputs.
+    const isoDate = normalizeIsoDate(r.date) ?? (r.date ?? "").trim();
+    const tIn = normalizeTimeForKey(r.timeIn);
+    const tOut = normalizeTimeForKey(r.timeOut);
+    const key = `${name}|${badge}::${isoDate}::${tIn}::${tOut}`;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, { ...r });
+      continue;
+    }
+    // Duplicate with clock times → first wins, drop the rest.
+    if (tIn || tOut) continue;
+    // Hours-only duplicate → sum hours so split-by-pay-category exports
+    // still total correctly.
+    const prevHours = typeof prev.hours === "number" ? prev.hours : 0;
+    const addHours = typeof r.hours === "number" ? r.hours : 0;
+    if (prevHours || addHours) {
+      prev.hours = prevHours + addHours;
+    }
+  }
+  return Array.from(byKey.values());
 }
 
 /**
@@ -441,17 +505,19 @@ async function runChunkedXlsxExtract(
       merged.push({ ...r, driverNameOnDoc: toDisplayName(r.driverNameOnDoc) });
     }
   }
+  const deduped = dedupeAiRows(merged);
   logger.info(
     {
       ms: Date.now() - startedAt,
-      rows: merged.length,
+      aiRawRowCount: merged.length,
+      aiDedupedRowCount: deduped.length,
       chunks: chunks.length,
       customer,
       fileName,
     },
     "AI extraction complete (chunked)",
   );
-  return merged;
+  return deduped;
 }
 
 export async function aiExtractRows(
@@ -601,9 +667,16 @@ export async function aiExtractRows(
       // form regardless of how the source document cased the name.
       driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
     }));
+  const deduped = dedupeAiRows(rows);
   logger.info(
-    { ms: Date.now() - start, rows: rows.length, customer, fileName },
+    {
+      ms: Date.now() - start,
+      aiRawRowCount: rows.length,
+      aiDedupedRowCount: deduped.length,
+      customer,
+      fileName,
+    },
     "AI extraction complete",
   );
-  return rows;
+  return deduped;
 }
