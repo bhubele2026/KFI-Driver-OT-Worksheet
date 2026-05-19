@@ -5,6 +5,7 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { ConfirmCustomerFileInputMapNewAliasesItem } from "./confirmCustomerFileInputMapNewAliasesItem";
 
 export interface ConfirmCustomerFileInput {
   /** @minLength 1 */
@@ -12,4 +13,11 @@ export interface ConfirmCustomerFileInput {
   sampleId: number;
   /** Stable indices from the preview's `rows` array that the dispatcher chose to exclude. */
   excludedIndices?: number[];
+  /** On-the-fly driver-id mappings the dispatcher created in the
+preview's "Unrecognized IDs" picker. Each entry is upserted into
+`driver_id_aliases` inside the same transaction as the punch
+commit, then the file is re-parsed with the merged map so the
+previously-dropped rows are imported in this same run.
+ */
+  mapNewAliases?: ConfirmCustomerFileInputMapNewAliasesItem[];
 }

@@ -718,6 +718,12 @@ export interface RefreshResult {
   refreshedAt: string;
 }
 
+export type UnmappedIdSuggestionsItem = {
+  kfiId: string;
+  name: string;
+  confidence: number;
+};
+
 export interface UnmappedId {
   id: string;
   /** Number of rows in the file that referenced this id and were dropped. */
@@ -727,6 +733,13 @@ export interface UnmappedId {
    * @nullable
    */
   sampleName: string | null;
+  /** Up to 5 candidate KFI drivers ranked by fuzzy match of `sampleName`
+against the active roster. Used by the upload preview dialog to
+pre-fill a driver picker so dispatchers can map the id on the fly
+and have it remembered via `driver_id_aliases`. Omitted/empty when
+no `sampleName` is available or the roster is empty.
+ */
+  suggestions?: UnmappedIdSuggestionsItem[];
 }
 
 export interface UploadResult {
@@ -832,12 +845,31 @@ export interface CustomerExtractPreview {
   existingPunchCount: number;
 }
 
+export type ConfirmCustomerFileInputMapNewAliasesItem = {
+  /** @minLength 1 */
+  externalId: string;
+  /** @minLength 1 */
+  kfiId: string;
+  /**
+   * Driver name as printed on the source doc; stored on the alias row for future audit.
+   * @nullable
+   */
+  sampleName?: string | null;
+};
+
 export interface ConfirmCustomerFileInput {
   /** @minLength 1 */
   customer: string;
   sampleId: number;
   /** Stable indices from the preview's `rows` array that the dispatcher chose to exclude. */
   excludedIndices?: number[];
+  /** On-the-fly driver-id mappings the dispatcher created in the
+preview's "Unrecognized IDs" picker. Each entry is upserted into
+`driver_id_aliases` inside the same transaction as the punch
+commit, then the file is re-parsed with the merged map so the
+previously-dropped rows are imported in this same run.
+ */
+  mapNewAliases?: ConfirmCustomerFileInputMapNewAliasesItem[];
 }
 
 export interface AiExtractedRow {

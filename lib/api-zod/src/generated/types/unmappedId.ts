@@ -5,6 +5,7 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { UnmappedIdSuggestionsItem } from "./unmappedIdSuggestionsItem";
 
 export interface UnmappedId {
   id: string;
@@ -15,4 +16,11 @@ export interface UnmappedId {
    * @nullable
    */
   sampleName: string | null;
+  /** Up to 5 candidate KFI drivers ranked by fuzzy match of `sampleName`
+against the active roster. Used by the upload preview dialog to
+pre-fill a driver picker so dispatchers can map the id on the fly
+and have it remembered via `driver_id_aliases`. Omitted/empty when
+no `sampleName` is available or the roster is empty.
+ */
+  suggestions?: UnmappedIdSuggestionsItem[];
 }

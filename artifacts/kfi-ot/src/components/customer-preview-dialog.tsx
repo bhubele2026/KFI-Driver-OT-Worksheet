@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   useConfirmCustomerFile,
   useDiscardCustomerExtract,
+  useListDriverIdAliases,
 } from "@workspace/api-client-react";
 import {
   Dialog,
@@ -14,6 +15,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -22,7 +30,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
+import { formatPersonName } from "@/lib/format-name";
 import { AlertCircle, Loader2, UploadCloud } from "lucide-react";
+
+const SKIP_PICK = "__skip__";
 
 export interface CustomerPreviewRow {
   index: number;
@@ -36,13 +47,26 @@ export interface CustomerPreviewRow {
   payType: string | null;
 }
 
+export interface CustomerPreviewSuggestion {
+  kfiId: string;
+  name: string;
+  confidence: number;
+}
+
+export interface CustomerPreviewUnmappedId {
+  id: string;
+  count: number;
+  sampleName: string | null;
+  suggestions?: CustomerPreviewSuggestion[];
+}
+
 export interface CustomerPreviewData {
   customer: string;
   fileName: string;
   weekStart: string;
   sampleId: number;
   rows: CustomerPreviewRow[];
-  unmappedIds: Array<{ id: string; count: number; sampleName: string | null }>;
+  unmappedIds: CustomerPreviewUnmappedId[];
   existingPunchCount: number;
 }
 
@@ -66,12 +90,32 @@ export function CustomerPreviewDialog({
   const { toast } = useToast();
   const confirmMutation = useConfirmCustomerFile();
   const discardMutation = useDiscardCustomerExtract();
+  const aliasesQuery = useListDriverIdAliases();
+  const allDrivers = useMemo(
+    () => aliasesQuery.data?.drivers ?? [],
+    [aliasesQuery.data],
+  );
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
+  // Per-unmapped-id dispatcher pick: kfiId, or SKIP_PICK to leave dropped,
+  // or "" before they've chosen. Resets when a new preview arrives.
+  const [picks, setPicks] = useState<Record<string, string>>({});
 
-  // Reset exclusions when a new preview arrives.
+  // Reset exclusions when a new preview arrives. Pre-fill each unmapped id's
+  // picker with its top fuzzy suggestion (if any) so the common case is a
+  // single-click "looks right, confirm". Dispatchers can override or skip.
   useEffect(() => {
     setExcluded(new Set());
-  }, [preview?.sampleId]);
+    if (!preview) {
+      setPicks({});
+      return;
+    }
+    const initial: Record<string, string> = {};
+    for (const u of preview.unmappedIds) {
+      const top = u.suggestions?.[0];
+      initial[u.id] = top ? top.kfiId : "";
+    }
+    setPicks(initial);
+  }, [preview]);
 
   // Group rows by driver so the dispatcher can scan one person at a time —
   // matches how the weekly dashboard is organized.
@@ -120,6 +164,21 @@ export function CustomerPreviewDialog({
 
   const includedCount = preview.rows.length - excluded.size;
 
+  // Build the alias payload from picks: only ids the dispatcher mapped to a
+  // real driver (skipped / unselected ids are omitted, leaving those rows
+  // dropped as today).
+  const mapNewAliases = preview.unmappedIds
+    .map((u) => {
+      const kfiId = picks[u.id];
+      if (!kfiId || kfiId === SKIP_PICK) return null;
+      return { externalId: u.id, kfiId, sampleName: u.sampleName ?? null };
+    })
+    .filter((a): a is { externalId: string; kfiId: string; sampleName: string | null } => a !== null);
+  const mappedCount = mapNewAliases.length;
+  const unresolvedPicks = preview.unmappedIds.filter(
+    (u) => !picks[u.id],
+  ).length;
+
   const onConfirm = () => {
     confirmMutation.mutate(
       {
@@ -128,6 +187,7 @@ export function CustomerPreviewDialog({
           customer: preview.customer,
           sampleId: preview.sampleId,
           excludedIndices: [...excluded].sort((a, b) => a - b),
+          mapNewAliases: mapNewAliases.length > 0 ? mapNewAliases : undefined,
         },
       },
       {
@@ -225,18 +285,121 @@ export function CustomerPreviewDialog({
             </div>
           )}
           {preview.unmappedIds.length > 0 && (
-            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-              <span data-testid="text-unmapped-warning">
-                Dropped rows for unknown{" "}
-                {preview.unmappedIds.length === 1 ? "badge" : "badges"}:{" "}
-                {preview.unmappedIds
-                  .map((u) =>
-                    u.sampleName ? `${u.id} (${u.sampleName})` : u.id,
-                  )
-                  .join(", ")}
-                . Add the mapping under Admin and re-upload to recover them.
-              </span>
+            <div
+              className="rounded-md border border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 space-y-2"
+              data-testid="panel-unmapped-picker"
+            >
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  {preview.unmappedIds.length}{" "}
+                  {preview.unmappedIds.length === 1 ? "badge" : "badges"} in
+                  this file don't match any KFI driver. Pick the matching
+                  driver below and we'll remember the mapping so future
+                  uploads import automatically. Leave any row as
+                  <em> Skip — leave dropped</em> to keep the rows dropped.
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {preview.unmappedIds.map((u) => {
+                  const suggestions = u.suggestions ?? [];
+                  const suggestedKfiId = suggestions[0]?.kfiId;
+                  const picked = picks[u.id] ?? "";
+                  // Show top suggestions first, then the rest of the roster
+                  // (deduped) so a confident match is a single click.
+                  const seen = new Set<string>();
+                  const orderedDrivers: typeof allDrivers = [];
+                  for (const s of suggestions) {
+                    const d = allDrivers.find((x) => x.kfiId === s.kfiId);
+                    if (d && !seen.has(d.kfiId)) {
+                      seen.add(d.kfiId);
+                      orderedDrivers.push(d);
+                    }
+                  }
+                  for (const d of allDrivers) {
+                    if (!seen.has(d.kfiId)) {
+                      seen.add(d.kfiId);
+                      orderedDrivers.push(d);
+                    }
+                  }
+                  return (
+                    <div
+                      key={u.id}
+                      className="flex flex-wrap items-center gap-2 rounded border border-amber-500/20 bg-background/60 px-2 py-1.5"
+                      data-testid={`row-unmapped-${u.id}`}
+                    >
+                      <div className="flex flex-col min-w-[180px]">
+                        <span className="font-medium text-foreground">
+                          {u.sampleName
+                            ? formatPersonName(u.sampleName)
+                            : "(no name on doc)"}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {u.id} · {u.count}{" "}
+                          {u.count === 1 ? "row" : "rows"}
+                        </span>
+                      </div>
+                      <div className="flex-1 min-w-[240px]">
+                        <Select
+                          value={picked}
+                          onValueChange={(v) =>
+                            setPicks((p) => ({ ...p, [u.id]: v }))
+                          }
+                        >
+                          <SelectTrigger
+                            className="h-8 text-xs"
+                            data-testid={`select-unmapped-${u.id}`}
+                          >
+                            <SelectValue placeholder="Pick a driver…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={SKIP_PICK}>
+                              Skip — leave dropped
+                            </SelectItem>
+                            {orderedDrivers.length === 0 ? (
+                              <SelectItem value="__no_drivers" disabled>
+                                No drivers loaded — refresh Connecteam first
+                              </SelectItem>
+                            ) : null}
+                            {orderedDrivers.map((d) => {
+                              const isSuggested = d.kfiId === suggestedKfiId;
+                              return (
+                                <SelectItem key={d.kfiId} value={d.kfiId}>
+                                  <span className="font-medium">
+                                    {formatPersonName(d.name)}
+                                  </span>
+                                  <span className="font-mono text-[10px] text-muted-foreground ml-2">
+                                    {d.kfiId} · {d.customer}
+                                  </span>
+                                  {isSuggested ? (
+                                    <span className="ml-2 text-[10px] text-emerald-600 dark:text-emerald-400">
+                                      suggested
+                                    </span>
+                                  ) : null}
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {mappedCount > 0 ? (
+                <div className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                  Will save {mappedCount}{" "}
+                  {mappedCount === 1 ? "mapping" : "mappings"} on confirm and
+                  re-import the previously-dropped rows.
+                </div>
+              ) : null}
+              {unresolvedPicks > 0 ? (
+                <div className="text-[11px] text-muted-foreground">
+                  {unresolvedPicks}{" "}
+                  {unresolvedPicks === 1 ? "id has" : "ids have"} no pick yet
+                  — pick a driver or choose Skip.
+                </div>
+              ) : null}
             </div>
           )}
         </div>

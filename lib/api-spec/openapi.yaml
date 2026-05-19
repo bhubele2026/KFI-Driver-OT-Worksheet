@@ -2374,6 +2374,21 @@ components:
         sampleName:
           type: ["string", "null"]
           description: Driver name as printed next to the id in the source file, when available.
+        suggestions:
+          type: array
+          description: |
+            Up to 5 candidate KFI drivers ranked by fuzzy match of `sampleName`
+            against the active roster. Used by the upload preview dialog to
+            pre-fill a driver picker so dispatchers can map the id on the fly
+            and have it remembered via `driver_id_aliases`. Omitted/empty when
+            no `sampleName` is available or the roster is empty.
+          items:
+            type: object
+            required: [kfiId, name, confidence]
+            properties:
+              kfiId: { type: string }
+              name: { type: string }
+              confidence: { type: number }
 
     CustomerUploadStatus:
       type: object
@@ -2492,6 +2507,23 @@ components:
           type: array
           items: { type: integer, minimum: 0 }
           description: Stable indices from the preview's `rows` array that the dispatcher chose to exclude.
+        mapNewAliases:
+          type: array
+          description: |
+            On-the-fly driver-id mappings the dispatcher created in the
+            preview's "Unrecognized IDs" picker. Each entry is upserted into
+            `driver_id_aliases` inside the same transaction as the punch
+            commit, then the file is re-parsed with the merged map so the
+            previously-dropped rows are imported in this same run.
+          items:
+            type: object
+            required: [externalId, kfiId]
+            properties:
+              externalId: { type: string, minLength: 1 }
+              kfiId: { type: string, minLength: 1 }
+              sampleName:
+                type: ["string", "null"]
+                description: Driver name as printed on the source doc; stored on the alias row for future audit.
 
     AiExtractedRow:
       type: object

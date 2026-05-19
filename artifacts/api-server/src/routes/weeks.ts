@@ -1167,6 +1167,28 @@ weeksRouter.post(
       })
       .returning({ id: schema.aiExtractSamplesTable.id });
 
+    // Attach fuzzy match suggestions to each unmapped id so the preview
+    // dialog can pre-fill a per-id "this is actually driver X" picker.
+    // Driver picks made there are persisted to `driver_id_aliases` by
+    // /confirm-customer-file so the next upload of the same file matches
+    // automatically — no admin round-trip required.
+    const driverCandidates = drivers.map((d) => ({
+      kfiId: d.kfiId,
+      name: d.name,
+      customer: d.customer ?? "",
+    }));
+    const unmappedWithSuggestions = result.unmappedIds.map((u) => {
+      const suggestions =
+        u.sampleName && driverCandidates.length > 0
+          ? topMatches(u.sampleName, driverCandidates, 5).map((m) => ({
+              kfiId: m.kfiId,
+              name: m.name,
+              confidence: m.confidence,
+            }))
+          : [];
+      return { ...u, suggestions };
+    });
+
     res.json({
       customer: result.customer,
       fileName,
@@ -1186,7 +1208,7 @@ weeksRouter.post(
         hours: p.hours,
         payType: p.payType,
       })),
-      unmappedIds: result.unmappedIds,
+      unmappedIds: unmappedWithSuggestions,
       existingPunchCount,
     });
   },
@@ -1240,15 +1262,45 @@ weeksRouter.post(
     const drivers = await db.select().from(schema.driversTable);
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
     const fileName = sample.fileName;
+
+    // Sanitize on-the-fly picker mappings. Validates the target kfiId is in
+    // the active roster — silently dropping unknown picks would let a stale
+    // UI write a broken alias. The actual upsert + re-parse + commit all
+    // happen inside the punch transaction below so a parse failure rolls
+    // back the alias writes too (no orphan rows).
+    const requestedAliases = parsed.data.mapNewAliases ?? [];
+    const cleanedAliases = requestedAliases
+      .map((a) => ({
+        externalId: a.externalId.trim(),
+        kfiId: a.kfiId.trim(),
+        sampleName: a.sampleName?.trim() || null,
+      }))
+      .filter((a) => a.externalId && a.kfiId && kfiSet.has(a.kfiId));
+    if (cleanedAliases.length !== requestedAliases.length) {
+      req.log.warn(
+        {
+          customer,
+          requested: requestedAliases.length,
+          kept: cleanedAliases.length,
+        },
+        "Dropped invalid mapNewAliases entries (blank or unknown kfiId)",
+      );
+    }
+
     let result;
     try {
-      const idMap = await loadMergedIdMap();
+      // Probe-parse with the un-augmented map just to validate the file
+      // still parses to the expected customer before we open the tx.
+      // The authoritative parse (using merged-with-new-aliases map) runs
+      // inside the tx below so we never commit punches that disagree with
+      // what we just wrote to driver_id_aliases.
+      const probeMap = await loadMergedIdMap();
       result = await detectAndParseFile(
         fileName,
         Buffer.from(sample.fileBytes),
         kfiSet,
         startDate,
-        idMap,
+        probeMap,
       );
     } catch (err) {
       req.log.error({ err, fileName }, "Parse error (confirm)");
@@ -1264,68 +1316,133 @@ weeksRouter.post(
       return;
     }
 
-    // Apply the dispatcher's exclude toggles using the same deterministic
-    // index order the preview returned.
-    const includedPunches = result.punches.filter(
-      (_p, i) => !excludedIndices.has(i),
-    );
-
-    // Lock-gate: skip any rows belonging to a locked driver-week. Same
-    // semantics as the legacy single-shot upload route.
     const lockedKfiIds = await loadLockedKfiIds(startDate);
     const lockedSkipped: string[] = [];
-    const insertablePunches = includedPunches.filter((p) => {
-      if (lockedKfiIds.has(p.kfiId)) {
-        if (!lockedSkipped.includes(p.kfiId)) lockedSkipped.push(p.kfiId);
-        return false;
-      }
-      return true;
-    });
+    // Filled inside the tx with the result of the AUTHORITATIVE re-parse
+    // (which uses the merged map AFTER any picker aliases are written).
+    // Used after the tx for the response payload + audit logging.
+    let finalResult = result;
+    let insertablePunches: typeof result.punches = [];
 
-    await db.transaction(async (tx) => {
-      const deleteConds: SQL[] = [
-        eq(schema.punchesTable.weekStart, startDate),
-        eq(schema.punchesTable.source, "Customer"),
-        eq(schema.punchesTable.customer, result.customer),
-        eq(schema.punchesTable.isManual, false),
-        ne(schema.punchesTable.edited, true),
-      ];
-      if (lockedKfiIds.size > 0) {
-        deleteConds.push(
-          sql`${schema.punchesTable.kfiId} NOT IN (${sql.join(
-            [...lockedKfiIds].map((k) => sql`${k}`),
-            sql`, `,
-          )})`,
+    try {
+      await db.transaction(async (tx) => {
+        // (1) Upsert dispatcher's picker mappings INSIDE the tx so a later
+        // failure rolls them back. They're visible to the SELECT below
+        // (same tx, READ COMMITTED) so the re-parse picks them up.
+        for (const a of cleanedAliases) {
+          await tx
+            .insert(schema.driverIdAliasesTable)
+            .values({
+              externalId: a.externalId,
+              kfiId: a.kfiId,
+              customer,
+              sampleName: a.sampleName,
+              createdBy: req.session.userId ?? null,
+              updatedBy: req.session.userId ?? null,
+            })
+            .onConflictDoUpdate({
+              target: schema.driverIdAliasesTable.externalId,
+              set: {
+                kfiId: a.kfiId,
+                customer,
+                sampleName: a.sampleName,
+                updatedBy: req.session.userId ?? null,
+                updatedAt: new Date(),
+              },
+            });
+        }
+
+        // (2) Re-parse with the merged map (now including the just-written
+        // picker aliases) so previously-dropped rows are imported in the
+        // same run.
+        const aliasRows = await tx
+          .select({
+            externalId: schema.driverIdAliasesTable.externalId,
+            kfiId: schema.driverIdAliasesTable.kfiId,
+          })
+          .from(schema.driverIdAliasesTable);
+        const mergedMap: Record<string, string> = { ...EMBEDDED_MAPPING };
+        for (const r of aliasRows) mergedMap[r.externalId] = r.kfiId;
+
+        const reparsed = await detectAndParseFile(
+          fileName,
+          Buffer.from(sample.fileBytes),
+          kfiSet,
+          startDate,
+          mergedMap,
         );
-      }
-      await tx.delete(schema.punchesTable).where(and(...deleteConds));
-      if (insertablePunches.length > 0) {
-        await tx.insert(schema.punchesTable).values(
-          insertablePunches.map((p) => ({
-            weekStart: startDate,
-            kfiId: p.kfiId,
-            customer: result.customer,
-            source: "Customer",
-            date: p.date,
-            clockIn: p.clockIn,
-            clockOut: p.clockOut,
-            hours: String(p.hours),
-            payType: p.payType,
-            dispTz: p.noTz ? "America/New_York" : defaultDispTz(p.kfiId),
-            isManual: false,
-            fileOrigin: fileName,
-            createdBy: req.session.userId ?? null,
-          })),
+        if (!reparsed || reparsed.customer !== customer) {
+          throw new Error(
+            "Stashed file no longer parses to the expected customer.",
+          );
+        }
+        finalResult = reparsed;
+
+        // (3) Apply exclude toggles + lock-gate using the AUTHORITATIVE
+        // parse. Indices line up because parsers are deterministic.
+        const includedPunches = reparsed.punches.filter(
+          (_p, i) => !excludedIndices.has(i),
         );
-      }
-      // Purge the stashed bytes inside the same tx as the commit. A
-      // sample is only useful as a "pending preview" — once it's been
-      // confirmed (or rolled back), we have no reason to hold the
-      // payroll file around. Symmetric with the discard-on-cancel path.
-      await tx
-        .delete(schema.aiExtractSamplesTable)
-        .where(eq(schema.aiExtractSamplesTable.id, sample.id));
-    });
+        insertablePunches = includedPunches.filter((p) => {
+          if (lockedKfiIds.has(p.kfiId)) {
+            if (!lockedSkipped.includes(p.kfiId)) lockedSkipped.push(p.kfiId);
+            return false;
+          }
+          return true;
+        });
+
+        // (4) Wipe-and-reinsert the (week, customer) Customer-source rows.
+        const deleteConds: SQL[] = [
+          eq(schema.punchesTable.weekStart, startDate),
+          eq(schema.punchesTable.source, "Customer"),
+          eq(schema.punchesTable.customer, reparsed.customer),
+          eq(schema.punchesTable.isManual, false),
+          ne(schema.punchesTable.edited, true),
+        ];
+        if (lockedKfiIds.size > 0) {
+          deleteConds.push(
+            sql`${schema.punchesTable.kfiId} NOT IN (${sql.join(
+              [...lockedKfiIds].map((k) => sql`${k}`),
+              sql`, `,
+            )})`,
+          );
+        }
+        await tx.delete(schema.punchesTable).where(and(...deleteConds));
+        if (insertablePunches.length > 0) {
+          await tx.insert(schema.punchesTable).values(
+            insertablePunches.map((p) => ({
+              weekStart: startDate,
+              kfiId: p.kfiId,
+              customer: reparsed.customer,
+              source: "Customer",
+              date: p.date,
+              clockIn: p.clockIn,
+              clockOut: p.clockOut,
+              hours: String(p.hours),
+              payType: p.payType,
+              dispTz: p.noTz ? "America/New_York" : defaultDispTz(p.kfiId),
+              isManual: false,
+              fileOrigin: fileName,
+              createdBy: req.session.userId ?? null,
+            })),
+          );
+        }
+        // (5) Purge the stashed bytes inside the same tx as the commit.
+        await tx
+          .delete(schema.aiExtractSamplesTable)
+          .where(eq(schema.aiExtractSamplesTable.id, sample.id));
+      });
+    } catch (err) {
+      req.log.error(
+        { err, fileName, customer },
+        "Confirm-customer-file transaction failed (alias writes rolled back)",
+      );
+      const msg = err instanceof Error ? err.message : "Confirm failed";
+      await recordAttempt(startDate, customer, fileName, msg, "parser");
+      res.status(400).json({ error: msg });
+      return;
+    }
+    result = finalResult;
 
     await recordAttempt(
       startDate,

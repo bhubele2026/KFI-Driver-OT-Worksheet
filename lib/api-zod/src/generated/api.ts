@@ -985,6 +985,18 @@ export const UploadCustomerFileResponse = zod.object({
           .describe(
             "Driver name as printed next to the id in the source file, when available.",
           ),
+        suggestions: zod
+          .array(
+            zod.object({
+              kfiId: zod.string(),
+              name: zod.string(),
+              confidence: zod.number(),
+            }),
+          )
+          .optional()
+          .describe(
+            "Up to 5 candidate KFI drivers ranked by fuzzy match of `sampleName`\nagainst the active roster. Used by the upload preview dialog to\npre-fill a driver picker so dispatchers can map the id on the fly\nand have it remembered via `driver_id_aliases`. Omitted\/empty when\nno `sampleName` is available or the roster is empty.\n",
+          ),
       }),
     )
     .describe(
@@ -1054,6 +1066,18 @@ export const ExtractCustomerFileResponse = zod.object({
         .describe(
           "Driver name as printed next to the id in the source file, when available.",
         ),
+      suggestions: zod
+        .array(
+          zod.object({
+            kfiId: zod.string(),
+            name: zod.string(),
+            confidence: zod.number(),
+          }),
+        )
+        .optional()
+        .describe(
+          "Up to 5 candidate KFI drivers ranked by fuzzy match of `sampleName`\nagainst the active roster. Used by the upload preview dialog to\npre-fill a driver picker so dispatchers can map the id on the fly\nand have it remembered via `driver_id_aliases`. Omitted\/empty when\nno `sampleName` is available or the roster is empty.\n",
+        ),
     }),
   ),
   existingPunchCount: zod
@@ -1092,6 +1116,23 @@ export const ConfirmCustomerFileBody = zod.object({
     .describe(
       "Stable indices from the preview's `rows` array that the dispatcher chose to exclude.",
     ),
+  mapNewAliases: zod
+    .array(
+      zod.object({
+        externalId: zod.string().min(1),
+        kfiId: zod.string().min(1),
+        sampleName: zod
+          .string()
+          .nullish()
+          .describe(
+            "Driver name as printed on the source doc; stored on the alias row for future audit.",
+          ),
+      }),
+    )
+    .optional()
+    .describe(
+      'On-the-fly driver-id mappings the dispatcher created in the\npreview\'s \"Unrecognized IDs\" picker. Each entry is upserted into\n`driver_id_aliases` inside the same transaction as the punch\ncommit, then the file is re-parsed with the merged map so the\npreviously-dropped rows are imported in this same run.\n',
+    ),
 });
 
 export const ConfirmCustomerFileResponse = zod.object({
@@ -1118,6 +1159,18 @@ export const ConfirmCustomerFileResponse = zod.object({
           .nullable()
           .describe(
             "Driver name as printed next to the id in the source file, when available.",
+          ),
+        suggestions: zod
+          .array(
+            zod.object({
+              kfiId: zod.string(),
+              name: zod.string(),
+              confidence: zod.number(),
+            }),
+          )
+          .optional()
+          .describe(
+            "Up to 5 candidate KFI drivers ranked by fuzzy match of `sampleName`\nagainst the active roster. Used by the upload preview dialog to\npre-fill a driver picker so dispatchers can map the id on the fly\nand have it remembered via `driver_id_aliases`. Omitted\/empty when\nno `sampleName` is available or the roster is empty.\n",
           ),
       }),
     )
@@ -1225,6 +1278,18 @@ export const GetCustomerUploadStatusResponseItem = zod.object({
           .nullable()
           .describe(
             "Driver name as printed next to the id in the source file, when available.",
+          ),
+        suggestions: zod
+          .array(
+            zod.object({
+              kfiId: zod.string(),
+              name: zod.string(),
+              confidence: zod.number(),
+            }),
+          )
+          .optional()
+          .describe(
+            "Up to 5 candidate KFI drivers ranked by fuzzy match of `sampleName`\nagainst the active roster. Used by the upload preview dialog to\npre-fill a driver picker so dispatchers can map the id on the fly\nand have it remembered via `driver_id_aliases`. Omitted\/empty when\nno `sampleName` is available or the roster is empty.\n",
           ),
       }),
     )
