@@ -62,11 +62,21 @@ export async function detectAndParseFile(
   kfiSet: Set<string>,
   weekStart: string,
   idMap?: Record<string, string>,
+  // When the dispatcher explicitly aimed at a customer (per-row upload
+  // / drag-drop), force that customer rather than guessing from the
+  // filename. Bypasses the keyword scan so a file like "kronos-week.xlsx"
+  // dropped on the Penda row parses as Penda, not as whatever the
+  // keywords happen to match.
+  explicitCustomer?: string,
 ): Promise<ParseResult | null> {
   const lower = fileName.toLowerCase();
   const isPdf = lower.endsWith(".pdf");
   const year = parseInt(weekStart.slice(0, 4));
-  const customer = detectCustomer(fileName, isPdf);
+  const customer = explicitCustomer
+    ? KNOWN_CUSTOMERS.find(
+        (k) => k.displayName.toLowerCase() === explicitCustomer.toLowerCase(),
+      )?.displayName ?? null
+    : detectCustomer(fileName, isPdf);
   if (!customer) return null;
 
   let punches: ParsedPunch[] = [];

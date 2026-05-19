@@ -435,3 +435,41 @@ test("unknown filename routes to null", async () => {
   );
   assert.equal(result, null);
 });
+
+test("explicit customer forces parser even when filename matches another customer", async () => {
+  // Regression: a Greystone XLSX with an unrelated filename, dropped on
+  // the Penda row, must parse as Penda — never let the filename
+  // keyword scan re-route to Greystone. With explicitCustomer, the
+  // parser dispatches strictly by the explicit choice; here Penda's
+  // parser will return zero rows from a Greystone-shaped sheet, but
+  // the routing decision itself must be honored.
+  const weekStart = "2026-04-26";
+  const buf = readFileSync(path.join(fixtureDir, weekStart, "Greystone.xlsx"));
+
+  // Without explicit customer: filename routes to Greystone (truthy).
+  const detected = await detectAndParseFile(
+    "Greystone.xlsx",
+    buf,
+    KFI_SET,
+    weekStart,
+  );
+  assert.ok(detected, "filename routing should detect Greystone");
+  assert.equal(detected.customer, "Greystone");
+
+  // With explicitCustomer=Penda: dispatched to Penda's parser regardless
+  // of the filename's "greystone" keyword.
+  const forced = await detectAndParseFile(
+    "Greystone.xlsx",
+    buf,
+    KFI_SET,
+    weekStart,
+    undefined,
+    "Penda",
+  );
+  assert.ok(forced, "explicit customer should route to Penda");
+  assert.equal(
+    forced.customer,
+    "Penda",
+    "explicit customer must override filename keyword routing",
+  );
+});

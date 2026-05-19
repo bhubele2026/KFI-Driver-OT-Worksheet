@@ -1330,11 +1330,17 @@ weeksRouter.post(
           kfiSet,
           startDate,
           idMap,
+          // When the dispatcher named a customer, force the parser to that
+          // customer — never let filename keywords mis-route the file to
+          // another known customer's parser (e.g. a "kronos-week.xlsx"
+          // dropped on Penda must parse as Penda, not whatever the
+          // keywords happen to hit).
+          explicitCustomer ?? undefined,
         );
-        // Filename-based routing failed to identify the customer, but the
-        // dispatcher explicitly told us which row this belongs to — fall
-        // through to AI with the explicit customer so the upload still
-        // succeeds even when the filename has no recognizable keyword.
+        // The deterministic parser couldn't identify the customer (no
+        // explicit customer + filename had no recognizable keyword), but
+        // the dispatcher told us which row this belongs to — fall through
+        // to AI with the explicit customer so the upload still succeeds.
         if (!result && explicitCustomer) {
           const idMap = await loadMergedIdMap();
           result = await extractImageForKnownCustomer({
