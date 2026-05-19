@@ -33,6 +33,7 @@ import type {
   CustomerNameAlias,
   CustomerNameAliasList,
   CustomerUploadStatus,
+  DayHoursResult,
   DeletedDriverNote,
   DriverIdAlias,
   DriverIdAliasList,
@@ -76,6 +77,7 @@ import type {
   RemoveParserPromotionSnoozeParams,
   RequestPasswordResetBody,
   ResetPasswordBody,
+  ScaleDayHoursInput,
   SetPunchReviewedBody,
   SetReviewed200,
   SetReviewedBody,
@@ -5333,6 +5335,240 @@ export const useSetReviewed = <
   TContext
 > => {
   return useMutation(getSetReviewedMutationOptions(options));
+};
+
+/**
+ * @summary Set a per-day total by proportionally scaling each contributing
+punch's `hours` field. Lets the dispatcher type the Connecteam value
+directly on the daily total cell instead of hunting for the off-by-
+a-minute punch. Clock-in / clock-out are preserved; each scaled
+punch is marked `edited=true`. The day's prior `hours` total must be
+> 0 (we can't proportionally scale from zero).
+
+ */
+export const getScaleDayHoursUrl = (
+  weekStart: string,
+  kfiId: string,
+  date: string,
+) => {
+  return `/api/weeks/${weekStart}/drivers/${kfiId}/days/${date}/scale-hours`;
+};
+
+export const scaleDayHours = async (
+  weekStart: string,
+  kfiId: string,
+  date: string,
+  scaleDayHoursInput: ScaleDayHoursInput,
+  options?: RequestInit,
+): Promise<DayHoursResult> => {
+  return customFetch<DayHoursResult>(
+    getScaleDayHoursUrl(weekStart, kfiId, date),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(scaleDayHoursInput),
+    },
+  );
+};
+
+export const getScaleDayHoursMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof scaleDayHours>>,
+    TError,
+    {
+      weekStart: string;
+      kfiId: string;
+      date: string;
+      data: BodyType<ScaleDayHoursInput>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof scaleDayHours>>,
+  TError,
+  {
+    weekStart: string;
+    kfiId: string;
+    date: string;
+    data: BodyType<ScaleDayHoursInput>;
+  },
+  TContext
+> => {
+  const mutationKey = ["scaleDayHours"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof scaleDayHours>>,
+    {
+      weekStart: string;
+      kfiId: string;
+      date: string;
+      data: BodyType<ScaleDayHoursInput>;
+    }
+  > = (props) => {
+    const { weekStart, kfiId, date, data } = props ?? {};
+
+    return scaleDayHours(weekStart, kfiId, date, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ScaleDayHoursMutationResult = NonNullable<
+  Awaited<ReturnType<typeof scaleDayHours>>
+>;
+export type ScaleDayHoursMutationBody = BodyType<ScaleDayHoursInput>;
+export type ScaleDayHoursMutationError = ErrorType<void>;
+
+/**
+ * @summary Set a per-day total by proportionally scaling each contributing
+punch's `hours` field. Lets the dispatcher type the Connecteam value
+directly on the daily total cell instead of hunting for the off-by-
+a-minute punch. Clock-in / clock-out are preserved; each scaled
+punch is marked `edited=true`. The day's prior `hours` total must be
+> 0 (we can't proportionally scale from zero).
+
+ */
+export const useScaleDayHours = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof scaleDayHours>>,
+    TError,
+    {
+      weekStart: string;
+      kfiId: string;
+      date: string;
+      data: BodyType<ScaleDayHoursInput>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof scaleDayHours>>,
+  TError,
+  {
+    weekStart: string;
+    kfiId: string;
+    date: string;
+    data: BodyType<ScaleDayHoursInput>;
+  },
+  TContext
+> => {
+  return useMutation(getScaleDayHoursMutationOptions(options));
+};
+
+/**
+ * @summary Revert each contributing punch's `hours` field back to the
+engine-derived `diffHours(clockIn, clockOut)` value, undoing a prior
+scale on that day. Clock times and the `edited` flag (which tracks
+clock-edits, not hours-edits) are left untouched.
+
+ */
+export const getResetDayHoursUrl = (
+  weekStart: string,
+  kfiId: string,
+  date: string,
+) => {
+  return `/api/weeks/${weekStart}/drivers/${kfiId}/days/${date}/reset-hours`;
+};
+
+export const resetDayHours = async (
+  weekStart: string,
+  kfiId: string,
+  date: string,
+  options?: RequestInit,
+): Promise<DayHoursResult> => {
+  return customFetch<DayHoursResult>(
+    getResetDayHoursUrl(weekStart, kfiId, date),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getResetDayHoursMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetDayHours>>,
+    TError,
+    { weekStart: string; kfiId: string; date: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resetDayHours>>,
+  TError,
+  { weekStart: string; kfiId: string; date: string },
+  TContext
+> => {
+  const mutationKey = ["resetDayHours"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resetDayHours>>,
+    { weekStart: string; kfiId: string; date: string }
+  > = (props) => {
+    const { weekStart, kfiId, date } = props ?? {};
+
+    return resetDayHours(weekStart, kfiId, date, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResetDayHoursMutationResult = NonNullable<
+  Awaited<ReturnType<typeof resetDayHours>>
+>;
+
+export type ResetDayHoursMutationError = ErrorType<void>;
+
+/**
+ * @summary Revert each contributing punch's `hours` field back to the
+engine-derived `diffHours(clockIn, clockOut)` value, undoing a prior
+scale on that day. Clock times and the `edited` flag (which tracks
+clock-edits, not hours-edits) are left untouched.
+
+ */
+export const useResetDayHours = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetDayHours>>,
+    TError,
+    { weekStart: string; kfiId: string; date: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof resetDayHours>>,
+  TError,
+  { weekStart: string; kfiId: string; date: string },
+  TContext
+> => {
+  return useMutation(getResetDayHoursMutationOptions(options));
 };
 
 /**

@@ -1734,6 +1734,120 @@ export const SetReviewedResponse = zod.object({
 });
 
 /**
+ * @summary Set a per-day total by proportionally scaling each contributing
+punch's `hours` field. Lets the dispatcher type the Connecteam value
+directly on the daily total cell instead of hunting for the off-by-
+a-minute punch. Clock-in / clock-out are preserved; each scaled
+punch is marked `edited=true`. The day's prior `hours` total must be
+> 0 (we can't proportionally scale from zero).
+
+ */
+export const scaleDayHoursPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+export const scaleDayHoursPathDateRegExp = new RegExp("^\\d{4}-\\d{2}-\\d{2}$");
+
+export const ScaleDayHoursParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(scaleDayHoursPathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+  kfiId: zod.coerce.string(),
+  date: zod.coerce
+    .string()
+    .regex(scaleDayHoursPathDateRegExp)
+    .describe("Day to scale (YYYY-MM-DD, must be inside the week)"),
+});
+
+export const scaleDayHoursBodyTotalHoursMin = 0;
+
+export const ScaleDayHoursBody = zod.object({
+  totalHours: zod
+    .number()
+    .min(scaleDayHoursBodyTotalHoursMin)
+    .describe(
+      "New per-day total to scale to. Must be >= 0 and <= 24. The\nexisting per-punch `hours` values are scaled by\n`totalHours \/ currentDayTotal`; any rounding residue is folded\ninto the largest punch so the sum lands exactly on the target.\n",
+    ),
+});
+
+export const ScaleDayHoursResponse = zod.object({
+  date: zod.string(),
+  totalHours: zod.number(),
+  punches: zod.array(
+    zod.object({
+      id: zod.number(),
+      weekStart: zod.string(),
+      kfiId: zod.string(),
+      customer: zod.string().nullish(),
+      source: zod.enum(["Driver", "Customer"]),
+      date: zod.string(),
+      clockIn: zod.string(),
+      clockOut: zod.string(),
+      hours: zod.number(),
+      payType: zod.string().nullish(),
+      dispTz: zod.string(),
+      isManual: zod.boolean(),
+      edited: zod.boolean().optional(),
+      createdByEmail: zod.string().nullish(),
+      updatedByEmail: zod.string().nullish(),
+      updatedAt: zod.coerce.date().nullish(),
+      reviewed: zod.boolean().optional(),
+      reviewedAt: zod.coerce.date().nullish(),
+      reviewedByEmail: zod.string().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary Revert each contributing punch's `hours` field back to the
+engine-derived `diffHours(clockIn, clockOut)` value, undoing a prior
+scale on that day. Clock times and the `edited` flag (which tracks
+clock-edits, not hours-edits) are left untouched.
+
+ */
+export const resetDayHoursPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+export const resetDayHoursPathDateRegExp = new RegExp("^\\d{4}-\\d{2}-\\d{2}$");
+
+export const ResetDayHoursParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(resetDayHoursPathWeekStartRegExp)
+    .describe("Week start date (Monday) in YYYY-MM-DD"),
+  kfiId: zod.coerce.string(),
+  date: zod.coerce.string().regex(resetDayHoursPathDateRegExp),
+});
+
+export const ResetDayHoursResponse = zod.object({
+  date: zod.string(),
+  totalHours: zod.number(),
+  punches: zod.array(
+    zod.object({
+      id: zod.number(),
+      weekStart: zod.string(),
+      kfiId: zod.string(),
+      customer: zod.string().nullish(),
+      source: zod.enum(["Driver", "Customer"]),
+      date: zod.string(),
+      clockIn: zod.string(),
+      clockOut: zod.string(),
+      hours: zod.number(),
+      payType: zod.string().nullish(),
+      dispTz: zod.string(),
+      isManual: zod.boolean(),
+      edited: zod.boolean().optional(),
+      createdByEmail: zod.string().nullish(),
+      updatedByEmail: zod.string().nullish(),
+      updatedAt: zod.coerce.date().nullish(),
+      reviewed: zod.boolean().optional(),
+      reviewedAt: zod.coerce.date().nullish(),
+      reviewedByEmail: zod.string().nullish(),
+    }),
+  ),
+});
+
+/**
  * @summary Lock a driver-week (supervisor or admin only)
  */
 export const lockDriverWeekPathWeekStartRegExp = new RegExp(

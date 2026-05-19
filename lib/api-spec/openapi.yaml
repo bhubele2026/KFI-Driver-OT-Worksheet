@@ -1106,6 +1106,64 @@ paths:
                   status:
                     type: ["string", "null"]
 
+  /weeks/{weekStart}/drivers/{kfiId}/days/{date}/scale-hours:
+    post:
+      operationId: scaleDayHours
+      tags: [punches]
+      summary: |
+        Set a per-day total by proportionally scaling each contributing
+        punch's `hours` field. Lets the dispatcher type the Connecteam value
+        directly on the daily total cell instead of hunting for the off-by-
+        a-minute punch. Clock-in / clock-out are preserved; each scaled
+        punch is marked `edited=true`. The day's prior `hours` total must be
+        > 0 (we can't proportionally scale from zero).
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - $ref: "#/components/parameters/KfiId"
+        - name: date
+          in: path
+          required: true
+          description: Day to scale (YYYY-MM-DD, must be inside the week)
+          schema: { type: string, pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScaleDayHoursInput" }
+      responses:
+        "200":
+          description: New per-day total after scaling
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DayHoursResult" }
+        "400": { description: "Invalid input: no punches, prior total zero, or negative target" }
+        "423": { description: Driver-week is locked }
+
+  /weeks/{weekStart}/drivers/{kfiId}/days/{date}/reset-hours:
+    post:
+      operationId: resetDayHours
+      tags: [punches]
+      summary: |
+        Revert each contributing punch's `hours` field back to the
+        engine-derived `diffHours(clockIn, clockOut)` value, undoing a prior
+        scale on that day. Clock times and the `edited` flag (which tracks
+        clock-edits, not hours-edits) are left untouched.
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - $ref: "#/components/parameters/KfiId"
+        - name: date
+          in: path
+          required: true
+          schema: { type: string, pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
+      responses:
+        "200":
+          description: New per-day total after reset
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DayHoursResult" }
+        "400": { description: Invalid input }
+        "423": { description: Driver-week is locked }
+
   /weeks/{weekStart}/drivers/{kfiId}/lock:
     post:
       operationId: lockDriverWeek
@@ -2007,6 +2065,29 @@ components:
               clockIn: { type: string }
               clockOut: { type: string }
               overlapMinutes: { type: number }
+
+    ScaleDayHoursInput:
+      type: object
+      required: [totalHours]
+      properties:
+        totalHours:
+          type: number
+          minimum: 0
+          description: |
+            New per-day total to scale to. Must be >= 0 and <= 24. The
+            existing per-punch `hours` values are scaled by
+            `totalHours / currentDayTotal`; any rounding residue is folded
+            into the largest punch so the sum lands exactly on the target.
+
+    DayHoursResult:
+      type: object
+      required: [date, totalHours, punches]
+      properties:
+        date: { type: string }
+        totalHours: { type: number }
+        punches:
+          type: array
+          items: { $ref: "#/components/schemas/Punch" }
 
     ManualPunchInput:
       type: object

@@ -612,6 +612,24 @@ warning in the dialog with a "View overlap" link.
   overlaps: PreviewPunchResultOverlapsItem[];
 }
 
+export interface ScaleDayHoursInput {
+  /**
+   * New per-day total to scale to. Must be >= 0 and <= 24. The
+existing per-punch `hours` values are scaled by
+`totalHours / currentDayTotal`; any rounding residue is folded
+into the largest punch so the sum lands exactly on the target.
+
+   * @minimum 0
+   */
+  totalHours: number;
+}
+
+export interface DayHoursResult {
+  date: string;
+  totalHours: number;
+  punches: Punch[];
+}
+
 export type ManualPunchInputSource =
   (typeof ManualPunchInputSource)[keyof typeof ManualPunchInputSource];
 

@@ -13,7 +13,6 @@ function actorRef(req: import("express").Request): ActorRef | null {
   if (user) return { userId: user.id, email: user.email };
   return null;
 }
-
 async function loadEmailsForPunch(
   p: typeof schema.punchesTable.$inferSelect,
 ): Promise<Map<number, string>> {

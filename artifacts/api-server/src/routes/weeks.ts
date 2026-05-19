@@ -2384,6 +2384,189 @@ weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
   res.json(serializePunch(row));
 });
 
+// Helpers shared by scale-hours / reset-hours. Round to 2dp and load every
+// punch (any source, manual or imported) for a single (week, driver, date).
+const r2 = (n: number): number => Math.round(n * 100) / 100;
+
+async function loadDayPunches(
+  weekStart: string,
+  kfiId: string,
+  date: string,
+) {
+  return db
+    .select()
+    .from(schema.punchesTable)
+    .where(
+      and(
+        eq(schema.punchesTable.weekStart, weekStart),
+        eq(schema.punchesTable.kfiId, kfiId),
+        eq(schema.punchesTable.date, date),
+      ),
+    )
+    .orderBy(asc(schema.punchesTable.clockIn));
+}
+
+/**
+ * Set a day's total by proportionally scaling each contributing punch's
+ * `hours` field. Lets the dispatcher fix a sub-percent typo against the
+ * Connecteam-side total (e.g. 8.47 → 8.50) without having to find which
+ * underlying punch is off by a minute. Clock-in / out are untouched so the
+ * audit trail and customer-file source rows stay intact; each scaled punch
+ * is stamped `edited=true` + `updatedBy` so attribution works.
+ *
+ * Rounding: per-punch scaled hours are rounded to 2dp, then any residue
+ * (±0.01) is folded into the *largest* punch so the day sum lands exactly
+ * on the requested total. Going through the largest punch keeps the
+ * relative weights stable across scale + reset cycles.
+ */
+weeksRouter.post(
+  "/weeks/:weekStart/drivers/:kfiId/days/:date/scale-hours",
+  async (req, res) => {
+    const weekStart = req.params.weekStart;
+    const kfiId = req.params.kfiId;
+    const date = req.params.date;
+    if (!isWeek(weekStart) || !WEEK_RE.test(date)) {
+      res.status(400).json({ error: "Invalid week or date" });
+      return;
+    }
+    const body = req.body as { totalHours?: unknown };
+    const target =
+      typeof body.totalHours === "number" && Number.isFinite(body.totalHours)
+        ? body.totalHours
+        : NaN;
+    if (!Number.isFinite(target) || target < 0 || target > 24) {
+      res.status(400).json({ error: "totalHours must be between 0 and 24" });
+      return;
+    }
+    const { startDate, endDate } = await ensureWeek(weekStart);
+    if (date < startDate || date > endDate) {
+      res.status(400).json({ error: "Date is outside the week" });
+      return;
+    }
+    if (!(await assertNotLocked(res, startDate, kfiId))) return;
+    const punches = await loadDayPunches(startDate, kfiId, date);
+    if (punches.length === 0) {
+      res.status(400).json({ error: "No punches on this day to scale" });
+      return;
+    }
+    const current = punches.reduce((sum, p) => sum + Number(p.hours), 0);
+    if (current <= 0.0001) {
+      res.status(400).json({
+        error:
+          "Day total is zero — fix at least one clock-in/out before scaling.",
+      });
+      return;
+    }
+    const targetR2 = r2(target);
+    const ratio = targetR2 / current;
+    const scaled = punches.map((p) => r2(Number(p.hours) * ratio));
+    // Fold any rounding residue into the row with the largest absolute
+    // contribution so the day sum is exactly targetR2.
+    const sum = scaled.reduce((a, b) => a + b, 0);
+    const residue = r2(targetR2 - sum);
+    if (Math.abs(residue) >= 0.005) {
+      let maxIdx = 0;
+      for (let i = 1; i < scaled.length; i++) {
+        if (scaled[i] > scaled[maxIdx]) maxIdx = i;
+      }
+      scaled[maxIdx] = r2(scaled[maxIdx] + residue);
+    }
+
+    const updated = await db.transaction(async (tx) => {
+      const out: typeof punches = [];
+      for (let i = 0; i < punches.length; i++) {
+        const [row] = await tx
+          .update(schema.punchesTable)
+          .set({
+            hours: String(scaled[i]),
+            edited: true,
+            updatedBy: req.session.userId ?? null,
+          })
+          .where(eq(schema.punchesTable.id, punches[i].id))
+          .returning();
+        out.push(row);
+      }
+      return out;
+    });
+
+    publishRealtime({
+      type: "punch-changed",
+      weekStart: startDate,
+      kfiId,
+      action: "update",
+      punchId: updated[0]?.id ?? 0,
+      actor: actorRef(req),
+    });
+    res.json({
+      date,
+      totalHours: targetR2,
+      punches: updated.map((p) => serializePunch(p)),
+    });
+  },
+);
+
+/**
+ * Revert a previous scale on this day by recomputing each punch's `hours`
+ * from `diffHours(clockIn, clockOut)`. Clock times and the `edited` flag
+ * (which tracks clock-edits, not hours-edits) are left untouched so a
+ * dispatcher's prior in/out corrections survive the reset.
+ */
+weeksRouter.post(
+  "/weeks/:weekStart/drivers/:kfiId/days/:date/reset-hours",
+  async (req, res) => {
+    const weekStart = req.params.weekStart;
+    const kfiId = req.params.kfiId;
+    const date = req.params.date;
+    if (!isWeek(weekStart) || !WEEK_RE.test(date)) {
+      res.status(400).json({ error: "Invalid week or date" });
+      return;
+    }
+    const { startDate, endDate } = await ensureWeek(weekStart);
+    if (date < startDate || date > endDate) {
+      res.status(400).json({ error: "Date is outside the week" });
+      return;
+    }
+    if (!(await assertNotLocked(res, startDate, kfiId))) return;
+    const punches = await loadDayPunches(startDate, kfiId, date);
+    if (punches.length === 0) {
+      res.status(400).json({ error: "No punches on this day to reset" });
+      return;
+    }
+
+    const updated = await db.transaction(async (tx) => {
+      const out: typeof punches = [];
+      for (const p of punches) {
+        const natural = r2(diffHours(p.clockIn, p.clockOut));
+        const [row] = await tx
+          .update(schema.punchesTable)
+          .set({
+            hours: String(natural),
+            updatedBy: req.session.userId ?? null,
+          })
+          .where(eq(schema.punchesTable.id, p.id))
+          .returning();
+        out.push(row);
+      }
+      return out;
+    });
+
+    const total = r2(updated.reduce((sum, p) => sum + Number(p.hours), 0));
+    publishRealtime({
+      type: "punch-changed",
+      weekStart: startDate,
+      kfiId,
+      action: "update",
+      punchId: updated[0]?.id ?? 0,
+      actor: actorRef(req),
+    });
+    res.json({
+      date,
+      totalHours: total,
+      punches: updated.map((p) => serializePunch(p)),
+    });
+  },
+);
+
 /**
  * Compute a "what-if" preview of a draft (or edited) punch without writing
  * anything. Powers the live preview block in the Add-Manual-Punch dialog
