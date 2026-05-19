@@ -115,21 +115,25 @@ export default function WeekSummary() {
 
   const { data: weeksList } = useListWeeks();
 
-  // Build a dropdown that always includes the last 26 Sun→Sat weeks (so the
-  // dispatcher can navigate to a prior week even if it has no DB row yet),
-  // merged with any DB-known weeks (which may extend further back). The
-  // currently-selected week is always included so the trigger never shows a
-  // blank value.
+  // Dropdown shows every Sun→Sat week from the Sun→Sat cutover
+  // (2026-05-10) through the current payroll week, plus any DB-known
+  // weeks (in case data exists for a week outside that range) and the
+  // currently-selected week. No future-only weeks; the list grows
+  // naturally as time advances.
   const weekOptions = (() => {
     const endOf = (sundayIso: string) => {
       const d = parseISO(sundayIso);
       d.setDate(d.getDate() + 6);
       return format(d, "yyyy-MM-dd");
     };
+    const FIRST_WEEK = "2026-05-10";
     const map = new Map<string, { startDate: string; endDate: string }>();
-    for (let i = 0; i < 26; i++) {
-      const s = format(addWeeks(currentSunday, -i), "yyyy-MM-dd");
+    let cursor = parseISO(FIRST_WEEK);
+    const end = currentSunday;
+    while (cursor.getTime() <= end.getTime()) {
+      const s = format(cursor, "yyyy-MM-dd");
       map.set(s, { startDate: s, endDate: endOf(s) });
+      cursor = addWeeks(cursor, 1);
     }
     for (const w of weeksList ?? []) {
       map.set(w.startDate, { startDate: w.startDate, endDate: w.endDate });
