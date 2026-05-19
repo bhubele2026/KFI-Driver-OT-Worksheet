@@ -49,6 +49,7 @@ import {
 } from "../lib/connecteamParity.js";
 import {
   KNOWN_CUSTOMERS,
+  canDeterministicallyParse,
   detectAndParseFile,
 } from "../lib/parsers/index.js";
 import { detectCustomerFromFileName } from "../lib/parsers/customers.js";
@@ -1171,6 +1172,27 @@ weeksRouter.post(
     const fileName = req.file.originalname;
     const isImage =
       !!imageExtension(fileName) || isImageMime(req.file.mimetype);
+    // Optional explicit customer override (per-row upload / drag-drop sends
+    // this). When supplied, we trust the dispatcher's choice over filename
+    // detection and route the file through AI extraction whenever the
+    // deterministic parser can't handle it (wrong extension, image, csv,
+    // etc.). Validated against KNOWN_CUSTOMERS so a bad value is rejected
+    // up front rather than producing a confusing "0 punches" later.
+    const explicitCustomerRaw = String(req.body.customer ?? "").trim();
+    let explicitCustomer: string | null = null;
+    if (explicitCustomerRaw) {
+      const match = KNOWN_CUSTOMERS.find(
+        (c) =>
+          c.displayName.toLowerCase() === explicitCustomerRaw.toLowerCase(),
+      );
+      if (!match) {
+        res.status(400).json({
+          error: `Unknown customer "${explicitCustomerRaw}".`,
+        });
+        return;
+      }
+      explicitCustomer = match.displayName;
+    }
     // Short-circuit no-op re-uploads: if the file's bytes exactly match the
     // most recent successful import for this (week, customer), return a
     // skipped-preview without parsing or stashing anything. Bulk-upload
@@ -1186,7 +1208,8 @@ weeksRouter.post(
     const contentHash = createHash("sha256")
       .update(req.file.buffer)
       .digest("hex");
-    const detectedForSkip = detectCustomerFromFileName(fileName);
+    const detectedForSkip =
+      explicitCustomer ?? detectCustomerFromFileName(fileName);
     if (!isImage && !force && detectedForSkip) {
       const prior = await db
         .select({
@@ -1228,34 +1251,56 @@ weeksRouter.post(
     > | null = null;
     let stashedImageMime = req.file.mimetype || "application/octet-stream";
     let stashedImageBuffer: Buffer = req.file.buffer;
-    if (isImage) {
-      if (req.file.size > MAX_IMAGE_BYTES) {
+    // Track whether we fell back to AI extraction so the preview dialog can
+    // warn the dispatcher and so /confirm-customer-file knows to replay the
+    // stashed rows instead of re-running the deterministic parser.
+    let aiFallback = false;
+    let aiFallbackReason: string | null = null;
+    // Decide whether to run the deterministic parser or fall straight
+    // through to AI. Images always go to AI. Non-image files go to AI when
+    // the dispatcher named a customer whose deterministic parser doesn't
+    // accept this extension (e.g. dropping a CSV on the Adient row), and
+    // otherwise use the deterministic parser.
+    const useAiUpfront =
+      isImage ||
+      (explicitCustomer !== null &&
+        !canDeterministicallyParse(fileName, explicitCustomer));
+    if (useAiUpfront) {
+      if (isImage && req.file.size > MAX_IMAGE_BYTES) {
         res.status(400).json({
           error: `Image is ${(req.file.size / (1024 * 1024)).toFixed(1)} MB. Photos must be ${MAX_IMAGE_BYTES / (1024 * 1024)} MB or smaller.`,
         });
         return;
       }
-      const detected = detectCustomerFromFileName(fileName);
+      const detected =
+        explicitCustomer ?? detectCustomerFromFileName(fileName);
       if (!detected) {
         res.status(400).json({
-          error:
-            "Could not detect customer from filename. Rename the photo to include the customer name (e.g. adient-week.jpg), or use the New customer file… flow.",
+          error: isImage
+            ? "Could not detect customer from filename. Rename the photo to include the customer name (e.g. adient-week.jpg), or use the New customer file… flow."
+            : "Could not detect customer from filename. Drop the file onto a specific customer row, or rename it to include the customer name.",
         });
         return;
       }
       try {
-        const normalized = await normalizeImageBuffer(
-          fileName,
-          req.file.mimetype || "",
-          req.file.buffer,
-        );
-        stashedImageBuffer = normalized.buffer;
-        stashedImageMime = normalized.mimeType;
+        let bufferForAi = req.file.buffer;
+        let mimeForAi = req.file.mimetype || "application/octet-stream";
+        if (isImage) {
+          const normalized = await normalizeImageBuffer(
+            fileName,
+            req.file.mimetype || "",
+            req.file.buffer,
+          );
+          bufferForAi = normalized.buffer;
+          mimeForAi = normalized.mimeType;
+        }
+        stashedImageBuffer = bufferForAi;
+        stashedImageMime = mimeForAi;
         const idMap = await loadMergedIdMap();
         result = await extractImageForKnownCustomer({
           fileName,
-          buffer: normalized.buffer,
-          mimeType: normalized.mimeType,
+          buffer: bufferForAi,
+          mimeType: mimeForAi,
           customer: detected,
           weekStart: startDate,
           weekEnd: endDate,
@@ -1264,8 +1309,12 @@ weeksRouter.post(
           kfiSet,
         });
         stashedImageRows = imagePunchesForStash(result.punches);
+        aiFallback = !isImage;
+        if (aiFallback) {
+          aiFallbackReason = `${fileName.split(".").pop()?.toLowerCase() || "this file"} format isn't supported by the built-in ${detected} parser`;
+        }
       } catch (err) {
-        req.log.error({ err, fileName }, "Image AI extract error");
+        req.log.error({ err, fileName }, "AI extract error");
         const msg =
           err instanceof Error ? err.message : "Could not extract rows";
         await recordAttempt(startDate, detected, fileName, msg, "ai");
@@ -1282,11 +1331,33 @@ weeksRouter.post(
           startDate,
           idMap,
         );
+        // Filename-based routing failed to identify the customer, but the
+        // dispatcher explicitly told us which row this belongs to — fall
+        // through to AI with the explicit customer so the upload still
+        // succeeds even when the filename has no recognizable keyword.
+        if (!result && explicitCustomer) {
+          const idMap = await loadMergedIdMap();
+          result = await extractImageForKnownCustomer({
+            fileName,
+            buffer: req.file.buffer,
+            mimeType: req.file.mimetype || "application/octet-stream",
+            customer: explicitCustomer,
+            weekStart: startDate,
+            weekEnd: endDate,
+            idMap,
+            drivers,
+            kfiSet,
+          });
+          stashedImageRows = imagePunchesForStash(result.punches);
+          aiFallback = true;
+          aiFallbackReason = "filename did not match a known customer keyword";
+        }
       } catch (err) {
         req.log.error({ err, fileName }, "Parse error (extract)");
         const msg =
           err instanceof Error ? err.message : "Could not parse file";
-        const detected = detectCustomerFromFileName(fileName);
+        const detected =
+          explicitCustomer ?? detectCustomerFromFileName(fileName);
         if (detected) {
           await recordAttempt(startDate, detected, fileName, msg, "parser");
         }
@@ -1312,12 +1383,7 @@ weeksRouter.post(
         return;
       }
     }
-    // Track whether we fell back to AI extraction so the preview dialog can
-    // warn the dispatcher and so /confirm-customer-file knows to replay the
-    // stashed rows instead of re-running the deterministic parser.
-    let aiFallback = false;
-    let aiFallbackReason: string | null = null;
-    if (!isImage && result.punches.length === 0) {
+    if (!isImage && !aiFallback && result.punches.length === 0) {
       // Deterministic parser detected the customer from the filename but
       // returned zero rows. That's almost always format drift — the source
       // export changed column names, sheet layout, or date format. Rather

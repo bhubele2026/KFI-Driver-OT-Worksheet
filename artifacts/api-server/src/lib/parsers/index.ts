@@ -33,6 +33,29 @@ function detectCustomer(
   return null;
 }
 
+/**
+ * Run the deterministic parser for an explicitly-chosen customer if (and
+ * only if) the file extension matches that customer's parser list.
+ * Returns null when the deterministic parser is not applicable (wrong
+ * extension, unknown customer, or image) — callers should fall back to AI.
+ */
+export function canDeterministicallyParse(
+  fileName: string,
+  customer: string,
+): boolean {
+  const lower = fileName.toLowerCase();
+  const isPdf = lower.endsWith(".pdf");
+  const isXlsx = lower.endsWith(".xlsx") || lower.endsWith(".xls");
+  if (!isPdf && !isXlsx) return false;
+  const c = KNOWN_CUSTOMERS.find(
+    (k) => k.displayName.toLowerCase() === customer.toLowerCase(),
+  );
+  if (!c) return false;
+  if (isPdf && !c.extensions.includes("pdf")) return false;
+  if (isXlsx && !c.extensions.includes("xlsx")) return false;
+  return true;
+}
+
 export async function detectAndParseFile(
   fileName: string,
   buffer: Buffer,

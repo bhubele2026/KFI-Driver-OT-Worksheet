@@ -62,6 +62,86 @@ function buildPrompt(customer: string, weekStart: string, weekEnd: string) {
   ].join("\n");
 }
 
+/**
+ * Parse the model's JSON response, with a salvage path for truncated output.
+ *
+ * Gemini occasionally hits maxOutputTokens mid-row on very large weekly
+ * exports, returning a JSON string that's missing its trailing brackets
+ * (e.g. `{"rows":[{...},{"driverNameOnDoc":"Jo`). Rather than fail the
+ * entire upload — which would force the dispatcher to manually enter ~150
+ * punches — we trim back to the last complete row object in the `rows`
+ * array and re-close the brackets. Any data after that point is lost, but
+ * the dispatcher sees a partial preview they can confirm or re-run.
+ */
+export function parseOrSalvage(
+  raw: string,
+  customer: string,
+  fileName: string,
+): { rows?: AiExtractedRow[] } {
+  try {
+    return JSON.parse(raw) as { rows?: AiExtractedRow[] };
+  } catch {
+    // Locate the `rows` array, walk it row-by-row with a brace counter,
+    // and stop at the last fully-balanced row object. Then reconstruct
+    // `{"rows":[<balanced rows>]}` and parse that.
+    const rowsStart = raw.indexOf("[");
+    if (rowsStart === -1) {
+      throw new Error(
+        `AI extraction: model did not return valid JSON and could not be salvaged (no rows array).`,
+      );
+    }
+    let i = rowsStart + 1;
+    let lastGood = -1; // index just after the last balanced row obj
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    while (i < raw.length) {
+      const ch = raw[i];
+      if (inStr) {
+        if (esc) {
+          esc = false;
+        } else if (ch === "\\") {
+          esc = true;
+        } else if (ch === '"') {
+          inStr = false;
+        }
+      } else if (ch === '"') {
+        inStr = true;
+      } else if (ch === "{") {
+        depth++;
+      } else if (ch === "}") {
+        depth--;
+        if (depth === 0) lastGood = i + 1;
+      }
+      i++;
+    }
+    if (lastGood === -1) {
+      throw new Error(
+        `AI extraction: model response was truncated before any complete row could be recovered.`,
+      );
+    }
+    const salvaged = `${raw.slice(0, lastGood)}]}`;
+    try {
+      const parsed = JSON.parse(salvaged) as { rows?: AiExtractedRow[] };
+      logger.warn(
+        {
+          customer,
+          fileName,
+          rawLen: raw.length,
+          salvagedLen: salvaged.length,
+          rows: parsed.rows?.length ?? 0,
+        },
+        "AI extraction: salvaged truncated JSON response",
+      );
+      return parsed;
+    } catch (err2) {
+      throw new Error(
+        `AI extraction: model response was truncated and salvage failed (${(err2 as Error).message}).`,
+      );
+    }
+  }
+}
+
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   const mod = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const data = new Uint8Array(buffer);
@@ -159,19 +239,16 @@ export async function aiExtractRows(
     config: {
       responseMimeType: "application/json",
       responseSchema: ROW_SCHEMA,
-      maxOutputTokens: 8192,
+      // Weekly customer exports for a 21-driver fleet can easily exceed
+      // 8k output tokens (one row per driver per day with five string
+      // fields each). Cap generously — the proxy still bills by output
+      // tokens used, not requested, so headroom is free.
+      maxOutputTokens: 32768,
     },
   });
 
   const raw = response.text ?? "";
-  let parsed: { rows?: AiExtractedRow[] };
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(
-      `AI extraction: model did not return valid JSON (${(err as Error).message}).`,
-    );
-  }
+  const parsed = parseOrSalvage(raw, customer, fileName);
 
   const rows = (parsed.rows ?? [])
     .filter(

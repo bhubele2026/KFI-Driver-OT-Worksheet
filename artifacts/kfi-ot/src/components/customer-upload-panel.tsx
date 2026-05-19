@@ -259,12 +259,18 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const doUpload = async (
     customer: string,
     file: File,
-    opts?: { force?: boolean },
+    opts?: { force?: boolean; explicitCustomer?: boolean },
   ): Promise<UploadResult> => {
     const formData = new FormData();
     formData.append("file", file);
     if (overrideTz !== "__auto__") {
       formData.append("dispTz", overrideTz);
+    }
+    // When the dispatcher explicitly aimed at this customer (per-row
+    // re-upload button), pass the customer so the server can route by
+    // content instead of filename — accepting any extension.
+    if (opts?.explicitCustomer) {
+      formData.append("customer", customer);
     }
     try {
       const qs = opts?.force ? "?force=1" : "";
@@ -334,6 +340,10 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     setRow(customer, { uploading: true, error: null });
     const formData = new FormData();
     formData.append("file", file);
+    // Tell the server which customer the dispatcher aimed at. The server
+    // uses this to route by content rather than filename so xlsx, pdf,
+    // csv, and image uploads all work on any row regardless of extension.
+    formData.append("customer", customer);
     try {
       const res = await fetch(
         `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file`,
@@ -373,7 +383,10 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     // Per-row Re-upload always forces — the dispatcher explicitly chose this
     // file, so skipping it as a duplicate would be confusing. Skip detection
     // is for bulk re-runs only.
-    const r = await doUpload(customer, file, { force: true });
+    const r = await doUpload(customer, file, {
+      force: true,
+      explicitCustomer: true,
+    });
     if (!r.ok) {
       setRow(customer, { uploading: false, error: r.error });
       toast({
@@ -410,6 +423,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       lower.endsWith(".pdf") ||
       lower.endsWith(".xlsx") ||
       lower.endsWith(".xls") ||
+      lower.endsWith(".csv") ||
       /\.(jpe?g|png|heic|heif|webp)$/i.test(lower)
     );
   };
@@ -428,7 +442,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     if (rejected.length > 0) {
       toast({
         title: `Skipped ${rejected.length} unsupported ${rejected.length === 1 ? "file" : "files"}`,
-        description: `Only .xlsx, .pdf, and image files (JPG, PNG, HEIC, WEBP) are accepted. Skipped: ${rejected.join(", ")}.`,
+        description: `Only .xlsx, .xls, .csv, .pdf, and image files (JPG, PNG, HEIC, WEBP) are accepted. Skipped: ${rejected.join(", ")}.`,
         variant: "destructive",
       });
     }
@@ -439,13 +453,14 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     const lower = file.name.toLowerCase();
     const isPdf = lower.endsWith(".pdf");
     const isXlsx = lower.endsWith(".xlsx") || lower.endsWith(".xls");
+    const isCsv = lower.endsWith(".csv");
     const isImage = /\.(jpe?g|png|heic|heif|webp)$/i.test(lower);
-    if (!isPdf && !isXlsx && !isImage) return null;
+    if (!isPdf && !isXlsx && !isCsv && !isImage) return null;
     for (const s of statuses ?? []) {
       if (!s.keywords || s.keywords.length === 0) continue;
-      // Images are AI-extracted server-side and aren't bound to the
-      // customer's deterministic-parser extension list.
-      if (!isImage) {
+      // Images and CSVs are AI-extracted server-side and aren't bound to
+      // the customer's deterministic-parser extension list.
+      if (!isImage && !isCsv) {
         if (isPdf && !s.extensions.includes("pdf")) continue;
         if (isXlsx && !s.extensions.includes("xlsx")) continue;
       }
@@ -625,11 +640,12 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       lower.endsWith(".pdf") ||
       lower.endsWith(".xlsx") ||
       lower.endsWith(".xls") ||
+      lower.endsWith(".csv") ||
       /\.(jpe?g|png|heic|heif|webp)$/i.test(lower);
     if (!ok) {
       toast({
         title: "Unsupported file type",
-        description: `Only .xlsx, .pdf, and image files (JPG, PNG, HEIC, WEBP) are accepted. "${file.name}" was skipped.`,
+        description: `Only .xlsx, .xls, .csv, .pdf, and image files (JPG, PNG, HEIC, WEBP) are accepted. "${file.name}" was skipped.`,
         variant: "destructive",
       });
       return;
@@ -764,7 +780,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           <input
             type="file"
             ref={bulkInputRef}
-            accept=".pdf,.xlsx,.xls"
+            accept=".pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.heic,.heif,.webp"
             multiple
             className="hidden"
             onChange={(e) => {
@@ -1068,8 +1084,18 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
             .map((e) => `.${e}`)
             .concat(s.extensions.includes("xlsx") ? [".xls"] : [])
             // Every known customer can also accept a photo of the time
-            // sheet; the server routes it through AI extract + preview.
-            .concat([".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"])
+            // sheet or a CSV export; the server routes the file through
+            // AI extract + preview when the extension isn't covered by
+            // the deterministic parser.
+            .concat([
+              ".csv",
+              ".jpg",
+              ".jpeg",
+              ".png",
+              ".heic",
+              ".heif",
+              ".webp",
+            ])
             .join(",");
           const isRowDragTarget = rowDragCustomer === s.customer;
           return (
