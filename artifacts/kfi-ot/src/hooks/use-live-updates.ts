@@ -6,6 +6,7 @@ import {
   getGetCustomerUploadStatusQueryKey,
   getListDriverNotesQueryKey,
   getGetDriverWeekAuditQueryKey,
+  getGetHiddenNotesUnseenCountQueryKey,
 } from "@workspace/api-client-react";
 import { subscribeRealtime, type RealtimeEvent } from "@/lib/realtime";
 import { useToast } from "@/hooks/use-toast";
@@ -137,6 +138,11 @@ export function useLiveUpdates({
             qc.invalidateQueries({
               queryKey: getGetWeekSummaryQueryKey(event.weekStart),
             });
+            // Admin header badge for unseen hidden notes; soft-delete or
+            // restore changes the unseen count, so keep it live too.
+            qc.invalidateQueries({
+              queryKey: getGetHiddenNotesUnseenCountQueryKey(),
+            });
             break;
 
           case "reconnect":
@@ -159,6 +165,9 @@ export function useLiveUpdates({
             }
             qc.invalidateQueries({
               queryKey: getGetCustomerUploadStatusQueryKey(event.weekStart),
+            });
+            qc.invalidateQueries({
+              queryKey: getGetHiddenNotesUnseenCountQueryKey(),
             });
             break;
 
