@@ -1315,8 +1315,13 @@ weeksRouter.post(
     // this). When supplied, we trust the dispatcher's choice over filename
     // detection and route the file through AI extraction whenever the
     // deterministic parser can't handle it (wrong extension, image, csv,
-    // etc.). Validated against KNOWN_CUSTOMERS so a bad value is rejected
-    // up front rather than producing a confusing "0 punches" later.
+    // unknown customer, etc.). When the name matches a KNOWN_CUSTOMERS row
+    // we canonicalize it (so "schuette metals" and "Schuette Metals" land in
+    // the same bucket); when it doesn't, we still accept it — every panel
+    // row, including AI-only and roster-derived customers like Schuette
+    // Metals or WB Manufacturing, must be uploadable. The AI extractor
+    // accepts a free-form customer label, so unknown names route through
+    // the AI path below.
     const explicitCustomerRaw = String(req.body.customer ?? "").trim();
     let explicitCustomer: string | null = null;
     if (explicitCustomerRaw) {
@@ -1324,13 +1329,20 @@ weeksRouter.post(
         (c) =>
           c.displayName.toLowerCase() === explicitCustomerRaw.toLowerCase(),
       );
-      if (!match) {
+      explicitCustomer = match ? match.displayName : explicitCustomerRaw;
+    }
+    // Early inactive-customer guard: when the dispatcher explicitly aimed
+    // at a row, reject before parsing / running AI so an inactive customer
+    // never burns a Gemini call. The same check still runs post-parse
+    // below for the filename-detection path.
+    if (explicitCustomer) {
+      const inactiveSet = await loadInactiveCustomerSet();
+      if (inactiveSet.has(explicitCustomer.toLowerCase())) {
         res.status(400).json({
-          error: `Unknown customer "${explicitCustomerRaw}".`,
+          error: `Customer "${explicitCustomer}" is inactive — reactivate it under Admin · Inactive customers before uploading.`,
         });
         return;
       }
-      explicitCustomer = match.displayName;
     }
     // Short-circuit no-op re-uploads: if the file's bytes exactly match the
     // most recent successful import for this (week, customer), return a
@@ -1451,7 +1463,12 @@ weeksRouter.post(
         stashedImageRows = imagePunchesForStash(result.punches);
         aiFallback = !isImage;
         if (aiFallback) {
-          aiFallbackReason = `${fileName.split(".").pop()?.toLowerCase() || "this file"} format isn't supported by the built-in ${detected} parser`;
+          const isKnown = KNOWN_CUSTOMERS.some(
+            (c) => c.displayName.toLowerCase() === detected.toLowerCase(),
+          );
+          aiFallbackReason = isKnown
+            ? `${fileName.split(".").pop()?.toLowerCase() || "this file"} format isn't supported by the built-in ${detected} parser`
+            : `no built-in parser for "${detected}" — used AI extraction`;
         }
       } catch (err) {
         req.log.error({ err, fileName }, "AI extract error");
