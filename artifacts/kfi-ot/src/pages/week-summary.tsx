@@ -3,6 +3,7 @@ import { formatPersonName } from "@/lib/format-name";
 import { useLocation, Link, useParams } from "wouter";
 import {
   useGetWeekSummary,
+  useGetCustomerUploadStatus,
   useListWeeks,
   useRefreshConnecteam,
   useResetWeek,
@@ -19,8 +20,14 @@ import { CustomerUploadPanel } from "@/components/customer-upload-panel";
 import { ZenopleExportButton } from "@/components/zenople-export-button";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
 import { ReviewedPill } from "@/components/reviewed-pill";
-import { AllReviewedSplash } from "@/components/all-reviewed-splash";
-import { useAllReviewedCelebration } from "@/hooks/use-all-reviewed-celebration";
+import {
+  AllReviewedSplash,
+  FullyReconciledSplash,
+} from "@/components/all-reviewed-splash";
+import {
+  useAllReviewedCelebration,
+  useFullyReconciledCelebration,
+} from "@/hooks/use-all-reviewed-celebration";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -167,15 +174,63 @@ export default function WeekSummary() {
   })();
   const { data: summary, isLoading, isError, error } =
     useGetWeekSummary(weekStart);
+  const { data: uploadStatuses, isFetched: uploadStatusesFetched } =
+    useGetCustomerUploadStatus(weekStart);
 
   const allDrivers = summary?.customers.flatMap((c) => c.drivers) ?? [];
   const reviewedCount = allDrivers.filter((d) => d.reviewed).length;
   const overtimeCount = allDrivers.filter((d) => d.overtimeHours > 0).length;
 
+  // "Outstanding alerts" mirrors what the dashboard surfaces inline:
+  //   - per-driver driver-vs-customer hours mismatch (> 0.05h)
+  //   - per-driver Connecteam parity differ
+  //   - any customer upload with unmapped badge / employee IDs
+  //   - stale Connecteam baseline (no refresh in >6h, matches the
+  //     server-side CT_BASELINE_STALE_HOURS default)
+  // Used by `useFullyReconciledCelebration` to detect the moment the week
+  // crosses from "still work to do" to "actually done".
+  const STALE_BASELINE_HOURS = 6;
+  const hasMismatchAlert = allDrivers.some((d) => {
+    if (d.driverHours <= 0 || d.customerHours <= 0) return false;
+    return Math.abs(d.driverHours - d.customerHours) > 0.05;
+  });
+  const hasParityDifferAlert = allDrivers.some(
+    (d) => d.connecteamParity?.status === "differ",
+  );
+  const hasUnmappedAlert = (uploadStatuses ?? []).some(
+    (s) => (s.lastUnmappedIds?.length ?? 0) > 0,
+  );
+  const baselineStale = (() => {
+    if (!summary) return false;
+    if (!summary.lastRefreshedAt) return true;
+    const ageMs = Date.now() - new Date(summary.lastRefreshedAt).getTime();
+    return ageMs > STALE_BASELINE_HOURS * 3_600_000;
+  })();
+  const alertCount =
+    (hasMismatchAlert ? 1 : 0) +
+    (hasParityDifferAlert ? 1 : 0) +
+    (hasUnmappedAlert ? 1 : 0) +
+    (baselineStale ? 1 : 0);
+  const fullyReconciled =
+    allDrivers.length > 0 &&
+    reviewedCount >= allDrivers.length &&
+    alertCount === 0;
+  const reconciliationReady =
+    !!summary && allDrivers.length > 0 && uploadStatusesFetched;
+
   const { splashVisible, dismiss: dismissSplash } = useAllReviewedCelebration({
     weekStart,
     reviewed: reviewedCount,
     total: allDrivers.length,
+    surface: "week-summary",
+  });
+  const {
+    splashVisible: fullyReconciledSplashVisible,
+    dismiss: dismissFullyReconciledSplash,
+  } = useFullyReconciledCelebration({
+    weekStart,
+    fullyReconciled,
+    ready: reconciliationReady,
     surface: "week-summary",
   });
 
@@ -451,6 +506,10 @@ export default function WeekSummary() {
 
         <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden relative">
           <AllReviewedSplash visible={splashVisible} onDismiss={dismissSplash} />
+          <FullyReconciledSplash
+            visible={fullyReconciledSplashVisible}
+            onDismiss={dismissFullyReconciledSplash}
+          />
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-3 flex-wrap">

@@ -3,6 +3,7 @@ import { useLocation, useParams, Link } from "wouter";
 import {
   useGetDriverWeek,
   useGetWeekSummary,
+  useGetCustomerUploadStatus,
   useCreateManualPunch,
   useEditPunch,
   useDeletePunch,
@@ -53,8 +54,14 @@ import { cn } from "@/lib/utils";
 import { formatPersonName } from "@/lib/format-name";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
 import { ReviewedPill } from "@/components/reviewed-pill";
-import { AllReviewedSplash } from "@/components/all-reviewed-splash";
-import { useAllReviewedCelebration } from "@/hooks/use-all-reviewed-celebration";
+import {
+  AllReviewedSplash,
+  FullyReconciledSplash,
+} from "@/components/all-reviewed-splash";
+import {
+  useAllReviewedCelebration,
+  useFullyReconciledCelebration,
+} from "@/hooks/use-all-reviewed-celebration";
 import { Logo } from "@/components/logo";
 import { LanguageToggle } from "@/components/language-toggle";
 import { useTranslation } from "react-i18next";
@@ -270,6 +277,56 @@ export default function DriverDetail() {
       total: flatDrivers.length,
       surface: "driver-detail",
     });
+
+  // Mirror the week-summary calculation so the fully-reconciled
+  // celebration can also fire on driver-detail — fixing the last
+  // mismatch or reviewing the last driver from inside this page is
+  // a perfectly normal way to cross the finish line. Kept inline (vs
+  // a shared helper) because the inputs are already in-scope on both
+  // surfaces and the logic is short.
+  const { data: uploadStatusesForReconcile, isFetched: uploadStatusesFetched } =
+    useGetCustomerUploadStatus(weekStart);
+  const STALE_BASELINE_HOURS = 6;
+  const allDriversForReconcile = useMemo(
+    () => weekSummary?.customers.flatMap((c) => c.drivers) ?? [],
+    [weekSummary],
+  );
+  const hasMismatchAlert = allDriversForReconcile.some((d) => {
+    if (d.driverHours <= 0 || d.customerHours <= 0) return false;
+    return Math.abs(d.driverHours - d.customerHours) > 0.05;
+  });
+  const hasParityDifferAlert = allDriversForReconcile.some(
+    (d) => d.connecteamParity?.status === "differ",
+  );
+  const hasUnmappedAlert = (uploadStatusesForReconcile ?? []).some(
+    (s) => (s.lastUnmappedIds?.length ?? 0) > 0,
+  );
+  const baselineStale = (() => {
+    if (!weekSummary) return false;
+    if (!weekSummary.lastRefreshedAt) return true;
+    const ageMs = Date.now() - new Date(weekSummary.lastRefreshedAt).getTime();
+    return ageMs > STALE_BASELINE_HOURS * 3_600_000;
+  })();
+  const fullyReconciled =
+    allDriversForReconcile.length > 0 &&
+    reviewedDriverCount >= allDriversForReconcile.length &&
+    !hasMismatchAlert &&
+    !hasParityDifferAlert &&
+    !hasUnmappedAlert &&
+    !baselineStale;
+  const reconciliationReady =
+    !!weekSummary &&
+    allDriversForReconcile.length > 0 &&
+    uploadStatusesFetched;
+  const {
+    splashVisible: fullyReconciledSplashVisible,
+    dismiss: dismissFullyReconciledSplash,
+  } = useFullyReconciledCelebration({
+    weekStart,
+    fullyReconciled,
+    ready: reconciliationReady,
+    surface: "driver-detail",
+  });
   type Punch = NonNullable<typeof data>["punches"][number];
   type PreviewResult = Awaited<ReturnType<typeof previewPunch>>;
 
@@ -1175,6 +1232,10 @@ export default function DriverDetail() {
           <AllReviewedSplash
             visible={allReviewedSplashVisible}
             onDismiss={dismissAllReviewedSplash}
+          />
+          <FullyReconciledSplash
+            visible={fullyReconciledSplashVisible}
+            onDismiss={dismissFullyReconciledSplash}
           />
         {/* Title block */}
         <div className="space-y-2">
