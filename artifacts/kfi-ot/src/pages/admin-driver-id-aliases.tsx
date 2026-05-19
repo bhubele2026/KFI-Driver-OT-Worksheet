@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { formatPersonName } from "@/lib/format-name";
 import { useTranslation } from "react-i18next";
 import { Link, Redirect, useSearch } from "wouter";
 import {
@@ -230,7 +231,7 @@ export default function AdminDriverIdAliases() {
                   <div className="text-[10px] text-amber-700 dark:text-amber-400 flex items-center gap-1">
                     <AlertTriangle className="h-3 w-3" />
                     Already mapped to{" "}
-                    {conflictingExisting.driverName ?? conflictingExisting.kfiId}
+                    {conflictingExisting.driverName ? formatPersonName(conflictingExisting.driverName) : conflictingExisting.kfiId}
                     . Saving will overwrite it.
                   </div>
                 )}
@@ -246,7 +247,7 @@ export default function AdminDriverIdAliases() {
                   <SelectContent>
                     {drivers.map((d) => (
                       <SelectItem key={d.kfiId} value={d.kfiId}>
-                        <span className="font-medium">{d.name}</span>
+                        <span className="font-medium">{formatPersonName(d.name)}</span>
                         <span className="font-mono text-[10px] text-muted-foreground ml-2">
                           {d.kfiId} · {d.customer}
                         </span>
@@ -364,7 +365,7 @@ export default function AdminDriverIdAliases() {
                             {a.driverName ? (
                               <div className="flex flex-col gap-0.5">
                                 <span className="font-medium">
-                                  {a.driverName}
+                                  {formatPersonName(a.driverName)}
                                 </span>
                                 <span className="font-mono text-[10px] text-muted-foreground">
                                   {a.kfiId}
@@ -518,7 +519,7 @@ function EditDriverRow({
           <SelectContent>
             {drivers.map((d) => (
               <SelectItem key={d.kfiId} value={d.kfiId}>
-                <span className="font-medium">{d.name}</span>
+                <span className="font-medium">{formatPersonName(d.name)}</span>
                 <span className="font-mono text-[10px] text-muted-foreground ml-2">
                   {d.kfiId} · {d.customer}
                 </span>

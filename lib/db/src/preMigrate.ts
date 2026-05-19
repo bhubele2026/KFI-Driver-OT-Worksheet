@@ -106,6 +106,124 @@ const FIXUPS: Fixup[] = [
   },
 ];
 
+// ---------------------------------------------------------------------
+// Person-name normalization helper (mirror of
+// `artifacts/api-server/src/lib/parsers/displayName.ts` and
+// `artifacts/kfi-ot/src/lib/format-name.ts`). Inlined here because this
+// script is its own pnpm package and can't import from an artifact.
+// Keep these three implementations in sync.
+// ---------------------------------------------------------------------
+const ROMAN_NUMERAL =
+  /^(?:M{0,3})(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$/;
+function isRomanNumeral(word: string): boolean {
+  if (word.length === 0 || word.length > 4) return false;
+  const upper = word.toUpperCase();
+  if (!/^[IVX]+$/.test(upper)) return false;
+  return ROMAN_NUMERAL.test(upper) && upper !== "";
+}
+function isInitial(word: string): boolean {
+  return /^\p{L}\.$/u.test(word);
+}
+function capFirstRestLower(s: string): string {
+  if (s.length === 0) return s;
+  return s.charAt(0).toLocaleUpperCase() + s.slice(1).toLocaleLowerCase();
+}
+function capWord(word: string): string {
+  if (word.length === 0) return word;
+  if (isInitial(word)) return word.charAt(0).toLocaleUpperCase() + ".";
+  if (isRomanNumeral(word)) return word.toUpperCase();
+  if (/^mc\p{L}/iu.test(word)) {
+    return (
+      "Mc" +
+      word.charAt(2).toLocaleUpperCase() +
+      word.slice(3).toLocaleLowerCase()
+    );
+  }
+  return capFirstRestLower(word);
+}
+function capApostropheAware(part: string): string {
+  if (!/['\u2019]/.test(part)) return capWord(part);
+  const segs = part.split(/(['\u2019])/);
+  return segs
+    .map((seg, i) => {
+      if (seg === "'" || seg === "\u2019") return seg;
+      const prev = segs[i - 1];
+      if (prev === "'" || prev === "\u2019") return capFirstRestLower(seg);
+      return capWord(seg);
+    })
+    .join("");
+}
+function capHyphenated(token: string): string {
+  if (!token.includes("-")) return capApostropheAware(token);
+  return token.split("-").map(capApostropheAware).join("-");
+}
+function toDisplayName(input: string | null | undefined): string {
+  if (input == null) return "";
+  const trimmed = input.trim();
+  if (!trimmed) return input ?? "";
+  const letters = trimmed.replace(/[^\p{L}]/gu, "");
+  if (letters.length === 0) return input;
+  const hasUpper = letters !== letters.toLocaleLowerCase();
+  const hasLower = letters !== letters.toLocaleUpperCase();
+  if (hasUpper && hasLower) return input;
+  return trimmed.split(/\s+/).map(capHyphenated).join(" ");
+}
+
+/**
+ * Idempotent backfill: rewrite any `drivers.name` and
+ * `customer_name_aliases.name_on_doc` rows whose stored value equals its
+ * own upper-case form (i.e. is ALL-CAPS) into Title Case. Mixed-case rows
+ * are untouched. Safe to re-run.
+ */
+async function backfillDisplayNames(client: pg.Client): Promise<void> {
+  // drivers.name
+  const drivers = await client.query<{ kfi_id: string; name: string }>(
+    `SELECT kfi_id, name FROM drivers WHERE name = upper(name) AND name ~ '[A-Za-zÀ-ÿ]'`,
+  );
+  if (drivers.rowCount && drivers.rowCount > 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[pre-migrate] backfilling driver name casing for ${drivers.rowCount} rows`,
+    );
+    for (const row of drivers.rows) {
+      const next = toDisplayName(row.name);
+      if (next && next !== row.name) {
+        await client.query(`UPDATE drivers SET name = $1 WHERE kfi_id = $2`, [
+          next,
+          row.kfi_id,
+        ]);
+      }
+    }
+  }
+  // customer_name_aliases.name_on_doc
+  const aliases = await client.query<{
+    customer: string;
+    name_on_doc: string;
+  }>(
+    `SELECT customer, name_on_doc FROM customer_name_aliases
+     WHERE name_on_doc = upper(name_on_doc) AND name_on_doc ~ '[A-Za-zÀ-ÿ]'`,
+  );
+  if (aliases.rowCount && aliases.rowCount > 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[pre-migrate] backfilling customer_name_aliases.name_on_doc casing for ${aliases.rowCount} rows`,
+    );
+    for (const row of aliases.rows) {
+      const next = toDisplayName(row.name_on_doc);
+      if (next && next !== row.name_on_doc) {
+        // Index is on lower(name_on_doc) so the case rewrite preserves
+        // uniqueness; the UPDATE is safe.
+        await client.query(
+          `UPDATE customer_name_aliases
+             SET name_on_doc = $1
+             WHERE customer = $2 AND name_on_doc = $3`,
+          [next, row.customer, row.name_on_doc],
+        );
+      }
+    }
+  }
+}
+
 async function main() {
   const client = new Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
@@ -118,6 +236,7 @@ async function main() {
         await client.query(fixup.apply);
       }
     }
+    await backfillDisplayNames(client);
   } finally {
     await client.end();
   }

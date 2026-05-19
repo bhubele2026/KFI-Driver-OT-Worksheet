@@ -47,6 +47,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { formatPersonName } from "@/lib/format-name";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
 import { ReviewedPill } from "@/components/reviewed-pill";
 import { AllReviewedSplash } from "@/components/all-reviewed-splash";
@@ -1130,7 +1131,7 @@ export default function DriverDetail() {
         <div className="space-y-2">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="font-display font-bold text-3xl tracking-tight leading-none">
-              {data.driver.name}
+              {formatPersonName(data.driver.name)}
             </h1>
             <EditingIndicator
               emails={Array.from(

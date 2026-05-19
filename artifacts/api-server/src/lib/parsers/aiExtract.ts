@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import { Type } from "@google/genai";
 import { logger } from "../logger.js";
 import { getGeminiClient } from "./gemini.js";
+import { toDisplayName } from "./displayName.js";
 
 export interface AiExtractedRow {
   driverNameOnDoc: string;
@@ -157,9 +158,17 @@ export async function aiExtractRows(
     );
   }
 
-  const rows = (parsed.rows ?? []).filter(
-    (r) => r && typeof r.driverNameOnDoc === "string" && typeof r.date === "string",
-  );
+  const rows = (parsed.rows ?? [])
+    .filter(
+      (r) => r && typeof r.driverNameOnDoc === "string" && typeof r.date === "string",
+    )
+    .map((r) => ({
+      ...r,
+      // Normalize at the ingest boundary so the dispatcher UI, the saved
+      // alias, and any downstream comparisons all see the same Title Case
+      // form regardless of how the source document cased the name.
+      driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
+    }));
   logger.info(
     { ms: Date.now() - start, rows: rows.length, customer, fileName },
     "AI extraction complete",

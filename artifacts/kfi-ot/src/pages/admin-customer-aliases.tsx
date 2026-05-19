@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { formatPersonName } from "@/lib/format-name";
 import { useTranslation } from "react-i18next";
 import { Link, Redirect } from "wouter";
 import {
@@ -268,13 +269,13 @@ export default function AdminCustomerAliases() {
                             <Fragment key={`${a.customer}::${a.nameOnDoc}`}>
                               <TableRow>
                                 <TableCell className="font-mono text-xs align-top">
-                                  {a.nameOnDoc}
+                                  {formatPersonName(a.nameOnDoc)}
                                 </TableCell>
                                 <TableCell className="text-xs align-top">
                                   {a.driverName ? (
                                     <div className="flex flex-col gap-0.5">
                                       <span className="font-medium">
-                                        {a.driverName}
+                                        {formatPersonName(a.driverName)}
                                       </span>
                                       <span className="font-mono text-[10px] text-muted-foreground">
                                         {a.kfiId}
@@ -457,7 +458,7 @@ export default function AdminCustomerAliases() {
                       <TableCell className="text-xs align-top">
                         <div className="font-medium">{entry.customer}</div>
                         <div className="font-mono text-[10px] text-muted-foreground">
-                          {entry.nameOnDoc}
+                          {formatPersonName(entry.nameOnDoc)}
                         </div>
                       </TableCell>
                       <TableCell className="text-xs align-top">
@@ -505,7 +506,7 @@ function KfiIdLabel({
   }
   return (
     <span className="inline-flex flex-col">
-      <span className="font-medium">{driverName ?? "Unknown driver"}</span>
+      <span className="font-medium">{driverName ? formatPersonName(driverName) : "Unknown driver"}</span>
       <span className="font-mono text-[10px] text-muted-foreground">
         {kfiId}
       </span>
@@ -543,7 +544,7 @@ function EditDriverRow({
           <SelectContent>
             {drivers.map((d) => (
               <SelectItem key={d.kfiId} value={d.kfiId}>
-                <span className="font-medium">{d.name}</span>
+                <span className="font-medium">{formatPersonName(d.name)}</span>
                 <span className="font-mono text-[10px] text-muted-foreground ml-2">
                   {d.kfiId} · {d.customer}
                 </span>

@@ -3,6 +3,7 @@ import {
   useConfirmNewCustomerFile,
   useGetAllowedTimezones,
 } from "@workspace/api-client-react";
+import { formatPersonName } from "@/lib/format-name";
 import {
   Dialog,
   DialogContent,
@@ -401,7 +402,7 @@ export function NewCustomerDialog({
                                 {s.matches.map((m) => (
                                   <SelectItem key={m.kfiId} value={m.kfiId}>
                                     <span className="flex items-center gap-2">
-                                      <span>{m.name}</span>
+                                      <span>{formatPersonName(m.name)}</span>
                                       <span className="text-muted-foreground font-mono text-[10px]">
                                         {m.kfiId}
                                       </span>
@@ -453,12 +454,18 @@ export function NewCustomerDialog({
                     <TableBody>
                       {editedRows.map((r, idx) => {
                         const target = mapping[r.driverNameOnDoc] ?? UNMAPPED;
+                        const matchedName =
+                          target === UNMAPPED
+                            ? null
+                            : preview.suggestions
+                                .find((s) => s.driverNameOnDoc === r.driverNameOnDoc)
+                                ?.matches.find((m) => m.kfiId === target)?.name ?? null;
                         const targetLabel =
                           target === UNMAPPED
                             ? "Skip"
-                            : preview.suggestions
-                                .find((s) => s.driverNameOnDoc === r.driverNameOnDoc)
-                                ?.matches.find((m) => m.kfiId === target)?.name ?? target;
+                            : matchedName
+                              ? formatPersonName(matchedName)
+                              : target;
                         const skipped = target === UNMAPPED;
                         return (
                           <TableRow
@@ -466,7 +473,7 @@ export function NewCustomerDialog({
                             className={skipped ? "opacity-50" : ""}
                           >
                             <TableCell className="text-xs font-medium">
-                              {r.driverNameOnDoc}
+                              {formatPersonName(r.driverNameOnDoc)}
                             </TableCell>
                             <TableCell>
                               <Input

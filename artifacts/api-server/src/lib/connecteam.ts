@@ -5,6 +5,7 @@ import {
   USER_ID_ALIASES_LD,
 } from "./mappings.js";
 import { CT_TZ, msToLocalStr, msToLocalDate, addDays, isAllowedTz } from "./time.js";
+import { toDisplayName } from "./parsers/displayName.js";
 
 const CT_BASE = "https://api.connecteam.com";
 
@@ -188,7 +189,10 @@ export async function fetchAllUsers(): Promise<ConnecteamDriver[]> {
       drivers.push({
         ctUserId: u.userId,
         kfiId,
-        name: `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || `User ${u.userId}`,
+        name:
+          toDisplayName(
+            `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim(),
+          ) || `User ${u.userId}`,
         customer,
         isDriver,
         isArchived: Boolean(u.archived),

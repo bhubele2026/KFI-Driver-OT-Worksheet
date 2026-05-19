@@ -25,6 +25,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { readAutoAdvancePref } from "@/hooks/use-auto-advance";
 import { cn } from "@/lib/utils";
+import { formatPersonName } from "@/lib/format-name";
 
 type FilterChip = "unreviewed" | "ot" | "mismatch";
 
@@ -265,7 +266,7 @@ function DriversList({
                         <Circle className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground/70" />
                       )}
                     </button>
-                    <span className="flex-1 truncate">{driver.name}</span>
+                    <span className="flex-1 truncate">{formatPersonName(driver.name)}</span>
                     {(driver as { locked?: boolean }).locked && (
                       <Lock
                         className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0"

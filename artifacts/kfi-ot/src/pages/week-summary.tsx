@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatPersonName } from "@/lib/format-name";
 import { useLocation, Link, useParams } from "wouter";
 import {
   useGetWeekSummary,
@@ -723,7 +724,7 @@ export default function WeekSummary() {
                                   <TableCell className="font-medium">
                                     <div className="flex flex-col">
                                       <span className="truncate flex items-center gap-1.5">
-                                        {driver.name}
+                                        {formatPersonName(driver.name)}
                                         {driver.noteCount > 0 && (
                                           <span
                                             className="inline-flex items-center gap-0.5 text-[10px] font-mono text-primary bg-primary/10 px-1 py-0.5 rounded"

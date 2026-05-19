@@ -32,6 +32,7 @@ import {
   computeChecks,
   computeDailyTotals,
   computeDriverTotals,
+  defaultDispTz,
 } from "../lib/hoursEngine.js";
 import {
   loadDriverTz,
@@ -54,6 +55,7 @@ import {
   sundayOf,
   weekEndOf,
 } from "../lib/time.js";
+import { toDisplayName } from "../lib/parsers/displayName.js";
 import { makeTimesheetsHandler } from "../lib/timesheets.js";
 import {
   publish as publishRealtime,
@@ -1866,7 +1868,10 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
   // dispatcher uses the explicit "forget" link to undo a saved alias.
   const aliasUpserts = new Map<string, { nameOnDoc: string; kfiId: string }>();
   for (const [rawName, kfiId] of Object.entries(parsed.data.mapping)) {
-    const nameOnDoc = rawName.trim();
+    // Store the alias in Title Case so future dropdowns / admin pages
+    // render cleanly even if the source doc was ALL-CAPS. Case-insensitive
+    // uniqueness still holds via the `lower(name_on_doc)` index.
+    const nameOnDoc = toDisplayName(rawName.trim());
     if (!nameOnDoc || !kfiId) continue;
     aliasUpserts.set(nameOnDoc.toLowerCase(), { nameOnDoc, kfiId });
   }
