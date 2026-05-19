@@ -95,6 +95,7 @@ export async function extractImageForKnownCustomer(args: {
   idMap: Record<string, string>;
   drivers: Array<{ kfiId: string; name: string; customer: string | null }>;
   kfiSet: Set<string>;
+  log?: { warn: (obj: Record<string, unknown>, msg: string) => void };
 }): Promise<ParseResult> {
   const {
     fileName,
@@ -106,6 +107,7 @@ export async function extractImageForKnownCustomer(args: {
     idMap,
     drivers,
     kfiSet,
+    log,
   } = args;
   const rawRows = await aiExtractRows(
     fileName,
@@ -114,6 +116,7 @@ export async function extractImageForKnownCustomer(args: {
     weekStart,
     weekEnd,
     mimeType,
+    log,
   );
   const inWindow = rawRows.filter(
     (r) => r.date >= weekStart && r.date <= weekEnd,

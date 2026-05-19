@@ -73,10 +73,16 @@ function buildPrompt(customer: string, weekStart: string, weekEnd: string) {
  * array and re-close the brackets. Any data after that point is lost, but
  * the dispatcher sees a partial preview they can confirm or re-run.
  */
+/** Minimal logger shape — accepts req.log (pino child) or the module logger. */
+type SalvageLogger = {
+  warn: (obj: Record<string, unknown>, msg: string) => void;
+};
+
 export function parseOrSalvage(
   raw: string,
   customer: string,
   fileName: string,
+  log?: SalvageLogger,
 ): { rows?: AiExtractedRow[] } {
   try {
     return JSON.parse(raw) as { rows?: AiExtractedRow[] };
@@ -123,7 +129,7 @@ export function parseOrSalvage(
     const salvaged = `${raw.slice(0, lastGood)}]}`;
     try {
       const parsed = JSON.parse(salvaged) as { rows?: AiExtractedRow[] };
-      logger.warn(
+      (log ?? logger).warn(
         {
           customer,
           fileName,
@@ -187,6 +193,7 @@ export async function aiExtractRows(
   weekStart: string,
   weekEnd: string,
   mimeType?: string,
+  log?: SalvageLogger,
 ): Promise<AiExtractedRow[]> {
   const ai = getGeminiClient();
   const lower = fileName.toLowerCase();
@@ -248,7 +255,7 @@ export async function aiExtractRows(
   });
 
   const raw = response.text ?? "";
-  const parsed = parseOrSalvage(raw, customer, fileName);
+  const parsed = parseOrSalvage(raw, customer, fileName, log);
 
   const rows = (parsed.rows ?? [])
     .filter(

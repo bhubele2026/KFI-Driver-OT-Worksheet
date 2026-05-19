@@ -1307,6 +1307,7 @@ weeksRouter.post(
           idMap,
           drivers,
           kfiSet,
+          log: req.log,
         });
         stashedImageRows = imagePunchesForStash(result.punches);
         aiFallback = !isImage;
@@ -1353,6 +1354,7 @@ weeksRouter.post(
             idMap,
             drivers,
             kfiSet,
+            log: req.log,
           });
           stashedImageRows = imagePunchesForStash(result.punches);
           aiFallback = true;
@@ -1415,6 +1417,7 @@ weeksRouter.post(
           idMap,
           drivers,
           kfiSet,
+          log: req.log,
         });
         if (aiResult.punches.length === 0) {
           const msg = `Detected customer "${detectedCustomer}" but parsed 0 punches even with AI fallback. The file may not contain any punches in this week's window, or the format is unreadable.`;
@@ -2474,6 +2477,7 @@ weeksRouter.post(
         startDate,
         endDate,
         extractMime,
+        req.log,
       );
     } catch (err) {
       req.log.error({ err, fileName: req.file.originalname }, "AI extract error");

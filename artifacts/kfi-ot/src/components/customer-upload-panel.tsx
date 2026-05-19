@@ -532,7 +532,14 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       setRow(customer, { uploading: true, error: null });
       // Bulk re-runs intentionally do NOT pass force — that's the whole
       // point of this flow: identical files short-circuit on the server.
-      const r = await doUpload(customer, item.file);
+      // Bulk classifier already routed by filename keyword; force the
+      // server to honor that decision so files whose extension doesn't
+      // match the deterministic parser (e.g. an IWG CSV, a DeLallo
+      // image) still land on the right customer and fall through to AI
+      // instead of getting mis-routed or rejected.
+      const r = await doUpload(customer, item.file, {
+        explicitCustomer: true,
+      });
       if (r.ok) {
         if (r.skipped) {
           skipped++;
