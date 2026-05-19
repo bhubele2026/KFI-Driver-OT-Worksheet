@@ -2350,23 +2350,18 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       aiOnlyNames.add(a.customer);
     }
   }
-  // Scope to drivers who actually have punches in THIS week — i.e. the same
-  // drivers that show up grouped by customer on the left side of the
-  // dashboard. A driver who's in the roster but didn't work this week
-  // shouldn't surface their customer as an upload row.
+  // Every distinct customer assigned to an active (non-archived) driver in
+  // the roster gets an upload row, regardless of whether anyone has punched
+  // yet this week. The earlier "only if they have punches this week" scope
+  // was confusing on fresh weeks — Schuette Metals and friends disappeared
+  // until the dispatcher refreshed Connecteam, even though they'd want to
+  // upload the customer file *before* refreshing. Showing every roster
+  // customer matches the dispatcher's mental model: "these are my
+  // customers; let me upload to any of them."
   const driverCustomerRows = await db
     .selectDistinct({ customer: schema.driversTable.customer })
     .from(schema.driversTable)
-    .innerJoin(
-      schema.punchesTable,
-      eq(schema.punchesTable.kfiId, schema.driversTable.kfiId),
-    )
-    .where(
-      and(
-        eq(schema.driversTable.isArchived, false),
-        eq(schema.punchesTable.weekStart, weekStart),
-      ),
-    );
+    .where(eq(schema.driversTable.isArchived, false));
   for (const r of driverCustomerRows) {
     const name = (r.customer ?? "").trim();
     if (!name) continue;
