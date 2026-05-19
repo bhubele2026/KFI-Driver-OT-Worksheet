@@ -10,14 +10,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Edit2, Save, X, DollarSign } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Edit2, Save, X, DollarSign, ChevronDown } from "lucide-react";
 
 interface Props {
   kfiId: string;
   canEdit: boolean;
 }
 
-const FIELDS: Array<{
+type FieldDef = {
   key:
     | "ssn"
     | "zenopleCustomer"
@@ -34,12 +39,9 @@ const FIELDS: Array<{
     | "driverOtBillRate";
   label: string;
   kind: "string" | "int" | "money";
-}> = [
-  { key: "ssn", label: "SSN", kind: "string" },
-  { key: "zenopleCustomer", label: "Zenople Customer", kind: "string" },
-  { key: "jobId", label: "JobId", kind: "int" },
-  { key: "personId", label: "PersonId", kind: "int" },
-  { key: "assignmentId", label: "AssignmentId", kind: "int" },
+};
+
+const RATE_FIELDS: FieldDef[] = [
   { key: "rtPayRate", label: "RT Pay", kind: "money" },
   { key: "rtBillRate", label: "RT Bill", kind: "money" },
   { key: "otPayRate", label: "OT Pay", kind: "money" },
@@ -50,11 +52,19 @@ const FIELDS: Array<{
   { key: "driverOtBillRate", label: "Driver OT Bill", kind: "money" },
 ];
 
+const IDENTIFIER_FIELDS: FieldDef[] = [
+  { key: "ssn", label: "SSN", kind: "string" },
+  { key: "zenopleCustomer", label: "Zenople Customer", kind: "string" },
+  { key: "jobId", label: "JobId", kind: "int" },
+  { key: "personId", label: "PersonId", kind: "int" },
+  { key: "assignmentId", label: "AssignmentId", kind: "int" },
+];
+
+const FIELDS: FieldDef[] = [...RATE_FIELDS, ...IDENTIFIER_FIELDS];
+
 type FormState = Record<string, string>;
 
-function toForm(
-  p: unknown,
-): FormState {
+function toForm(p: unknown): FormState {
   const f: FormState = {};
   const obj = (p ?? {}) as Record<string, unknown>;
   for (const fd of FIELDS) {
@@ -72,6 +82,7 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<FormState>(toForm(profile));
+  const [identifiersOpen, setIdentifiersOpen] = useState(false);
 
   useEffect(() => {
     if (!editing) setForm(toForm(profile));
@@ -145,6 +156,27 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
     return String(v);
   };
 
+  const renderEditInputs = (fields: FieldDef[]) => (
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      {fields.map((fd) => (
+        <div key={fd.key} className="space-y-1">
+          <Label htmlFor={`pp-${fd.key}`} className="text-xs">
+            {fd.label}
+          </Label>
+          <Input
+            id={`pp-${fd.key}`}
+            value={form[fd.key] ?? ""}
+            onChange={(e) =>
+              setForm((s) => ({ ...s, [fd.key]: e.target.value }))
+            }
+            className="font-mono text-sm h-8"
+            data-testid={`input-payroll-${fd.key}`}
+          />
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <Card data-testid="card-payroll-profile">
       <CardHeader className="pb-2 pt-4 px-4">
@@ -188,46 +220,75 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
       </CardHeader>
       <CardContent className="px-4 pb-4">
         {editing ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {FIELDS.map((fd) => (
-              <div key={fd.key} className="space-y-1">
-                <Label htmlFor={`pp-${fd.key}`} className="text-xs">
-                  {fd.label}
-                </Label>
-                <Input
-                  id={`pp-${fd.key}`}
-                  value={form[fd.key] ?? ""}
-                  onChange={(e) =>
-                    setForm((s) => ({ ...s, [fd.key]: e.target.value }))
-                  }
-                  className="font-mono text-sm h-8"
-                  data-testid={`input-payroll-${fd.key}`}
-                />
-              </div>
-            ))}
+          <div className="space-y-4">
+            {renderEditInputs(RATE_FIELDS)}
+            <div className="pt-2 border-t border-border/50">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
+                Identifiers
+              </p>
+              {renderEditInputs(IDENTIFIER_FIELDS)}
+            </div>
           </div>
         ) : (
-          <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 text-sm">
-            {FIELDS.map((fd) => (
-              <div
-                key={fd.key}
-                className="flex justify-between items-baseline border-b border-border/50 pb-1"
-                data-testid={`row-payroll-${fd.key}`}
+          <>
+            <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 text-sm">
+              {RATE_FIELDS.map((fd) => (
+                <div
+                  key={fd.key}
+                  className="flex justify-between items-baseline border-b border-border/50 pb-1"
+                  data-testid={`row-payroll-${fd.key}`}
+                >
+                  <dt className="text-xs text-muted-foreground">{fd.label}</dt>
+                  <dd className="font-mono">
+                    {fmtView(
+                      (profile as Record<string, unknown> | undefined)?.[
+                        fd.key
+                      ] as number | string | null | undefined,
+                      fd.kind,
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <Collapsible
+              open={identifiersOpen}
+              onOpenChange={setIdentifiersOpen}
+              className="mt-3"
+            >
+              <CollapsibleTrigger
+                className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="button-toggle-identifiers"
               >
-                <dt className="text-xs text-muted-foreground">{fd.label}</dt>
-                <dd className="font-mono">
-                  {fmtView(
-                    (profile as Record<string, unknown> | undefined)?.[fd.key] as
-                      | number
-                      | string
-                      | null
-                      | undefined,
-                    fd.kind,
-                  )}
-                </dd>
-              </div>
-            ))}
-          </dl>
+                <ChevronDown
+                  className={`h-3 w-3 transition-transform ${identifiersOpen ? "rotate-0" : "-rotate-90"}`}
+                />
+                Identifiers
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2">
+                <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 text-xs">
+                  {IDENTIFIER_FIELDS.map((fd) => (
+                    <div
+                      key={fd.key}
+                      className="flex justify-between items-baseline border-b border-border/30 pb-1"
+                      data-testid={`row-payroll-${fd.key}`}
+                    >
+                      <dt className="text-[11px] text-muted-foreground">
+                        {fd.label}
+                      </dt>
+                      <dd className="font-mono text-muted-foreground">
+                        {fmtView(
+                          (profile as Record<string, unknown> | undefined)?.[
+                            fd.key
+                          ] as number | string | null | undefined,
+                          fd.kind,
+                        )}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </CollapsibleContent>
+            </Collapsible>
+          </>
         )}
         {profile?.updatedAt ? (
           <p className="mt-3 text-[11px] text-muted-foreground">
