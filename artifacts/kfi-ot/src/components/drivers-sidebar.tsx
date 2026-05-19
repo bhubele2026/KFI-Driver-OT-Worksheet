@@ -13,6 +13,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   Circle,
+  Flag,
   Lock,
   Menu,
   MoreHorizontal,
@@ -310,6 +311,28 @@ function DriversList({
                         OT
                       </span>
                     )}
+                    {(driver as { flaggedPunchCount?: number })
+                      .flaggedPunchCount ? (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-[10px] font-mono font-semibold text-rose-700 dark:text-rose-300 bg-rose-500/15 px-1 rounded"
+                        title={`${
+                          (driver as { flaggedPunchCount?: number })
+                            .flaggedPunchCount
+                        } punch${
+                          (driver as { flaggedPunchCount?: number })
+                            .flaggedPunchCount === 1
+                            ? ""
+                            : "es"
+                        } flagged for review`}
+                        data-testid={`sidebar-flag-count-${driver.kfiId}`}
+                      >
+                        <Flag className="h-2.5 w-2.5 fill-current" />
+                        {
+                          (driver as { flaggedPunchCount?: number })
+                            .flaggedPunchCount
+                        }
+                      </span>
+                    ) : null}
                     {(driver as { originalCustomer?: string | null })
                       .originalCustomer && (
                       <span

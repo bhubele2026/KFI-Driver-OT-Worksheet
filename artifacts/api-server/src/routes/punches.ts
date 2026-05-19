@@ -20,6 +20,7 @@ async function loadEmailsForPunch(
   if (p.createdBy) ids.add(p.createdBy);
   if (p.updatedBy) ids.add(p.updatedBy);
   if (p.reviewedBy) ids.add(p.reviewedBy);
+  if (p.flaggedBy) ids.add(p.flaggedBy);
   if (ids.size === 0) return new Map();
   const rows = await db
     .select({ id: schema.usersTable.id, email: schema.usersTable.email })
@@ -159,8 +160,70 @@ punchesRouter.put("/punches/:id/reviewed", async (req, res) => {
     .update(schema.punchesTable)
     .set(
       reviewed
-        ? { reviewedAt: new Date(), reviewedBy: userId }
+        ? {
+            reviewedAt: new Date(),
+            reviewedBy: userId,
+            // Flagging-for-review and reviewed are mutually exclusive —
+            // marking a punch reviewed clears any prior red flag.
+            flaggedForReview: false,
+            flaggedAt: null,
+            flaggedBy: null,
+          }
         : { reviewedAt: null, reviewedBy: null },
+    )
+    .where(eq(schema.punchesTable.id, id))
+    .returning();
+  publishRealtime({
+    type: "punch-changed",
+    weekStart: row.weekStart,
+    kfiId: row.kfiId,
+    action: "reviewed",
+    punchId: row.id,
+    actor: actorRef(req),
+  });
+  const emails = await loadEmailsForPunch(row);
+  res.json(serializePunch(row, emails));
+});
+
+punchesRouter.put("/punches/:id/flag", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  const body = req.body as { flagged?: unknown } | undefined;
+  if (!body || typeof body.flagged !== "boolean") {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const flagged = body.flagged;
+  const existing = await db.query.punchesTable.findFirst({
+    where: eq(schema.punchesTable.id, id),
+  });
+  if (!existing) {
+    res.status(404).json({ error: "Punch not found" });
+    return;
+  }
+  if (!(await assertNotLocked(res, existing.weekStart, existing.kfiId))) return;
+  const userId = req.session.userId ?? null;
+  const [row] = await db
+    .update(schema.punchesTable)
+    .set(
+      flagged
+        ? {
+            flaggedForReview: true,
+            flaggedAt: new Date(),
+            flaggedBy: userId,
+            // Mutually exclusive with reviewed — flagging clears the
+            // green checkbox.
+            reviewedAt: null,
+            reviewedBy: null,
+          }
+        : {
+            flaggedForReview: false,
+            flaggedAt: null,
+            flaggedBy: null,
+          },
     )
     .where(eq(schema.punchesTable.id, id))
     .returning();

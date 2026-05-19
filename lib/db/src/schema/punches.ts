@@ -41,6 +41,9 @@ export const punchesTable = pgTable(
     updatedBy: integer("updated_by"),
     reviewedBy: integer("reviewed_by"),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    flaggedForReview: boolean("flagged_for_review").notNull().default(false),
+    flaggedBy: integer("flagged_by"),
+    flaggedAt: timestamp("flagged_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -8,6 +8,7 @@ import {
   useEditPunch,
   useDeletePunch,
   useSetPunchReviewed,
+  useSetPunchFlagged,
   usePreviewPunch,
   previewPunch,
   useSetReviewed,
@@ -38,7 +39,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, Lock, LockOpen, ThumbsDown, Undo2, MessageSquarePlus, Globe } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, Lock, LockOpen, ThumbsDown, Undo2, MessageSquarePlus, Globe, Flag } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -360,6 +361,7 @@ export default function DriverDetail() {
   const editPunch = useEditPunch();
   const deletePunch = useDeletePunch();
   const setPunchReviewed = useSetPunchReviewed();
+  const setPunchFlagged = useSetPunchFlagged();
   const refreshCt = useRefreshConnecteam();
   const refreshCtForDriver = useRefreshConnecteamForDriver();
   const shiftPunches = useShiftDriverWeekPunches();
@@ -1011,6 +1013,9 @@ export default function DriverDetail() {
   // Week-level reviewed counter surfaced in the header pill.
   const weekReviewedCount = sortedPunches.filter((p) => p.reviewed).length;
   const weekPunchCount = sortedPunches.length;
+  const weekFlaggedCount = sortedPunches.filter(
+    (p) => (p as { flagged?: boolean }).flagged,
+  ).length;
 
   const togglePunchReviewed = (punchId: number, next: boolean) => {
     setPunchReviewed.mutate(
@@ -1020,8 +1025,28 @@ export default function DriverDetail() {
           queryClient.invalidateQueries({
             queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
           });
+          queryClient.invalidateQueries({
+            queryKey: getGetWeekSummaryQueryKey(weekStart),
+          });
         },
         onError: (err) => handleLockedError(err, "Failed to mark reviewed"),
+      },
+    );
+  };
+
+  const togglePunchFlagged = (punchId: number, next: boolean) => {
+    setPunchFlagged.mutate(
+      { id: punchId, data: { flagged: next } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
+          });
+          queryClient.invalidateQueries({
+            queryKey: getGetWeekSummaryQueryKey(weekStart),
+          });
+        },
+        onError: (err) => handleLockedError(err, "Failed to flag punch"),
       },
     );
   };
@@ -1102,6 +1127,16 @@ export default function DriverDetail() {
                 <CheckIcon className="h-3 w-3" />
               )}
               {weekReviewedCount}/{weekPunchCount} punches
+            </span>
+          )}
+          {weekFlaggedCount > 0 && (
+            <span
+              className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded border border-rose-500/40 text-rose-200 bg-rose-600/20"
+              data-testid="pill-punch-flagged-count"
+              title="Punches flagged for review on this driver-week"
+            >
+              <Flag className="h-3 w-3 fill-current" />
+              {weekFlaggedCount} flagged
             </span>
           )}
           <div
@@ -1849,8 +1884,13 @@ export default function DriverDetail() {
                     <TableRow
                       id={`punch-row-${p.id}`}
                       data-testid={`row-punch-${p.id}`}
+                      data-flagged={
+                        (p as { flagged?: boolean }).flagged ? "true" : undefined
+                      }
                       className={cn(
                         isOt && "bg-warning/10 hover:bg-warning/15",
+                        (p as { flagged?: boolean }).flagged &&
+                          "bg-rose-500/10 hover:bg-rose-500/15 border-l-2 border-l-rose-500",
                         "scroll-mt-24 transition-colors [&>td]:py-1.5",
                       )}
                     >
@@ -2122,6 +2162,65 @@ export default function DriverDetail() {
                                         }`
                                       : "Reviewed"
                                     : "Mark this punch reviewed"}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            <TooltipProvider delayDuration={150}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className={cn(
+                                      "h-7 w-7",
+                                      (p as { flagged?: boolean }).flagged
+                                        ? "text-rose-600 hover:text-rose-700 dark:text-rose-400"
+                                        : "text-muted-foreground hover:text-rose-600",
+                                    )}
+                                    disabled={driverLocked || setPunchFlagged.isPending}
+                                    onClick={() =>
+                                      togglePunchFlagged(
+                                        p.id,
+                                        !(p as { flagged?: boolean }).flagged,
+                                      )
+                                    }
+                                    aria-label={
+                                      (p as { flagged?: boolean }).flagged
+                                        ? "Clear review flag"
+                                        : "Flag this punch for review"
+                                    }
+                                    aria-pressed={
+                                      !!(p as { flagged?: boolean }).flagged
+                                    }
+                                    data-testid={`button-punch-flag-${p.id}`}
+                                  >
+                                    <Flag
+                                      className={cn(
+                                        "h-3 w-3",
+                                        (p as { flagged?: boolean }).flagged &&
+                                          "fill-current",
+                                      )}
+                                    />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-[11px]">
+                                  {(p as { flagged?: boolean }).flagged
+                                    ? (p as { flaggedByEmail?: string | null })
+                                        .flaggedByEmail
+                                      ? `Flagged by ${
+                                          (p as { flaggedByEmail?: string | null })
+                                            .flaggedByEmail
+                                        }${
+                                          (p as { flaggedAt?: string | null })
+                                            .flaggedAt
+                                            ? ` · ${new Date(
+                                                (p as { flaggedAt?: string | null })
+                                                  .flaggedAt!,
+                                              ).toLocaleString()}`
+                                            : ""
+                                        } — click to clear`
+                                      : "Flagged for review — click to clear"
+                                    : "Flag this punch for review"}
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>

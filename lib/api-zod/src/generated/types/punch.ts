@@ -34,4 +34,13 @@ export interface Punch {
   reviewedAt?: Date | null;
   /** @nullable */
   reviewedByEmail?: string | null;
+  /** True when this punch has been flagged for review (per-punch red
+flag). Mutually exclusive with `reviewed` — flagging clears
+reviewed and vice versa.
+ */
+  flagged?: boolean;
+  /** @nullable */
+  flaggedAt?: Date | null;
+  /** @nullable */
+  flaggedByEmail?: string | null;
 }

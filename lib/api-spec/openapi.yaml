@@ -1446,6 +1446,40 @@ paths:
         "404": { description: Not found }
         "423": { description: Driver-week is locked }
 
+  /punches/{id}/flag:
+    put:
+      operationId: setPunchFlagged
+      tags: [drivers]
+      summary: Flag or unflag a single punch for review
+      description: |
+        Per-punch red "needs review" flag. Stamps `flaggedBy` /
+        `flaggedAt` (or nulls them when `flagged: false`). Flagging a
+        punch clears its `reviewed` state — the two are mutually
+        exclusive. Returns the updated punch. Rejected with 423 when the
+        driver-week is locked.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [flagged]
+              properties:
+                flagged: { type: boolean }
+      responses:
+        "200":
+          description: Updated punch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Punch" }
+        "404": { description: Not found }
+        "423": { description: Driver-week is locked }
+
   /weeks/{weekStart}/reviewed/{kfiId}:
     put:
       operationId: setReviewed
@@ -2272,6 +2306,12 @@ components:
         noteCount:
           type: integer
           description: Number of non-deleted per-punch notes attached to this driver-week. Surfaced as a small badge so a Supervisor can scan for context.
+        flaggedPunchCount:
+          type: integer
+          description: |
+            Number of punches in this driver-week with `flagged_for_review =
+            true`. Drives a compact red flag badge next to the driver's
+            reviewed pill on the week dashboard / sidebar.
         hasOverriddenDay:
           type: boolean
           description: |
@@ -2498,6 +2538,17 @@ components:
           type: ["string", "null"]
           format: date-time
         reviewedByEmail:
+          type: ["string", "null"]
+        flagged:
+          type: boolean
+          description: |
+            True when this punch has been flagged for review (per-punch red
+            flag). Mutually exclusive with `reviewed` — flagging clears
+            reviewed and vice versa.
+        flaggedAt:
+          type: ["string", "null"]
+          format: date-time
+        flaggedByEmail:
           type: ["string", "null"]
 
     DailyTotals:

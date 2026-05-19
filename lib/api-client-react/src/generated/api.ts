@@ -100,6 +100,7 @@ import type {
   ResetWeekResult,
   ScaleDayHoursInput,
   SetDriverCustomerOverrideBody,
+  SetPunchFlaggedBody,
   SetPunchReviewedBody,
   SetReviewed200,
   SetReviewedBody,
@@ -7087,6 +7088,99 @@ export const useSetPunchReviewed = <
   TContext
 > => {
   return useMutation(getSetPunchReviewedMutationOptions(options));
+};
+
+/**
+ * Per-punch red "needs review" flag. Stamps `flaggedBy` /
+`flaggedAt` (or nulls them when `flagged: false`). Flagging a
+punch clears its `reviewed` state — the two are mutually
+exclusive. Returns the updated punch. Rejected with 423 when the
+driver-week is locked.
+
+ * @summary Flag or unflag a single punch for review
+ */
+export const getSetPunchFlaggedUrl = (id: number) => {
+  return `/api/punches/${id}/flag`;
+};
+
+export const setPunchFlagged = async (
+  id: number,
+  setPunchFlaggedBody: SetPunchFlaggedBody,
+  options?: RequestInit,
+): Promise<Punch> => {
+  return customFetch<Punch>(getSetPunchFlaggedUrl(id), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(setPunchFlaggedBody),
+  });
+};
+
+export const getSetPunchFlaggedMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setPunchFlagged>>,
+    TError,
+    { id: number; data: BodyType<SetPunchFlaggedBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setPunchFlagged>>,
+  TError,
+  { id: number; data: BodyType<SetPunchFlaggedBody> },
+  TContext
+> => {
+  const mutationKey = ["setPunchFlagged"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setPunchFlagged>>,
+    { id: number; data: BodyType<SetPunchFlaggedBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return setPunchFlagged(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetPunchFlaggedMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setPunchFlagged>>
+>;
+export type SetPunchFlaggedMutationBody = BodyType<SetPunchFlaggedBody>;
+export type SetPunchFlaggedMutationError = ErrorType<void>;
+
+/**
+ * @summary Flag or unflag a single punch for review
+ */
+export const useSetPunchFlagged = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setPunchFlagged>>,
+    TError,
+    { id: number; data: BodyType<SetPunchFlaggedBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setPunchFlagged>>,
+  TError,
+  { id: number; data: BodyType<SetPunchFlaggedBody> },
+  TContext
+> => {
+  return useMutation(getSetPunchFlaggedMutationOptions(options));
 };
 
 /**

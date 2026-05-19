@@ -30,6 +30,11 @@ export interface DriverSummaryRow {
   lastTouchedAt?: Date | null;
   /** Number of non-deleted per-punch notes attached to this driver-week. Surfaced as a small badge so a Supervisor can scan for context. */
   noteCount: number;
+  /** Number of punches in this driver-week with `flagged_for_review =
+true`. Drives a compact red flag badge next to the driver's
+reviewed pill on the week dashboard / sidebar.
+ */
+  flaggedPunchCount?: number;
   /** True when at least one day in this driver-week has its total
 dispatcher-overridden (every contributing punch on that day is
 flagged `edited=true`). Drives a small indicator on the driver

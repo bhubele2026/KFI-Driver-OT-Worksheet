@@ -734,6 +734,12 @@ export const GetWeekSummaryResponse = zod.object({
         .describe(
           "Number of non-deleted per-punch notes attached to this driver-week. Surfaced as a small badge so a Supervisor can scan for context.",
         ),
+      flaggedPunchCount: zod
+        .number()
+        .optional()
+        .describe(
+          "Number of punches in this driver-week with `flagged_for_review =\ntrue`. Drives a compact red flag badge next to the driver's\nreviewed pill on the week dashboard \/ sidebar.\n",
+        ),
       hasOverriddenDay: zod
         .boolean()
         .describe(
@@ -816,6 +822,12 @@ export const GetWeekSummaryResponse = zod.object({
             .number()
             .describe(
               "Number of non-deleted per-punch notes attached to this driver-week. Surfaced as a small badge so a Supervisor can scan for context.",
+            ),
+          flaggedPunchCount: zod
+            .number()
+            .optional()
+            .describe(
+              "Number of punches in this driver-week with `flagged_for_review =\ntrue`. Drives a compact red flag badge next to the driver's\nreviewed pill on the week dashboard \/ sidebar.\n",
             ),
           hasOverriddenDay: zod
             .boolean()
@@ -935,6 +947,14 @@ export const GetDriverWeekResponse = zod.object({
       reviewed: zod.boolean().optional(),
       reviewedAt: zod.coerce.date().nullish(),
       reviewedByEmail: zod.string().nullish(),
+      flagged: zod
+        .boolean()
+        .optional()
+        .describe(
+          "True when this punch has been flagged for review (per-punch red\nflag). Mutually exclusive with `reviewed` — flagging clears\nreviewed and vice versa.\n",
+        ),
+      flaggedAt: zod.coerce.date().nullish(),
+      flaggedByEmail: zod.string().nullish(),
     }),
   ),
   dailyTotals: zod.array(
@@ -2521,6 +2541,14 @@ export const CreateManualPunchResponse = zod.object({
   reviewed: zod.boolean().optional(),
   reviewedAt: zod.coerce.date().nullish(),
   reviewedByEmail: zod.string().nullish(),
+  flagged: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when this punch has been flagged for review (per-punch red\nflag). Mutually exclusive with `reviewed` — flagging clears\nreviewed and vice versa.\n",
+    ),
+  flaggedAt: zod.coerce.date().nullish(),
+  flaggedByEmail: zod.string().nullish(),
 });
 
 /**
@@ -2633,6 +2661,14 @@ export const EditPunchResponse = zod.object({
   reviewed: zod.boolean().optional(),
   reviewedAt: zod.coerce.date().nullish(),
   reviewedByEmail: zod.string().nullish(),
+  flagged: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when this punch has been flagged for review (per-punch red\nflag). Mutually exclusive with `reviewed` — flagging clears\nreviewed and vice versa.\n",
+    ),
+  flaggedAt: zod.coerce.date().nullish(),
+  flaggedByEmail: zod.string().nullish(),
 });
 
 /**
@@ -2677,6 +2713,61 @@ export const SetPunchReviewedResponse = zod.object({
   reviewed: zod.boolean().optional(),
   reviewedAt: zod.coerce.date().nullish(),
   reviewedByEmail: zod.string().nullish(),
+  flagged: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when this punch has been flagged for review (per-punch red\nflag). Mutually exclusive with `reviewed` — flagging clears\nreviewed and vice versa.\n",
+    ),
+  flaggedAt: zod.coerce.date().nullish(),
+  flaggedByEmail: zod.string().nullish(),
+});
+
+/**
+ * Per-punch red "needs review" flag. Stamps `flaggedBy` /
+`flaggedAt` (or nulls them when `flagged: false`). Flagging a
+punch clears its `reviewed` state — the two are mutually
+exclusive. Returns the updated punch. Rejected with 423 when the
+driver-week is locked.
+
+ * @summary Flag or unflag a single punch for review
+ */
+export const SetPunchFlaggedParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const SetPunchFlaggedBody = zod.object({
+  flagged: zod.boolean(),
+});
+
+export const SetPunchFlaggedResponse = zod.object({
+  id: zod.number(),
+  weekStart: zod.string(),
+  kfiId: zod.string(),
+  customer: zod.string().nullish(),
+  source: zod.enum(["Driver", "Customer"]),
+  date: zod.string(),
+  clockIn: zod.string(),
+  clockOut: zod.string(),
+  hours: zod.number(),
+  payType: zod.string().nullish(),
+  dispTz: zod.string(),
+  isManual: zod.boolean(),
+  edited: zod.boolean().optional(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+  updatedAt: zod.coerce.date().nullish(),
+  reviewed: zod.boolean().optional(),
+  reviewedAt: zod.coerce.date().nullish(),
+  reviewedByEmail: zod.string().nullish(),
+  flagged: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when this punch has been flagged for review (per-punch red\nflag). Mutually exclusive with `reviewed` — flagging clears\nreviewed and vice versa.\n",
+    ),
+  flaggedAt: zod.coerce.date().nullish(),
+  flaggedByEmail: zod.string().nullish(),
 });
 
 /**
@@ -2768,6 +2859,14 @@ export const ScaleDayHoursResponse = zod.object({
       reviewed: zod.boolean().optional(),
       reviewedAt: zod.coerce.date().nullish(),
       reviewedByEmail: zod.string().nullish(),
+      flagged: zod
+        .boolean()
+        .optional()
+        .describe(
+          "True when this punch has been flagged for review (per-punch red\nflag). Mutually exclusive with `reviewed` — flagging clears\nreviewed and vice versa.\n",
+        ),
+      flaggedAt: zod.coerce.date().nullish(),
+      flaggedByEmail: zod.string().nullish(),
     }),
   ),
 });
@@ -2817,6 +2916,14 @@ export const ResetDayHoursResponse = zod.object({
       reviewed: zod.boolean().optional(),
       reviewedAt: zod.coerce.date().nullish(),
       reviewedByEmail: zod.string().nullish(),
+      flagged: zod
+        .boolean()
+        .optional()
+        .describe(
+          "True when this punch has been flagged for review (per-punch red\nflag). Mutually exclusive with `reviewed` — flagging clears\nreviewed and vice versa.\n",
+        ),
+      flaggedAt: zod.coerce.date().nullish(),
+      flaggedByEmail: zod.string().nullish(),
     }),
   ),
 });

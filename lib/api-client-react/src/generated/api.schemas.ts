@@ -418,6 +418,11 @@ export interface DriverSummaryRow {
   lastTouchedAt?: string | null;
   /** Number of non-deleted per-punch notes attached to this driver-week. Surfaced as a small badge so a Supervisor can scan for context. */
   noteCount: number;
+  /** Number of punches in this driver-week with `flagged_for_review =
+true`. Drives a compact red flag badge next to the driver's
+reviewed pill on the week dashboard / sidebar.
+ */
+  flaggedPunchCount?: number;
   /** True when at least one day in this driver-week has its total
 dispatcher-overridden (every contributing punch on that day is
 flagged `edited=true`). Drives a small indicator on the driver
@@ -612,6 +617,15 @@ export interface Punch {
   reviewedAt?: string | null;
   /** @nullable */
   reviewedByEmail?: string | null;
+  /** True when this punch has been flagged for review (per-punch red
+flag). Mutually exclusive with `reviewed` — flagging clears
+reviewed and vice versa.
+ */
+  flagged?: boolean;
+  /** @nullable */
+  flaggedAt?: string | null;
+  /** @nullable */
+  flaggedByEmail?: string | null;
 }
 
 export interface DailyTotals {
@@ -1806,6 +1820,10 @@ export type ClearDriverCustomerOverrideParams = {
 
 export type SetPunchReviewedBody = {
   reviewed: boolean;
+};
+
+export type SetPunchFlaggedBody = {
+  flagged: boolean;
 };
 
 export type SetReviewedBody = {

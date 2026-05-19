@@ -447,6 +447,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     if (p.updatedBy) actorIds.add(p.updatedBy);
     if (p.createdBy) actorIds.add(p.createdBy);
     if (p.reviewedBy) actorIds.add(p.reviewedBy);
+    if (p.flaggedBy) actorIds.add(p.flaggedBy);
   }
   for (const d of deletions) {
     if (d.deletedBy) actorIds.add(d.deletedBy);
@@ -522,6 +523,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     lastTouchedByEmail: string | null;
     lastTouchedAt: string | null;
     noteCount: number;
+    flaggedPunchCount: number;
     displayTz: string | null;
     effectiveDispTz: string;
     connecteamParity: {
@@ -613,6 +615,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
         : null,
       lastTouchedAt,
       noteCount: noteCountByKfi.get(kfiId) ?? 0,
+      flaggedPunchCount: ps.filter((p) => p.flaggedForReview).length,
       displayTz: meta?.displayTz ?? null,
       effectiveDispTz: driverEffTz,
       connecteamParity: {
@@ -767,6 +770,7 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
     if (p.createdBy) actorIds.add(p.createdBy);
     if (p.updatedBy) actorIds.add(p.updatedBy);
     if (p.reviewedBy) actorIds.add(p.reviewedBy);
+    if (p.flaggedBy) actorIds.add(p.flaggedBy);
   }
   if (reviewed?.lockedByUserId) actorIds.add(reviewed.lockedByUserId);
   // Per-customer disp_tz summary across this driver-week's Customer-source
@@ -6277,6 +6281,10 @@ export function serializePunch(
     reviewedAt: p.reviewedAt ? new Date(p.reviewedAt).toISOString() : null,
     reviewedByEmail:
       p.reviewedBy && emailById ? emailById.get(p.reviewedBy) ?? null : null,
+    flagged: !!p.flaggedForReview,
+    flaggedAt: p.flaggedAt ? new Date(p.flaggedAt).toISOString() : null,
+    flaggedByEmail:
+      p.flaggedBy && emailById ? emailById.get(p.flaggedBy) ?? null : null,
   };
 }
 
