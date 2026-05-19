@@ -329,7 +329,7 @@ export function CustomerPreviewDialog({
                   <em> Skip — leave dropped</em> to keep the rows dropped.
                 </span>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 max-h-[30vh] overflow-auto">
                 {preview.unmappedIds.map((u) => {
                   const suggestions = u.suggestions ?? [];
                   const suggestedKfiId = suggestions[0]?.kfiId;

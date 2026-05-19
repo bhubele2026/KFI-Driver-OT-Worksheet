@@ -35,7 +35,6 @@ import {
   computeChecks,
   computeDailyTotals,
   computeDriverTotals,
-  defaultDispTz,
 } from "../lib/hoursEngine.js";
 import {
   loadDriverTz,
@@ -1626,6 +1625,9 @@ weeksRouter.post(
 
     const drivers = await db.select().from(schema.driversTable);
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
+    const driverTzByKfi = new Map<string, string | null>(
+      drivers.map((d) => [d.kfiId, d.displayTz ?? null]),
+    );
     const fileName = sample.fileName;
 
     // Sanitize on-the-fly picker mappings. Validates the target kfiId is in
@@ -1847,7 +1849,9 @@ weeksRouter.post(
               clockOut: p.clockOut,
               hours: String(p.hours),
               payType: p.payType,
-              dispTz: p.noTz ? "America/New_York" : defaultDispTz(p.kfiId),
+              dispTz: p.noTz
+                ? "America/New_York"
+                : resolveDispTz(p.kfiId, driverTzByKfi.get(p.kfiId) ?? null),
               isManual: false,
               fileOrigin: fileName,
               createdBy: req.session.userId ?? null,
