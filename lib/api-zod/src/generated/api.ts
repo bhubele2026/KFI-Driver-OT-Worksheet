@@ -45,6 +45,11 @@ export const RegisterResponse = zod.object({
     .describe(
       "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
     ),
+  hiddenNotesDigestOptIn: zod
+    .boolean()
+    .describe(
+      "Whether this admin receives the daily hidden-notes digest email. Defaults to true; non-admin accounts ignore the flag.",
+    ),
 });
 
 /**
@@ -164,6 +169,11 @@ export const AcceptInviteResponse = zod.object({
     .describe(
       "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
     ),
+  hiddenNotesDigestOptIn: zod
+    .boolean()
+    .describe(
+      "Whether this admin receives the daily hidden-notes digest email. Defaults to true; non-admin accounts ignore the flag.",
+    ),
 });
 
 /**
@@ -226,6 +236,11 @@ export const ResetPasswordResponse = zod.object({
     .describe(
       "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
     ),
+  hiddenNotesDigestOptIn: zod
+    .boolean()
+    .describe(
+      "Whether this admin receives the daily hidden-notes digest email. Defaults to true; non-admin accounts ignore the flag.",
+    ),
 });
 
 /**
@@ -259,6 +274,11 @@ export const ListUsersResponseItem = zod.object({
     .describe(
       "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
     ),
+  hiddenNotesDigestOptIn: zod
+    .boolean()
+    .describe(
+      "Whether this admin receives the daily hidden-notes digest email. Defaults to true; non-admin accounts ignore the flag.",
+    ),
 });
 export const ListUsersResponse = zod.array(ListUsersResponseItem);
 
@@ -277,6 +297,12 @@ export const UpdateUserBody = zod.object({
     .boolean()
     .optional()
     .describe("Set false to clear an account lockout (admin unlock)."),
+  hiddenNotesDigestOptIn: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Toggle the per-admin hidden-notes daily digest email opt-in. Has no effect for non-admin targets.",
+    ),
 });
 
 export const UpdateUserResponse = zod.object({
@@ -299,6 +325,11 @@ export const UpdateUserResponse = zod.object({
     .string()
     .describe(
       "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
+    ),
+  hiddenNotesDigestOptIn: zod
+    .boolean()
+    .describe(
+      "Whether this admin receives the daily hidden-notes digest email. Defaults to true; non-admin accounts ignore the flag.",
     ),
 });
 
@@ -562,6 +593,11 @@ export const LoginResponse = zod.object({
     .describe(
       "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
     ),
+  hiddenNotesDigestOptIn: zod
+    .boolean()
+    .describe(
+      "Whether this admin receives the daily hidden-notes digest email. Defaults to true; non-admin accounts ignore the flag.",
+    ),
 });
 
 /**
@@ -588,6 +624,11 @@ export const GetMeResponse = zod.union([
       .string()
       .describe(
         "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
+      ),
+    hiddenNotesDigestOptIn: zod
+      .boolean()
+      .describe(
+        "Whether this admin receives the daily hidden-notes digest email. Defaults to true; non-admin accounts ignore the flag.",
       ),
   }),
   zod.null(),
@@ -620,6 +661,11 @@ export const UpdateMyLanguageResponse = zod.object({
     .string()
     .describe(
       "BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.",
+    ),
+  hiddenNotesDigestOptIn: zod
+    .boolean()
+    .describe(
+      "Whether this admin receives the daily hidden-notes digest email. Defaults to true; non-admin accounts ignore the flag.",
     ),
 });
 

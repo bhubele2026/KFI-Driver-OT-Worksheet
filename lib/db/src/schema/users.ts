@@ -32,6 +32,13 @@ export const usersTable = pgTable("users", {
   // 'en' or 'es'; the client falls back to 'en' for any unknown value so
   // future locales added on the client don't break older accounts.
   preferredLanguage: text("preferred_language").notNull().default("en"),
+  // Per-admin opt-in for the daily "hidden notes" digest email. Defaults to
+  // true so the digest behavior is unchanged for existing admins; admins who
+  // live in /admin/notes can flip this off to silence the noise. The digest
+  // job filters by this flag; non-admin accounts ignore it.
+  hiddenNotesDigestOptIn: boolean("hidden_notes_digest_opt_in")
+    .notNull()
+    .default(true),
 });
 
 export type User = typeof usersTable.$inferSelect;

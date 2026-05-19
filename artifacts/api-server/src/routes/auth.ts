@@ -104,6 +104,7 @@ function publicUser(user: {
   lastLoginAt?: Date | string | null;
   passwordResetLastSentAt?: Date | string | null;
   preferredLanguage?: string | null;
+  hiddenNotesDigestOptIn?: boolean | null;
 }) {
   const role = user.role === "supervisor" ? "supervisor" : "reviewer";
   const lang = user.preferredLanguage === "es" ? "es" : "en";
@@ -119,6 +120,7 @@ function publicUser(user: {
     lastLoginAt: user.lastLoginAt ?? null,
     passwordResetLastSentAt: user.passwordResetLastSentAt ?? null,
     preferredLanguage: lang,
+    hiddenNotesDigestOptIn: user.hiddenNotesDigestOptIn ?? true,
   };
 }
 
@@ -937,11 +939,15 @@ authRouter.patch("/auth/users/:id", requireAdmin, async (req, res) => {
     role?: "reviewer" | "supervisor";
     lockedAt?: Date | null;
     failedLoginCount?: number;
+    hiddenNotesDigestOptIn?: boolean;
   } = {};
   if (typeof parsed.data.isActive === "boolean") patch.isActive = parsed.data.isActive;
   if (typeof parsed.data.isAdmin === "boolean") patch.isAdmin = parsed.data.isAdmin;
   if (parsed.data.role === "reviewer" || parsed.data.role === "supervisor") {
     patch.role = parsed.data.role;
+  }
+  if (typeof parsed.data.hiddenNotesDigestOptIn === "boolean") {
+    patch.hiddenNotesDigestOptIn = parsed.data.hiddenNotesDigestOptIn;
   }
   if (parsed.data.locked === false) {
     patch.lockedAt = null;

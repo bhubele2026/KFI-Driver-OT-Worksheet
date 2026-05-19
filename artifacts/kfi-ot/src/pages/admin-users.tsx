@@ -1762,6 +1762,50 @@ export default function AdminUsers() {
                                 {u.failedLoginCount} recent fails
                               </span>
                             )}
+                            {u.isAdmin && (
+                              <label
+                                className="mt-1 inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground"
+                                title="Receive the daily email summarising notes that were hidden in the last 24 hours."
+                              >
+                                <input
+                                  data-testid={`toggle-digest-${u.id}`}
+                                  type="checkbox"
+                                  className="h-3 w-3"
+                                  checked={u.hiddenNotesDigestOptIn}
+                                  disabled={updateUser.isPending}
+                                  onChange={(e) => {
+                                    const next = e.target.checked;
+                                    updateUser.mutate(
+                                      {
+                                        id: u.id,
+                                        data: { hiddenNotesDigestOptIn: next },
+                                      },
+                                      {
+                                        onSuccess: () => {
+                                          refetchUsers();
+                                          toast({
+                                            title: next
+                                              ? "Hidden-notes digest enabled"
+                                              : "Hidden-notes digest disabled",
+                                            description: u.email,
+                                          });
+                                        },
+                                        onError: (err) =>
+                                          toast({
+                                            title: "Couldn't update preference",
+                                            description:
+                                              err instanceof Error
+                                                ? err.message
+                                                : "Unknown error",
+                                            variant: "destructive",
+                                          }),
+                                      },
+                                    );
+                                  }}
+                                />
+                                Hidden-notes digest
+                              </label>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">

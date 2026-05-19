@@ -47,6 +47,8 @@ export interface User {
   passwordResetLastSentAt?: string | null;
   /** BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'. */
   preferredLanguage: string;
+  /** Whether this admin receives the daily hidden-notes digest email. Defaults to true; non-admin accounts ignore the flag. */
+  hiddenNotesDigestOptIn: boolean;
 }
 
 export interface RegistrationStatus {
@@ -271,6 +273,8 @@ export interface UpdateUserBody {
   role?: UpdateUserBodyRole;
   /** Set false to clear an account lockout (admin unlock). */
   locked?: boolean;
+  /** Toggle the per-admin hidden-notes daily digest email opt-in. Has no effect for non-admin targets. */
+  hiddenNotesDigestOptIn?: boolean;
 }
 
 export interface DriverWeekLockState {

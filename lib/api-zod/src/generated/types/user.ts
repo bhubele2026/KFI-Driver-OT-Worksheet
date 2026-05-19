@@ -26,4 +26,6 @@ export interface User {
   passwordResetLastSentAt?: Date | null;
   /** BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'. */
   preferredLanguage: string;
+  /** Whether this admin receives the daily hidden-notes digest email. Defaults to true; non-admin accounts ignore the flag. */
+  hiddenNotesDigestOptIn: boolean;
 }

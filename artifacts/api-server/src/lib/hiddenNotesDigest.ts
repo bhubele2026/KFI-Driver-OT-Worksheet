@@ -179,6 +179,7 @@ export async function runHiddenNotesDigest(
       and(
         eq(schema.usersTable.isAdmin, true),
         eq(schema.usersTable.isActive, true),
+        eq(schema.usersTable.hiddenNotesDigestOptIn, true),
       ),
     );
   if (admins.length === 0) {

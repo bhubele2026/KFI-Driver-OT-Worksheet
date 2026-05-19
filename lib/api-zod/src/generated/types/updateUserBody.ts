@@ -13,4 +13,6 @@ export interface UpdateUserBody {
   role?: UpdateUserBodyRole;
   /** Set false to clear an account lockout (admin unlock). */
   locked?: boolean;
+  /** Toggle the per-admin hidden-notes daily digest email opt-in. Has no effect for non-admin targets. */
+  hiddenNotesDigestOptIn?: boolean;
 }

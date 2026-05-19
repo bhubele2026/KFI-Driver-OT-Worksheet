@@ -1546,7 +1546,7 @@ components:
 
     User:
       type: object
-      required: [id, email, createdAt, isAdmin, role, isActive, failedLoginCount, preferredLanguage]
+      required: [id, email, createdAt, isAdmin, role, isActive, failedLoginCount, preferredLanguage, hiddenNotesDigestOptIn]
       properties:
         id: { type: integer }
         email: { type: string }
@@ -1570,6 +1570,9 @@ components:
         preferredLanguage:
           type: string
           description: BCP-47 language tag for the UI ('en' or 'es'). Defaults to 'en'.
+        hiddenNotesDigestOptIn:
+          type: boolean
+          description: Whether this admin receives the daily hidden-notes digest email. Defaults to true; non-admin accounts ignore the flag.
 
     RegistrationStatus:
       type: object
@@ -1837,6 +1840,9 @@ components:
         locked:
           type: boolean
           description: Set false to clear an account lockout (admin unlock).
+        hiddenNotesDigestOptIn:
+          type: boolean
+          description: Toggle the per-admin hidden-notes daily digest email opt-in. Has no effect for non-admin targets.
 
     DriverWeekLockState:
       type: object
