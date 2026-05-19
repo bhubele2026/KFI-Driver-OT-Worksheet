@@ -449,6 +449,25 @@ within 0.005h; `differ` = at least `diffCount` days diverge;
 `unknown` = no baseline yet (week never refreshed).
  */
   connecteamParity?: DriverSummaryRowConnecteamParity;
+  /**
+   * When a per-driver customer override is active, the Connecteam
+roster customer this driver belongs to. `customer` reflects the
+override; `originalCustomer` is shown in the "moved" badge tooltip.
+Null when no override is set.
+
+   * @nullable
+   */
+  originalCustomer?: string | null;
+  /**
+   * Email of the dispatcher / admin who set the active override. Null when no override is set.
+   * @nullable
+   */
+  overrideSetByEmail?: string | null;
+  /**
+   * When the active override was last set. Null when no override is set.
+   * @nullable
+   */
+  overrideSetAt?: string | null;
 }
 
 export interface DriverPayrollProfile {
@@ -1650,6 +1669,25 @@ export interface UpsertCustomerTzPreferenceInput {
   displayTz: string;
 }
 
+export interface DriverCustomerOverride {
+  kfiId: string;
+  /** @nullable */
+  driverName?: string | null;
+  /** @nullable */
+  originalCustomer?: string | null;
+  overrideCustomer: string;
+  setAt: string;
+  /** @nullable */
+  setByEmail?: string | null;
+}
+
+export interface SetDriverCustomerOverrideBody {
+  /** @minLength 1 */
+  kfiId: string;
+  /** @minLength 1 */
+  overrideCustomer: string;
+}
+
 export interface InactiveCustomer {
   customer: string;
   inactiveAt: string;
@@ -1726,6 +1764,10 @@ export type RemoveParserPromotionSnoozeParams = {
 
 export type ReactivateCustomerParams = {
   customer: string;
+};
+
+export type ClearDriverCustomerOverrideParams = {
+  kfiId: string;
 };
 
 export type SetPunchReviewedBody = {

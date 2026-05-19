@@ -1108,6 +1108,54 @@ paths:
         "400": { description: Invalid input }
         "403": { description: Admin only }
 
+  /driver-customer-overrides:
+    get:
+      operationId: listDriverCustomerOverrides
+      tags: [ingest]
+      summary: List every active per-driver customer override (admin-only).
+      responses:
+        "200":
+          description: Active overrides ordered by `setAt` desc, joined with the driver + actor.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DriverCustomerOverride" }
+        "403": { description: Admin only }
+    post:
+      operationId: setDriverCustomerOverride
+      tags: [ingest]
+      summary: |
+        Manually move a driver to a different customer on the dashboard. The
+        override survives Connecteam refreshes; the roster customer continues
+        to be tracked on `drivers.customer` so the UI can show the original
+        next to the override.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetDriverCustomerOverrideBody" }
+      responses:
+        "200":
+          description: Upserted override.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DriverCustomerOverride" }
+        "400": { description: Invalid input }
+        "404": { description: Unknown kfiId }
+    delete:
+      operationId: clearDriverCustomerOverride
+      tags: [ingest]
+      summary: Clear a per-driver customer override so the dashboard falls back to the Connecteam roster customer.
+      parameters:
+        - name: kfiId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Removed (or no override existed) }
+        "400": { description: Invalid input }
+
   /driver-id-aliases:
     get:
       operationId: listDriverIdAliases
@@ -2262,6 +2310,20 @@ components:
             diffCount:
               type: integer
               description: Number of days that diverge from the Connecteam baseline. Always 0 when status is `match` or `unknown`.
+        originalCustomer:
+          type: ["string", "null"]
+          description: |
+            When a per-driver customer override is active, the Connecteam
+            roster customer this driver belongs to. `customer` reflects the
+            override; `originalCustomer` is shown in the "moved" badge tooltip.
+            Null when no override is set.
+        overrideSetByEmail:
+          type: ["string", "null"]
+          description: Email of the dispatcher / admin who set the active override. Null when no override is set.
+        overrideSetAt:
+          type: ["string", "null"]
+          format: date-time
+          description: When the active override was last set. Null when no override is set.
 
     DriverPayrollProfile:
       type: object
@@ -3651,6 +3713,27 @@ components:
       properties:
         customer: { type: string, minLength: 1 }
         displayTz: { type: string }
+
+    DriverCustomerOverride:
+      type: object
+      required: [kfiId, overrideCustomer, setAt]
+      properties:
+        kfiId: { type: string }
+        driverName:
+          type: ["string", "null"]
+        originalCustomer:
+          type: ["string", "null"]
+        overrideCustomer: { type: string }
+        setAt: { type: string, format: date-time }
+        setByEmail:
+          type: ["string", "null"]
+
+    SetDriverCustomerOverrideBody:
+      type: object
+      required: [kfiId, overrideCustomer]
+      properties:
+        kfiId: { type: string, minLength: 1 }
+        overrideCustomer: { type: string, minLength: 1 }
 
     InactiveCustomer:
       type: object

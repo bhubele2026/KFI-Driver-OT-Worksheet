@@ -4,8 +4,10 @@ import {
   useGetMe,
   useGetWeekSummary,
   useSetReviewed,
+  useClearDriverCustomerOverride,
   getGetWeekSummaryQueryKey,
   getGetDriverWeekQueryKey,
+  getListDriverCustomerOverridesQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,12 +15,22 @@ import {
   Circle,
   Lock,
   Menu,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Shuffle,
   X,
   XCircle,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { MoveDriverCustomerDialog } from "@/components/move-driver-customer-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -112,6 +124,41 @@ function DriversList({
   const [, setLocation] = useLocation();
   const { data: summary } = useGetWeekSummary(weekStart);
   const { toast } = useToast();
+  const qc = useQueryClient();
+  const clearOverride = useClearDriverCustomerOverride();
+  const [moveDialog, setMoveDialog] = useState<{
+    kfiId: string;
+    name: string;
+    customer: string;
+    originalCustomer: string | null;
+  } | null>(null);
+
+  const handleClearOverride = (kfiId: string, name: string) => {
+    clearOverride.mutate(
+      { params: { kfiId } },
+      {
+        onSuccess: () => {
+          qc.invalidateQueries({
+            queryKey: getGetWeekSummaryQueryKey(weekStart),
+          });
+          qc.invalidateQueries({
+            queryKey: getListDriverCustomerOverridesQueryKey(),
+          });
+          toast({
+            title: `Cleared override for ${name}`,
+            description:
+              "Driver is back under their Connecteam roster customer.",
+          });
+        },
+        onError: (err) =>
+          toast({
+            title: "Couldn't clear override",
+            description: err instanceof Error ? err.message : "Unknown error",
+            variant: "destructive",
+          }),
+      },
+    );
+  };
 
   // When the dispatcher double-clicks the row for the driver they're currently
   // viewing to mark it reviewed, jump to the next unreviewed driver in
@@ -286,6 +333,89 @@ function DriversList({
                         OT
                       </span>
                     )}
+                    {(driver as { originalCustomer?: string | null })
+                      .originalCustomer && (
+                      <span
+                        className="text-[10px] font-mono font-semibold text-sky-700 dark:text-sky-300 bg-sky-500/10 px-1 rounded"
+                        title={`Moved from "${
+                          (driver as { originalCustomer?: string | null })
+                            .originalCustomer
+                        }"${
+                          (driver as { overrideSetByEmail?: string | null })
+                            .overrideSetByEmail
+                            ? ` by ${
+                                (driver as { overrideSetByEmail?: string | null })
+                                  .overrideSetByEmail
+                              }`
+                            : ""
+                        }${
+                          (driver as { overrideSetAt?: string | null })
+                            .overrideSetAt
+                            ? ` on ${(driver as { overrideSetAt?: string | null })
+                                .overrideSetAt!.slice(0, 10)}`
+                            : ""
+                        }`}
+                        data-testid={`sidebar-moved-${driver.kfiId}`}
+                      >
+                        moved
+                      </span>
+                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          aria-label={`Actions for ${driver.name}`}
+                          title="More actions"
+                          data-testid={`sidebar-actions-${driver.kfiId}`}
+                          className="inline-flex items-center justify-center h-5 w-5 rounded shrink-0 text-muted-foreground/60 hover:text-foreground hover:bg-foreground/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <DropdownMenuItem
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            setMoveDialog({
+                              kfiId: driver.kfiId,
+                              name: driver.name,
+                              customer: driver.customer,
+                              originalCustomer:
+                                (
+                                  driver as {
+                                    originalCustomer?: string | null;
+                                  }
+                                ).originalCustomer ?? null,
+                            });
+                          }}
+                          data-testid={`sidebar-move-${driver.kfiId}`}
+                        >
+                          <Shuffle className="h-3.5 w-3.5 mr-2" />
+                          Move to customer…
+                        </DropdownMenuItem>
+                        {(driver as { originalCustomer?: string | null })
+                          .originalCustomer && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                handleClearOverride(driver.kfiId, driver.name);
+                              }}
+                              data-testid={`sidebar-clear-override-${driver.kfiId}`}
+                            >
+                              <X className="h-3.5 w-3.5 mr-2" />
+                              Clear override
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </li>
               );
@@ -293,6 +423,16 @@ function DriversList({
           </ul>
         </li>
       ))}
+      {moveDialog && (
+        <MoveDriverCustomerDialog
+          weekStart={weekStart}
+          open={!!moveDialog}
+          onOpenChange={(o) => {
+            if (!o) setMoveDialog(null);
+          }}
+          driver={moveDialog}
+        />
+      )}
     </ul>
   );
 }

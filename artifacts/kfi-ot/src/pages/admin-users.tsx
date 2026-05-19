@@ -801,6 +801,16 @@ export default function AdminUsers() {
               {t("adminNav.driverIds")}
             </Button>
           </Link>
+          <Link href="/admin/driver-customer-overrides">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
+              data-testid="link-admin-driver-customer-overrides"
+            >
+              Customer overrides
+            </Button>
+          </Link>
           <Link href="/admin/connecteam-user-aliases">
             <Button
               variant="ghost"

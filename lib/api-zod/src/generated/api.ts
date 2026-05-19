@@ -770,6 +770,24 @@ export const GetWeekSummaryResponse = zod.object({
         .describe(
           "Per-driver Connecteam parity status for this week, computed by\ncomparing the engine's daily totals against the snapshotted\nConnecteam baseline. Lets the dashboard render the parity badge\nwithout N extra requests. `match` = every snapshotted day matches\nwithin 0.005h; `differ` = at least `diffCount` days diverge;\n`unknown` = no baseline yet (week never refreshed).\n",
         ),
+      originalCustomer: zod
+        .string()
+        .nullish()
+        .describe(
+          'When a per-driver customer override is active, the Connecteam\nroster customer this driver belongs to. `customer` reflects the\noverride; `originalCustomer` is shown in the \"moved\" badge tooltip.\nNull when no override is set.\n',
+        ),
+      overrideSetByEmail: zod
+        .string()
+        .nullish()
+        .describe(
+          "Email of the dispatcher \/ admin who set the active override. Null when no override is set.",
+        ),
+      overrideSetAt: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "When the active override was last set. Null when no override is set.",
+        ),
     }),
   ),
   customers: zod.array(
@@ -834,6 +852,24 @@ export const GetWeekSummaryResponse = zod.object({
             .optional()
             .describe(
               "Per-driver Connecteam parity status for this week, computed by\ncomparing the engine's daily totals against the snapshotted\nConnecteam baseline. Lets the dashboard render the parity badge\nwithout N extra requests. `match` = every snapshotted day matches\nwithin 0.005h; `differ` = at least `diffCount` days diverge;\n`unknown` = no baseline yet (week never refreshed).\n",
+            ),
+          originalCustomer: zod
+            .string()
+            .nullish()
+            .describe(
+              'When a per-driver customer override is active, the Connecteam\nroster customer this driver belongs to. `customer` reflects the\noverride; `originalCustomer` is shown in the \"moved\" badge tooltip.\nNull when no override is set.\n',
+            ),
+          overrideSetByEmail: zod
+            .string()
+            .nullish()
+            .describe(
+              "Email of the dispatcher \/ admin who set the active override. Null when no override is set.",
+            ),
+          overrideSetAt: zod.coerce
+            .date()
+            .nullish()
+            .describe(
+              "When the active override was last set. Null when no override is set.",
             ),
         }),
       ),
@@ -2081,6 +2117,50 @@ export const MarkCustomerInactiveResponse = zod.object({
  */
 export const ReactivateCustomerQueryParams = zod.object({
   customer: zod.coerce.string(),
+});
+
+/**
+ * @summary List every active per-driver customer override (admin-only).
+ */
+export const ListDriverCustomerOverridesResponseItem = zod.object({
+  kfiId: zod.string(),
+  driverName: zod.string().nullish(),
+  originalCustomer: zod.string().nullish(),
+  overrideCustomer: zod.string(),
+  setAt: zod.coerce.date(),
+  setByEmail: zod.string().nullish(),
+});
+export const ListDriverCustomerOverridesResponse = zod.array(
+  ListDriverCustomerOverridesResponseItem,
+);
+
+/**
+ * @summary Manually move a driver to a different customer on the dashboard. The
+override survives Connecteam refreshes; the roster customer continues
+to be tracked on `drivers.customer` so the UI can show the original
+next to the override.
+
+ */
+
+export const SetDriverCustomerOverrideBody = zod.object({
+  kfiId: zod.string().min(1),
+  overrideCustomer: zod.string().min(1),
+});
+
+export const SetDriverCustomerOverrideResponse = zod.object({
+  kfiId: zod.string(),
+  driverName: zod.string().nullish(),
+  originalCustomer: zod.string().nullish(),
+  overrideCustomer: zod.string(),
+  setAt: zod.coerce.date(),
+  setByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Clear a per-driver customer override so the dashboard falls back to the Connecteam roster customer.
+ */
+export const ClearDriverCustomerOverrideQueryParams = zod.object({
+  kfiId: zod.coerce.string(),
 });
 
 /**

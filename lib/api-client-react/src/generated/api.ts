@@ -24,6 +24,7 @@ import type {
   AiExtractSample,
   AllowedTimezones,
   AuthCredentials,
+  ClearDriverCustomerOverrideParams,
   ConfirmCustomerFileInput,
   ConfirmNewCustomerInput,
   ConfirmNewCustomerResult,
@@ -45,6 +46,7 @@ import type {
   DayHoursResult,
   DeleteCustomerTzPreferenceParams,
   DeletedDriverNote,
+  DriverCustomerOverride,
   DriverIdAlias,
   DriverIdAliasList,
   DriverInfo,
@@ -97,6 +99,7 @@ import type {
   ResetWeekLockedError,
   ResetWeekResult,
   ScaleDayHoursInput,
+  SetDriverCustomerOverrideBody,
   SetPunchReviewedBody,
   SetReviewed200,
   SetReviewedBody,
@@ -5437,6 +5440,282 @@ export const useReactivateCustomer = <
   TContext
 > => {
   return useMutation(getReactivateCustomerMutationOptions(options));
+};
+
+/**
+ * @summary List every active per-driver customer override (admin-only).
+ */
+export const getListDriverCustomerOverridesUrl = () => {
+  return `/api/driver-customer-overrides`;
+};
+
+export const listDriverCustomerOverrides = async (
+  options?: RequestInit,
+): Promise<DriverCustomerOverride[]> => {
+  return customFetch<DriverCustomerOverride[]>(
+    getListDriverCustomerOverridesUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListDriverCustomerOverridesQueryKey = () => {
+  return [`/api/driver-customer-overrides`] as const;
+};
+
+export const getListDriverCustomerOverridesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listDriverCustomerOverrides>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listDriverCustomerOverrides>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListDriverCustomerOverridesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listDriverCustomerOverrides>>
+  > = ({ signal }) =>
+    listDriverCustomerOverrides({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listDriverCustomerOverrides>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListDriverCustomerOverridesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listDriverCustomerOverrides>>
+>;
+export type ListDriverCustomerOverridesQueryError = ErrorType<void>;
+
+/**
+ * @summary List every active per-driver customer override (admin-only).
+ */
+
+export function useListDriverCustomerOverrides<
+  TData = Awaited<ReturnType<typeof listDriverCustomerOverrides>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listDriverCustomerOverrides>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListDriverCustomerOverridesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Manually move a driver to a different customer on the dashboard. The
+override survives Connecteam refreshes; the roster customer continues
+to be tracked on `drivers.customer` so the UI can show the original
+next to the override.
+
+ */
+export const getSetDriverCustomerOverrideUrl = () => {
+  return `/api/driver-customer-overrides`;
+};
+
+export const setDriverCustomerOverride = async (
+  setDriverCustomerOverrideBody: SetDriverCustomerOverrideBody,
+  options?: RequestInit,
+): Promise<DriverCustomerOverride> => {
+  return customFetch<DriverCustomerOverride>(
+    getSetDriverCustomerOverrideUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(setDriverCustomerOverrideBody),
+    },
+  );
+};
+
+export const getSetDriverCustomerOverrideMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setDriverCustomerOverride>>,
+    TError,
+    { data: BodyType<SetDriverCustomerOverrideBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setDriverCustomerOverride>>,
+  TError,
+  { data: BodyType<SetDriverCustomerOverrideBody> },
+  TContext
+> => {
+  const mutationKey = ["setDriverCustomerOverride"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setDriverCustomerOverride>>,
+    { data: BodyType<SetDriverCustomerOverrideBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return setDriverCustomerOverride(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetDriverCustomerOverrideMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setDriverCustomerOverride>>
+>;
+export type SetDriverCustomerOverrideMutationBody =
+  BodyType<SetDriverCustomerOverrideBody>;
+export type SetDriverCustomerOverrideMutationError = ErrorType<void>;
+
+/**
+ * @summary Manually move a driver to a different customer on the dashboard. The
+override survives Connecteam refreshes; the roster customer continues
+to be tracked on `drivers.customer` so the UI can show the original
+next to the override.
+
+ */
+export const useSetDriverCustomerOverride = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setDriverCustomerOverride>>,
+    TError,
+    { data: BodyType<SetDriverCustomerOverrideBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setDriverCustomerOverride>>,
+  TError,
+  { data: BodyType<SetDriverCustomerOverrideBody> },
+  TContext
+> => {
+  return useMutation(getSetDriverCustomerOverrideMutationOptions(options));
+};
+
+/**
+ * @summary Clear a per-driver customer override so the dashboard falls back to the Connecteam roster customer.
+ */
+export const getClearDriverCustomerOverrideUrl = (
+  params: ClearDriverCustomerOverrideParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/driver-customer-overrides?${stringifiedParams}`
+    : `/api/driver-customer-overrides`;
+};
+
+export const clearDriverCustomerOverride = async (
+  params: ClearDriverCustomerOverrideParams,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getClearDriverCustomerOverrideUrl(params), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getClearDriverCustomerOverrideMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof clearDriverCustomerOverride>>,
+    TError,
+    { params: ClearDriverCustomerOverrideParams },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof clearDriverCustomerOverride>>,
+  TError,
+  { params: ClearDriverCustomerOverrideParams },
+  TContext
+> => {
+  const mutationKey = ["clearDriverCustomerOverride"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof clearDriverCustomerOverride>>,
+    { params: ClearDriverCustomerOverrideParams }
+  > = (props) => {
+    const { params } = props ?? {};
+
+    return clearDriverCustomerOverride(params, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ClearDriverCustomerOverrideMutationResult = NonNullable<
+  Awaited<ReturnType<typeof clearDriverCustomerOverride>>
+>;
+
+export type ClearDriverCustomerOverrideMutationError = ErrorType<void>;
+
+/**
+ * @summary Clear a per-driver customer override so the dashboard falls back to the Connecteam roster customer.
+ */
+export const useClearDriverCustomerOverride = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof clearDriverCustomerOverride>>,
+    TError,
+    { params: ClearDriverCustomerOverrideParams },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof clearDriverCustomerOverride>>,
+  TError,
+  { params: ClearDriverCustomerOverrideParams },
+  TContext
+> => {
+  return useMutation(getClearDriverCustomerOverrideMutationOptions(options));
 };
 
 /**

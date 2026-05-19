@@ -14,6 +14,7 @@ import {
   CreateConnecteamUserAliasBody,
   MarkCustomerInactiveBody,
   ResetWeekBody,
+  SetDriverCustomerOverrideBody,
   SetReviewedBody,
   UpdateCustomerNameAliasBody,
   UpdateConnecteamUserAliasBody,
@@ -346,6 +347,33 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
   }
   const drivers = await db.select().from(schema.driversTable);
   const driverById = new Map(drivers.map((d) => [d.kfiId, d]));
+  // Per-driver customer overrides. Connecteam refresh never touches this
+  // table, so the override survives across refreshes; the roster's customer
+  // continues to live on `drivers.customer` so we can surface it as
+  // "originalCustomer" alongside the override in the UI.
+  const overrideRows = await db
+    .select({
+      kfiId: schema.driverCustomerOverridesTable.kfiId,
+      overrideCustomer: schema.driverCustomerOverridesTable.overrideCustomer,
+      setByUserId: schema.driverCustomerOverridesTable.setByUserId,
+      setAt: schema.driverCustomerOverridesTable.setAt,
+    })
+    .from(schema.driverCustomerOverridesTable);
+  const overrideByKfi = new Map<
+    string,
+    {
+      overrideCustomer: string;
+      setByUserId: number | null;
+      setAt: Date;
+    }
+  >();
+  for (const r of overrideRows) {
+    overrideByKfi.set(r.kfiId, {
+      overrideCustomer: r.overrideCustomer,
+      setByUserId: r.setByUserId,
+      setAt: r.setAt,
+    });
+  }
   const reviewedRows = await db
     .select()
     .from(schema.reviewedDriversTable)
@@ -398,6 +426,9 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
   }
   for (const r of reviewByKfi.values()) {
     if (r.lockedByUserId) actorIds.add(r.lockedByUserId);
+  }
+  for (const o of overrideByKfi.values()) {
+    if (o.setByUserId) actorIds.add(o.setByUserId);
   }
 
   // Note-count per driver for the week summary badge. Only non-deleted notes
@@ -469,6 +500,9 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     };
     hasOverriddenDay: boolean;
     hasCustomerTzMismatch: boolean;
+    originalCustomer: string | null;
+    overrideSetByEmail: string | null;
+    overrideSetAt: string | null;
   }
   const rows: SummaryRow[] = [];
   for (const [kfiId, ps] of byKfi.entries()) {
@@ -525,10 +559,13 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       week?.lastRefreshedAt != null,
     );
     const paritySummary = summarizeParity(parityDays);
+    const rosterCustomer = meta?.customer ?? ps[0]?.customer ?? "Unknown";
+    const override = overrideByKfi.get(kfiId);
+    const effectiveCustomer = override?.overrideCustomer ?? rosterCustomer;
     rows.push({
       kfiId,
       name: meta?.name ?? `Driver ${kfiId}`,
-      customer: meta?.customer ?? ps[0]?.customer ?? "Unknown",
+      customer: effectiveCustomer,
       driverHours: t.totalDriver,
       customerHours: t.totalCustomer,
       totalHours: t.totalHours,
@@ -554,6 +591,11 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       },
       hasOverriddenDay: dailyTotals.some((d) => d.hasOverrides),
       hasCustomerTzMismatch,
+      originalCustomer: override ? rosterCustomer : null,
+      overrideSetByEmail: override?.setByUserId
+        ? actorEmailById.get(override.setByUserId) ?? null
+        : null,
+      overrideSetAt: override ? new Date(override.setAt).toISOString() : null,
     });
   }
   rows.sort(
@@ -2754,6 +2796,155 @@ weeksRouter.delete(
         targetUserId: null,
         targetEmail: `customer-inactive:${removed[0].customer}`,
         action: "customer-reactivate",
+      });
+    });
+    res.status(204).end();
+  },
+);
+
+weeksRouter.get(
+  "/driver-customer-overrides",
+  requireAuth,
+  async (_req, res) => {
+    const rows = await db
+      .select({
+        kfiId: schema.driverCustomerOverridesTable.kfiId,
+        overrideCustomer: schema.driverCustomerOverridesTable.overrideCustomer,
+        setByUserId: schema.driverCustomerOverridesTable.setByUserId,
+        setAt: schema.driverCustomerOverridesTable.setAt,
+        driverName: schema.driversTable.name,
+        originalCustomer: schema.driversTable.customer,
+      })
+      .from(schema.driverCustomerOverridesTable)
+      .leftJoin(
+        schema.driversTable,
+        eq(
+          schema.driversTable.kfiId,
+          schema.driverCustomerOverridesTable.kfiId,
+        ),
+      )
+      .orderBy(desc(schema.driverCustomerOverridesTable.setAt));
+    const actorIds = new Set<number>();
+    for (const r of rows) if (r.setByUserId) actorIds.add(r.setByUserId);
+    const emailById = new Map<number, string>();
+    if (actorIds.size > 0) {
+      const actors = await db
+        .select({ id: schema.usersTable.id, email: schema.usersTable.email })
+        .from(schema.usersTable)
+        .where(inArray(schema.usersTable.id, [...actorIds]));
+      for (const a of actors) emailById.set(a.id, a.email);
+    }
+    res.json(
+      rows.map((r) => ({
+        kfiId: r.kfiId,
+        driverName: r.driverName ?? null,
+        originalCustomer: r.originalCustomer ?? null,
+        overrideCustomer: r.overrideCustomer,
+        setAt: new Date(r.setAt).toISOString(),
+        setByEmail: r.setByUserId ? emailById.get(r.setByUserId) ?? null : null,
+      })),
+    );
+  },
+);
+
+weeksRouter.post(
+  "/driver-customer-overrides",
+  requireAuth,
+  async (req, res) => {
+    const parsed = SetDriverCustomerOverrideBody.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "Invalid input", details: parsed.error.issues });
+      return;
+    }
+    const kfiId = parsed.data.kfiId.trim();
+    const overrideCustomer = parsed.data.overrideCustomer.trim();
+    if (!kfiId || !overrideCustomer) {
+      res.status(400).json({ error: "kfiId and overrideCustomer are required" });
+      return;
+    }
+    const driver = await db.query.driversTable.findFirst({
+      where: eq(schema.driversTable.kfiId, kfiId),
+      columns: { kfiId: true, name: true, customer: true },
+    });
+    if (!driver) {
+      res.status(404).json({ error: "Unknown kfiId" });
+      return;
+    }
+    if (overrideCustomer === driver.customer) {
+      res.status(400).json({
+        error:
+          "Override matches the Connecteam roster customer; nothing to override.",
+      });
+      return;
+    }
+    const setAt = new Date();
+    await db.transaction(async (tx) => {
+      await tx
+        .insert(schema.driverCustomerOverridesTable)
+        .values({
+          kfiId,
+          overrideCustomer,
+          setByUserId: req.session.userId ?? null,
+          setAt,
+        })
+        .onConflictDoUpdate({
+          target: schema.driverCustomerOverridesTable.kfiId,
+          set: {
+            overrideCustomer,
+            setByUserId: req.session.userId ?? null,
+            setAt,
+          },
+        });
+      await tx.insert(schema.userAuditLogTable).values({
+        actorUserId: req.session.userId ?? null,
+        targetUserId: null,
+        targetEmail: `driver-customer-override:${kfiId}:${overrideCustomer}`,
+        action: "driver-customer-override",
+      });
+    });
+    let setByEmail: string | null = null;
+    if (req.session.userId) {
+      const actor = await db.query.usersTable.findFirst({
+        where: eq(schema.usersTable.id, req.session.userId),
+        columns: { email: true },
+      });
+      setByEmail = actor?.email ?? null;
+    }
+    res.json({
+      kfiId,
+      driverName: driver.name,
+      originalCustomer: driver.customer,
+      overrideCustomer,
+      setAt: setAt.toISOString(),
+      setByEmail,
+    });
+  },
+);
+
+weeksRouter.delete(
+  "/driver-customer-overrides",
+  requireAuth,
+  async (req, res) => {
+    const kfiId = String(req.query.kfiId ?? "").trim();
+    if (!kfiId) {
+      res.status(400).json({ error: "kfiId is required" });
+      return;
+    }
+    await db.transaction(async (tx) => {
+      const removed = await tx
+        .delete(schema.driverCustomerOverridesTable)
+        .where(eq(schema.driverCustomerOverridesTable.kfiId, kfiId))
+        .returning({
+          kfiId: schema.driverCustomerOverridesTable.kfiId,
+        });
+      if (removed.length === 0) return;
+      await tx.insert(schema.userAuditLogTable).values({
+        actorUserId: req.session.userId ?? null,
+        targetUserId: null,
+        targetEmail: `driver-customer-override:${kfiId}`,
+        action: "driver-customer-override-clear",
       });
     });
     res.status(204).end();

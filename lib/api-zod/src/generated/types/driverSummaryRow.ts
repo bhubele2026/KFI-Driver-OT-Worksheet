@@ -61,4 +61,23 @@ within 0.005h; `differ` = at least `diffCount` days diverge;
 `unknown` = no baseline yet (week never refreshed).
  */
   connecteamParity?: DriverSummaryRowConnecteamParity;
+  /**
+   * When a per-driver customer override is active, the Connecteam
+roster customer this driver belongs to. `customer` reflects the
+override; `originalCustomer` is shown in the "moved" badge tooltip.
+Null when no override is set.
+
+   * @nullable
+   */
+  originalCustomer?: string | null;
+  /**
+   * Email of the dispatcher / admin who set the active override. Null when no override is set.
+   * @nullable
+   */
+  overrideSetByEmail?: string | null;
+  /**
+   * When the active override was last set. Null when no override is set.
+   * @nullable
+   */
+  overrideSetAt?: Date | null;
 }
