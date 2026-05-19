@@ -69,6 +69,7 @@ import type {
 import {
   IMAGE_EXTENSIONS,
   MAX_IMAGE_BYTES,
+  buildRosterContext,
   extractImageForKnownCustomer,
   imageExtension,
   isImageMime,
@@ -2273,6 +2274,31 @@ weeksRouter.post(
                 if (aliased && kfiSet.has(aliased)) kfiId = aliased;
               }
               if (!kfiId) continue;
+              // Auto-learn badge → kfi mapping (Task #271). When a name
+              // alias pick resolves a pending row that ALSO carried a
+              // badge, persist that badge as a driver_id_alias so next
+              // week's upload from the same customer auto-resolves the
+              // row from the badge alone — no picker prompt.
+              //
+              // ON CONFLICT must target the case-insensitive unique
+              // index `driver_id_aliases_external_id_lower_idx`, not
+              // the case-sensitive PK. Otherwise a learned `teld123`
+              // would collide with an existing `TELD123` on the lower
+              // index and throw mid-transaction, aborting the whole
+              // confirm. Using `lower(external_id)` as the conflict
+              // target keeps the prior mapping (case-insensitive) as
+              // the source of truth and only learns brand-new badges.
+              if (badge) {
+                const sampleName = p.driverNameOnDoc.trim() || null;
+                const actor = req.session.userId ?? null;
+                await tx.execute(sql`
+                  INSERT INTO driver_id_aliases
+                    (external_id, kfi_id, customer, sample_name, created_by, updated_by)
+                  VALUES
+                    (${badge}, ${kfiId}, ${customer}, ${sampleName}, ${actor}, ${actor})
+                  ON CONFLICT (lower(external_id)) DO NOTHING
+                `);
+              }
               const clockIn = (p.timeIn ?? "").trim();
               const clockOut = (p.timeOut ?? "").trim();
               let hours =
@@ -3226,6 +3252,46 @@ weeksRouter.post(
     let rows;
     let extractionTruncated = false;
     let failedChunks = 0;
+    // Build a RosterContext so the AI prompt can attempt resolvedKfiId
+    // on each row instead of returning bare names that we'd have to
+    // fuzzy-match (Task #271). We restrict the pool to drivers attached
+    // to this customer when any exist, else fall back to the active
+    // roster — same shape used by the post-extract suggestion code
+    // below, so the model and the dispatcher see consistent candidates.
+    const rosterDrivers = await db
+      .select({
+        kfiId: schema.driversTable.kfiId,
+        name: schema.driversTable.name,
+        customer: schema.driversTable.customer,
+      })
+      .from(schema.driversTable)
+      .where(eq(schema.driversTable.isArchived, false));
+    const customerLowerForRoster = customer.toLowerCase();
+    const customerPreferred = rosterDrivers.filter(
+      (d) => (d.customer ?? "").toLowerCase() === customerLowerForRoster,
+    );
+    const rosterPoolForAi =
+      customerPreferred.length > 0 ? customerPreferred : rosterDrivers;
+    const rosterIdMap = await loadMergedIdMap();
+    const savedAliasesForRoster = await db
+      .select({
+        nameOnDoc: schema.customerNameAliasesTable.nameOnDoc,
+        kfiId: schema.customerNameAliasesTable.kfiId,
+      })
+      .from(schema.customerNameAliasesTable)
+      .where(
+        sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+      );
+    const nameAliasMapForRoster = new Map<string, string>();
+    for (const a of savedAliasesForRoster) {
+      nameAliasMapForRoster.set(a.nameOnDoc.toLowerCase(), a.kfiId);
+    }
+    const rosterContext = buildRosterContext({
+      customer,
+      drivers: rosterPoolForAi,
+      idMap: rosterIdMap,
+      nameAliasMap: nameAliasMapForRoster,
+    });
     try {
       const extracted = await aiExtractRows(
         req.file.originalname,
@@ -3235,6 +3301,7 @@ weeksRouter.post(
         endDate,
         extractMime,
         req.log,
+        rosterContext,
       );
       rows = extracted.rows;
       extractionTruncated = extracted.truncated;

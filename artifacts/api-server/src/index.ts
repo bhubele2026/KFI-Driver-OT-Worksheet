@@ -17,6 +17,7 @@ import { initIpBlocklist } from "./lib/ipBlocklist";
 import { startRealtimeHeartbeat } from "./lib/realtime";
 import { seedDriverPayrollProfiles } from "@workspace/db/seedDriverPayrollProfiles";
 import { seedLegacyParserSchemas } from "./lib/parsers/schemaLookup";
+import { seedDriverIdAliasesFromEmbedded } from "./lib/seedDriverIdAliases";
 
 if (process.env.NODE_ENV === "production") {
   if (!process.env.APP_BASE_URL && !process.env.REPLIT_DOMAINS) {
@@ -97,6 +98,18 @@ async function main() {
     // Never crash boot on seed failure — every per-row upload still
     // works via the AI path, the cache just doesn't fast-path them.
     logger.warn({ err }, "seedLegacyParserSchemas failed");
+  }
+
+  // Task #271: lift EMBEDDED_MAPPING into driver_id_aliases so the DB
+  // is the single source of truth for badge → kfi mappings. Idempotent
+  // (ON CONFLICT DO NOTHING) — re-running on every boot is free.
+  try {
+    await seedDriverIdAliasesFromEmbedded();
+  } catch (err) {
+    // Non-fatal: loadMergedIdMap still merges EMBEDDED_MAPPING at
+    // request time, so badge resolution keeps working even if the
+    // seed couldn't run (e.g. transient DB hiccup).
+    logger.warn({ err }, "seedDriverIdAliasesFromEmbedded failed");
   }
 
   void (async () => {

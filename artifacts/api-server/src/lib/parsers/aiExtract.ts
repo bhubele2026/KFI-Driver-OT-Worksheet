@@ -11,6 +11,35 @@ export interface AiExtractedRow {
   timeIn?: string | null; // "H:MM AM/PM"
   timeOut?: string | null; // "H:MM AM/PM"
   hours?: number | null;
+  /**
+   * Optional KFI id the model picked when it was confident the row's
+   * driver matches one of the roster entries supplied in the prompt
+   * (see `RosterContext`). Treated as a HINT only — the server still
+   * cross-checks against badge mappings and refuses the AI pick when
+   * it disagrees with an existing badge → kfi mapping (Task #271).
+   * Null/omitted when the AI wasn't confident.
+   */
+  resolvedKfiId?: string | null;
+}
+
+/**
+ * Roster context passed into the AI prompt so the model can attempt to
+ * resolve each row to a known KFI driver instead of returning bare
+ * names that the server then has to fuzzy-match. Each entry lists the
+ * KFI id, the driver's canonical name, any known badge/employee ids
+ * (collected from `driver_id_aliases` + `EMBEDDED_MAPPING`), and any
+ * dispatcher-saved name aliases for THIS customer (so an alias like
+ * "Joey C." resolves on first read after it's been taught once).
+ * Task #271.
+ */
+export interface RosterContext {
+  customer: string;
+  drivers: Array<{
+    kfiId: string;
+    name: string;
+    badges: string[];
+    aliases: string[];
+  }>;
 }
 
 /**
@@ -109,6 +138,7 @@ const ROW_SCHEMA = {
           timeIn: { type: Type.STRING },
           timeOut: { type: Type.STRING },
           hours: { type: Type.NUMBER },
+          resolvedKfiId: { type: Type.STRING },
         },
         required: ["driverNameOnDoc", "date"],
       },
@@ -234,8 +264,13 @@ export function xlsxToChunks(
   return chunks;
 }
 
-function buildPrompt(customer: string, weekStart: string, weekEnd: string) {
-  return [
+function buildPrompt(
+  customer: string,
+  weekStart: string,
+  weekEnd: string,
+  roster?: RosterContext,
+) {
+  const lines = [
     `You are extracting timecard punches from a payroll export uploaded for customer "${customer}".`,
     `The week being reconciled is ${weekStart} through ${weekEnd} (Sunday through Saturday). Only return rows whose date falls in that window.`,
     `For each punch row return:`,
@@ -244,11 +279,33 @@ function buildPrompt(customer: string, weekStart: string, weekEnd: string) {
     `- date: the punch date as YYYY-MM-DD. Resolve year from the week window if the document only shows MM/DD.`,
     `- timeIn / timeOut: clock in/out as "H:MM AM" or "H:MM PM". Omit if the document only shows total hours.`,
     `- hours: the daily worked hours as a decimal number when shown (e.g. 8.50). Omit if not present.`,
+    `- resolvedKfiId: ONLY set this when you are confident the row's worker matches one of the KNOWN DRIVERS listed below — either an exact badge match, an exact alias match (case-insensitive), or the names are clearly the same person (e.g. "J. Smith" → "John Smith" when no other "Smith" is in the list). When in doubt, leave it null/omitted and the dispatcher will pick the driver. Setting the wrong id silently misroutes payroll, so prefer omission over guessing.`,
     `CRITICAL: Return one output row for EVERY non-empty data row in the document. Do NOT merge, sum, or combine multiple rows for the same driver/date — even when pay-category columns (e.g. "Reg", "OT 1.5", "SHIFT PREM", "PREM-NIGHT") split one shift across several lines, emit each line as its own output row exactly as it appears. The caller deduplicates downstream; your job is faithful row-by-row transcription.`,
     `The ONLY lines to skip are: column headers, completely blank rows, page footers/signatures, and grand-total / subtotal rows that have no driver name. When in doubt, include the row.`,
     `Do not invent rows that aren't in the document.`,
     `Return strictly JSON matching the provided schema.`,
-  ].join("\n");
+  ];
+  if (roster && roster.drivers.length > 0) {
+    lines.push("");
+    lines.push(
+      `KNOWN DRIVERS for customer "${roster.customer}". Use resolvedKfiId to point a row at one of these when you're confident:`,
+    );
+    // Cap to avoid blowing the prompt on giant rosters; the per-customer
+    // pool we pass is already trimmed to plausible candidates (this-week
+    // Connecteam clock-ins + saved aliases) so 200 is generous headroom.
+    const cap = 200;
+    for (const d of roster.drivers.slice(0, cap)) {
+      const parts: string[] = [`${d.kfiId}: ${d.name}`];
+      if (d.badges.length > 0) parts.push(`badges=[${d.badges.join(", ")}]`);
+      if (d.aliases.length > 0)
+        parts.push(`aliases=[${d.aliases.join(", ")}]`);
+      lines.push(`- ${parts.join("; ")}`);
+    }
+    if (roster.drivers.length > cap) {
+      lines.push(`- (${roster.drivers.length - cap} more drivers omitted)`);
+    }
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -566,6 +623,7 @@ async function runChunkedXlsxExtract(
   fileName: string,
   startedAt: number,
   log: SalvageLogger | undefined,
+  roster?: RosterContext,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
   const runOne = async (
     chunk: string,
@@ -590,7 +648,7 @@ async function runChunkedXlsxExtract(
       };
     }
     const prompt =
-      buildPrompt(customer, weekStart, weekEnd) +
+      buildPrompt(customer, weekStart, weekEnd, roster) +
       `\n\n${label} of the same workbook. Return only the rows in this chunk.\n\n--- SPREADSHEET (CSV) ---\n${chunk}\n--- END SPREADSHEET ---`;
     const { rows, truncated } = await callGeminiForChunk(
       ai,
@@ -746,6 +804,7 @@ export async function aiExtractRows(
   weekEnd: string,
   mimeType?: string,
   log?: SalvageLogger,
+  roster?: RosterContext,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
   const lower = fileName.toLowerCase();
   const isPdf = lower.endsWith(".pdf");
@@ -771,6 +830,7 @@ export async function aiExtractRows(
         driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
       })),
       truncated,
+      failedChunks: 0,
     };
   }
   const ai = getGeminiClient();
@@ -779,7 +839,7 @@ export async function aiExtractRows(
   const parts: Array<
     | { text: string }
     | { inlineData: { mimeType: string; data: string } }
-  > = [{ text: buildPrompt(customer, weekStart, weekEnd) }];
+  > = [{ text: buildPrompt(customer, weekStart, weekEnd, roster) }];
 
   if (isImage) {
     // Caller is expected to have transcoded any HEIC bytes to JPEG already
@@ -822,6 +882,7 @@ export async function aiExtractRows(
         fileName,
         start,
         log,
+        roster,
       );
     }
     parts.push({
@@ -923,6 +984,7 @@ export async function aiExtractRows(
       fileName,
       start,
       log,
+      roster,
     );
   }
 

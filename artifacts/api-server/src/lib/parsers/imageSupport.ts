@@ -11,7 +11,52 @@ import {
   aiExtractRows,
   normalizeIsoDate,
   type AiExtractedRow,
+  type RosterContext,
 } from "./aiExtract.js";
+
+/**
+ * Build the RosterContext the AI prompt uses to attempt resolvedKfiId
+ * on each row (Task #271). Inverts the badge map so each driver's known
+ * badge/employee ids ride along, and folds in saved per-customer name
+ * aliases so a previously-vetted "Joey C." → kfi pair resolves on the
+ * model's first read instead of after a dispatcher round-trip.
+ *
+ * Caller restricts `drivers` to a sensible pool (active roster,
+ * customer-preferred / this-week clock-ins for /extract-new-customer).
+ */
+export function buildRosterContext(args: {
+  customer: string;
+  drivers: Array<{ kfiId: string; name: string }>;
+  idMap: Record<string, string>;
+  nameAliasMap?: Map<string, string>;
+}): RosterContext {
+  const { customer, drivers, idMap, nameAliasMap } = args;
+  const badgesByKfi = new Map<string, string[]>();
+  for (const [externalId, kfiId] of Object.entries(idMap)) {
+    const arr = badgesByKfi.get(kfiId) ?? [];
+    arr.push(externalId);
+    badgesByKfi.set(kfiId, arr);
+  }
+  const aliasesByKfi = new Map<string, string[]>();
+  if (nameAliasMap) {
+    for (const [nameOnDoc, kfiId] of nameAliasMap.entries()) {
+      const arr = aliasesByKfi.get(kfiId) ?? [];
+      arr.push(nameOnDoc);
+      aliasesByKfi.set(kfiId, arr);
+    }
+  }
+  return {
+    customer,
+    drivers: drivers.map((d) => ({
+      kfiId: d.kfiId,
+      name: d.name,
+      // Cap each list so a driver with hundreds of historical badges
+      // doesn't dominate the prompt for one customer.
+      badges: (badgesByKfi.get(d.kfiId) ?? []).slice(0, 8),
+      aliases: (aliasesByKfi.get(d.kfiId) ?? []).slice(0, 8),
+    })),
+  };
+}
 
 export const IMAGE_EXTENSIONS = [
   "jpg",
@@ -129,6 +174,20 @@ export async function extractImageForKnownCustomer(args: {
     nameAliasMap,
     log,
   } = args;
+  // Prefer drivers attached to this customer when building the roster
+  // hints sent to the AI — narrows the prompt to plausible candidates
+  // (and matches the fuzzy-match pool used below).
+  const customerLower = customer.toLowerCase();
+  const preferredDrivers = drivers.filter(
+    (d) => (d.customer ?? "").toLowerCase() === customerLower,
+  );
+  const rosterPool = preferredDrivers.length > 0 ? preferredDrivers : drivers;
+  const roster = buildRosterContext({
+    customer,
+    drivers: rosterPool,
+    idMap,
+    nameAliasMap,
+  });
   const {
     rows: rawRows,
     truncated: extractionTruncated,
@@ -141,6 +200,7 @@ export async function extractImageForKnownCustomer(args: {
     weekEnd,
     mimeType,
     log,
+    roster,
   );
 
   // Normalize Gemini's date shape before the string-compare window filter.
@@ -165,12 +225,9 @@ export async function extractImageForKnownCustomer(args: {
     inWindow.push({ ...r, date: iso });
   }
 
-  // Prefer drivers attached to this customer when fuzzy-matching by name.
-  const customerLower = customer.toLowerCase();
-  const preferredDrivers = drivers.filter(
-    (d) => (d.customer ?? "").toLowerCase() === customerLower,
-  );
-  const fuzzyPool = preferredDrivers.length > 0 ? preferredDrivers : drivers;
+  // Fuzzy match falls back to the same customer-preferred pool used for
+  // the AI roster hint.
+  const fuzzyPool = rosterPool;
 
   const unmapped = new UnmappedIdAccumulator();
   const punches: ParsedPunch[] = [];
@@ -237,10 +294,30 @@ function resolveKfiId(
   nameAliasMap?: Map<string, string>,
 ): string | null {
   const badge = (row.badgeOrId ?? "").trim();
+  // Badge mapping is the source of truth — when a badge maps to a
+  // known kfi, that wins even over the AI's resolvedKfiId hint. This
+  // is the badge-disagree guard (Task #271): if the model's pick
+  // contradicts the historical badge → kfi mapping for this same
+  // badge, we trust the badge and ignore the AI hint.
+  //
+  // The lookup is case-insensitive to match `driver_id_aliases`'
+  // lower(external_id) unique index — otherwise `TELD123` in the
+  // DB and `teld123` from the doc would slip past the guard and
+  // let the AI hint resolve a row that should have been pinned by
+  // the existing mapping.
   if (badge) {
-    const mapped = idMap[badge];
+    const mapped = idMap[badge] ?? idMap[badge.toLowerCase()] ?? idMap[badge.toUpperCase()];
     if (mapped && kfiSet.has(mapped)) return mapped;
     if (kfiSet.has(badge)) return badge;
+  }
+  // AI hint (Task #271). Only accepted when the model returned an id
+  // that's actually in the active roster. We also require the
+  // resolvedKfiId target to be in the pool we sent to the prompt — if
+  // it picked someone from an unrelated customer or someone we never
+  // listed, treat it as a hallucination and fall through.
+  const aiPick = (row.resolvedKfiId ?? "").trim();
+  if (aiPick && kfiSet.has(aiPick)) {
+    if (fuzzyPool.some((d) => d.kfiId === aiPick)) return aiPick;
   }
   const name = row.driverNameOnDoc.trim();
   if (!name) return null;
