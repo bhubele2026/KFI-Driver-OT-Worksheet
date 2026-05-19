@@ -3554,7 +3554,9 @@ weeksRouter.get("/presence", (req, res) => {
     res.status(400).json({ error: "weekStart is required" });
     return;
   }
-  res.json({ viewers: getPresence(weekStart) });
+  const kfiIdRaw = req.query.kfiId;
+  const kfiId = typeof kfiIdRaw === "string" && kfiIdRaw.length > 0 ? kfiIdRaw : null;
+  res.json({ viewers: getPresence(weekStart, kfiId) });
 });
 
 weeksRouter.post("/editing", (req, res) => {

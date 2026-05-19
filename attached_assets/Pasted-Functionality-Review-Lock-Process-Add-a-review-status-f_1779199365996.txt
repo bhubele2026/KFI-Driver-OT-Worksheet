@@ -1,0 +1,40 @@
+Functionality
+Review / Lock Process
+•	Add a review status feature allowing the Reviewer to mark entries as “reviewed - good” or “reviewed - bad” (expanding on the current double-click-to-green functionality).
+•	Build visual indicators so the Supervisor (Linoshka) can quickly see which entries need corrections.
+•	Add a lock function to freeze an employee’s record once reviewed and exported, preventing manual changes from being erased on refresh/reset of other employees.
+•	Set up two user roles: “Reviewer” (Brad) and “Supervisor” (Linoshka).
+Time Adjustments
+•	Add ability to manually adjust driver time to match ConnecTeams exactly (hard-coded override capability, similar to the original spreadsheet).
+•	Ensure adjustments distribute properly between Regular Time (RT) and Overtime (OT) automatically rather than forcing all adjustments into OT.
+•	Resolve rounding discrepancies between the dashboard and ConnecTeams (e.g., 5.43 vs. 5.47 hours for Driver A last week).
+•	Goal: dashboard totals should match ConnecTeams exactly, since that is what drivers see and have history for.
+Manual Entries (Bug Fixes)
+•	Clarify and fix behavior when adding multiple manual entries — define whether new entries overwrite or supplement existing ones.
+•	Fix bug where double-click time adjustments change the displayed time but don’t update the calculated totals.
+•	Fix bug where manual entries shift entries to incorrect dates (reference: Jesus Lira screenshot from Wednesday).
+•	Add clear UI feedback showing what a manual entry will do before it’s submitted, with an option to undo.
+Notes System
+•	Add row-level notes on specific calculation entries.
+•	Add a general notes section for the employee/week.
+•	Auto-detect and log the author of each note (Reviewer vs. Supervisor) with a timestamp.
+•	Use ConnecTeams’ Employee Notes / Manager Notes layout as a visual reference.
+•	Label fields as “Reviewer” (Brad) and “Supervisor” (Linoshka).
+Language Toggle (English / Spanish)
+•	Add an English/Spanish toggle that applies to the entire project.
+•	Ensure all UI elements translate: buttons, labels, headers, summary tables, notes fields, status indicators (reviewed good/bad), and any system messages.
+•	Persist the user’s language preference per user, so Reviewer and Supervisor can each set their own default.
+•	Keep manually entered notes in their original language regardless of UI setting (do not auto-translate user-written content).
+Aesthetics
+Summary Boxes (Top of Dashboard)
+•	Remove the top summary boxes — they consume too much screen space and force excessive zoom-out, making clock in/out times hard to read (reference: Roberto Golas).
+•	Information is redundant since it already appears in the green summary table below.
+Running Total Bars
+•	Keep the background color change at 40 hours — this works well.
+•	Remove the small progress bars to free up space, assuming they aren’t needed for calculations.
+Font Sizing
+•	Increase the font size of driver times so it better fills the existing rows.
+•	Keep row height the same — only the font needs to grow.
+Source Color Coding (Driver vs. Customer)
+•	Make the color difference between Driver and Customer source boxes more pronounced — currently they are too similar.
+•	Extend the color distinction to the clock in/clock out text itself, so source type is identifiable from the times alone.

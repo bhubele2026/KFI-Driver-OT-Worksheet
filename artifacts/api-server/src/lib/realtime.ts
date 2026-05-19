@@ -141,11 +141,15 @@ function nowIso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function viewersForWeek(weekStart: string): PresenceViewer[] {
+function viewersForWeek(
+  weekStart: string,
+  kfiId?: string | null,
+): PresenceViewer[] {
   pruneExpired();
   const out: PresenceViewer[] = [];
   for (const rec of presence.values()) {
     if (rec.weekStart !== weekStart) continue;
+    if (kfiId && rec.kfiId !== kfiId) continue;
     out.push({
       userId: rec.userId,
       email: rec.email,
@@ -256,8 +260,11 @@ export function upsertPresence(args: {
   return viewers;
 }
 
-export function getPresence(weekStart: string): PresenceViewer[] {
-  return viewersForWeek(weekStart);
+export function getPresence(
+  weekStart: string,
+  kfiId?: string | null,
+): PresenceViewer[] {
+  return viewersForWeek(weekStart, kfiId);
 }
 
 export function startEditing(args: {

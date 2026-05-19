@@ -132,7 +132,7 @@ export default function DriverDetail() {
     enableToasts: true,
   });
   const viewers = usePresence({ weekStart, kfiId });
-  const { editorsForPunch, claim, release } = useEditingLock({
+  const { editorsForPunch, claim, release, touchActivity } = useEditingLock({
     weekStart,
     kfiId,
     selfEmail: me?.email ?? null,
@@ -1245,7 +1245,10 @@ export default function DriverDetail() {
                             className="h-8 w-28 font-mono text-sm"
                             placeholder="7:30 AM"
                             value={editClockIn}
-                            onChange={(e) => setEditClockIn(e.target.value)}
+                            onChange={(e) => {
+                              setEditClockIn(e.target.value);
+                              touchActivity(p.id);
+                            }}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
                                 e.preventDefault();
@@ -1267,7 +1270,10 @@ export default function DriverDetail() {
                             className="h-8 w-28 font-mono text-sm"
                             placeholder="3:45 PM"
                             value={editClockOut}
-                            onChange={(e) => setEditClockOut(e.target.value)}
+                            onChange={(e) => {
+                              setEditClockOut(e.target.value);
+                              touchActivity(p.id);
+                            }}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
                                 e.preventDefault();
@@ -1566,11 +1572,11 @@ export default function DriverDetail() {
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Clock In</Label>
-                <Input placeholder="7:30 AM" value={manualClockIn} onChange={(e) => setManualClockIn(e.target.value)} data-testid="input-manual-clock-in" />
+                <Input placeholder="7:30 AM" value={manualClockIn} onChange={(e) => { setManualClockIn(e.target.value); touchActivity(null); }} data-testid="input-manual-clock-in" />
               </div>
               <div className="grid gap-2">
                 <Label>Clock Out</Label>
-                <Input placeholder="3:45 PM" value={manualClockOut} onChange={(e) => setManualClockOut(e.target.value)} data-testid="input-manual-clock-out" />
+                <Input placeholder="3:45 PM" value={manualClockOut} onChange={(e) => { setManualClockOut(e.target.value); touchActivity(null); }} data-testid="input-manual-clock-out" />
               </div>
             </div>
             <p className="text-xs text-muted-foreground">Format as "H:MM AM/PM" (e.g. "8:00 AM"). The date is stored in this driver's display timezone, so what you see here is what payroll sees.</p>

@@ -38,7 +38,14 @@ export function usePresence({ weekStart, kfiId }: Args): PresenceViewer[] {
       kfiId: kfiId ?? null,
       handler: (event) => {
         if (event.type === "presence" && event.weekStart === weekStart) {
-          if (!stopped) setViewers(event.viewers);
+          if (stopped) return;
+          // Server fans out the full week's viewer list; scope down to
+          // viewers on this same driver-week when we have one, so the
+          // driver-detail chip only shows people looking at this driver.
+          const filtered = kfiId
+            ? event.viewers.filter((v) => v.kfiId === kfiId)
+            : event.viewers;
+          setViewers(filtered);
         }
       },
     });
