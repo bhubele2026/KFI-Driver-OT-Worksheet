@@ -34,7 +34,6 @@ const COLOR_CUSTOMER = "#047857";
 const COLOR_NOTE_BG = "#eef2ff";
 const COLOR_NOTE_BORDER = "#c7d2fe";
 const COLOR_NOTE_INK = "#3730a3";
-const COLOR_NOTE_BODY = "#312e81";
 
 interface Column {
   label: string;
@@ -142,11 +141,6 @@ function drawSheet(
   );
   doc.moveDown(0.5);
 
-  if (sheet.weekNoteBodies.length > 0) {
-    drawWeekNotes(doc, sheet.weekNoteBodies);
-    doc.moveDown(0.4);
-  }
-
   drawSummaryAndChecks(doc, sheet);
 
   if (sheet.checks.length > 0) {
@@ -197,62 +191,6 @@ function drawSheetTitle(
   doc.x = x;
   doc.y = y + 20;
   doc.moveDown(0.15);
-}
-
-function drawWeekNotes(
-  doc: PDFKit.PDFDocument,
-  bodies: ReadonlyArray<string>,
-): void {
-  const x = doc.page.margins.left;
-  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const padding = 8;
-  const titleHeight = 14;
-  const innerWidth = width - padding * 2;
-  const bulletColWidth = 10;
-  const bodyWidth = innerWidth - bulletColWidth;
-
-  doc.font(SANS).fontSize(9);
-  let contentHeight = titleHeight;
-  for (const body of bodies) {
-    const h = doc.heightOfString(body, { width: bodyWidth });
-    contentHeight += Math.max(12, h) + 2;
-  }
-  const boxHeight = contentHeight + padding * 2;
-  const top = doc.y;
-
-  doc
-    .save()
-    .lineWidth(0.5)
-    .strokeColor(COLOR_NOTE_BORDER)
-    .fillColor(COLOR_NOTE_BG)
-    .rect(x, top, width, boxHeight)
-    .fillAndStroke()
-    .restore();
-  doc
-    .font(SANS_BOLD)
-    .fontSize(8)
-    .fillColor(COLOR_NOTE_INK)
-    .text("WEEK NOTES", x + padding, top + padding, { characterSpacing: 0.5 });
-
-  let cy = top + padding + titleHeight;
-  for (const body of bodies) {
-    doc
-      .font(SANS)
-      .fontSize(9)
-      .fillColor(COLOR_NOTE_BODY)
-      .text("•", x + padding, cy, { width: bulletColWidth, lineBreak: false });
-    doc
-      .font(SANS)
-      .fontSize(9)
-      .fillColor(COLOR_NOTE_BODY)
-      .text(body, x + padding + bulletColWidth, cy, { width: bodyWidth });
-    const used = doc.heightOfString(body, { width: bodyWidth });
-    cy += Math.max(12, used) + 2;
-  }
-
-  doc.fillColor(COLOR_INK);
-  doc.y = top + boxHeight;
-  doc.x = doc.page.margins.left;
 }
 
 /**

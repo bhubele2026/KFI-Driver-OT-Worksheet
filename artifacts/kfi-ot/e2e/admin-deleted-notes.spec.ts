@@ -4,7 +4,7 @@
  * /api/notes/:id and /api/notes/:id/restore routes).
  *
  * Verifies:
- *   - As an admin, an inline week-level note added on the driver-detail
+ *   - As an admin, an inline per-punch note added on the driver-detail
  *     page can be soft-deleted (hidden) and disappears from the live
  *     notes list.
  *   - The hidden note appears on /admin/notes with the seeded driver +
@@ -12,9 +12,9 @@
  *   - Clicking Restore brings the note back live on the driver-detail
  *     page and removes it from the hidden listing.
  *
- * Seeds an isolated week + driver via direct DB writes so the test does
- * not depend on existing data; cleans up notes + driver + week
- * afterwards.
+ * Seeds an isolated week + driver + punch via direct DB writes so the
+ * test does not depend on existing data; cleans up notes + punches +
+ * driver + week afterwards.
  */
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
@@ -53,6 +53,21 @@ async function seed(): Promise<void> {
        ON CONFLICT (kfi_id) DO UPDATE
          SET name = EXCLUDED.name, customer = EXCLUDED.customer`,
       [DRIVER.kfiId, DRIVER.name, DRIVER.customer],
+    );
+    await client.query(
+      `INSERT INTO punches
+         (week_start, kfi_id, customer, source, date,
+          clock_in, clock_out, hours, is_manual)
+       VALUES ($1::date, $2, $3, 'Driver', $4,
+               $5, $6, 4.0, true)`,
+      [
+        WEEK_START,
+        DRIVER.kfiId,
+        DRIVER.customer,
+        WEEK_START,
+        `${WEEK_START} 8:00 AM`,
+        `${WEEK_START} 12:00 PM`,
+      ],
     );
     await client.query("COMMIT");
   } catch (e) {
@@ -101,14 +116,25 @@ test("admin can hide a note, see it on /admin/notes, and restore it", async ({
   // as an admin.
   await signInAsDispatcher(page);
 
-  // 1. Add a week-level note on driver-detail.
+  // 1. Add a per-punch note on driver-detail. Look up the seeded punch id
+  // first so we can target the open-note toggle by stable testid.
+  const punchId = await pool
+    .query<{ id: number }>(
+      `SELECT id FROM punches
+        WHERE week_start = $1 AND kfi_id = $2
+        ORDER BY id DESC LIMIT 1`,
+      [WEEK_START, DRIVER.kfiId],
+    )
+    .then((r) => r.rows[0].id);
+
   await page.goto(`/weeks/${WEEK_START}/drivers/${DRIVER.kfiId}`);
   await expect(page.getByRole("heading", { name: DRIVER.name })).toBeVisible();
 
-  await page.getByTestId("input-week-note").fill(NOTE_BODY);
-  await page.getByTestId("button-submit-week-note").click();
+  await page.getByTestId(`button-toggle-note-punch-${punchId}`).click();
+  await page.getByTestId(`input-punch-note-${punchId}`).fill(NOTE_BODY);
+  await page.getByTestId(`button-submit-punch-note-${punchId}`).click();
 
-  // The note item appears in the Notes card.
+  // The note item appears under the punch row.
   const liveNote = page.locator('[data-testid^="note-item-"]', {
     hasText: NOTE_BODY,
   });

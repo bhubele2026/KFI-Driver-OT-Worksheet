@@ -203,29 +203,20 @@ test("buildTimesheets folds note summaries into the per-driver sheet", () => {
     shift("5002", "2026-04-27", 8, 8),
     shift("5003", "2026-04-27", 8, 8),
   ];
-  const noteSummariesByKfi = new Map<
-    string,
-    { count: number; weekNoteBodies: string[] }
-  >([
-    [
-      "5001",
-      { count: 3, weekNoteBodies: ["Confirmed dock hours w/ Adient"] },
-    ],
-    ["5002", { count: 1, weekNoteBodies: [] }],
+  const noteSummariesByKfi = new Map<string, { count: number }>([
+    ["5001", { count: 3 }],
+    ["5002", { count: 1 }],
   ]);
   const sheets = buildTimesheets(punches, drivers, { noteSummariesByKfi });
   const alice = sheets.find((s) => s.kfiId === "5001")!;
   const sam = sheets.find((s) => s.kfiId === "5002")!;
   const greg = sheets.find((s) => s.kfiId === "5003")!;
   assert.equal(alice.noteCount, 3);
-  assert.deepEqual(alice.weekNoteBodies, ["Confirmed dock hours w/ Adient"]);
   assert.equal(sam.noteCount, 1);
-  assert.deepEqual(sam.weekNoteBodies, []);
   assert.equal(greg.noteCount, 0);
-  assert.deepEqual(greg.weekNoteBodies, []);
 });
 
-test("renderTimesheetsHtml shows the note-count badge and week-level note bodies", () => {
+test("renderTimesheetsHtml shows the per-driver note-count badge", () => {
   const drivers: Driver[] = [
     driver("6001", "Alice Adient", "Adient"),
     driver("6002", "Sam Splitter", "Adient"),
@@ -234,20 +225,8 @@ test("renderTimesheetsHtml shows the note-count badge and week-level note bodies
     shift("6001", "2026-04-27", 8, 8),
     shift("6002", "2026-04-27", 8, 8),
   ];
-  const noteSummariesByKfi = new Map<
-    string,
-    { count: number; weekNoteBodies: string[] }
-  >([
-    [
-      "6001",
-      {
-        count: 2,
-        weekNoteBodies: [
-          "Customer file confirmed by dispatcher",
-          "Manual punch reflects dock-late report",
-        ],
-      },
-    ],
+  const noteSummariesByKfi = new Map<string, { count: number }>([
+    ["6001", { count: 2 }],
   ]);
   const sheets = buildTimesheets(punches, drivers, { noteSummariesByKfi });
   const html = renderTimesheetsHtml({
@@ -256,25 +235,21 @@ test("renderTimesheetsHtml shows the note-count badge and week-level note bodies
     sheets,
     lastRefreshedAt: null,
   });
-  // Alice has notes: badge + week-notes block render under her header.
+  // Alice has notes: badge renders under her header. The legacy
+  // "Week notes" callout has been removed and should never appear.
   const aliceSection = html.split("<h2>Alice Adient")[1].split("</section>")[0];
   assert.match(aliceSection, /<span class="note-badge">2 notes<\/span>/);
-  assert.match(aliceSection, /<div class="week-notes">/);
-  assert.match(aliceSection, /Customer file confirmed by dispatcher/);
-  assert.match(aliceSection, /Manual punch reflects dock-late report/);
-  // Sam has no notes: no badge, no week-notes block.
+  assert.doesNotMatch(aliceSection, /class="week-notes"/);
+  // Sam has no notes: no badge.
   const samSection = html.split("<h2>Sam Splitter")[1].split("</section>")[0];
   assert.doesNotMatch(samSection, /class="note-badge"/);
-  assert.doesNotMatch(samSection, /class="week-notes"/);
 });
 
 test("renderTimesheetsHtml uses singular 'note' label when there is exactly one", () => {
   const drivers: Driver[] = [driver("7001", "Alice Adient", "Adient")];
   const punches: Punch[] = [shift("7001", "2026-04-27", 8, 8)];
   const sheets = buildTimesheets(punches, drivers, {
-    noteSummariesByKfi: new Map([
-      ["7001", { count: 1, weekNoteBodies: [] }],
-    ]),
+    noteSummariesByKfi: new Map([["7001", { count: 1 }]]),
   });
   const html = renderTimesheetsHtml({
     weekStart: WEEK_START,

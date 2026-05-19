@@ -2271,7 +2271,7 @@ components:
           format: date-time
         noteCount:
           type: integer
-          description: Number of non-deleted notes attached to this driver-week (both row-level and week-level). Surfaced as a small badge so a Supervisor can scan for context.
+          description: Number of non-deleted per-punch notes attached to this driver-week. Surfaced as a small badge so a Supervisor can scan for context.
         hasOverriddenDay:
           type: boolean
           description: |
@@ -3546,7 +3546,7 @@ components:
         kfiId: { type: string }
         punchId:
           type: ["integer", "null"]
-          description: Null = week-level note. Otherwise references the punch this note is attached to. Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an "(orphaned punch)" tag so context isn't lost.
+          description: References the punch this note is attached to. Null only on historical week-level notes (no longer creatable; preserved for the admin audit screen). Note that the FK is intentionally denormalized — if the punch is later deleted, this column stays set and the note renders with an "(orphaned punch)" tag so context isn't lost.
         punchExists:
           type: boolean
           description: False when `punchId` is set but the punch row has been deleted. The frontend uses this to render an "(orphaned punch)" tag.
@@ -3574,7 +3574,7 @@ components:
         body: { type: string, minLength: 1, maxLength: 5000 }
         punchId:
           type: ["integer", "null"]
-          description: Optional. When set, the note is attached to that specific punch row. When omitted/null, the note is week-level.
+          description: Required (non-null) — the note must be attached to a specific punch row. The server rejects requests with a null/omitted `punchId` with a 400; week-level notes are no longer supported.
 
     DeletedDriverNote:
       type: object

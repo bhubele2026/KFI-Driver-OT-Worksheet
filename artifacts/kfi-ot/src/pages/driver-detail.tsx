@@ -38,7 +38,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, Lock, LockOpen, ThumbsDown, Undo2, MessageSquare, MessageSquarePlus, Globe } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, Lock, LockOpen, ThumbsDown, Undo2, MessageSquarePlus, Globe } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -411,7 +411,6 @@ export default function DriverDetail() {
   const { data: notes } = useListDriverNotes(weekStart, kfiId);
   const createNote = useCreateDriverNote();
   const softDeleteNote = useSoftDeleteDriverNote();
-  const [weekNoteDraft, setWeekNoteDraft] = useState("");
   const [openNoteForPunch, setOpenNoteForPunch] = useState<number | null>(null);
   const [punchNoteDraft, setPunchNoteDraft] = useState("");
   const refreshNotes = () => {
@@ -460,10 +459,6 @@ export default function DriverDetail() {
     );
   };
   type DriverNote = NonNullable<typeof notes>[number];
-  const weekLevelNotes = useMemo<DriverNote[]>(
-    () => (notes ?? []).filter((n) => n.punchId == null),
-    [notes],
-  );
   const notesByPunch = useMemo(() => {
     const m = new Map<number, DriverNote[]>();
     for (const n of notes ?? []) {
@@ -474,27 +469,6 @@ export default function DriverDetail() {
     }
     return m;
   }, [notes]);
-
-  // If we arrived with a `#notes` hash (e.g. via the note-count badge on the
-  // week dashboard), scroll the notes card into view and focus the textarea
-  // once the data has loaded.
-  const notesHashHandledRef = useRef(false);
-  useEffect(() => {
-    if (notesHashHandledRef.current) return;
-    if (isLoading || !data) return;
-    if (typeof window === "undefined") return;
-    if (window.location.hash !== "#notes") return;
-    notesHashHandledRef.current = true;
-    requestAnimationFrame(() => {
-      const el = document.getElementById("notes");
-      if (!el) return;
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-      const ta = el.querySelector<HTMLTextAreaElement>(
-        '[data-testid="input-week-note"]',
-      );
-      ta?.focus({ preventScroll: true });
-    });
-  }, [isLoading, data]);
 
   // What the server thinks the punch list will look like once we save the
   // dialog draft. Recomputed via `/preview-punch` whenever any input changes
@@ -1803,65 +1777,6 @@ export default function DriverDetail() {
         <PayrollProfileCard kfiId={kfiId} canEdit={!!me?.isAdmin} />
 
         {/* Punch table */}
-        <Card id="notes" data-testid="card-driver-notes">
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-sm font-display tracking-tight flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-primary" />
-              Notes
-              {weekLevelNotes.length > 0 && (
-                <span className="text-[11px] font-mono text-muted-foreground">
-                  {weekLevelNotes.length}
-                </span>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4 space-y-3">
-            <div className="space-y-2">
-              <Textarea
-                value={weekNoteDraft}
-                onChange={(e) => setWeekNoteDraft(e.target.value)}
-                placeholder="Add a note about this driver-week (visible to all dispatchers)…"
-                className="min-h-[60px] text-sm"
-                maxLength={5000}
-                data-testid="input-week-note"
-              />
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    submitNote(weekNoteDraft, null, () => setWeekNoteDraft(""))
-                  }
-                  disabled={!weekNoteDraft.trim() || createNote.isPending}
-                  data-testid="button-submit-week-note"
-                >
-                  {createNote.isPending ? (
-                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                  ) : (
-                    <Plus className="h-3 w-3 mr-1" />
-                  )}
-                  Add note
-                </Button>
-              </div>
-            </div>
-            {weekLevelNotes.length === 0 ? (
-              <p className="text-xs text-muted-foreground italic">
-                No week-level notes yet. Per-row notes appear under each punch below.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {weekLevelNotes.map((n) => (
-                  <NoteItem
-                    key={n.id}
-                    note={n}
-                    canDelete={!!me?.isAdmin}
-                    isAdmin={!!me?.isAdmin}
-                    onDelete={() => handleSoftDeleteNote(n.id)}
-                  />
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
 
         <Card>
           <div className="overflow-x-auto">

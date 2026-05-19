@@ -454,9 +454,11 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     if (o.setByUserId) actorIds.add(o.setByUserId);
   }
 
-  // Note-count per driver for the week summary badge. Only non-deleted notes
-  // count; both row-level (punch_id IS NOT NULL) and week-level (punch_id IS
-  // NULL) are folded into a single per-driver tally.
+  // Note-count per driver for the week summary badge. Only non-deleted
+  // per-punch notes count toward the tally. Historical week-level rows
+  // (punch_id IS NULL) are no longer created but remain in the table for
+  // audit; including them here would inflate the badge for drivers whose
+  // only "notes" are legacy soft-deletable orphans, so they're filtered out.
   const noteCountRows = await db
     .select({
       kfiId: schema.driverNotesTable.kfiId,
@@ -467,6 +469,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       and(
         eq(schema.driverNotesTable.weekStart, weekStart),
         sql`${schema.driverNotesTable.deletedAt} IS NULL`,
+        sql`${schema.driverNotesTable.punchId} IS NOT NULL`,
       ),
     )
     .groupBy(schema.driverNotesTable.kfiId);
@@ -5564,24 +5567,33 @@ weeksRouter.post(
       typeof parsed.data.punchId === "number" && Number.isFinite(parsed.data.punchId)
         ? parsed.data.punchId
         : null;
-    if (punchId != null) {
-      const owner = await db
-        .select({ id: schema.punchesTable.id })
-        .from(schema.punchesTable)
-        .where(
-          and(
-            eq(schema.punchesTable.id, punchId),
-            eq(schema.punchesTable.weekStart, weekStart),
-            eq(schema.punchesTable.kfiId, kfiId),
-          ),
-        )
-        .limit(1);
-      if (owner.length === 0) {
-        res
-          .status(400)
-          .json({ error: "punchId does not belong to this driver-week" });
-        return;
-      }
+    // Week-level notes (punchId === null) are no longer supported. Historical
+    // rows remain in the table for the admin audit screen, but the dispatcher
+    // surfaces and printable timesheet only render per-punch notes now, so we
+    // reject orphan inserts here to keep stale clients from silently creating
+    // notes that nothing in the UI surfaces.
+    if (punchId == null) {
+      res
+        .status(400)
+        .json({ error: "punchId is required (week-level notes are no longer supported)" });
+      return;
+    }
+    const owner = await db
+      .select({ id: schema.punchesTable.id })
+      .from(schema.punchesTable)
+      .where(
+        and(
+          eq(schema.punchesTable.id, punchId),
+          eq(schema.punchesTable.weekStart, weekStart),
+          eq(schema.punchesTable.kfiId, kfiId),
+        ),
+      )
+      .limit(1);
+    if (owner.length === 0) {
+      res
+        .status(400)
+        .json({ error: "punchId does not belong to this driver-week" });
+      return;
     }
     const inserted = await db
       .insert(schema.driverNotesTable)
@@ -6318,34 +6330,26 @@ weeksRouter.get(
       return new Set(rows.map((r) => r.kfiId));
     },
     getNoteSummaries: async (weekStart) => {
-      // Pull every non-deleted note for the week (row-level + week-level)
-      // in one query, then fold into per-driver { count, weekNoteBodies }.
-      // Hidden / soft-deleted notes are excluded by the deleted_at filter.
+      // Per-punch note count per driver-week. Hidden / soft-deleted notes
+      // are excluded by the deleted_at filter; historical week-level rows
+      // (punch_id IS NULL) are no longer surfaced anywhere in the UI so we
+      // exclude them from the badge count too.
       const rows = await db
         .select({
           kfiId: schema.driverNotesTable.kfiId,
-          punchId: schema.driverNotesTable.punchId,
-          body: schema.driverNotesTable.body,
-          createdAt: schema.driverNotesTable.createdAt,
+          count: sql<number>`count(*)::int`,
         })
         .from(schema.driverNotesTable)
         .where(
           and(
             eq(schema.driverNotesTable.weekStart, weekStart),
             sql`${schema.driverNotesTable.deletedAt} IS NULL`,
+            sql`${schema.driverNotesTable.punchId} IS NOT NULL`,
           ),
         )
-        .orderBy(asc(schema.driverNotesTable.createdAt));
-      const byKfi = new Map<
-        string,
-        { count: number; weekNoteBodies: string[] }
-      >();
-      for (const r of rows) {
-        const entry = byKfi.get(r.kfiId) ?? { count: 0, weekNoteBodies: [] };
-        entry.count += 1;
-        if (r.punchId === null) entry.weekNoteBodies.push(r.body);
-        byKfi.set(r.kfiId, entry);
-      }
+        .groupBy(schema.driverNotesTable.kfiId);
+      const byKfi = new Map<string, { count: number }>();
+      for (const r of rows) byKfi.set(r.kfiId, { count: Number(r.count) });
       return byKfi;
     },
   }),
@@ -6383,6 +6387,7 @@ weeksRouter.get("/weeks/:weekStart/report", async (req, res) => {
       and(
         eq(schema.driverNotesTable.weekStart, weekStart),
         sql`${schema.driverNotesTable.deletedAt} IS NULL`,
+        sql`${schema.driverNotesTable.punchId} IS NOT NULL`,
       ),
     )
     .groupBy(schema.driverNotesTable.kfiId);

@@ -35,18 +35,13 @@ export interface TimesheetSheet {
   totals: ReturnType<typeof computeDriverTotals>;
   rows: TimesheetRow[];
   checks: PunchCheck[];
-  /** Total non-deleted notes (row-level + week-level) for this driver-week. */
+  /** Total non-deleted per-punch notes for this driver-week. */
   noteCount: number;
-  /** Bodies of week-level (punch_id IS NULL) non-deleted notes, oldest first. */
-  weekNoteBodies: string[];
 }
 
-/** Summary of non-deleted notes for a single driver-week. Row-level and
- * week-level notes are folded into `count`; week-level note bodies are
- * surfaced verbatim under the driver header. */
+/** Summary of non-deleted per-punch notes for a single driver-week. */
 export interface DriverNoteSummary {
   count: number;
-  weekNoteBodies: string[];
 }
 
 const customerKey = (c: string | null | undefined): string => {
@@ -76,7 +71,7 @@ export interface BuildTimesheetsOptions {
    * least one validation alert (drives the "With alerts" print mode). */
   alertsOnly?: boolean;
   /** Per-driver note summary keyed by kfiId. Drivers without an entry render
-   * with `noteCount: 0` and no week-level note bodies. */
+   * with `noteCount: 0`. */
   noteSummariesByKfi?: ReadonlyMap<string, DriverNoteSummary> | null;
 }
 
@@ -169,7 +164,6 @@ export function buildTimesheets(
       rows,
       checks,
       noteCount: noteSummary?.count ?? 0,
-      weekNoteBodies: noteSummary?.weekNoteBodies ?? [],
     });
   }
 
@@ -229,7 +223,7 @@ export interface TimesheetLoaders {
   getReviewedKfiIds?: (weekStart: string) => Promise<ReadonlySet<string>>;
   /** Optional loader that returns per-driver note summaries for a given
    * week. When omitted, the printable timesheet renders without note
-   * indicators (no count badge, no week-level note bodies). */
+   * indicators (no count badge). */
   getNoteSummaries?: (
     weekStart: string,
   ) => Promise<ReadonlyMap<string, DriverNoteSummary>>;
@@ -371,12 +365,6 @@ export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {
         s.noteCount > 0
           ? ` <span class="note-badge">${s.noteCount} note${s.noteCount === 1 ? "" : "s"}</span>`
           : "";
-      const weekNotesHtml =
-        s.weekNoteBodies.length > 0
-          ? `<div class="week-notes"><div class="week-notes-title">Week notes</div><ul>${s.weekNoteBodies
-              .map((b) => `<li>${esc(b)}</li>`)
-              .join("")}</ul></div>`
-          : "";
       const alertsHtml =
         s.checks.length > 0
           ? `<div class="alerts"><div class="alerts-title">Validation Alerts</div><ul>${s.checks
@@ -477,7 +465,6 @@ export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {
       </div>
     </div>
   </header>
-  ${weekNotesHtml}
   ${summaryChecksHtml}
   ${alertsHtml}
   <table>
@@ -527,10 +514,6 @@ export function renderTimesheetsHtml(opts: RenderTimesheetsOptions): string {
   .check-ok { color: #16a34a; font-weight: 700; }
   .check-warn { color: #b45309; font-weight: 700; font-size: 11px; }
   .note-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; margin-left: 8px; border-radius: 999px; background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; vertical-align: middle; }
-  .week-notes { margin: 8px 0 12px; padding: 8px 12px; border: 1px solid #c7d2fe; background: #eef2ff; border-radius: 4px; }
-  .week-notes-title { font-size: 11px; font-weight: 600; text-transform: uppercase; color: #3730a3; letter-spacing: 0.04em; margin-bottom: 4px; }
-  .week-notes ul { margin: 0; padding: 0 0 0 16px; }
-  .week-notes li { font-size: 12px; color: #312e81; padding: 1px 0; }
   .alerts { margin: 8px 0 12px; padding: 8px 12px; border: 1px solid #f59e0b; background: #fffbeb; border-radius: 4px; }
   .alerts-title { font-size: 11px; font-weight: 600; text-transform: uppercase; color: #b45309; letter-spacing: 0.04em; margin-bottom: 4px; }
   .alerts ul { margin: 0; padding: 0; list-style: none; }

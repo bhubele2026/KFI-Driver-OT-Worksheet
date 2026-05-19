@@ -107,10 +107,7 @@ async function startServer(
   fixture: Fixture,
   options: {
     reviewedKfiIds?: ReadonlySet<string>;
-    noteSummaries?: ReadonlyMap<
-      string,
-      { count: number; weekNoteBodies: string[] }
-    >;
+    noteSummaries?: ReadonlyMap<string, { count: number }>;
   } = {},
 ): Promise<{
   url: string;
@@ -265,20 +262,11 @@ test("GET /weeks/:weekStart/timesheets?format=pdf&filter=reviewed names the file
   }
 });
 
-test("GET /weeks/:weekStart/timesheets renders note-count badge and week-level note bodies in HTML and PDF", async () => {
+test("GET /weeks/:weekStart/timesheets renders the per-driver note-count badge in HTML and PDF", async () => {
   const fixture = buildFixture();
-  const noteSummaries = new Map<
-    string,
-    { count: number; weekNoteBodies: string[] }
-  >([
-    [
-      "D-ADIENT-1",
-      {
-        count: 2,
-        weekNoteBodies: ["Confirmed dock hours w/ Adient on Friday"],
-      },
-    ],
-    ["D-ADIENT-2", { count: 1, weekNoteBodies: [] }],
+  const noteSummaries = new Map<string, { count: number }>([
+    ["D-ADIENT-1", { count: 2 }],
+    ["D-ADIENT-2", { count: 1 }],
   ]);
   const { url, close } = await startServer(fixture, { noteSummaries });
   try {
@@ -289,7 +277,8 @@ test("GET /weeks/:weekStart/timesheets renders note-count badge and week-level n
       .split("<h2>Alice Adient")[1]
       .split("</section>")[0];
     assert.match(aliceSection, /<span class="note-badge">2 notes<\/span>/);
-    assert.match(aliceSection, /Confirmed dock hours w\/ Adient on Friday/);
+    // The legacy "Week notes" callout has been removed.
+    assert.doesNotMatch(aliceSection, /class="week-notes"/);
     const samSection = html
       .split("<h2>Sam Splitter")[1]
       .split("</section>")[0];
@@ -303,7 +292,7 @@ test("GET /weeks/:weekStart/timesheets renders note-count badge and week-level n
     // PDF still streams as a real PDF when notes are present (pdfkit
     // compresses streams so we can't grep the text content here — the HTML
     // assertions above plus the unit tests in lib/__tests__/timesheets.test.ts
-    // cover the rendered "N notes" badge and week-notes block).
+    // cover the rendered "N notes" badge).
     const pdfRes = await fetch(
       `${url}/weeks/${WEEK_START}/timesheets?format=pdf`,
     );
