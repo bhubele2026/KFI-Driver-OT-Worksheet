@@ -14,6 +14,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -107,8 +108,7 @@ test.beforeEach(async ({ page }) => {
 test("bubble click toggles reviewed without navigating, bad is a no-op, and last toggle triggers splash that does not re-show on reload", async ({
   page,
 }) => {
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
   await page.goto(`/weeks/${WEEK_START}/drivers/${DRIVERS[0].kfiId}`);
   await expect(
     page.getByRole("heading", { name: DRIVERS[0].name }),

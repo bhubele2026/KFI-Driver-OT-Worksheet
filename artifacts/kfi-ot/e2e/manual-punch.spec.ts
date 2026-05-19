@@ -21,6 +21,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -94,8 +95,7 @@ test("dispatcher can add, edit, and delete manual punches with totals + alerts u
     void d.accept();
   });
 
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
   await page.goto(`/weeks/${WEEK_START}/drivers/${DRIVER.kfiId}`);
   await expect(page.getByRole("heading", { name: DRIVER.name })).toBeVisible();
 

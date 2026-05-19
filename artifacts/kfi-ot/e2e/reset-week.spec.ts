@@ -16,6 +16,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -130,8 +131,7 @@ test("admin can reset a week (punches + reviewed) via the dialog", async ({
   );
 
   // Sign in via the dev auth bypass and land on the target week.
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
   await page.goto(`/weeks/${WEEK_START}`);
 
   await expect(
@@ -285,8 +285,7 @@ test("reset returns 409 when any driver-week is locked", async ({ page }) => {
   );
 
   // Sign in via the dev auth bypass.
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
 
   const resp = await page.request.post(
     `/api/weeks/${WEEK_START}/reset`,

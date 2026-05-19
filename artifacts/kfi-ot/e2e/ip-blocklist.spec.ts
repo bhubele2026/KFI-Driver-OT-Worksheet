@@ -23,6 +23,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -73,9 +74,8 @@ test("admin can block an IP, the API rejects it with 403, and admin can unblock"
   page,
   request,
 }) => {
-  // 1. Sign in via the dev auth bypass (POSTed by AuthGate on first load).
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  // 1. Sign in via the dev auth bypass.
+  await signInAsDispatcher(page);
 
   // 2. Navigate to the admin users page and wait for the Security card to load.
   await page.goto("/admin/users");

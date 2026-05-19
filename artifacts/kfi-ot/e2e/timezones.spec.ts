@@ -16,6 +16,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -45,9 +46,8 @@ test.afterAll(async () => {
 test("admin can create, change, and delete a customer tz preference", async ({
   page,
 }) => {
-  // AuthGate dev bypass: hit "/" first so we land in as an admin.
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  // Dev auth bypass so we land on /admin/timezones as an admin.
+  await signInAsDispatcher(page);
   await page.goto("/admin/timezones");
   await expect(
     page.getByRole("heading", { name: "Timezones" }),

@@ -301,11 +301,16 @@ test("fixture directories and BASELINES agree", () => {
 // Integrations env vars aren't wired up, so contributors without OCR access
 // can still run the suite cleanly.
 const GEMINI_OCR_FILES = new Set(["DeLallo.pdf"]);
+// Task #150 / follow-up #194: skip Gemini OCR drift unconditionally on CI.
+// The live OCR call is non-deterministic enough that the ±8h tolerance can
+// be exceeded on a clean run, red-lining the pre-merge gate even when the
+// codebase hasn't changed. Set `RUN_GEMINI_OCR_DRIFT=1` to opt back in.
 const geminiSkipReason =
+  process.env.RUN_GEMINI_OCR_DRIFT === "1" &&
   process.env.AI_INTEGRATIONS_GEMINI_API_KEY &&
   process.env.AI_INTEGRATIONS_GEMINI_BASE_URL
     ? null
-    : "AI_INTEGRATIONS_GEMINI_API_KEY / AI_INTEGRATIONS_GEMINI_BASE_URL not configured — skipping Gemini OCR drift test.";
+    : "Gemini OCR drift test is opt-in (set RUN_GEMINI_OCR_DRIFT=1) — see follow-up #194.";
 
 for (const weekStart of fixtureWeeks) {
   const expected = BASELINES[weekStart] ?? [];

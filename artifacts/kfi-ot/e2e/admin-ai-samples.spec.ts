@@ -14,6 +14,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -91,8 +92,7 @@ test("admin can view, filter, and download stashed AI samples", async ({
   page,
 }) => {
   // Trigger the dev auth bypass first so /admin/ai-samples sees an admin.
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
 
   await page.goto("/admin/ai-samples");
   await expect(
@@ -150,8 +150,7 @@ test("admin can view, filter, and download stashed AI samples", async ({
 });
 
 test("admin can pin and unpin a stashed AI sample", async ({ page }) => {
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
 
   await page.goto("/admin/ai-samples");
   await expect(
@@ -214,8 +213,7 @@ test("pinned sample with expired expires_at still appears in the listing", async
 
   // Trigger the dev auth bypass so the page.request below carries an admin
   // session cookie, then hit the listing endpoint directly.
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
 
   const res = await page.request.get("/api/admin/ai-extract-samples");
   expect(res.status()).toBe(200);

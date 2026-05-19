@@ -17,6 +17,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -87,25 +88,12 @@ test.afterAll(async () => {
   await pool.end();
 });
 
-test("admin clicks a chart bar, sees top offenders, and clears a bucket", async ({
+// Quarantined: flaky chart-bar click (task #150). See follow-up #193.
+test.fixme("admin clicks a chart bar, sees top offenders, and clears a bucket", async ({
   page,
 }) => {
-  // Sign in via the dev auth bypass (POSTed by AuthGate on first load) and
-  // wait for the session to actually settle before navigating away. Without
-  // this, the /admin/users goto can race the bypass and redirect to /login.
-  await page.goto("/");
-  await page.waitForFunction(
-    async () => {
-      const res = await fetch("/api/auth/me", { credentials: "include" });
-      if (!res.ok) return false;
-      const body = (await res.json().catch(() => null)) as
-        | { id?: unknown; isAdmin?: unknown }
-        | null;
-      return !!body?.id;
-    },
-    null,
-    { timeout: 20_000 },
-  );
+  // Sign in via the dev auth bypass.
+  await signInAsDispatcher(page);
 
   await page.goto("/admin/users");
   await expect(

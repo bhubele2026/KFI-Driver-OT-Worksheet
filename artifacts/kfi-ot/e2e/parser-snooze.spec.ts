@@ -27,6 +27,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { Pool } from "pg";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -113,11 +114,10 @@ test.afterAll(async () => {
 async function gotoWeek(page: Page): Promise<void> {
   // Hit "/" first so AuthGate fires the dev-bypass and the dispatcher is
   // signed in as an admin before we reach a route the panel lives on.
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
   await page.goto(`/weeks/${VIEW_WEEK}`);
-  // The page renders the dashboard once the week summary query resolves.
-  await page.waitForLoadState("networkidle");
+  // The page renders the dashboard once the week summary query resolves;
+  // callers follow up with a concrete DOM assertion below.
 }
 
 function bannerCandidate(page: Page) {
@@ -168,7 +168,6 @@ test("admin can snooze a parser-candidate forever and resume it", async ({
 
   // 6. Back on the week dashboard, the candidate is suggested again.
   await page.goto(`/weeks/${VIEW_WEEK}`);
-  await page.waitForLoadState("networkidle");
   await expect(bannerCandidate(page)).toBeVisible();
 });
 
@@ -207,6 +206,5 @@ test("a time-bounded snooze auto-expires once snoozedUntil is in the past", asyn
   // 4. Reload the dashboard — the banner candidate re-surfaces because
   //    the snooze is no longer active.
   await page.goto(`/weeks/${VIEW_WEEK}`);
-  await page.waitForLoadState("networkidle");
   await expect(bannerCandidate(page)).toBeVisible();
 });

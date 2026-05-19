@@ -11,6 +11,7 @@
  *   - Same for 90d.
  */
 import { test, expect, type Request } from "@playwright/test";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 test("attack-pressure window toggle updates heading, request, and aria-pressed", async ({
   page,
@@ -27,8 +28,7 @@ test("attack-pressure window toggle updates heading, request, and aria-pressed",
   });
 
   // Trigger the dev auth bypass first so /admin/users sees an admin.
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
 
   await page.goto("/admin/users");
   await expect(

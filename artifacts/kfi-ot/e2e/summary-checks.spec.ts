@@ -19,6 +19,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -131,9 +132,8 @@ test.afterAll(async () => {
 test("Summary and Checks panels render the per-source split and reconcile", async ({
   page,
 }) => {
-  // Trigger the dev auth bypass via the root, then land on the driver page.
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  // Trigger the dev auth bypass, then land on the driver page.
+  await signInAsDispatcher(page);
   await page.goto(`/weeks/${WEEK_START}/drivers/${KFI_ID}`);
   await expect(
     page.getByRole("heading", { name: DRIVER_NAME }),
@@ -177,8 +177,7 @@ test("Printable timesheet mirrors the on-screen Summary + Checks panels", async 
 }) => {
   // Trigger the dev auth bypass via the root before fetching the timesheet
   // — the printable view honors the same cookie session as the dashboard.
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
   const res = await page.request.get(`/api/weeks/${WEEK_START}/timesheets`);
   expect(res.status()).toBe(200);
   const html = await res.text();

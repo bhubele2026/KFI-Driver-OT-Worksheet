@@ -18,6 +18,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { Pool } from "pg";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -165,8 +166,7 @@ test("dispatcher keyboard shortcuts on the driver-detail page", async ({
 
   // 1. Trigger dev auth bypass by hitting the root, then land on the first
   //    driver. The AuthGate POSTs /api/auth/dev-bypass on first load in dev.
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
 
   await gotoDriver(page, DRIVERS[0].kfiId);
   await expect(page.getByRole("heading", { name: DRIVERS[0].name })).toBeVisible();

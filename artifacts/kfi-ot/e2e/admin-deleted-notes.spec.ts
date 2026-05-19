@@ -18,6 +18,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -98,8 +99,7 @@ test("admin can hide a note, see it on /admin/notes, and restore it", async ({
 
   // Trigger the dev auth bypass so subsequent requests are authenticated
   // as an admin.
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
 
   // 1. Add a week-level note on driver-detail.
   await page.goto(`/weeks/${WEEK_START}/drivers/${DRIVER.kfiId}`);

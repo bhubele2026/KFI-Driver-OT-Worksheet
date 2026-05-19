@@ -31,6 +31,7 @@
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
 import * as XLSX from "xlsx";
+import { signInAsDispatcher } from "./_helpers/auth";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -147,10 +148,8 @@ test.afterAll(async () => {
 test("bulk upload classifies, uploads, and summarizes a mixed batch", async ({
   page,
 }) => {
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await signInAsDispatcher(page);
   await page.goto(`/weeks/${WEEK_START}`);
-  await page.waitForLoadState("networkidle");
 
   // Wait for the customer-upload panel + its bulk picker button to render.
   const bulkButton = page.getByRole("button", {
