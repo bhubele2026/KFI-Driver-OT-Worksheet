@@ -77,6 +77,14 @@ export interface ExtractDiagnostics {
   invalidTimeCount: number;
   /** Rows that made it through and became persisted punches. */
   acceptedCount: number;
+  /**
+   * True when at least one Gemini response was truncated at the
+   * `maxOutputTokens` cap and salvage recovered only the rows that fit.
+   * Task #264. Even after auto-chunking + halving retries, an extremely
+   * dense workbook can still bust the cap; the route surfaces this flag
+   * to the dispatcher so they know the preview may be missing rows.
+   */
+  extractionTruncated?: boolean;
 }
 
 /**

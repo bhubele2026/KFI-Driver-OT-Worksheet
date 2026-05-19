@@ -1924,6 +1924,7 @@ weeksRouter.post(
       existingPunchCount,
       extractSource,
       cacheWritten,
+      extractionTruncated: result.diagnostics?.extractionTruncated ?? false,
     });
   },
 );
@@ -3206,8 +3207,9 @@ weeksRouter.post(
       }
     }
     let rows;
+    let extractionTruncated = false;
     try {
-      rows = await aiExtractRows(
+      const extracted = await aiExtractRows(
         req.file.originalname,
         extractBuffer,
         customer,
@@ -3216,6 +3218,8 @@ weeksRouter.post(
         extractMime,
         req.log,
       );
+      rows = extracted.rows;
+      extractionTruncated = extracted.truncated;
     } catch (err) {
       req.log.error({ err, fileName: req.file.originalname }, "AI extract error");
       res.status(400).json({
@@ -3336,6 +3340,7 @@ weeksRouter.post(
       rows,
       suggestions,
       sampleId: sample.id,
+      extractionTruncated,
     });
   },
 );

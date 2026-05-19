@@ -72,6 +72,13 @@ export interface CustomerPreviewData {
   existingPunchCount: number;
   extractSource?: "legacy-parser" | "cache" | "ai";
   cacheWritten?: boolean;
+  /**
+   * Task #264. True when at least one Gemini response was truncated at
+   * the output-token cap and salvage recovered only the rows that fit
+   * (even after auto-chunking + halving retries). The dispatcher needs
+   * to know rows are likely missing before confirming.
+   */
+  extractionTruncated?: boolean;
 }
 
 function errMessage(err: unknown, fallback: string): string {
@@ -310,6 +317,20 @@ export function CustomerPreviewDialog({
                   Next upload of this format will be instant
                 </span>
               ) : null}
+            </div>
+          ) : null}
+          {preview.extractionTruncated ? (
+            <div
+              className="flex items-start gap-2 rounded-md border border-red-500/40 bg-red-50/60 dark:bg-red-950/20 px-3 py-2 text-xs text-red-900 dark:text-red-200"
+              data-testid="text-truncated-warning"
+            >
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>
+                Heads up: this file was too large for the AI to read in one
+                pass, so even after auto-splitting, some rows may be missing
+                from the preview below. Review carefully — if the row count
+                looks low, re-upload the file split into smaller parts.
+              </span>
             </div>
           ) : null}
           {preview.existingPunchCount > 0 ? (

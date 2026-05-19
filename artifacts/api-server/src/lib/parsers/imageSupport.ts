@@ -129,7 +129,7 @@ export async function extractImageForKnownCustomer(args: {
     nameAliasMap,
     log,
   } = args;
-  const rawRows = await aiExtractRows(
+  const { rows: rawRows, truncated: extractionTruncated } = await aiExtractRows(
     fileName,
     buffer,
     customer,
@@ -207,6 +207,7 @@ export async function extractImageForKnownCustomer(args: {
     unmappedDriverCount,
     invalidTimeCount,
     acceptedCount: punches.length,
+    extractionTruncated,
   };
   if (punches.length === 0 && rawRows.length > 0) {
     log?.warn(

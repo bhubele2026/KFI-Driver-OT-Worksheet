@@ -125,11 +125,21 @@ const ROW_SCHEMA = {
 // the extra round trips. Each chunk re-includes the sheet header so
 // Gemini can interpret columns without seeing the whole spreadsheet.
 export const XLSX_CHUNK_THRESHOLD_CHARS = 300_000;
+// Row-count trigger (Task #264). The real bottleneck is OUTPUT tokens,
+// not input chars: Task #261's "one row per source line" prompt tripled
+// per-row output verbosity, so a 522-row Penda export (well under the
+// 300k char input trigger) was busting the 32k output-token cap mid-row
+// and silently dropping ~95% of the rows. We now force chunking once
+// the workbook exceeds this many data rows regardless of total chars,
+// keeping each chunk's worst-case JSON output well under 32k tokens.
+export const XLSX_CHUNK_THRESHOLD_ROWS = 150;
 // Rough rows-per-chunk target. The chunker measures by chars (so wide
 // columns produce smaller chunks than narrow ones) but caps row count
-// as a safety net for pathologically wide rows.
+// as a safety net for pathologically wide rows. Sized to keep each
+// chunk's JSON output under ~10k tokens — ~3x headroom vs the 32k cap
+// so even a verbose pay-category-split shift fits without truncation.
 const XLSX_CHUNK_MAX_CHARS = 250_000;
-const XLSX_CHUNK_MAX_ROWS = 400;
+const XLSX_CHUNK_MAX_ROWS = 150;
 
 /**
  * Split a workbook into one-or-more CSV chunks suitable for separate
@@ -144,25 +154,39 @@ const XLSX_CHUNK_MAX_ROWS = 400;
 export function xlsxToChunks(
   buffer: Buffer,
   log?: SalvageLogger,
+  opts?: { forceChunkMaxRows?: number },
 ): string[] {
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
-  // Total-size shortcut: small workbook → single chunk that mirrors the
-  // pre-Task-#255 single-call prompt shape (preserves cost for the
-  // overwhelmingly common case where a weekly export fits comfortably).
-  const single = (() => {
-    const out: string[] = [];
-    for (const name of wb.SheetNames) {
-      const ws = wb.Sheets[name];
-      if (!ws) continue;
-      out.push(`# Sheet: ${name}`);
-      out.push(XLSX.utils.sheet_to_csv(ws, { blankrows: false }));
-    }
-    return out.join("\n");
-  })();
-  if (single.length <= XLSX_CHUNK_THRESHOLD_CHARS) {
+  // Per-sheet CSV breakdowns, computed once so we can decide single-vs-multi
+  // based on EITHER the total char count OR the total data-row count.
+  const perSheet = wb.SheetNames.map((name) => {
+    const ws = wb.Sheets[name];
+    if (!ws) return null;
+    const rows = XLSX.utils.sheet_to_csv(ws, { blankrows: false }).split("\n");
+    if (rows.length === 0) return null;
+    return { name, header: rows[0], body: rows.slice(1) };
+  }).filter((s): s is { name: string; header: string; body: string[] } => s !== null);
+
+  const single = perSheet
+    .map((s) => `# Sheet: ${s.name}\n${s.header}\n${s.body.join("\n")}`)
+    .join("\n");
+  const totalBodyRows = perSheet.reduce((n, s) => n + s.body.length, 0);
+  const forced = opts?.forceChunkMaxRows;
+
+  // Total-size shortcut: small workbook AND row count under the trigger →
+  // single chunk that mirrors the pre-Task-#255 single-call prompt shape
+  // (preserves cost for the overwhelmingly common case where a weekly
+  // export fits comfortably). The row-count trigger is what kills the
+  // Task #264 "Penda silently truncates" failure mode.
+  if (
+    !forced &&
+    single.length <= XLSX_CHUNK_THRESHOLD_CHARS &&
+    totalBodyRows <= XLSX_CHUNK_THRESHOLD_ROWS
+  ) {
     return [single];
   }
 
+  const maxRowsPerChunk = forced ?? XLSX_CHUNK_MAX_ROWS;
   const chunks: string[] = [];
   for (const name of wb.SheetNames) {
     const ws = wb.Sheets[name];
@@ -176,7 +200,7 @@ export function xlsxToChunks(
     while (i < body.length) {
       const sliceRows: string[] = [];
       let chars = header.length + 1;
-      while (i < body.length && sliceRows.length < XLSX_CHUNK_MAX_ROWS) {
+      while (i < body.length && sliceRows.length < maxRowsPerChunk) {
         const r = body[i];
         if (chars + r.length + 1 > XLSX_CHUNK_MAX_CHARS && sliceRows.length > 0) {
           break;
@@ -306,9 +330,10 @@ export function parseOrSalvage(
   customer: string,
   fileName: string,
   log?: SalvageLogger,
-): { rows?: AiExtractedRow[] } {
+): { rows?: AiExtractedRow[]; truncated: boolean } {
   try {
-    return JSON.parse(raw) as { rows?: AiExtractedRow[] };
+    const parsed = JSON.parse(raw) as { rows?: AiExtractedRow[] };
+    return { ...parsed, truncated: false };
   } catch {
     // Locate the `rows` array, walk it row-by-row with a brace counter,
     // and stop at the last fully-balanced row object. Then reconstruct
@@ -362,7 +387,7 @@ export function parseOrSalvage(
         },
         "AI extraction: salvaged truncated JSON response",
       );
-      return parsed;
+      return { ...parsed, truncated: true };
     } catch (err2) {
       throw new Error(
         `AI extraction: model response was truncated and salvage failed (${(err2 as Error).message}).`,
@@ -416,16 +441,26 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
 // public push API except the test helper below, and it's gated on
 // `NODE_ENV !== "production"` in `aiExtractRows`.
 const _aiStubQueue: AiExtractedRow[][] = [];
+// Parallel queue of `truncated` flags consumed alongside `_aiStubQueue`.
+// Pushed via the optional second arg to `__pushAiExtractStub` so tests
+// can simulate Task #264's "Gemini hit maxOutputTokens" case and verify
+// the auto-rechunk / halving retry path.
+const _aiStubTruncatedQueue: boolean[] = [];
 /** @internal test seam — push rows the next `aiExtractRows` call should return. */
-export function __pushAiExtractStub(rows: AiExtractedRow[]): void {
+export function __pushAiExtractStub(
+  rows: AiExtractedRow[],
+  opts?: { truncated?: boolean },
+): void {
   if (process.env.NODE_ENV === "production") {
     throw new Error("__pushAiExtractStub is a test seam — not callable in production");
   }
   _aiStubQueue.push(rows);
+  _aiStubTruncatedQueue.push(opts?.truncated ?? false);
 }
 /** @internal test seam — clear any unused stubs (e.g. teardown). */
 export function __clearAiExtractStubs(): void {
   _aiStubQueue.length = 0;
+  _aiStubTruncatedQueue.length = 0;
 }
 
 // Per-chunk Gemini ceiling for the chunked xlsx path. Shorter than the
@@ -439,7 +474,7 @@ async function callGeminiForChunk(
   customer: string,
   fileName: string,
   log: SalvageLogger | undefined,
-): Promise<AiExtractedRow[]> {
+): Promise<{ rows: AiExtractedRow[]; truncated: boolean }> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
@@ -467,10 +502,32 @@ async function callGeminiForChunk(
   }
   const raw = response.text ?? "";
   const parsed = parseOrSalvage(raw, customer, fileName, log);
-  return (parsed.rows ?? []).filter(
+  const rows = (parsed.rows ?? []).filter(
     (r) =>
       r && typeof r.driverNameOnDoc === "string" && typeof r.date === "string",
   );
+  return { rows, truncated: parsed.truncated };
+}
+
+// Split a single CSV chunk's body roughly in half on truncation-retry,
+// keeping the sheet header / part marker on both halves so Gemini still
+// sees the column layout. Used by `runChunkedXlsxExtract` when a chunk
+// busts maxOutputTokens; one halving level is enough in practice because
+// our default chunk size already targets ~10k output tokens.
+function halveChunk(chunk: string): [string, string] | null {
+  const lines = chunk.split("\n");
+  if (lines.length < 4) return null; // marker + header + at least 2 body rows
+  const marker = lines[0];
+  const header = lines[1];
+  const body = lines.slice(2);
+  const mid = Math.ceil(body.length / 2);
+  const left = body.slice(0, mid);
+  const right = body.slice(mid);
+  if (left.length === 0 || right.length === 0) return null;
+  return [
+    [marker + " · half 1", header, ...left].join("\n"),
+    [marker + " · half 2", header, ...right].join("\n"),
+  ];
 }
 
 async function runChunkedXlsxExtract(
@@ -482,27 +539,83 @@ async function runChunkedXlsxExtract(
   fileName: string,
   startedAt: number,
   log: SalvageLogger | undefined,
-): Promise<AiExtractedRow[]> {
+): Promise<{ rows: AiExtractedRow[]; truncated: boolean }> {
   const merged: AiExtractedRow[] = [];
-  // Test seam: if `__pushAiExtractStub` has been used, consume one stub
-  // per chunk so unit tests can drive the chunked path deterministically.
-  for (let i = 0; i < chunks.length; i++) {
+  let anyTruncated = false;
+  const runOne = async (
+    chunk: string,
+    label: string,
+  ): Promise<{ rows: AiExtractedRow[]; truncated: boolean }> => {
+    // Test seam: if `__pushAiExtractStub` has been used, consume one stub
+    // per request so unit tests can drive the chunked path deterministically.
     if (
       process.env.NODE_ENV !== "production" &&
       _aiStubQueue.length > 0
     ) {
       const stubbed = _aiStubQueue.shift()!;
-      for (const r of stubbed) {
-        merged.push({ ...r, driverNameOnDoc: toDisplayName(r.driverNameOnDoc) });
-      }
-      continue;
+      const truncated =
+        _aiStubTruncatedQueue.shift() ?? false;
+      return {
+        rows: stubbed.map((r) => ({
+          ...r,
+          driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
+        })),
+        truncated,
+      };
     }
     const prompt =
       buildPrompt(customer, weekStart, weekEnd) +
-      `\n\nThis is chunk ${i + 1} of ${chunks.length} of the same workbook. Return only the rows in this chunk.\n\n--- SPREADSHEET (CSV) ---\n${chunks[i]}\n--- END SPREADSHEET ---`;
-    const rows = await callGeminiForChunk(ai, prompt, customer, fileName, log);
-    for (const r of rows) {
-      merged.push({ ...r, driverNameOnDoc: toDisplayName(r.driverNameOnDoc) });
+      `\n\n${label} of the same workbook. Return only the rows in this chunk.\n\n--- SPREADSHEET (CSV) ---\n${chunk}\n--- END SPREADSHEET ---`;
+    const { rows, truncated } = await callGeminiForChunk(
+      ai,
+      prompt,
+      customer,
+      fileName,
+      log,
+    );
+    return {
+      rows: rows.map((r) => ({
+        ...r,
+        driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
+      })),
+      truncated,
+    };
+  };
+
+  for (let i = 0; i < chunks.length; i++) {
+    const label = `This is chunk ${i + 1} of ${chunks.length}`;
+    const result = await runOne(chunks[i], label);
+    if (result.truncated) {
+      // Truncation on a chunk means the chunk size still exceeded the
+      // 32k output-token cap. Halve and retry the two halves once each.
+      // If even the halves truncate we accept partial rows and surface
+      // `truncated: true` so the dispatcher gets a clear banner instead
+      // of a silently-clipped preview.
+      const halves = halveChunk(chunks[i]);
+      if (halves) {
+        (log ?? logger).warn(
+          { customer, fileName, chunk: i + 1 },
+          "AI chunk response truncated — halving and retrying",
+        );
+        const halfResults = [];
+        for (let h = 0; h < halves.length; h++) {
+          halfResults.push(
+            await runOne(
+              halves[h],
+              `This is chunk ${i + 1}.${h + 1} of ${chunks.length} (halved retry)`,
+            ),
+          );
+        }
+        for (const hr of halfResults) {
+          for (const r of hr.rows) merged.push(r);
+          if (hr.truncated) anyTruncated = true;
+        }
+      } else {
+        for (const r of result.rows) merged.push(r);
+        anyTruncated = true;
+      }
+    } else {
+      for (const r of result.rows) merged.push(r);
     }
   }
   const deduped = dedupeAiRows(merged);
@@ -512,12 +625,13 @@ async function runChunkedXlsxExtract(
       aiRawRowCount: merged.length,
       aiDedupedRowCount: deduped.length,
       chunks: chunks.length,
+      truncated: anyTruncated,
       customer,
       fileName,
     },
     "AI extraction complete (chunked)",
   );
-  return deduped;
+  return { rows: deduped, truncated: anyTruncated };
 }
 
 export async function aiExtractRows(
@@ -528,7 +642,7 @@ export async function aiExtractRows(
   weekEnd: string,
   mimeType?: string,
   log?: SalvageLogger,
-): Promise<AiExtractedRow[]> {
+): Promise<{ rows: AiExtractedRow[]; truncated: boolean }> {
   const lower = fileName.toLowerCase();
   const isPdf = lower.endsWith(".pdf");
   const isImage =
@@ -546,10 +660,14 @@ export async function aiExtractRows(
     (isImage || isPdf)
   ) {
     const stubbed = _aiStubQueue.shift()!;
-    return stubbed.map((r) => ({
-      ...r,
-      driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
-    }));
+    const truncated = _aiStubTruncatedQueue.shift() ?? false;
+    return {
+      rows: stubbed.map((r) => ({
+        ...r,
+        driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
+      })),
+      truncated,
+    };
   }
   const ai = getGeminiClient();
   const start = Date.now();
@@ -591,7 +709,7 @@ export async function aiExtractRows(
     // get split + each chunk is sent in its own Gemini call below.
     const chunks = xlsxToChunks(buffer, log);
     if (chunks.length > 1) {
-      const merged = await runChunkedXlsxExtract(
+      return await runChunkedXlsxExtract(
         ai,
         chunks,
         customer,
@@ -601,7 +719,6 @@ export async function aiExtractRows(
         start,
         log,
       );
-      return merged;
     }
     parts.push({
       text: `\n\n--- SPREADSHEET (CSV) ---\n${chunks[0] ?? ""}\n--- END SPREADSHEET ---`,
@@ -633,28 +750,77 @@ export async function aiExtractRows(
       );
     }, AI_TIMEOUT_MS);
   });
-  const generate = ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts }],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: ROW_SCHEMA,
-      // Weekly customer exports for a 21-driver fleet can easily exceed
-      // 8k output tokens (one row per driver per day with five string
-      // fields each). Cap generously — the proxy still bills by output
-      // tokens used, not requested, so headroom is free.
-      maxOutputTokens: 32768,
-    },
-  });
-  let response;
-  try {
-    response = await Promise.race([generate, timeout]);
-  } finally {
+  // Test seam (xlsx single-call): consume one stub so unit tests can
+  // simulate single-call truncation + recovery without invoking Gemini.
+  // Mirrors the image/pdf seam at the top of this function.
+  let parsed: { rows?: AiExtractedRow[]; truncated: boolean };
+  if (
+    process.env.NODE_ENV !== "production" &&
+    _aiStubQueue.length > 0 &&
+    !isImage &&
+    !isPdf
+  ) {
+    const stubbed = _aiStubQueue.shift()!;
+    const truncated = _aiStubTruncatedQueue.shift() ?? false;
     if (timer) clearTimeout(timer);
+    parsed = {
+      rows: stubbed.map((r) => ({
+        ...r,
+        driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
+      })),
+      truncated,
+    };
+  } else {
+    const generate = ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{ role: "user", parts }],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: ROW_SCHEMA,
+        // Weekly customer exports for a 21-driver fleet can easily exceed
+        // 8k output tokens (one row per driver per day with five string
+        // fields each). Cap generously — the proxy still bills by output
+        // tokens used, not requested, so headroom is free.
+        maxOutputTokens: 32768,
+      },
+    });
+    let response;
+    try {
+      response = await Promise.race([generate, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    const raw = response.text ?? "";
+    parsed = parseOrSalvage(raw, customer, fileName, log);
   }
 
-  const raw = response.text ?? "";
-  const parsed = parseOrSalvage(raw, customer, fileName, log);
+  // Single-call truncation recovery (Task #264). Gemini hit the 32k
+  // output-token cap mid-row. For xlsx we can re-run via forced chunking
+  // — the row-count trigger we set above means this almost never happens
+  // anymore, but if a freshly-uploaded workbook slips under the 150-row
+  // trigger and still truncates (e.g. extremely verbose pay-category
+  // splits), the dispatcher shouldn't pay for our threshold miss with a
+  // silently-clipped preview. Re-extracts the SAME buffer with a
+  // forced-small chunk size and returns the merged rows. PDFs/images
+  // don't have a re-chunk path, so we accept partial rows and propagate
+  // `truncated: true` so the UI banner fires.
+  if (parsed.truncated && !isImage && !isPdf) {
+    (log ?? logger).warn(
+      { customer, fileName, salvagedRows: parsed.rows?.length ?? 0 },
+      "single-call AI response truncated — re-extracting with forced chunking",
+    );
+    const forcedChunks = xlsxToChunks(buffer, log, { forceChunkMaxRows: 100 });
+    return runChunkedXlsxExtract(
+      ai,
+      forcedChunks,
+      customer,
+      weekStart,
+      weekEnd,
+      fileName,
+      start,
+      log,
+    );
+  }
 
   const rows = (parsed.rows ?? [])
     .filter(
@@ -673,10 +839,11 @@ export async function aiExtractRows(
       ms: Date.now() - start,
       aiRawRowCount: rows.length,
       aiDedupedRowCount: deduped.length,
+      truncated: parsed.truncated,
       customer,
       fileName,
     },
     "AI extraction complete",
   );
-  return deduped;
+  return { rows: deduped, truncated: parsed.truncated };
 }
