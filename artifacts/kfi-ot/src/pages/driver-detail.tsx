@@ -15,6 +15,7 @@ import {
   useRefreshConnecteamForDriver,
   useShiftDriverWeekPunches,
   useUpdateDriverTimezone,
+  useUpsertCustomerTzPreference,
   useGetAllowedTimezones,
   useLockDriverWeek,
   useUnlockDriverWeek,
@@ -341,10 +342,17 @@ export default function DriverDetail() {
   const refreshCtForDriver = useRefreshConnecteamForDriver();
   const shiftPunches = useShiftDriverWeekPunches();
   const updateDriverTz = useUpdateDriverTimezone();
+  const upsertCustomerTz = useUpsertCustomerTzPreference();
   const { data: allowedTzs } = useGetAllowedTimezones();
   const [tzPopoverOpen, setTzPopoverOpen] = useState(false);
   const [tzDraft, setTzDraft] = useState<string>("__default__");
   const [shiftHours, setShiftHours] = useState<string>("1");
+  // Per-customer tz popover: tracks which customer's badge is open plus the
+  // local-only draft tz and shift-hours so two open popovers (this and the
+  // driver-level one above) never clobber each other.
+  const [openCustomerTz, setOpenCustomerTz] = useState<string | null>(null);
+  const [customerTzDraft, setCustomerTzDraft] = useState<string>("__driver__");
+  const [customerShiftHours, setCustomerShiftHours] = useState<string>("1");
 
   const handleRefresh = () => {
     refreshCt.mutate(
@@ -1493,6 +1501,240 @@ export default function DriverDetail() {
                 </PopoverContent>
               </Popover>
             </span>
+            {/*
+              Per-customer tz badges. Surface every distinct (customer,
+              disp_tz) the engine sees on this driver-week so a dispatcher
+              can spot — at a glance — when one customer feed landed in a
+              tz that doesn't agree with the driver's effective tz. Amber
+              styling + popover lets them save the customer's preferred
+              default and/or shift this week's customer-source rows
+              in-place without leaving the page.
+            */}
+            {(data.customerTzs ?? []).map((ct) => {
+              const popKey = `${ct.customer}|${ct.dispTz}`;
+              const isMismatch = !ct.matchesDriver;
+              return (
+                <span key={popKey} className="print:hidden">
+                  <Popover
+                    open={openCustomerTz === popKey}
+                    onOpenChange={(o) => {
+                      setOpenCustomerTz(o ? popKey : null);
+                      if (o) {
+                        setCustomerTzDraft(
+                          ct.preferredDispTz ?? ct.dispTz ?? "__driver__",
+                        );
+                        // Pre-fill shift with the whole-hour delta between
+                        // the customer's current tz and the driver's
+                        // effective tz when we can compute it cheaply,
+                        // otherwise leave the dispatcher to enter it.
+                        setCustomerShiftHours("1");
+                      }
+                    }}
+                  >
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        data-testid={`button-customer-tz-${ct.customer}`}
+                        title={
+                          isMismatch
+                            ? `${ct.customer} feed is landing in ${ct.dispTz} (driver default ${data.driver.effectiveDispTz}). Click to save a customer default or shift existing punches.`
+                            : `${ct.customer} feed matches driver tz (${ct.dispTz}).`
+                        }
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px]",
+                          isMismatch
+                            ? "border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
+                            : "border-border/60 bg-muted/40 hover:bg-muted",
+                        )}
+                      >
+                        <Globe className="h-3 w-3" />
+                        <span className="font-mono">{ct.customer}:</span>
+                        <span className="font-mono">{ct.dispTz}</span>
+                        {ct.preferredDispTz ? (
+                          <Badge
+                            variant="outline"
+                            className="ml-1 h-4 px-1 text-[9px] font-mono border-primary/40 text-primary"
+                          >
+                            pref
+                          </Badge>
+                        ) : null}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-80 space-y-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">
+                          {ct.customer} — preferred timezone
+                        </Label>
+                        <Select
+                          value={customerTzDraft}
+                          onValueChange={setCustomerTzDraft}
+                        >
+                          <SelectTrigger
+                            className="h-8 text-xs"
+                            data-testid={`select-customer-tz-${ct.customer}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__driver__" className="text-xs">
+                              (use driver default —{" "}
+                              {data.driver.effectiveDispTz})
+                            </SelectItem>
+                            {(allowedTzs?.allowed ?? []).map((tz) => (
+                              <SelectItem
+                                key={tz}
+                                value={tz}
+                                className="text-xs"
+                              >
+                                {tz}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[10px] text-muted-foreground">
+                          Saving updates only future uploads for this
+                          customer. Use "Shift existing" below to fix the
+                          punches already on this week.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            upsertCustomerTz.isPending ||
+                            customerTzDraft === "__driver__"
+                          }
+                          data-testid={`button-save-customer-tz-${ct.customer}`}
+                          onClick={() =>
+                            upsertCustomerTz.mutate(
+                              {
+                                data: {
+                                  customer: ct.customer,
+                                  displayTz: customerTzDraft,
+                                },
+                              },
+                              {
+                                onSuccess: () => {
+                                  queryClient.invalidateQueries({
+                                    queryKey: getGetDriverWeekQueryKey(
+                                      weekStart,
+                                      kfiId,
+                                    ),
+                                  });
+                                  toast({
+                                    title: "Customer timezone saved",
+                                    description: `${ct.customer} → ${customerTzDraft} for future uploads.`,
+                                  });
+                                },
+                                onError: (err) =>
+                                  toast({
+                                    title: "Save failed",
+                                    description:
+                                      err instanceof Error
+                                        ? err.message
+                                        : "Unknown error",
+                                    variant: "destructive",
+                                  }),
+                              },
+                            )
+                          }
+                        >
+                          {upsertCustomerTz.isPending ? (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          ) : (
+                            <Save className="h-3 w-3 mr-1" />
+                          )}
+                          Save as default
+                        </Button>
+                      </div>
+                      <div className="space-y-1 border-t border-border/40 pt-2">
+                        <Label className="text-xs">
+                          Shift {ct.customer}&apos;s existing punches by
+                          (hours)
+                        </Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={customerShiftHours}
+                            onChange={(e) =>
+                              setCustomerShiftHours(e.target.value)
+                            }
+                            className="h-7 w-20 text-xs font-mono"
+                            data-testid={`input-customer-shift-${ct.customer}`}
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={shiftPunches.isPending}
+                            data-testid={`button-customer-shift-${ct.customer}`}
+                            onClick={() => {
+                              const n = Number(customerShiftHours);
+                              if (!Number.isFinite(n) || n === 0) {
+                                toast({
+                                  title: "Invalid shift",
+                                  description:
+                                    "Enter a non-zero number of hours (e.g. 1 or -1).",
+                                  variant: "destructive",
+                                });
+                                return;
+                              }
+                              shiftPunches.mutate(
+                                {
+                                  weekStart,
+                                  kfiId,
+                                  data: {
+                                    offsetHours: n,
+                                    source: "Customer",
+                                    customer: ct.customer,
+                                    newDispTz:
+                                      customerTzDraft === "__driver__"
+                                        ? null
+                                        : customerTzDraft,
+                                  },
+                                },
+                                {
+                                  onSuccess: (res) => {
+                                    queryClient.invalidateQueries({
+                                      queryKey: getGetDriverWeekQueryKey(
+                                        weekStart,
+                                        kfiId,
+                                      ),
+                                    });
+                                    queryClient.invalidateQueries({
+                                      queryKey:
+                                        getGetWeekSummaryQueryKey(weekStart),
+                                    });
+                                    toast({
+                                      title: "Customer punches shifted",
+                                      description: `${res.shifted} ${ct.customer} rows moved by ${n}h.`,
+                                    });
+                                    setOpenCustomerTz(null);
+                                  },
+                                  onError: (err) =>
+                                    toast({
+                                      title: "Shift failed",
+                                      description:
+                                        err instanceof Error
+                                          ? err.message
+                                          : "Unknown error",
+                                      variant: "destructive",
+                                    }),
+                                },
+                              );
+                            }}
+                          >
+                            {shiftPunches.isPending ? (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            ) : null}
+                            Shift
+                          </Button>
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </span>
+              );
+            })}
             <span className="hidden print:inline">
               <span className="mx-2 text-muted-foreground/60">·</span>
               {t("common.weekOf", { week: weekStart })}

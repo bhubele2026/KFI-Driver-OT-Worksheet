@@ -9,6 +9,7 @@ import type { Check } from "./check";
 import type { DailyTotals } from "./dailyTotals";
 import type { DriverInfo } from "./driverInfo";
 import type { DriverWeekConnecteamParity } from "./driverWeekConnecteamParity";
+import type { DriverWeekCustomerTzsItem } from "./driverWeekCustomerTzsItem";
 import type { DriverWeekReviewStatus } from "./driverWeekReviewStatus";
 import type { DriverWeekTotals } from "./driverWeekTotals";
 import type { Punch } from "./punch";
@@ -29,6 +30,13 @@ export interface DriverWeek {
   lockedAt?: Date | null;
   /** @nullable */
   lockedByEmail?: string | null;
+  /** Per-customer summary of `disp_tz` values currently persisted on
+this driver-week's Customer-source punches. Drives the per-
+customer tz badges on the driver-detail header so the
+dispatcher can see at a glance when a customer feed is landing
+in a different tz than the driver default.
+ */
+  customerTzs?: DriverWeekCustomerTzsItem[];
   /** Per-day comparison of the engine's daily totals against the
 Connecteam-side daily totals snapshotted at the most recent
 /refresh-connecteam call for this driver-week. `status` is

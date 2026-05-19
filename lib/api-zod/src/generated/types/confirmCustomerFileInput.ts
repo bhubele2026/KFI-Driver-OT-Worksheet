@@ -12,6 +12,15 @@ export interface ConfirmCustomerFileInput {
   /** @minLength 1 */
   customer: string;
   sampleId: number;
+  /**
+   * Per-upload display-tz override (must be one of `ALLOWED_TZS`).
+Takes precedence over the per-customer default
+(`customer_tz_preferences`) and the per-driver fallback. Silently
+ignored when not a recognized tz.
+
+   * @nullable
+   */
+  dispTz?: string | null;
   /** Stable indices from the preview's `rows` array that the dispatcher chose to exclude. */
   excludedIndices?: number[];
   /** On-the-fly driver-id mappings the dispatcher created in the

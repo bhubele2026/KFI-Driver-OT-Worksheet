@@ -392,6 +392,11 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           body: JSON.stringify({
             customer: preview.customer,
             sampleId: preview.sampleId,
+            // Mirror the same dispTz override we sent to /extract — the
+            // /confirm route is what actually writes `disp_tz` onto every
+            // persisted row, so without this the picker would silently
+            // fall back to the per-driver default at commit time.
+            ...(overrideTz !== "__auto__" ? { dispTz: overrideTz } : {}),
           }),
           signal: opts?.signal,
         },

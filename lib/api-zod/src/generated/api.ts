@@ -739,6 +739,12 @@ export const GetWeekSummaryResponse = zod.object({
         .describe(
           "True when at least one day in this driver-week has its total\ndispatcher-overridden (every contributing punch on that day is\nflagged `edited=true`). Drives a small indicator on the driver\nrow in the week dashboard.\n",
         ),
+      hasCustomerTzMismatch: zod
+        .boolean()
+        .optional()
+        .describe(
+          "True when at least one Customer-source punch on this driver-week\nhas a `disp_tz` that differs from the driver's\n`effectiveDispTz`. Drives a small amber Globe indicator on the\ndriver row in the week dashboard so a dispatcher can spot a\ntimezone disagreement before opening the driver page.\n",
+        ),
       displayTz: zod
         .string()
         .nullish()
@@ -797,6 +803,12 @@ export const GetWeekSummaryResponse = zod.object({
             .boolean()
             .describe(
               "True when at least one day in this driver-week has its total\ndispatcher-overridden (every contributing punch on that day is\nflagged `edited=true`). Drives a small indicator on the driver\nrow in the week dashboard.\n",
+            ),
+          hasCustomerTzMismatch: zod
+            .boolean()
+            .optional()
+            .describe(
+              "True when at least one Customer-source punch on this driver-week\nhas a `disp_tz` that differs from the driver's\n`effectiveDispTz`. Drives a small amber Globe indicator on the\ndriver row in the week dashboard so a dispatcher can spot a\ntimezone disagreement before opening the driver page.\n",
             ),
           displayTz: zod
             .string()
@@ -929,6 +941,29 @@ export const GetDriverWeekResponse = zod.object({
   locked: zod.boolean().optional(),
   lockedAt: zod.coerce.date().nullish(),
   lockedByEmail: zod.string().nullish(),
+  customerTzs: zod
+    .array(
+      zod.object({
+        customer: zod.string(),
+        dispTz: zod.string(),
+        punchCount: zod.number(),
+        matchesDriver: zod
+          .boolean()
+          .describe(
+            "True when this customer feed's `disp_tz` equals the driver's `effectiveDispTz`.",
+          ),
+        preferredDispTz: zod
+          .string()
+          .nullable()
+          .describe(
+            "The customer-level default from `customer_tz_preferences`, if set.",
+          ),
+      }),
+    )
+    .optional()
+    .describe(
+      "Per-customer summary of `disp_tz` values currently persisted on\nthis driver-week's Customer-source punches. Drives the per-\ncustomer tz badges on the driver-detail header so the\ndispatcher can see at a glance when a customer feed is landing\nin a different tz than the driver default.\n",
+    ),
   connecteamParity: zod
     .object({
       status: zod.enum(["match", "differ", "unknown"]),
@@ -1421,6 +1456,12 @@ export const confirmCustomerFileBodyExcludedIndicesItemMin = 0;
 export const ConfirmCustomerFileBody = zod.object({
   customer: zod.string().min(1),
   sampleId: zod.number(),
+  dispTz: zod
+    .string()
+    .nullish()
+    .describe(
+      "Per-upload display-tz override (must be one of `ALLOWED_TZS`).\nTakes precedence over the per-customer default\n(`customer_tz_preferences`) and the per-driver fallback. Silently\nignored when not a recognized tz.\n",
+    ),
   excludedIndices: zod
     .array(zod.number().min(confirmCustomerFileBodyExcludedIndicesItemMin))
     .optional()
@@ -3109,6 +3150,12 @@ export const ShiftDriverWeekPunchesBody = zod.object({
     .nullish()
     .describe(
       "When set, only rows from this source are shifted. Otherwise both Driver- and Customer-source rows are shifted.",
+    ),
+  customer: zod
+    .string()
+    .nullish()
+    .describe(
+      'When set (and `source=Customer`), only rows whose `customer` matches this name (case-insensitive) are shifted. Lets the driver-detail \"fix this customer\'s tz\" action scope the shift to a single customer-source feed.',
     ),
   newDispTz: zod
     .string()

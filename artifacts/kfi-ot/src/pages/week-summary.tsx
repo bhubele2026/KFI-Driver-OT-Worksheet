@@ -85,6 +85,7 @@ import {
   Check,
   Pencil,
   Trash2,
+  Globe,
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
 import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
@@ -1126,6 +1127,18 @@ export default function WeekSummary() {
                                             <Pencil className="h-2.5 w-2.5" />
                                             OVR
                                           </span>
+                                        )}
+                                        {driver.hasCustomerTzMismatch && (
+                                          <Link
+                                            href={`/weeks/${weekStart}/drivers/${driver.kfiId}`}
+                                            className="inline-flex items-center gap-0.5 text-[10px] font-mono px-1 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 focus-visible:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40 transition-colors"
+                                            title="A customer-source feed on this driver-week is landing in a different timezone than the driver default. Open the driver to review or shift."
+                                            aria-label="Customer timezone mismatch on this driver-week"
+                                            data-testid={`badge-customer-tz-mismatch-${driver.kfiId}`}
+                                          >
+                                            <Globe className="h-2.5 w-2.5" />
+                                            TZ
+                                          </Link>
                                         )}
                                       </span>
                                       <span className="text-xs text-muted-foreground font-mono">

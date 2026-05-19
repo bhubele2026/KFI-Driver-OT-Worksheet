@@ -467,12 +467,21 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       diffCount: number;
     };
     hasOverriddenDay: boolean;
+    hasCustomerTzMismatch: boolean;
   }
   const rows: SummaryRow[] = [];
   for (const [kfiId, ps] of byKfi.entries()) {
     const t = computeDriverTotals(ps);
     if (t.totalHours <= 0) continue;
     const meta = driverById.get(kfiId);
+    // Per-driver tz-mismatch indicator: any Customer-source punch whose
+    // `disp_tz` disagrees with the driver's effective tz lights up an
+    // amber dot on the dashboard row. Computed inline so we don't have to
+    // re-walk `ps` in the response builder.
+    const driverEffTz = resolveDispTz(kfiId, meta?.displayTz ?? null);
+    const hasCustomerTzMismatch = ps.some(
+      (p) => p.source === "Customer" && p.dispTz !== driverEffTz,
+    );
     totDriver += t.totalDriver;
     totCust += t.totalCustomer;
     totRt += t.regularHours;
@@ -537,12 +546,13 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       lastTouchedAt,
       noteCount: noteCountByKfi.get(kfiId) ?? 0,
       displayTz: meta?.displayTz ?? null,
-      effectiveDispTz: resolveDispTz(kfiId, meta?.displayTz ?? null),
+      effectiveDispTz: driverEffTz,
       connecteamParity: {
         status: paritySummary.status,
         diffCount: paritySummary.diffCount,
       },
       hasOverriddenDay: dailyTotals.some((d) => d.hasOverrides),
+      hasCustomerTzMismatch,
     });
   }
   rows.sort(
@@ -686,6 +696,41 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
     if (p.reviewedBy) actorIds.add(p.reviewedBy);
   }
   if (reviewed?.lockedByUserId) actorIds.add(reviewed.lockedByUserId);
+  // Per-customer disp_tz summary across this driver-week's Customer-source
+  // punches. We group by (customer, dispTz) so a single feed that landed
+  // with mixed tzs shows up as multiple rows (a clear "something's
+  // inconsistent here" signal). Compared against the driver's effective
+  // tz below so the header can flag mismatches in amber.
+  const driverEffectiveTz = resolveDispTz(kfiId, driver?.displayTz ?? null);
+  const customerTzPrefMap = await loadCustomerTzPrefMap();
+  const customerTzAgg = new Map<
+    string,
+    { customer: string; dispTz: string; punchCount: number }
+  >();
+  for (const p of punches) {
+    if (p.source !== "Customer" || !p.customer) continue;
+    const key = `${p.customer.toLowerCase()}|${p.dispTz}`;
+    const prev = customerTzAgg.get(key);
+    if (prev) prev.punchCount++;
+    else
+      customerTzAgg.set(key, {
+        customer: p.customer,
+        dispTz: p.dispTz,
+        punchCount: 1,
+      });
+  }
+  const customerTzs = [...customerTzAgg.values()]
+    .sort(
+      (a, b) =>
+        a.customer.localeCompare(b.customer) || a.dispTz.localeCompare(b.dispTz),
+    )
+    .map((r) => ({
+      customer: r.customer,
+      dispTz: r.dispTz,
+      punchCount: r.punchCount,
+      matchesDriver: r.dispTz === driverEffectiveTz,
+      preferredDispTz: customerTzPrefMap.get(r.customer.toLowerCase()) ?? null,
+    }));
   const actorEmailById = new Map<number, string>();
   if (actorIds.size > 0) {
     const actorRows = await db
@@ -705,11 +750,12 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
       ctUserId: driver?.ctUserId ?? null,
       isDriver: driver?.isDriver ?? true,
       displayTz: driver?.displayTz ?? null,
-      effectiveDispTz: resolveDispTz(kfiId, driver?.displayTz ?? null),
+      effectiveDispTz: driverEffectiveTz,
     },
     weekStart,
     endDate,
     punches: punches.map((p) => serializePunch(p, actorEmailById)),
+    customerTzs,
     dailyTotals,
     connecteamParity: {
       status: paritySummary.status,
@@ -1736,6 +1782,19 @@ weeksRouter.post(
       return;
     }
     const excludedIndices = new Set(parsed.data.excludedIndices ?? []);
+    // Optional per-upload tz override from the dispatcher's picker. When set
+    // (and valid), this beats the per-customer default and the per-driver
+    // fallback when stamping `disp_tz` on every persisted row below.
+    const overrideTzRawC =
+      typeof parsed.data.dispTz === "string" ? parsed.data.dispTz.trim() : "";
+    const overrideTzC = isAllowedTz(overrideTzRawC) ? overrideTzRawC : null;
+    // Customer-level default tz (admin-managed). When the dispatcher didn't
+    // explicitly override, this beats the per-driver fallback so a customer
+    // feed that ships in (say) America/Denver stops landing in the driver's
+    // home tz on every weekly upload.
+    const customerTzPrefMap = await loadCustomerTzPrefMap();
+    const customerTzPrefC =
+      customerTzPrefMap.get(customer.toLowerCase()) ?? null;
 
     // Load the stashed sample. We require (id, weekStart, customer) to match
     // so a stale or unrelated sampleId can't be used to commit against the
@@ -1994,9 +2053,12 @@ weeksRouter.post(
               clockOut: p.clockOut,
               hours: String(p.hours),
               payType: p.payType,
-              dispTz: p.noTz
-                ? "America/New_York"
-                : resolveDispTz(p.kfiId, driverTzByKfi.get(p.kfiId) ?? null),
+              dispTz:
+                overrideTzC ??
+                customerTzPrefC ??
+                (p.noTz
+                  ? "America/New_York"
+                  : resolveDispTz(p.kfiId, driverTzByKfi.get(p.kfiId) ?? null)),
               isManual: false,
               fileOrigin: fileName,
               createdBy: req.session.userId ?? null,
@@ -2434,6 +2496,23 @@ async function loadInactiveCustomerSet(): Promise<Set<string>> {
   return new Set(rows.map((r) => r.customer.toLowerCase()));
 }
 
+// Load every customer's preferred display-tz once, keyed lower-case so the
+// caller can look up by either casing. Invalid persisted values are dropped
+// at read time so a stale row can't sneak past `isAllowedTz` gating.
+async function loadCustomerTzPrefMap(): Promise<Map<string, string>> {
+  const rows = await db
+    .select({
+      customer: schema.customerTzPreferencesTable.customer,
+      displayTz: schema.customerTzPreferencesTable.displayTz,
+    })
+    .from(schema.customerTzPreferencesTable);
+  const out = new Map<string, string>();
+  for (const r of rows) {
+    if (isAllowedTz(r.displayTz)) out.set(r.customer.toLowerCase(), r.displayTz);
+  }
+  return out;
+}
+
 weeksRouter.get(
   "/customer-active-state",
   requireAdmin,
@@ -2755,6 +2834,13 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
     typeof parsed.data.dispTz === "string" ? parsed.data.dispTz.trim() : "";
   const overrideTz = isAllowedTz(overrideTzRaw) ? overrideTzRaw : null;
   const driverTzByKfi = await loadDriverTzMap();
+  // Customer-level default tz (admin-managed via /admin/customer-tz-preferences).
+  // Applied when the dispatcher did not pass an explicit `dispTz` override
+  // for this upload — keeps a customer feed that consistently lands in a
+  // different tz than the driver's home tz from being silently flipped
+  // back to the driver default on every weekly upload.
+  const customerTzPref =
+    (await loadCustomerTzPrefMap()).get(customer.toLowerCase()) ?? null;
 
   const unmappedNames = new Set<string>();
   const lockedKfiIds = await loadLockedKfiIds(startDate);
@@ -2809,11 +2895,10 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
       clockIn: `${r.date} ${r.clockIn}`,
       clockOut: `${r.date} ${r.clockOut}`,
       hours: Math.round(hours * 1000) / 1000,
-      dispTz: resolveDispTz(
-        kfiId,
-        driverTzByKfi.get(kfiId) ?? null,
-        overrideTz,
-      ),
+      dispTz:
+        overrideTz ??
+        customerTzPref ??
+        resolveDispTz(kfiId, driverTzByKfi.get(kfiId) ?? null, null),
     });
   }
 
@@ -5448,6 +5533,7 @@ weeksRouter.post(
     const body = req.body as {
       offsetHours?: unknown;
       source?: unknown;
+      customer?: unknown;
       newDispTz?: unknown;
     };
     const offsetHours = Number(body.offsetHours);
@@ -5463,6 +5549,15 @@ weeksRouter.post(
       body.source === "Driver" || body.source === "Customer"
         ? body.source
         : null;
+    // Optional per-customer scoping — when the dispatcher fixes a single
+    // customer feed's tz from the driver-detail header, they only want
+    // *that* customer's rows touched (not every Customer-source row on the
+    // driver-week). Compared case-insensitively to match how we persist
+    // and route customer names elsewhere.
+    const customerFilter =
+      typeof body.customer === "string" && body.customer.trim()
+        ? body.customer.trim()
+        : null;
     const newDispTz =
       typeof body.newDispTz === "string" && isAllowedTz(body.newDispTz)
         ? body.newDispTz
@@ -5472,6 +5567,11 @@ weeksRouter.post(
       eq(schema.punchesTable.kfiId, kfiId),
     ];
     if (sourceFilter) conds.push(eq(schema.punchesTable.source, sourceFilter));
+    if (customerFilter) {
+      conds.push(
+        sql`lower(${schema.punchesTable.customer}) = ${customerFilter.toLowerCase()}`,
+      );
+    }
     const rows = await db
       .select()
       .from(schema.punchesTable)

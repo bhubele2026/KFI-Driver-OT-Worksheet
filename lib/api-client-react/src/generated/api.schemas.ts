@@ -424,6 +424,13 @@ flagged `edited=true`). Drives a small indicator on the driver
 row in the week dashboard.
  */
   hasOverriddenDay: boolean;
+  /** True when at least one Customer-source punch on this driver-week
+has a `disp_tz` that differs from the driver's
+`effectiveDispTz`. Drives a small amber Globe indicator on the
+driver row in the week dashboard so a dispatcher can spot a
+timezone disagreement before opening the driver page.
+ */
+  hasCustomerTzMismatch?: boolean;
   /**
    * Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set.
    * @nullable
@@ -643,6 +650,19 @@ export const DriverWeekReviewStatus = {
   bad: "bad",
 } as const;
 
+export type DriverWeekCustomerTzsItem = {
+  customer: string;
+  dispTz: string;
+  punchCount: number;
+  /** True when this customer feed's `disp_tz` equals the driver's `effectiveDispTz`. */
+  matchesDriver: boolean;
+  /**
+   * The customer-level default from `customer_tz_preferences`, if set.
+   * @nullable
+   */
+  preferredDispTz: string | null;
+};
+
 export type DriverWeekConnecteamParityStatus =
   (typeof DriverWeekConnecteamParityStatus)[keyof typeof DriverWeekConnecteamParityStatus];
 
@@ -726,6 +746,13 @@ export interface DriverWeek {
   lockedAt?: string | null;
   /** @nullable */
   lockedByEmail?: string | null;
+  /** Per-customer summary of `disp_tz` values currently persisted on
+this driver-week's Customer-source punches. Drives the per-
+customer tz badges on the driver-detail header so the
+dispatcher can see at a glance when a customer feed is landing
+in a different tz than the driver default.
+ */
+  customerTzs?: DriverWeekCustomerTzsItem[];
   /** Per-day comparison of the engine's daily totals against the
 Connecteam-side daily totals snapshotted at the most recent
 /refresh-connecteam call for this driver-week. `status` is
@@ -1140,6 +1167,15 @@ export interface ConfirmCustomerFileInput {
   /** @minLength 1 */
   customer: string;
   sampleId: number;
+  /**
+   * Per-upload display-tz override (must be one of `ALLOWED_TZS`).
+Takes precedence over the per-customer default
+(`customer_tz_preferences`) and the per-driver fallback. Silently
+ignored when not a recognized tz.
+
+   * @nullable
+   */
+  dispTz?: string | null;
   /** Stable indices from the preview's `rows` array that the dispatcher chose to exclude. */
   excludedIndices?: number[];
   /** On-the-fly driver-id mappings the dispatcher created in the
@@ -1584,6 +1620,11 @@ export interface ShiftPunchesInput {
    * @nullable
    */
   source?: ShiftPunchesInputSource;
+  /**
+   * When set (and `source=Customer`), only rows whose `customer` matches this name (case-insensitive) are shifted. Lets the driver-detail "fix this customer's tz" action scope the shift to a single customer-source feed.
+   * @nullable
+   */
+  customer?: string | null;
   /**
    * If provided (and in `ALLOWED_TZS`), every shifted row is also restamped with this tz so future reads agree with the new wall-clock time.
    * @nullable

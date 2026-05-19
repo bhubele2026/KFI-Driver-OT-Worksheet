@@ -62,6 +62,7 @@ export * from "./driverWeekAuditEntryAction";
 export * from "./driverWeekConnecteamParity";
 export * from "./driverWeekConnecteamParityDaysItem";
 export * from "./driverWeekConnecteamParityStatus";
+export * from "./driverWeekCustomerTzsItem";
 export * from "./driverWeekLockState";
 export * from "./driverWeekReviewStatus";
 export * from "./driverWeekTotals";

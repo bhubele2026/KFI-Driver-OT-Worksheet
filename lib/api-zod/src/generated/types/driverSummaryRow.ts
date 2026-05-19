@@ -36,6 +36,13 @@ flagged `edited=true`). Drives a small indicator on the driver
 row in the week dashboard.
  */
   hasOverriddenDay: boolean;
+  /** True when at least one Customer-source punch on this driver-week
+has a `disp_tz` that differs from the driver's
+`effectiveDispTz`. Drives a small amber Globe indicator on the
+driver row in the week dashboard so a dispatcher can spot a
+timezone disagreement before opening the driver page.
+ */
+  hasCustomerTzMismatch?: boolean;
   /**
    * Per-driver display-tz override stored on `drivers.display_tz`. Null when no override set.
    * @nullable

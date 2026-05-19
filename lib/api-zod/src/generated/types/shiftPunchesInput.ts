@@ -16,6 +16,11 @@ export interface ShiftPunchesInput {
    */
   source?: ShiftPunchesInputSource;
   /**
+   * When set (and `source=Customer`), only rows whose `customer` matches this name (case-insensitive) are shifted. Lets the driver-detail "fix this customer's tz" action scope the shift to a single customer-source feed.
+   * @nullable
+   */
+  customer?: string | null;
+  /**
    * If provided (and in `ALLOWED_TZS`), every shifted row is also restamped with this tz so future reads agree with the new wall-clock time.
    * @nullable
    */
