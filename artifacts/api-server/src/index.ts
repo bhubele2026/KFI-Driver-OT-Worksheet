@@ -15,6 +15,7 @@ import { startAiExtractSampleCleanup } from "./lib/aiExtractSampleCleanup";
 import { startHiddenNotesDigest } from "./lib/hiddenNotesDigest";
 import { initIpBlocklist } from "./lib/ipBlocklist";
 import { startRealtimeHeartbeat } from "./lib/realtime";
+import { seedDriverPayrollProfiles } from "@workspace/db/seedDriverPayrollProfiles";
 
 if (process.env.NODE_ENV === "production") {
   if (!process.env.APP_BASE_URL && !process.env.REPLIT_DOMAINS) {
@@ -73,6 +74,26 @@ async function main() {
   startAiExtractSampleCleanup();
   startHiddenNotesDigest();
   startRealtimeHeartbeat();
+
+  void (async () => {
+    const client = await pool.connect();
+    try {
+      const exists = await client.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM information_schema.tables
+           WHERE table_name = 'driver_payroll_profiles'
+         ) AS exists`,
+      );
+      if (!exists.rows[0]?.exists) return;
+      const result = await seedDriverPayrollProfiles(client);
+      logger.info({ result }, "seedDriverPayrollProfiles complete");
+    } catch (err) {
+      logger.warn({ err }, "seedDriverPayrollProfiles failed");
+    } finally {
+      client.release();
+    }
+  })();
+
   setRateLimitEventSink((event) => {
     pool
       .query(

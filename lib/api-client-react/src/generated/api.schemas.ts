@@ -411,6 +411,85 @@ within 0.005h; `differ` = at least `diffCount` days diverge;
   connecteamParity?: DriverSummaryRowConnecteamParity;
 }
 
+export interface DriverPayrollProfile {
+  kfiId: string;
+  /** @nullable */
+  ssn?: string | null;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  personId?: number | null;
+  /** @nullable */
+  assignmentId?: number | null;
+  /** @nullable */
+  zenopleCustomer?: string | null;
+  /** @nullable */
+  rtPayRate?: number | null;
+  /** @nullable */
+  rtBillRate?: number | null;
+  /** @nullable */
+  otPayRate?: number | null;
+  /** @nullable */
+  otBillRate?: number | null;
+  /** @nullable */
+  driverRtPayRate?: number | null;
+  /** @nullable */
+  driverRtBillRate?: number | null;
+  /** @nullable */
+  driverOtPayRate?: number | null;
+  /** @nullable */
+  driverOtBillRate?: number | null;
+  /** @nullable */
+  updatedAt?: string | null;
+  /** @nullable */
+  updatedByEmail?: string | null;
+}
+
+export interface UpdateDriverPayrollProfileBody {
+  /** @nullable */
+  ssn?: string | null;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  personId?: number | null;
+  /** @nullable */
+  assignmentId?: number | null;
+  /** @nullable */
+  zenopleCustomer?: string | null;
+  /** @nullable */
+  rtPayRate?: number | null;
+  /** @nullable */
+  rtBillRate?: number | null;
+  /** @nullable */
+  otPayRate?: number | null;
+  /** @nullable */
+  otBillRate?: number | null;
+  /** @nullable */
+  driverRtPayRate?: number | null;
+  /** @nullable */
+  driverRtBillRate?: number | null;
+  /** @nullable */
+  driverOtPayRate?: number | null;
+  /** @nullable */
+  driverOtBillRate?: number | null;
+}
+
+export type ZenopleReadinessMissingProfileKfiIdsItem = {
+  kfiId: string;
+  name: string;
+  missing: string[];
+};
+
+export interface ZenopleReadiness {
+  ready: boolean;
+  weekEnd: string;
+  ppe: number;
+  driversTotal: number;
+  driversReady: number;
+  unreviewedKfiIds: string[];
+  missingProfileKfiIds: ZenopleReadinessMissingProfileKfiIdsItem[];
+}
+
 export type WeekSummaryTotals = {
   activeDrivers: number;
   driverHours: number;

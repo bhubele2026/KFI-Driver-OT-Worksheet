@@ -948,6 +948,118 @@ export const GetDriverWeekResponse = zod.object({
 });
 
 /**
+ * @summary Get the Zenople payroll profile (rates + ids) for a driver
+ */
+export const GetDriverPayrollProfileParams = zod.object({
+  kfiId: zod.coerce.string(),
+});
+
+export const GetDriverPayrollProfileResponse = zod.object({
+  kfiId: zod.string(),
+  ssn: zod.string().nullish(),
+  jobId: zod.number().nullish(),
+  personId: zod.number().nullish(),
+  assignmentId: zod.number().nullish(),
+  zenopleCustomer: zod.string().nullish(),
+  rtPayRate: zod.number().nullish(),
+  rtBillRate: zod.number().nullish(),
+  otPayRate: zod.number().nullish(),
+  otBillRate: zod.number().nullish(),
+  driverRtPayRate: zod.number().nullish(),
+  driverRtBillRate: zod.number().nullish(),
+  driverOtPayRate: zod.number().nullish(),
+  driverOtBillRate: zod.number().nullish(),
+  updatedAt: zod.coerce.date().nullish(),
+  updatedByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Replace the Zenople payroll profile for a driver (admin)
+ */
+export const UpdateDriverPayrollProfileParams = zod.object({
+  kfiId: zod.coerce.string(),
+});
+
+export const UpdateDriverPayrollProfileBody = zod.object({
+  ssn: zod.string().nullish(),
+  jobId: zod.number().nullish(),
+  personId: zod.number().nullish(),
+  assignmentId: zod.number().nullish(),
+  zenopleCustomer: zod.string().nullish(),
+  rtPayRate: zod.number().nullish(),
+  rtBillRate: zod.number().nullish(),
+  otPayRate: zod.number().nullish(),
+  otBillRate: zod.number().nullish(),
+  driverRtPayRate: zod.number().nullish(),
+  driverRtBillRate: zod.number().nullish(),
+  driverOtPayRate: zod.number().nullish(),
+  driverOtBillRate: zod.number().nullish(),
+});
+
+export const UpdateDriverPayrollProfileResponse = zod.object({
+  kfiId: zod.string(),
+  ssn: zod.string().nullish(),
+  jobId: zod.number().nullish(),
+  personId: zod.number().nullish(),
+  assignmentId: zod.number().nullish(),
+  zenopleCustomer: zod.string().nullish(),
+  rtPayRate: zod.number().nullish(),
+  rtBillRate: zod.number().nullish(),
+  otPayRate: zod.number().nullish(),
+  otBillRate: zod.number().nullish(),
+  driverRtPayRate: zod.number().nullish(),
+  driverRtBillRate: zod.number().nullish(),
+  driverOtPayRate: zod.number().nullish(),
+  driverOtBillRate: zod.number().nullish(),
+  updatedAt: zod.coerce.date().nullish(),
+  updatedByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Whether a Zenople export is allowed for this week and why (admin)
+ */
+export const getZenopleReadinessPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const GetZenopleReadinessParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(getZenopleReadinessPathWeekStartRegExp)
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
+});
+
+export const GetZenopleReadinessResponse = zod.object({
+  ready: zod.boolean(),
+  weekEnd: zod.string(),
+  ppe: zod.number(),
+  driversTotal: zod.number(),
+  driversReady: zod.number(),
+  unreviewedKfiIds: zod.array(zod.string()),
+  missingProfileKfiIds: zod.array(
+    zod.object({
+      kfiId: zod.string(),
+      name: zod.string(),
+      missing: zod.array(zod.string()),
+    }),
+  ),
+});
+
+/**
+ * @summary Download the Zenople xlsx for the week (admin). All drivers must be reviewed and have complete profiles.
+ */
+export const downloadZenopleExportPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const DownloadZenopleExportParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(downloadZenopleExportPathWeekStartRegExp)
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
+});
+
+/**
  * @summary List every Connecteam time-clock and flag any that aren't being pulled (admin)
  */
 export const AuditConnecteamTimeClocksResponse = zod.object({

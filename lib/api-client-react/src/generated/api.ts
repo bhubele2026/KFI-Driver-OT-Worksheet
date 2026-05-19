@@ -44,6 +44,7 @@ import type {
   DriverIdAliasList,
   DriverInfo,
   DriverNote,
+  DriverPayrollProfile,
   DriverWeek,
   DriverWeekAuditEntry,
   DriverWeekLockState,
@@ -94,6 +95,7 @@ import type {
   UpdateCustomerNameAliasBody,
   UpdateCustomerNameAliasParams,
   UpdateDriverIdAliasBody,
+  UpdateDriverPayrollProfileBody,
   UpdateDriverTimezoneInput,
   UpdateLanguageBody,
   UpdateUserBody,
@@ -103,6 +105,7 @@ import type {
   UserAuditLogEntry,
   Week,
   WeekSummary,
+  ZenopleReadiness,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -2926,6 +2929,368 @@ export function useGetDriverWeek<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetDriverWeekQueryOptions(weekStart, kfiId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get the Zenople payroll profile (rates + ids) for a driver
+ */
+export const getGetDriverPayrollProfileUrl = (kfiId: string) => {
+  return `/api/drivers/${kfiId}/payroll-profile`;
+};
+
+export const getDriverPayrollProfile = async (
+  kfiId: string,
+  options?: RequestInit,
+): Promise<DriverPayrollProfile> => {
+  return customFetch<DriverPayrollProfile>(
+    getGetDriverPayrollProfileUrl(kfiId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetDriverPayrollProfileQueryKey = (kfiId: string) => {
+  return [`/api/drivers/${kfiId}/payroll-profile`] as const;
+};
+
+export const getGetDriverPayrollProfileQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDriverPayrollProfile>>,
+  TError = ErrorType<unknown>,
+>(
+  kfiId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDriverPayrollProfile>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetDriverPayrollProfileQueryKey(kfiId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDriverPayrollProfile>>
+  > = ({ signal }) =>
+    getDriverPayrollProfile(kfiId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!kfiId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDriverPayrollProfile>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDriverPayrollProfileQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDriverPayrollProfile>>
+>;
+export type GetDriverPayrollProfileQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get the Zenople payroll profile (rates + ids) for a driver
+ */
+
+export function useGetDriverPayrollProfile<
+  TData = Awaited<ReturnType<typeof getDriverPayrollProfile>>,
+  TError = ErrorType<unknown>,
+>(
+  kfiId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDriverPayrollProfile>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDriverPayrollProfileQueryOptions(kfiId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Replace the Zenople payroll profile for a driver (admin)
+ */
+export const getUpdateDriverPayrollProfileUrl = (kfiId: string) => {
+  return `/api/drivers/${kfiId}/payroll-profile`;
+};
+
+export const updateDriverPayrollProfile = async (
+  kfiId: string,
+  updateDriverPayrollProfileBody: UpdateDriverPayrollProfileBody,
+  options?: RequestInit,
+): Promise<DriverPayrollProfile> => {
+  return customFetch<DriverPayrollProfile>(
+    getUpdateDriverPayrollProfileUrl(kfiId),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(updateDriverPayrollProfileBody),
+    },
+  );
+};
+
+export const getUpdateDriverPayrollProfileMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDriverPayrollProfile>>,
+    TError,
+    { kfiId: string; data: BodyType<UpdateDriverPayrollProfileBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateDriverPayrollProfile>>,
+  TError,
+  { kfiId: string; data: BodyType<UpdateDriverPayrollProfileBody> },
+  TContext
+> => {
+  const mutationKey = ["updateDriverPayrollProfile"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateDriverPayrollProfile>>,
+    { kfiId: string; data: BodyType<UpdateDriverPayrollProfileBody> }
+  > = (props) => {
+    const { kfiId, data } = props ?? {};
+
+    return updateDriverPayrollProfile(kfiId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateDriverPayrollProfileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateDriverPayrollProfile>>
+>;
+export type UpdateDriverPayrollProfileMutationBody =
+  BodyType<UpdateDriverPayrollProfileBody>;
+export type UpdateDriverPayrollProfileMutationError = ErrorType<void>;
+
+/**
+ * @summary Replace the Zenople payroll profile for a driver (admin)
+ */
+export const useUpdateDriverPayrollProfile = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDriverPayrollProfile>>,
+    TError,
+    { kfiId: string; data: BodyType<UpdateDriverPayrollProfileBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateDriverPayrollProfile>>,
+  TError,
+  { kfiId: string; data: BodyType<UpdateDriverPayrollProfileBody> },
+  TContext
+> => {
+  return useMutation(getUpdateDriverPayrollProfileMutationOptions(options));
+};
+
+/**
+ * @summary Whether a Zenople export is allowed for this week and why (admin)
+ */
+export const getGetZenopleReadinessUrl = (weekStart: string) => {
+  return `/api/weeks/${weekStart}/zenople-readiness`;
+};
+
+export const getZenopleReadiness = async (
+  weekStart: string,
+  options?: RequestInit,
+): Promise<ZenopleReadiness> => {
+  return customFetch<ZenopleReadiness>(getGetZenopleReadinessUrl(weekStart), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetZenopleReadinessQueryKey = (weekStart: string) => {
+  return [`/api/weeks/${weekStart}/zenople-readiness`] as const;
+};
+
+export const getGetZenopleReadinessQueryOptions = <
+  TData = Awaited<ReturnType<typeof getZenopleReadiness>>,
+  TError = ErrorType<void>,
+>(
+  weekStart: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getZenopleReadiness>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetZenopleReadinessQueryKey(weekStart);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getZenopleReadiness>>
+  > = ({ signal }) =>
+    getZenopleReadiness(weekStart, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!weekStart,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getZenopleReadiness>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetZenopleReadinessQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getZenopleReadiness>>
+>;
+export type GetZenopleReadinessQueryError = ErrorType<void>;
+
+/**
+ * @summary Whether a Zenople export is allowed for this week and why (admin)
+ */
+
+export function useGetZenopleReadiness<
+  TData = Awaited<ReturnType<typeof getZenopleReadiness>>,
+  TError = ErrorType<void>,
+>(
+  weekStart: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getZenopleReadiness>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetZenopleReadinessQueryOptions(weekStart, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Download the Zenople xlsx for the week (admin). All drivers must be reviewed and have complete profiles.
+ */
+export const getDownloadZenopleExportUrl = (weekStart: string) => {
+  return `/api/weeks/${weekStart}/zenople-export`;
+};
+
+export const downloadZenopleExport = async (
+  weekStart: string,
+  options?: RequestInit,
+): Promise<Blob> => {
+  return customFetch<Blob>(getDownloadZenopleExportUrl(weekStart), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getDownloadZenopleExportQueryKey = (weekStart: string) => {
+  return [`/api/weeks/${weekStart}/zenople-export`] as const;
+};
+
+export const getDownloadZenopleExportQueryOptions = <
+  TData = Awaited<ReturnType<typeof downloadZenopleExport>>,
+  TError = ErrorType<void | ZenopleReadiness>,
+>(
+  weekStart: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof downloadZenopleExport>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getDownloadZenopleExportQueryKey(weekStart);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof downloadZenopleExport>>
+  > = ({ signal }) =>
+    downloadZenopleExport(weekStart, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!weekStart,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof downloadZenopleExport>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type DownloadZenopleExportQueryResult = NonNullable<
+  Awaited<ReturnType<typeof downloadZenopleExport>>
+>;
+export type DownloadZenopleExportQueryError =
+  ErrorType<void | ZenopleReadiness>;
+
+/**
+ * @summary Download the Zenople xlsx for the week (admin). All drivers must be reviewed and have complete profiles.
+ */
+
+export function useDownloadZenopleExport<
+  TData = Awaited<ReturnType<typeof downloadZenopleExport>>,
+  TError = ErrorType<void | ZenopleReadiness>,
+>(
+  weekStart: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof downloadZenopleExport>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getDownloadZenopleExportQueryOptions(weekStart, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

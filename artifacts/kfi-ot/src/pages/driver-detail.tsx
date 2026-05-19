@@ -28,6 +28,9 @@ import {
   getGetWeekSummaryQueryKey,
   getGetDriverWeekAuditQueryKey,
   getListDriverNotesQueryKey,
+  useGetDriverPayrollProfile,
+  useUpdateDriverPayrollProfile,
+  getGetDriverPayrollProfileQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -63,6 +66,7 @@ import { EditingIndicator } from "@/components/editing-indicator";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
 import { usePresence } from "@/hooks/use-presence";
 import { useEditingLock } from "@/hooks/use-editing-lock";
+import { PayrollProfileCard } from "@/components/payroll-profile-card";
 
 const OT_THRESHOLD = 40;
 
@@ -1519,6 +1523,9 @@ export default function DriverDetail() {
           totals={data.totals}
           connecteamParity={data.connecteamParity ?? null}
         />
+
+        {/* Zenople pay & bill rates (admin-edit) */}
+        <PayrollProfileCard kfiId={kfiId} canEdit={!!me?.isAdmin} />
 
         {/* Punch table */}
         <Card id="notes" data-testid="card-driver-notes">

@@ -131,6 +131,20 @@ export function useLiveUpdates({
             }
             break;
 
+          case "payroll-profile":
+            // A different dispatcher updated the pay/bill rates on a driver;
+            // refresh the rates card and the week's readiness banner so the
+            // Export to Zenople button updates without a manual reload.
+            qc.invalidateQueries({
+              queryKey: [`/api/drivers/${event.kfiId}/payroll-profile`],
+            });
+            if (weekStart) {
+              qc.invalidateQueries({
+                queryKey: [`/api/weeks/${weekStart}/zenople-readiness`],
+              });
+            }
+            break;
+
           case "note-changed":
             qc.invalidateQueries({
               queryKey: getListDriverNotesQueryKey(event.weekStart, event.kfiId),

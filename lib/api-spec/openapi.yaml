@@ -590,6 +590,75 @@ paths:
               schema: { $ref: "#/components/schemas/DriverWeek" }
         "404": { description: Driver not found for week }
 
+  /drivers/{kfiId}/payroll-profile:
+    get:
+      operationId: getDriverPayrollProfile
+      tags: [drivers]
+      summary: Get the Zenople payroll profile (rates + ids) for a driver
+      parameters:
+        - $ref: "#/components/parameters/KfiId"
+      responses:
+        "200":
+          description: Driver payroll profile (always returns; fields may be null)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DriverPayrollProfile" }
+    patch:
+      operationId: updateDriverPayrollProfile
+      tags: [drivers]
+      summary: Replace the Zenople payroll profile for a driver (admin)
+      parameters:
+        - $ref: "#/components/parameters/KfiId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateDriverPayrollProfileBody" }
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DriverPayrollProfile" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+        "404": { description: Driver not found }
+
+  /weeks/{weekStart}/zenople-readiness:
+    get:
+      operationId: getZenopleReadiness
+      tags: [weeks]
+      summary: Whether a Zenople export is allowed for this week and why (admin)
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+      responses:
+        "200":
+          description: Readiness report (always 200; `ready=false` carries reasons)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ZenopleReadiness" }
+        "403": { description: Admin only }
+
+  /weeks/{weekStart}/zenople-export:
+    get:
+      operationId: downloadZenopleExport
+      tags: [weeks]
+      summary: Download the Zenople xlsx for the week (admin). All drivers must be reviewed and have complete profiles.
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+      responses:
+        "200":
+          description: xlsx file stream
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        "403": { description: Admin only }
+        "409":
+          description: Week is not ready for export (see /zenople-readiness for reasons)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ZenopleReadiness" }
+
   /admin/connecteam/time-clocks-audit:
     get:
       operationId: auditConnecteamTimeClocks
@@ -1962,6 +2031,77 @@ components:
             diffCount:
               type: integer
               description: Number of days that diverge from the Connecteam baseline. Always 0 when status is `match` or `unknown`.
+
+    DriverPayrollProfile:
+      type: object
+      required: [kfiId]
+      properties:
+        kfiId: { type: string }
+        ssn: { type: ["string", "null"] }
+        jobId: { type: ["integer", "null"] }
+        personId: { type: ["integer", "null"] }
+        assignmentId: { type: ["integer", "null"] }
+        zenopleCustomer: { type: ["string", "null"] }
+        rtPayRate: { type: ["number", "null"] }
+        rtBillRate: { type: ["number", "null"] }
+        otPayRate: { type: ["number", "null"] }
+        otBillRate: { type: ["number", "null"] }
+        driverRtPayRate: { type: ["number", "null"] }
+        driverRtBillRate: { type: ["number", "null"] }
+        driverOtPayRate: { type: ["number", "null"] }
+        driverOtBillRate: { type: ["number", "null"] }
+        updatedAt: { type: ["string", "null"], format: date-time }
+        updatedByEmail: { type: ["string", "null"] }
+
+    UpdateDriverPayrollProfileBody:
+      type: object
+      properties:
+        ssn: { type: ["string", "null"] }
+        jobId: { type: ["integer", "null"] }
+        personId: { type: ["integer", "null"] }
+        assignmentId: { type: ["integer", "null"] }
+        zenopleCustomer: { type: ["string", "null"] }
+        rtPayRate: { type: ["number", "null"] }
+        rtBillRate: { type: ["number", "null"] }
+        otPayRate: { type: ["number", "null"] }
+        otBillRate: { type: ["number", "null"] }
+        driverRtPayRate: { type: ["number", "null"] }
+        driverRtBillRate: { type: ["number", "null"] }
+        driverOtPayRate: { type: ["number", "null"] }
+        driverOtBillRate: { type: ["number", "null"] }
+
+    ZenopleReadiness:
+      type: object
+      required:
+        [
+          ready,
+          weekEnd,
+          ppe,
+          driversTotal,
+          driversReady,
+          unreviewedKfiIds,
+          missingProfileKfiIds,
+        ]
+      properties:
+        ready: { type: boolean }
+        weekEnd: { type: string }
+        ppe: { type: integer }
+        driversTotal: { type: integer }
+        driversReady: { type: integer }
+        unreviewedKfiIds:
+          type: array
+          items: { type: string }
+        missingProfileKfiIds:
+          type: array
+          items:
+            type: object
+            required: [kfiId, name, missing]
+            properties:
+              kfiId: { type: string }
+              name: { type: string }
+              missing:
+                type: array
+                items: { type: string }
 
     WeekSummary:
       type: object

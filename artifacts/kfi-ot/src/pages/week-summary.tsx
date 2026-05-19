@@ -11,8 +11,11 @@ import {
   useGetMe,
   getGetMeQueryKey,
   useSetReviewed,
+  useGetZenopleReadiness,
+  getDownloadZenopleExportUrl,
 } from "@workspace/api-client-react";
 import { CustomerUploadPanel } from "@/components/customer-upload-panel";
+import { ZenopleExportButton } from "@/components/zenople-export-button";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
 import { ReviewedPill } from "@/components/reviewed-pill";
 import { AllReviewedSplash } from "@/components/all-reviewed-splash";
@@ -531,6 +534,9 @@ export default function WeekSummary() {
                 )}
                 {t("weekSummary.refreshConnecteam")}
               </Button>
+              {me?.isAdmin ? (
+                <ZenopleExportButton weekStart={weekStart} />
+              ) : null}
             </div>
           </div>
 

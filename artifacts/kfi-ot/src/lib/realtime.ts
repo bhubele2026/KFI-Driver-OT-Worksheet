@@ -55,6 +55,7 @@ export type RealtimeEvent =
       action: "create" | "soft-delete" | "restore";
       actor: ActorRef | null;
     }
+  | { type: "payroll-profile"; kfiId: string; actor: ActorRef | null }
   | { type: "presence"; weekStart: string; viewers: PresenceViewer[] }
   | {
       type: "editing";

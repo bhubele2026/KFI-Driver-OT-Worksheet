@@ -64,6 +64,11 @@ export type RealtimeEvent =
       viewers: PresenceViewer[];
     }
   | {
+      type: "payroll-profile";
+      kfiId: string;
+      actor: ActorRef | null;
+    }
+  | {
       type: "editing";
       weekStart: string;
       kfiId: string;

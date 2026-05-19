@@ -21,8 +21,13 @@ if (!DATABASE_URL) {
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
-const WEEK_START = "2031-05-12";
-const WEEK_END = "2031-05-18";
+// Payroll weeks are Sunday-anchored (see lib/time.ts sundayOf). The day's
+// scale-hours route snaps the URL weekStart to a Sunday before loading
+// punches, so the seed week_start must also land on a Sunday or the punches
+// won't be visible to the route. 2031-05-11 is the Sunday; PUNCH_DATE stays
+// inside the week (Monday).
+const WEEK_START = "2031-05-11";
+const WEEK_END = "2031-05-17";
 const PUNCH_DATE = "2031-05-12";
 const SUFFIX = `e2e-sdt-${Date.now().toString(36)}`;
 const DRIVER = {
