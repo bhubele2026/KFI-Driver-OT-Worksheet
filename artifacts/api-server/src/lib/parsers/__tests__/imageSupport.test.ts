@@ -29,7 +29,12 @@ import {
   isImageMime,
   normalizeImageBuffer,
   convertHeicToJpeg,
+  extractImageForKnownCustomer,
 } from "../imageSupport.js";
+import {
+  __pushAiExtractStub,
+  __clearAiExtractStubs,
+} from "../aiExtract.js";
 
 test("imageExtension recognizes all 6 image extensions, case-insensitively", () => {
   for (const ext of IMAGE_EXTENSIONS) {
@@ -112,6 +117,94 @@ test("convertHeicToJpeg rejects non-HEIC bytes with a clear error", async () => 
     () => convertHeicToJpeg(garbage),
     /./, // any error — we just need to know it didn't swallow the input
   );
+});
+
+test("extractImageForKnownCustomer: stashes pendingNamedRows for unresolved AI rows", async () => {
+  // AI returned 2 rows but neither has a kfiId in the roster, no name
+  // alias, and the only roster driver is too dissimilar for fuzzy match.
+  // Expectation: both rows surface as unmappedIds (so the picker shows
+  // them) AND as pendingNamedRows (so /confirm-customer-file can
+  // re-resolve them after the dispatcher picks a driver).
+  __pushAiExtractStub([
+    {
+      driverNameOnDoc: "Zzz Nobody",
+      badgeOrId: null,
+      date: "2026-05-10",
+      timeIn: "8:00 AM",
+      timeOut: "4:30 PM",
+      hours: 8.5,
+    },
+    {
+      driverNameOnDoc: "Other Unknown",
+      badgeOrId: null,
+      date: "2026-05-11",
+      timeIn: "7:00 AM",
+      timeOut: "3:30 PM",
+      hours: 8.5,
+    },
+  ]);
+  try {
+    const result = await extractImageForKnownCustomer({
+      fileName: "schuette.jpg",
+      buffer: Buffer.from([0xff, 0xd8]),
+      mimeType: "image/jpeg",
+      customer: "Schuette Metals",
+      weekStart: "2026-05-10",
+      weekEnd: "2026-05-16",
+      idMap: {},
+      drivers: [{ kfiId: "K001", name: "Aaron Smith", customer: null }],
+      kfiSet: new Set(["K001"]),
+    });
+    assert.equal(result.punches.length, 0);
+    assert.equal(result.unmappedIds.length, 2);
+    assert.equal(result.pendingNamedRows?.length, 2);
+    assert.equal(result.pendingNamedRows?.[0].driverNameOnDoc, "Zzz Nobody");
+    assert.equal(result.pendingNamedRows?.[0].timeIn, "8:00 AM");
+    // Every unmappedId for a no-badge row uses the `name:` prefix so the
+    // confirm route can partition picker decisions correctly.
+    assert.ok(result.unmappedIds.every((u) => u.id.startsWith("name:")));
+  } finally {
+    __clearAiExtractStubs();
+  }
+});
+
+test("extractImageForKnownCustomer: nameAliasMap auto-resolves named rows before fuzzy", async () => {
+  // Even when fuzzy would pick a different (or no) driver, an explicit
+  // dispatcher-saved alias wins.
+  __pushAiExtractStub([
+    {
+      driverNameOnDoc: "Cole Hayek",
+      badgeOrId: null,
+      date: "2026-05-10",
+      timeIn: "8:00 AM",
+      timeOut: "4:30 PM",
+      hours: 8.5,
+    },
+  ]);
+  try {
+    const aliasMap = new Map<string, string>([["cole hayek", "K123"]]);
+    const result = await extractImageForKnownCustomer({
+      fileName: "schuette.jpg",
+      buffer: Buffer.from([0xff, 0xd8]),
+      mimeType: "image/jpeg",
+      customer: "Schuette Metals",
+      weekStart: "2026-05-10",
+      weekEnd: "2026-05-16",
+      idMap: {},
+      drivers: [
+        { kfiId: "K123", name: "Totally Different Name", customer: null },
+        { kfiId: "K999", name: "Someone Else", customer: null },
+      ],
+      kfiSet: new Set(["K123", "K999"]),
+      nameAliasMap: aliasMap,
+    });
+    assert.equal(result.punches.length, 1);
+    assert.equal(result.punches[0].kfiId, "K123");
+    assert.equal(result.unmappedIds.length, 0);
+    assert.equal(result.pendingNamedRows?.length, 0);
+  } finally {
+    __clearAiExtractStubs();
+  }
 });
 
 test("normalizeImageBuffer routes HEIC/HEIF through convertHeicToJpeg", async () => {

@@ -28,6 +28,21 @@ export interface StashedExtractedPunch {
   noTz?: boolean;
 }
 
+/**
+ * AI rows the extractor could NOT resolve to a kfiId before stash time.
+ * /confirm-customer-file re-resolves these against the just-written
+ * customer_name_aliases / driver_id_aliases (driven by the dispatcher's
+ * picker) and appends any newly-resolved punches to the import.
+ */
+export interface PendingNamedRow {
+  driverNameOnDoc: string;
+  badgeOrId: string | null;
+  date: string;
+  timeIn: string | null;
+  timeOut: string | null;
+  hours: number | null;
+}
+
 // Stashed copy of every AI-extracted customer file so an engineer can use it
 // as a fixture when promoting the customer to a deterministic parser.
 //
@@ -57,6 +72,7 @@ export const aiExtractSamplesTable = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     pinned: boolean("pinned").notNull().default(false),
     extractedRows: jsonb("extracted_rows").$type<StashedExtractedPunch[]>(),
+    pendingNamedRows: jsonb("pending_named_rows").$type<PendingNamedRow[]>(),
   },
   (t) => [
     index("ai_extract_samples_customer_idx").on(t.customer),

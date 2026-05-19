@@ -367,8 +367,9 @@ export function CustomerPreviewDialog({
                             : "(no name on doc)"}
                         </span>
                         <span className="font-mono text-[10px] text-muted-foreground">
-                          {u.id} · {u.count}{" "}
-                          {u.count === 1 ? "row" : "rows"}
+                          {u.id.startsWith("name:")
+                            ? `${u.count} ${u.count === 1 ? "row" : "rows"}`
+                            : `${u.id} · ${u.count} ${u.count === 1 ? "row" : "rows"}`}
                         </span>
                       </div>
                       <div className="flex-1 min-w-[240px]">
@@ -502,6 +503,9 @@ export function CustomerPreviewDialog({
             {includedCount} of {preview.rows.length}{" "}
             {preview.rows.length === 1 ? "row" : "rows"} selected
             {excluded.size > 0 ? ` · ${excluded.size} excluded` : ""}
+            {mappedCount > 0
+              ? ` · + ${mappedCount} from picked ${mappedCount === 1 ? "driver" : "drivers"}`
+              : ""}
           </div>
           <div className="flex gap-2">
             <Button
@@ -514,7 +518,10 @@ export function CustomerPreviewDialog({
             </Button>
             <Button
               onClick={onConfirm}
-              disabled={confirmMutation.isPending || includedCount === 0}
+              disabled={
+                confirmMutation.isPending ||
+                (includedCount === 0 && mappedCount === 0)
+              }
               data-testid="button-confirm-import"
             >
               {confirmMutation.isPending ? (

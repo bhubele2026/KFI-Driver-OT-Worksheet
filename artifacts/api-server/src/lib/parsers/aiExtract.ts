@@ -268,6 +268,25 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   return pages.join("\n\n").slice(0, 200_000);
 }
 
+// Test-only stub queue. When non-empty, the next `aiExtractRows` call
+// pops and returns the head instead of invoking Gemini. Lets unit tests
+// drive `extractImageForKnownCustomer` deterministically without an
+// external dependency. Production code never touches this — there's no
+// public push API except the test helper below, and it's gated on
+// `NODE_ENV !== "production"` in `aiExtractRows`.
+const _aiStubQueue: AiExtractedRow[][] = [];
+/** @internal test seam — push rows the next `aiExtractRows` call should return. */
+export function __pushAiExtractStub(rows: AiExtractedRow[]): void {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("__pushAiExtractStub is a test seam — not callable in production");
+  }
+  _aiStubQueue.push(rows);
+}
+/** @internal test seam — clear any unused stubs (e.g. teardown). */
+export function __clearAiExtractStubs(): void {
+  _aiStubQueue.length = 0;
+}
+
 export async function aiExtractRows(
   fileName: string,
   buffer: Buffer,
@@ -277,6 +296,16 @@ export async function aiExtractRows(
   mimeType?: string,
   log?: SalvageLogger,
 ): Promise<AiExtractedRow[]> {
+  if (
+    process.env.NODE_ENV !== "production" &&
+    _aiStubQueue.length > 0
+  ) {
+    const stubbed = _aiStubQueue.shift()!;
+    return stubbed.map((r) => ({
+      ...r,
+      driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
+    }));
+  }
   const ai = getGeminiClient();
   const lower = fileName.toLowerCase();
   const isPdf = lower.endsWith(".pdf");

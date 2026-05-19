@@ -140,6 +140,29 @@ async function loadIgnoredExternalIds(
   return new Set(rows.map((r) => r.externalId.toLowerCase()));
 }
 
+/**
+ * Returns a lowercased `nameOnDoc → kfiId` map for the given customer's
+ * persisted picker decisions. Used by the AI image extractor so a
+ * dispatcher's earlier "Cole Hayek → K123" pick auto-resolves on every
+ * subsequent upload, no picker re-prompt needed.
+ */
+async function loadCustomerNameAliasMap(
+  customer: string,
+): Promise<Map<string, string>> {
+  const rows = await db
+    .select({
+      nameOnDoc: schema.customerNameAliasesTable.nameOnDoc,
+      kfiId: schema.customerNameAliasesTable.kfiId,
+    })
+    .from(schema.customerNameAliasesTable)
+    .where(
+      sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+    );
+  const out = new Map<string, string>();
+  for (const r of rows) out.set(r.nameOnDoc.toLowerCase(), r.kfiId);
+  return out;
+}
+
 async function loadMergedIdMap(): Promise<Record<string, string>> {
   const rows = await db
     .select({
@@ -1491,6 +1514,7 @@ weeksRouter.post(
         stashedImageBuffer = bufferForAi;
         stashedImageMime = mimeForAi;
         const idMap = await loadMergedIdMap();
+        const nameAliasMap = await loadCustomerNameAliasMap(detected);
         result = await extractImageForKnownCustomer({
           fileName,
           buffer: bufferForAi,
@@ -1501,6 +1525,7 @@ weeksRouter.post(
           idMap,
           drivers,
           kfiSet,
+          nameAliasMap,
           log: req.log,
         });
         stashedImageRows = imagePunchesForStash(result.punches);
@@ -1543,6 +1568,7 @@ weeksRouter.post(
         // to AI with the explicit customer so the upload still succeeds.
         if (!result && explicitCustomer) {
           const idMap = await loadMergedIdMap();
+          const nameAliasMap = await loadCustomerNameAliasMap(explicitCustomer);
           result = await extractImageForKnownCustomer({
             fileName,
             buffer: req.file.buffer,
@@ -1553,6 +1579,7 @@ weeksRouter.post(
             idMap,
             drivers,
             kfiSet,
+            nameAliasMap,
             log: req.log,
           });
           stashedImageRows = imagePunchesForStash(result.punches);
@@ -1604,7 +1631,9 @@ weeksRouter.post(
     ): string => {
       const lead = `Detected customer "${customerName}" but parsed 0 punches`;
       const tail =
-        " Open Admin → Driver ID aliases to add the missing IDs, or upload a file whose name contains the right customer keyword if the wrong customer was detected.";
+        origin === "ai"
+          ? " Use the preview dialog's per-row picker to map names to drivers (your picks are saved for next week), or upload a file whose name contains the right customer keyword if the wrong customer was detected."
+          : " Open Admin → Driver ID aliases to add the missing IDs, or upload a file whose name contains the right customer keyword if the wrong customer was detected.";
       const parts: string[] = [];
       if (diagnostics && diagnostics.rawRowCount > 0) {
         parts.push(`${origin === "ai" ? "AI" : "Parser"} read ${diagnostics.rawRowCount} row(s)`);
@@ -1646,6 +1675,8 @@ weeksRouter.post(
       const detectedCustomer = result.customer;
       try {
         const idMap = await loadMergedIdMap();
+        const nameAliasMap =
+          await loadCustomerNameAliasMap(detectedCustomer);
         const aiResult = await extractImageForKnownCustomer({
           fileName,
           buffer: req.file.buffer,
@@ -1656,6 +1687,7 @@ weeksRouter.post(
           idMap,
           drivers,
           kfiSet,
+          nameAliasMap,
           log: req.log,
         });
         if (aiResult.punches.length === 0) {
@@ -1688,22 +1720,50 @@ weeksRouter.post(
         return;
       }
     }
+    // Origin label drives the dispatcher-facing copy + the recordAttempt
+    // audit row. AI any time we ran the model — either upfront (image, or
+    // explicit-customer + extension mismatch) or as a fallback after a
+    // deterministic parser returned 0.
+    const origin: "parser" | "ai" = aiFallback || useAiUpfront ? "ai" : "parser";
     if (result.punches.length === 0) {
-      // Image branch only: AI returned zero rows. (Deterministic-parser
-      // zero is handled above via the AI-fallback branch.)
-      req.log.warn(
-        { fileName, customer: result.customer, diagnostics: result.diagnostics },
-        "Customer file parsed to zero punches (extract)",
+      const rawRowCount = result.diagnostics?.rawRowCount ?? 0;
+      // AI path with rows in hand but nothing resolved to a kfiId: don't
+      // 400. Stash + return the preview with empty rows and the unmapped
+      // name suggestions so the dispatcher can map names → drivers in the
+      // picker. /confirm-customer-file re-resolves the stashed pending
+      // rows against the just-written aliases. This is the whole point of
+      // the AI-only-customer flow (e.g. Schuette Metals photos): the
+      // model can read the names but doesn't know KFI ids until the
+      // dispatcher tells it.
+      const isAiWithRows =
+        origin === "ai" && rawRowCount > 0 && (result.unmappedIds.length > 0);
+      if (!isAiWithRows) {
+        req.log.warn(
+          { fileName, customer: result.customer, diagnostics: result.diagnostics },
+          "Customer file parsed to zero punches (extract)",
+        );
+        const msg = explainZeroPunches(
+          result.customer,
+          result.unmappedIds,
+          result.diagnostics,
+          origin,
+        );
+        await recordAttempt(startDate, result.customer, fileName, msg, origin);
+        res.status(400).json({ error: msg });
+        return;
+      }
+      // Fall through: existing preview-payload code path handles the
+      // zero-rows + populated-unmappedIds case fine (rows array will be
+      // empty, picker drives confirm-side re-resolution).
+      req.log.info(
+        {
+          fileName,
+          customer: result.customer,
+          rawRowCount,
+          unmapped: result.unmappedIds.length,
+        },
+        "AI extracted rows but nothing auto-resolved — returning picker preview",
       );
-      const msg = explainZeroPunches(
-        result.customer,
-        result.unmappedIds,
-        result.diagnostics,
-        isImage ? "ai" : "parser",
-      );
-      await recordAttempt(startDate, result.customer, fileName, msg, isImage ? "ai" : "parser");
-      res.status(400).json({ error: msg });
-      return;
     }
 
     // Count existing customer-source rows for this (week, customer) that
@@ -1753,6 +1813,14 @@ weeksRouter.post(
         // resolved rows so /confirm-customer-file replays them exactly
         // instead of re-running the (non-deterministic) AI extractor.
         extractedRows: stashedImageRows,
+        // AI rows the extractor couldn't resolve to a kfiId. The confirm
+        // route re-resolves these against the just-written
+        // customer_name_aliases / driver_id_aliases so a dispatcher's
+        // picks on AI-only customers actually import punches.
+        pendingNamedRows:
+          origin === "ai" && result.pendingNamedRows
+            ? result.pendingNamedRows
+            : null,
       })
       .returning({ id: schema.aiExtractSamplesTable.id });
 
@@ -1927,8 +1995,14 @@ weeksRouter.post(
     // extractor is non-deterministic, so we can't re-derive them here). For
     // every other sample we re-run the deterministic parser against the
     // stashed bytes.
+    //
+    // Either of `extractedRows` (rows the AI auto-resolved) or
+    // `pendingNamedRows` (rows it couldn't but the dispatcher will map via
+    // the picker) being populated marks this as an AI sample. Otherwise
+    // it's a deterministic-parser sample.
     const sampleSource: "parser" | "ai" =
-      sample.extractedRows && sample.extractedRows.length > 0
+      (sample.extractedRows && sample.extractedRows.length > 0) ||
+      (sample.pendingNamedRows && sample.pendingNamedRows.length > 0)
         ? "ai"
         : "parser";
 
@@ -1943,11 +2017,15 @@ weeksRouter.post(
     // the active roster — silently dropping unknown picks would let a stale
     // UI write a broken alias. The actual upsert + re-parse + commit all
     // happen inside the punch transaction below so a parse failure rolls
-    // back the alias writes too (no orphan rows). For AI samples there is
-    // nothing to re-parse, so the picker is moot and cleanedAliases stays
-    // empty — the upsert loop below is then a no-op.
-    const requestedAliases =
-      sampleSource === "ai" ? [] : (parsed.data.mapNewAliases ?? []);
+    // back the alias writes too (no orphan rows).
+    //
+    // For AI samples the picker drives BOTH directions:
+    //   • Picks whose externalId starts with `name:` are name-on-doc rows
+    //     the AI extractor couldn't resolve — they go to
+    //     `customer_name_aliases` so next week's photo auto-resolves.
+    //   • Picks with any other externalId are badge / employee numbers and
+    //     go to `driver_id_aliases` exactly like deterministic-parser picks.
+    const requestedAliases = parsed.data.mapNewAliases ?? [];
     const cleanedAliases = requestedAliases
       .map((a) => ({
         externalId: a.externalId.trim(),
@@ -1955,6 +2033,17 @@ weeksRouter.post(
         sampleName: a.sampleName?.trim() || null,
       }))
       .filter((a) => a.externalId && a.kfiId && kfiSet.has(a.kfiId));
+    const NAME_PREFIX = "name:";
+    const cleanedNameAliases = cleanedAliases
+      .filter((a) => a.externalId.toLowerCase().startsWith(NAME_PREFIX))
+      .map((a) => ({
+        nameOnDoc: a.externalId.slice(NAME_PREFIX.length).trim(),
+        kfiId: a.kfiId,
+      }))
+      .filter((a) => a.nameOnDoc.length > 0);
+    const cleanedBadgeAliases = cleanedAliases.filter(
+      (a) => !a.externalId.toLowerCase().startsWith(NAME_PREFIX),
+    );
 
     // Dispatcher's "not a driver — never import for this customer" picks.
     // Persisted inside the same tx as the punch commit so a failure rolls
@@ -1982,13 +2071,18 @@ weeksRouter.post(
       punches: schema.StashedExtractedPunch[];
       unmappedIds: schema.UnmappedIdEntry[];
     };
-    if (sampleSource === "ai" && sample.extractedRows) {
+    if (sampleSource === "ai") {
       // AI-extracted samples (image uploads) already have fully-resolved
-      // rows. The probe-parse only exists to validate the file still parses
-      // to the expected customer; for AI samples we trust the stash.
+      // rows (extractedRows) plus any pendingNamedRows the dispatcher
+      // will resolve via the picker. The probe-parse only exists to
+      // validate the file still parses to the expected customer; for AI
+      // samples we trust the stash. extractedRows can be empty when
+      // every row needed dispatcher mapping (e.g. first-ever Schuette
+      // Metals upload) — that's fine, the tx body builds the full set
+      // from extractedRows + re-resolved pendingNamedRows.
       result = {
         customer: sample.customer,
-        punches: sample.extractedRows,
+        punches: sample.extractedRows ?? [],
         unmappedIds: [],
       };
     } else {
@@ -2034,10 +2128,11 @@ weeksRouter.post(
 
     try {
       await db.transaction(async (tx) => {
-        // (1) Upsert dispatcher's picker mappings INSIDE the tx so a later
-        // failure rolls them back. They're visible to the SELECT below
-        // (same tx, READ COMMITTED) so the re-parse picks them up.
-        for (const a of cleanedAliases) {
+        // (1a) Upsert dispatcher's badge / employee-id picks INSIDE the tx
+        // so a later failure rolls them back. They're visible to the
+        // SELECT below (same tx, READ COMMITTED) so the re-parse picks
+        // them up.
+        for (const a of cleanedBadgeAliases) {
           await tx
             .insert(schema.driverIdAliasesTable)
             .values({
@@ -2058,6 +2153,27 @@ weeksRouter.post(
                 updatedAt: new Date(),
               },
             });
+        }
+
+        // (1a') Upsert dispatcher's name-on-doc picks (AI samples) into
+        // customer_name_aliases. Delete-then-insert per
+        // (lower(customer), lower(nameOnDoc)) because the unique index is
+        // on lower(...) which drizzle's `target` syntax doesn't model.
+        for (const na of cleanedNameAliases) {
+          await tx
+            .delete(schema.customerNameAliasesTable)
+            .where(
+              and(
+                sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+                sql`lower(${schema.customerNameAliasesTable.nameOnDoc}) = lower(${na.nameOnDoc})`,
+              ),
+            );
+          await tx.insert(schema.customerNameAliasesTable).values({
+            customer,
+            nameOnDoc: na.nameOnDoc,
+            kfiId: na.kfiId,
+            updatedBy: req.session.userId ?? null,
+          });
         }
 
         // (1b) Persist any "not a driver — never import for this customer"
@@ -2098,7 +2214,81 @@ weeksRouter.post(
           unmappedIds: schema.UnmappedIdEntry[];
         };
         if (sampleSource === "ai") {
-          reparsed = result;
+          // AI samples: combine the rows the extractor already resolved
+          // (stashed verbatim because the AI is non-deterministic) with
+          // any pendingNamedRows we can now resolve thanks to the
+          // dispatcher's just-written aliases. Without this step the
+          // picker on an AI-only customer would have no effect — the
+          // alias would land in customer_name_aliases but the punches
+          // from the file wouldn't import this week.
+          const baseRows = result.punches;
+          const pending = sample.pendingNamedRows ?? [];
+          const reResolved: schema.StashedExtractedPunch[] = [];
+          if (pending.length > 0) {
+            // Re-load the per-customer name alias map INSIDE the tx so
+            // it includes the rows we just wrote above.
+            const nameAliasRows = await tx
+              .select({
+                nameOnDoc: schema.customerNameAliasesTable.nameOnDoc,
+                kfiId: schema.customerNameAliasesTable.kfiId,
+              })
+              .from(schema.customerNameAliasesTable)
+              .where(
+                sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+              );
+            const nameMap = new Map<string, string>();
+            for (const r of nameAliasRows) {
+              nameMap.set(r.nameOnDoc.toLowerCase(), r.kfiId);
+            }
+            for (const p of pending) {
+              // Badge alias takes priority (mergedMap was already
+              // rebuilt above with the just-written driver_id_aliases),
+              // then name alias. Fuzzy match isn't retried — it already
+              // failed at stash time and the picker is the source of
+              // truth now.
+              let kfiId: string | null = null;
+              const badge = (p.badgeOrId ?? "").trim();
+              if (badge) {
+                const mapped = mergedMap[badge];
+                if (mapped && kfiSet.has(mapped)) kfiId = mapped;
+                else if (kfiSet.has(badge)) kfiId = badge;
+              }
+              if (!kfiId) {
+                const aliased = nameMap.get(
+                  p.driverNameOnDoc.trim().toLowerCase(),
+                );
+                if (aliased && kfiSet.has(aliased)) kfiId = aliased;
+              }
+              if (!kfiId) continue;
+              const clockIn = (p.timeIn ?? "").trim();
+              const clockOut = (p.timeOut ?? "").trim();
+              let hours =
+                typeof p.hours === "number" && p.hours > 0 ? p.hours : 0;
+              if (!hours && clockIn && clockOut) {
+                const ms =
+                  new Date(`${p.date} ${clockOut}`).getTime() -
+                  new Date(`${p.date} ${clockIn}`).getTime();
+                if (!Number.isNaN(ms) && ms > 0) {
+                  hours = Math.round((ms / 3_600_000) * 1000) / 1000;
+                }
+              }
+              if (!(hours > 0) || !clockIn || !clockOut) continue;
+              reResolved.push({
+                kfiId,
+                customer: sample.customer,
+                date: p.date,
+                clockIn: `${p.date} ${clockIn}`,
+                clockOut: `${p.date} ${clockOut}`,
+                hours: Math.round(hours * 1000) / 1000,
+                payType: "Reg",
+              });
+            }
+          }
+          reparsed = {
+            customer: sample.customer,
+            punches: [...baseRows, ...reResolved],
+            unmappedIds: [],
+          };
         } else {
           const reparsedRaw = await detectAndParseFile(
             fileName,

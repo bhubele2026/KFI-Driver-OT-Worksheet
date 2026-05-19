@@ -1,5 +1,10 @@
 import { topMatches } from "./fuzzy.js";
-import type { ExtractDiagnostics, ParseResult, ParsedPunch } from "./types.js";
+import type {
+  ExtractDiagnostics,
+  ParseResult,
+  ParsedPunch,
+  PendingNamedRowOut,
+} from "./types.js";
 import { UnmappedIdAccumulator } from "./types.js";
 import {
   aiExtractRows,
@@ -99,6 +104,15 @@ export async function extractImageForKnownCustomer(args: {
   idMap: Record<string, string>;
   drivers: Array<{ kfiId: string; name: string; customer: string | null }>;
   kfiSet: Set<string>;
+  /**
+   * Optional per-customer "name on doc → kfiId" map. Consulted BEFORE the
+   * fuzzy name match so previously-vetted dispatcher decisions resolve
+   * automatically on subsequent uploads (i.e. once "Cole Hayek → K123" is
+   * saved as a customer_name_alias for Schuette Metals, next week's photo
+   * resolves him without re-prompting the picker). Keys are lower-cased
+   * to forgive minor casing drift in the source doc.
+   */
+  nameAliasMap?: Map<string, string>;
   log?: { warn: (obj: Record<string, unknown>, msg: string) => void };
 }): Promise<ParseResult> {
   const {
@@ -111,6 +125,7 @@ export async function extractImageForKnownCustomer(args: {
     idMap,
     drivers,
     kfiSet,
+    nameAliasMap,
     log,
   } = args;
   const rawRows = await aiExtractRows(
@@ -154,15 +169,26 @@ export async function extractImageForKnownCustomer(args: {
 
   const unmapped = new UnmappedIdAccumulator();
   const punches: ParsedPunch[] = [];
+  const pendingNamedRows: PendingNamedRowOut[] = [];
   let unmappedDriverCount = 0;
   let invalidTimeCount = 0;
 
   for (const r of inWindow) {
-    const kfiId = resolveKfiId(r, idMap, fuzzyPool, kfiSet);
+    const kfiId = resolveKfiId(r, idMap, fuzzyPool, kfiSet, nameAliasMap);
     if (!kfiId) {
       const id = (r.badgeOrId ?? "").trim() || `name:${r.driverNameOnDoc}`;
       unmapped.add(id, r.driverNameOnDoc);
       unmappedDriverCount++;
+      // Stash the raw row so /confirm-customer-file can re-resolve it
+      // after the dispatcher picks a driver in the preview dialog.
+      pendingNamedRows.push({
+        driverNameOnDoc: r.driverNameOnDoc,
+        badgeOrId: (r.badgeOrId ?? "").trim() || null,
+        date: r.date,
+        timeIn: r.timeIn ?? null,
+        timeOut: r.timeOut ?? null,
+        hours: typeof r.hours === "number" ? r.hours : null,
+      });
       continue;
     }
     const punch = toParsedPunch(r, kfiId, customer);
@@ -192,6 +218,7 @@ export async function extractImageForKnownCustomer(args: {
     punches,
     unmappedIds: unmapped.toArray(),
     diagnostics,
+    pendingNamedRows,
   };
 }
 
@@ -200,6 +227,7 @@ function resolveKfiId(
   idMap: Record<string, string>,
   fuzzyPool: Array<{ kfiId: string; name: string }>,
   kfiSet: Set<string>,
+  nameAliasMap?: Map<string, string>,
 ): string | null {
   const badge = (row.badgeOrId ?? "").trim();
   if (badge) {
@@ -209,6 +237,13 @@ function resolveKfiId(
   }
   const name = row.driverNameOnDoc.trim();
   if (!name) return null;
+  // Saved per-customer name alias wins over fuzzy match — the dispatcher
+  // already vouched for this pairing on a prior upload, so resolve
+  // deterministically.
+  if (nameAliasMap) {
+    const aliased = nameAliasMap.get(name.toLowerCase());
+    if (aliased && kfiSet.has(aliased)) return aliased;
+  }
   const matches = topMatches(
     name,
     fuzzyPool.map((d) => ({ kfiId: d.kfiId, name: d.name, customer: "" })),

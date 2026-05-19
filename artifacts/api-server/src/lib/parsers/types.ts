@@ -79,6 +79,20 @@ export interface ExtractDiagnostics {
   acceptedCount: number;
 }
 
+/**
+ * AI rows the extractor could NOT resolve to a kfiId before stash time.
+ * Re-imported from the schema package so server code that builds a
+ * ParseResult doesn't have to depend on @workspace/db directly.
+ */
+export interface PendingNamedRowOut {
+  driverNameOnDoc: string;
+  badgeOrId: string | null;
+  date: string;
+  timeIn: string | null;
+  timeOut: string | null;
+  hours: number | null;
+}
+
 export interface ParseResult {
   customer: string;
   punches: ParsedPunch[];
@@ -91,4 +105,13 @@ export interface ParseResult {
   unmappedIds: UnmappedIdEntry[];
   /** Set by the AI extract path; absent for deterministic parsers. */
   diagnostics?: ExtractDiagnostics;
+  /**
+   * AI-only: rows that came back from the model but couldn't be resolved to
+   * a kfiId (no badge match, no name alias, fuzzy below threshold). The
+   * confirm route stashes these so it can re-resolve them after the
+   * dispatcher picks drivers in the preview dialog. Absent for deterministic
+   * parsers (which don't see un-resolvable name rows — only un-resolvable
+   * badge IDs, which are already in `unmappedIds`).
+   */
+  pendingNamedRows?: PendingNamedRowOut[];
 }
