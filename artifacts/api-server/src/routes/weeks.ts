@@ -1876,14 +1876,24 @@ weeksRouter.post(
         customer: d.customer ?? "",
       }));
     // Partition unmapped ids using the per-customer "not a driver" ignore
-    // list. Ignored ids skip the picker entirely (we surface them in a
-    // separate `autoIgnoredIds` array for transparency) so the dispatcher
-    // isn't re-asked about people they've already classified as non-drivers.
+    // list. Ignored ids skip the picker (we surface them in a separate
+    // `autoIgnoredIds` array for transparency) so the dispatcher isn't
+    // re-asked about people they've already classified as non-drivers.
+    //
+    // EXCEPTION: if the file row carried a `sampleName`, the row goes back
+    // into the picker even when its id is on the ignore list. Names in
+    // the customer's file may be similar to a real KFI driver the
+    // dispatcher hadn't yet aliased, and silently dropping a named row
+    // means losing the chance to map it. Pure id-only entries (no name
+    // attached) stay auto-ignored — that's the noise the ignore list
+    // was designed to suppress.
     const ignoredSet = await loadIgnoredExternalIds(result.customer);
     const visibleUnmapped: typeof result.unmappedIds = [];
     const autoIgnored: typeof result.unmappedIds = [];
     for (const u of result.unmappedIds) {
-      if (ignoredSet.has(u.id.toLowerCase())) {
+      const isIgnored = ignoredSet.has(u.id.toLowerCase());
+      const hasName = !!(u.sampleName && u.sampleName.trim().length > 0);
+      if (isIgnored && !hasName) {
         autoIgnored.push(u);
       } else {
         visibleUnmapped.push(u);

@@ -116,7 +116,7 @@ test("Task #271: AI's resolvedKfiId is rejected as hallucination when it picks a
   });
   const result = await extractImageForKnownCustomer(args);
   assert.equal(result.punches.length, 0);
-  assert.equal(result.pendingNamedRows.length, 1);
+  assert.equal(result.pendingNamedRows?.length ?? 0, 1);
   assert.equal(result.unmappedIds.length, 1);
   // The unmapped entry is encoded as name:<DriverNameOnDoc> for the
   // /confirm-customer-file picker.
@@ -137,7 +137,7 @@ test("Task #271: AI's resolvedKfiId is rejected when target kfi isn't in the act
   });
   const result = await extractImageForKnownCustomer(args);
   assert.equal(result.punches.length, 0);
-  assert.equal(result.pendingNamedRows.length, 1);
+  assert.equal(result.pendingNamedRows?.length ?? 0, 1);
 });
 
 test("Task #271: badge-disagree guard is case-insensitive (TELD vs teld)", async () => {
