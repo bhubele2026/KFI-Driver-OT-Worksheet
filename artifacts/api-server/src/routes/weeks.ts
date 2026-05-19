@@ -2333,10 +2333,23 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       aiOnlyNames.add(a.customer);
     }
   }
+  // Scope to drivers who actually have punches in THIS week — i.e. the same
+  // drivers that show up grouped by customer on the left side of the
+  // dashboard. A driver who's in the roster but didn't work this week
+  // shouldn't surface their customer as an upload row.
   const driverCustomerRows = await db
     .selectDistinct({ customer: schema.driversTable.customer })
     .from(schema.driversTable)
-    .where(eq(schema.driversTable.isArchived, false));
+    .innerJoin(
+      schema.punchesTable,
+      eq(schema.punchesTable.kfiId, schema.driversTable.kfiId),
+    )
+    .where(
+      and(
+        eq(schema.driversTable.isArchived, false),
+        eq(schema.punchesTable.weekStart, weekStart),
+      ),
+    );
   for (const r of driverCustomerRows) {
     const name = (r.customer ?? "").trim();
     if (!name) continue;
