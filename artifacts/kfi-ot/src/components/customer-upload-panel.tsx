@@ -50,7 +50,14 @@ interface RowState {
 interface BulkItem {
   file: File;
   customer: string | null;
-  status: "pending" | "uploading" | "success" | "warning" | "error" | "unknown";
+  status:
+    | "pending"
+    | "uploading"
+    | "success"
+    | "warning"
+    | "skipped"
+    | "error"
+    | "unknown";
   punchesUpserted?: number;
   unmappedCount?: number;
   error?: string;
@@ -63,7 +70,7 @@ interface UnmappedId {
 }
 
 type UploadResult =
-  | { ok: true; punches: number; unmapped: UnmappedId[] }
+  | { ok: true; punches: number; unmapped: UnmappedId[]; skipped: boolean }
   | { ok: false; error: string };
 
 export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
@@ -134,12 +141,14 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const doUpload = async (
     customer: string,
     file: File,
+    opts?: { force?: boolean },
   ): Promise<UploadResult> => {
     const formData = new FormData();
     formData.append("file", file);
     try {
+      const qs = opts?.force ? "?force=1" : "";
       const res = await fetch(
-        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/upload-customer-file`,
+        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/upload-customer-file${qs}`,
         { method: "POST", credentials: "include", body: formData },
       );
       const body = (await res.json().catch(() => null)) as
@@ -147,6 +156,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
             customer?: string;
             punchesUpserted?: number;
             unmappedIds?: UnmappedId[];
+            skipped?: boolean;
             error?: string;
           }
         | null;
@@ -163,6 +173,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         ok: true,
         punches: body?.punchesUpserted ?? 0,
         unmapped: body?.unmappedIds ?? [],
+        skipped: !!body?.skipped,
       };
     } catch (err) {
       return { ok: false, error: errMessage(err, "Upload failed") };
@@ -171,7 +182,10 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
 
   const uploadFor = async (customer: string, file: File) => {
     setRow(customer, { uploading: true, error: null });
-    const r = await doUpload(customer, file);
+    // Per-row Re-upload always forces — the dispatcher explicitly chose this
+    // file, so skipping it as a duplicate would be confusing. Skip detection
+    // is for bulk re-runs only.
+    const r = await doUpload(customer, file, { force: true });
     if (!r.ok) {
       setRow(customer, { uploading: false, error: r.error });
       toast({
@@ -229,6 +243,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     setBulkItems(initial);
     setBulkRunning(true);
     let uploaded = 0;
+    let skipped = 0;
     let failed = 0;
     let needsReview = 0;
     for (let i = 0; i < initial.length; i++) {
@@ -244,16 +259,26 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         ),
       );
       setRow(customer, { uploading: true, error: null });
+      // Bulk re-runs intentionally do NOT pass force — that's the whole
+      // point of this flow: identical files short-circuit on the server.
       const r = await doUpload(customer, item.file);
       if (r.ok) {
-        uploaded++;
-        const warning = r.unmapped.length > 0;
+        if (r.skipped) {
+          skipped++;
+        } else {
+          uploaded++;
+        }
+        const warning = !r.skipped && r.unmapped.length > 0;
         setBulkItems((prev) =>
           prev.map((it, idx) =>
             idx === i
               ? {
                   ...it,
-                  status: warning ? "warning" : "success",
+                  status: r.skipped
+                    ? "skipped"
+                    : warning
+                      ? "warning"
+                      : "success",
                   punchesUpserted: r.punches,
                   unmappedCount: r.unmapped.length,
                 }
@@ -273,9 +298,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     }
     setBulkRunning(false);
     invalidateAll();
+    const parts = [`${uploaded} uploaded`];
+    if (skipped > 0) parts.push(`${skipped} skipped`);
+    if (needsReview > 0) parts.push(`${needsReview} need review`);
+    parts.push(`${failed} failed`);
     toast({
       title: `Bulk upload complete`,
-      description: `${uploaded} uploaded, ${needsReview} need review, ${failed} failed.`,
+      description: parts.join(", ") + ".",
       variant: failed > 0 ? "destructive" : "default",
     });
   };
@@ -457,6 +486,9 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                     {item.status === "warning" && (
                       <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
                     )}
+                    {item.status === "skipped" && (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
                     {item.status === "error" && (
                       <AlertCircle className="h-3.5 w-3.5 text-destructive" />
                     )}
@@ -487,6 +519,11 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                           {item.punchesUpserted} imported · {item.unmappedCount}{" "}
                           unknown{" "}
                           {item.unmappedCount === 1 ? "badge" : "badges"}
+                        </span>
+                      )}
+                      {item.status === "skipped" && (
+                        <span className="text-[10px] text-muted-foreground">
+                          Already up to date
                         </span>
                       )}
                     </div>

@@ -2130,6 +2130,15 @@ components:
         customer: { type: string }
         fileName: { type: string }
         punchesUpserted: { type: integer }
+        skipped:
+          type: boolean
+          description: |
+            True when the uploaded file's SHA-256 matched the most recent
+            successful import for this (week, customer) and the server
+            short-circuited without re-parsing or re-writing punches.
+            Bulk-upload uses this to render "Already up to date" instead of
+            re-importing identical files. Per-row Re-upload bypasses the
+            check by sending `?force=1`.
         unmappedIds:
           type: array
           description: |

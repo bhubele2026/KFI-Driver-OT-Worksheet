@@ -899,6 +899,12 @@ export const UploadCustomerFileResponse = zod.object({
   customer: zod.string(),
   fileName: zod.string(),
   punchesUpserted: zod.number(),
+  skipped: zod
+    .boolean()
+    .optional()
+    .describe(
+      'True when the uploaded file\'s SHA-256 matched the most recent\nsuccessful import for this (week, customer) and the server\nshort-circuited without re-parsing or re-writing punches.\nBulk-upload uses this to render \"Already up to date\" instead of\nre-importing identical files. Per-row Re-upload bypasses the\ncheck by sending `?force=1`.\n',
+    ),
   unmappedIds: zod
     .array(
       zod.object({

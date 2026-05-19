@@ -11,6 +11,14 @@ export interface UploadResult {
   customer: string;
   fileName: string;
   punchesUpserted: number;
+  /** True when the uploaded file's SHA-256 matched the most recent
+successful import for this (week, customer) and the server
+short-circuited without re-parsing or re-writing punches.
+Bulk-upload uses this to render "Already up to date" instead of
+re-importing identical files. Per-row Re-upload bypasses the
+check by sending `?force=1`.
+ */
+  skipped?: boolean;
   /** Badge / employee IDs that appeared in the uploaded file but could
 not be mapped to a known KFI driver. Surfaced as a non-blocking
 warning so dispatchers know punches were dropped (e.g. a new hire

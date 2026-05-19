@@ -1,4 +1,5 @@
 import { Router, type Request } from "express";
+import { createHash } from "node:crypto";
 import multer from "multer";
 import { and, asc, desc, eq, gt, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -105,6 +106,7 @@ async function recordAttempt(
   error: string | null,
   source: "parser" | "ai",
   unmappedIds: schema.UnmappedIdEntry[] = [],
+  contentHash: string | null = null,
 ): Promise<void> {
   const now = new Date();
   await db
@@ -118,6 +120,11 @@ async function recordAttempt(
       lastError: error,
       lastSource: source,
       lastUnmappedIds: unmappedIds,
+      // Only stamp the content hash on a successful import — a failed parse
+      // is not "what's currently imported", so a subsequent re-upload of the
+      // same bytes should still be attempted (it might now succeed after a
+      // mapping fix).
+      lastContentHash: error ? null : contentHash,
     })
     .onConflictDoUpdate({
       target: [
@@ -133,6 +140,11 @@ async function recordAttempt(
         lastError: error,
         lastSource: source,
         lastUnmappedIds: unmappedIds,
+        // Preserve any prior successful hash on a failed attempt — we want
+        // skip-detection to still work against the last good import.
+        lastContentHash: error
+          ? sql`${schema.customerUploadAttemptsTable.lastContentHash}`
+          : contentHash,
       },
     });
 }
@@ -812,6 +824,44 @@ weeksRouter.post(
     const drivers = await db.select().from(schema.driversTable);
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
     const fileName = req.file.originalname;
+    const force =
+      String(req.query.force ?? "").toLowerCase() === "1" ||
+      String(req.query.force ?? "").toLowerCase() === "true";
+    const contentHash = createHash("sha256")
+      .update(req.file.buffer)
+      .digest("hex");
+    // Short-circuit no-op re-uploads: if the file's bytes exactly match the
+    // most recent successful import for this (week, customer), skip parsing
+    // and writing entirely. Detect customer from filename so we can look up
+    // the prior attempt without parsing first.
+    const detected = detectCustomerFromFileName(fileName);
+    if (!force && detected) {
+      const prior = await db
+        .select({
+          lastContentHash: schema.customerUploadAttemptsTable.lastContentHash,
+          lastSuccessAt: schema.customerUploadAttemptsTable.lastSuccessAt,
+        })
+        .from(schema.customerUploadAttemptsTable)
+        .where(
+          and(
+            eq(schema.customerUploadAttemptsTable.weekStart, startDate),
+            eq(schema.customerUploadAttemptsTable.customer, detected),
+          ),
+        )
+        .limit(1);
+      const p = prior[0];
+      if (p?.lastContentHash && p.lastSuccessAt && p.lastContentHash === contentHash) {
+        res.json({
+          customer: detected,
+          fileName,
+          punchesUpserted: 0,
+          unmappedIds: [],
+          lockedSkipped: [],
+          skipped: true,
+        });
+        return;
+      }
+    }
     let result;
     try {
       const idMap = await loadMergedIdMap();
@@ -826,9 +876,9 @@ weeksRouter.post(
       req.log.error({ err, fileName }, "Parse error");
       const msg = err instanceof Error ? err.message : "Could not parse file";
       // Best-effort: try to attribute to a known customer for status display.
-      const detected = detectCustomerFromFileName(fileName);
-      if (detected) {
-        await recordAttempt(startDate, detected, fileName, msg, "parser");
+      const detectedForErr = detectCustomerFromFileName(fileName);
+      if (detectedForErr) {
+        await recordAttempt(startDate, detectedForErr, fileName, msg, "parser");
       }
       res.status(400).json({ error: msg });
       return;
@@ -909,6 +959,7 @@ weeksRouter.post(
       null,
       "parser",
       result.unmappedIds,
+      contentHash,
     );
     if (result.unmappedIds.length > 0) {
       req.log.warn(

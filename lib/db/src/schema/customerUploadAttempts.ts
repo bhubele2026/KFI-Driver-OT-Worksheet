@@ -35,6 +35,15 @@ export const customerUploadAttemptsTable = pgTable(
     // as it appeared next to the id in the source file, when the parser
     // could pick one up (Adient, IWG, sometimes DeLallo).
     lastUnmappedIds: jsonb("last_unmapped_ids").$type<UnmappedIdEntry[]>(),
+    // SHA-256 (hex) of the most recent successfully-imported file's bytes.
+    // Bulk re-uploads compare each candidate file's hash against this and
+    // short-circuit with "Already up to date" when they match, so a 9-file
+    // batch doesn't needlessly re-parse and re-write punches the dispatcher
+    // already imported. The per-row Re-upload button bypasses this guard by
+    // sending `?force=1`. Null when the row was created by a failed attempt
+    // (no successful import has happened yet) or by legacy rows pre-dating
+    // this feature.
+    lastContentHash: text("last_content_hash"),
   },
   (t) => [
     uniqueIndex("customer_upload_attempts_week_customer_idx").on(
