@@ -18,6 +18,7 @@ import type {
 
 import type {
   AcceptInviteBody,
+  AddCustomerIgnoredExternalBody,
   AddIpBlocklistBody,
   AiExtractPreview,
   AiExtractSample,
@@ -33,6 +34,7 @@ import type {
   CreateParserPromotionSnoozeBody,
   CustomerAliasAuditLogEntry,
   CustomerExtractPreview,
+  CustomerIgnoredExternal,
   CustomerNameAlias,
   CustomerNameAliasList,
   CustomerTzPreference,
@@ -5586,6 +5588,260 @@ export const useDeleteDriverIdAlias = <
   TContext
 > => {
   return useMutation(getDeleteDriverIdAliasMutationOptions(options));
+};
+
+/**
+ * @summary List every per-customer "not a driver — never import" decision (admin-only).
+ */
+export const getListCustomerIgnoredExternalsUrl = () => {
+  return `/api/customer-ignored-externals`;
+};
+
+export const listCustomerIgnoredExternals = async (
+  options?: RequestInit,
+): Promise<CustomerIgnoredExternal[]> => {
+  return customFetch<CustomerIgnoredExternal[]>(
+    getListCustomerIgnoredExternalsUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListCustomerIgnoredExternalsQueryKey = () => {
+  return [`/api/customer-ignored-externals`] as const;
+};
+
+export const getListCustomerIgnoredExternalsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCustomerIgnoredExternals>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCustomerIgnoredExternals>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListCustomerIgnoredExternalsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listCustomerIgnoredExternals>>
+  > = ({ signal }) =>
+    listCustomerIgnoredExternals({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCustomerIgnoredExternals>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCustomerIgnoredExternalsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCustomerIgnoredExternals>>
+>;
+export type ListCustomerIgnoredExternalsQueryError = ErrorType<void>;
+
+/**
+ * @summary List every per-customer "not a driver — never import" decision (admin-only).
+ */
+
+export function useListCustomerIgnoredExternals<
+  TData = Awaited<ReturnType<typeof listCustomerIgnoredExternals>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCustomerIgnoredExternals>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCustomerIgnoredExternalsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Mark a customer external id as "not a driver — never import" (admin-only).
+ */
+export const getAddCustomerIgnoredExternalUrl = () => {
+  return `/api/customer-ignored-externals`;
+};
+
+export const addCustomerIgnoredExternal = async (
+  addCustomerIgnoredExternalBody: AddCustomerIgnoredExternalBody,
+  options?: RequestInit,
+): Promise<CustomerIgnoredExternal> => {
+  return customFetch<CustomerIgnoredExternal>(
+    getAddCustomerIgnoredExternalUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(addCustomerIgnoredExternalBody),
+    },
+  );
+};
+
+export const getAddCustomerIgnoredExternalMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addCustomerIgnoredExternal>>,
+    TError,
+    { data: BodyType<AddCustomerIgnoredExternalBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof addCustomerIgnoredExternal>>,
+  TError,
+  { data: BodyType<AddCustomerIgnoredExternalBody> },
+  TContext
+> => {
+  const mutationKey = ["addCustomerIgnoredExternal"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof addCustomerIgnoredExternal>>,
+    { data: BodyType<AddCustomerIgnoredExternalBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return addCustomerIgnoredExternal(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AddCustomerIgnoredExternalMutationResult = NonNullable<
+  Awaited<ReturnType<typeof addCustomerIgnoredExternal>>
+>;
+export type AddCustomerIgnoredExternalMutationBody =
+  BodyType<AddCustomerIgnoredExternalBody>;
+export type AddCustomerIgnoredExternalMutationError = ErrorType<void>;
+
+/**
+ * @summary Mark a customer external id as "not a driver — never import" (admin-only).
+ */
+export const useAddCustomerIgnoredExternal = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addCustomerIgnoredExternal>>,
+    TError,
+    { data: BodyType<AddCustomerIgnoredExternalBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof addCustomerIgnoredExternal>>,
+  TError,
+  { data: BodyType<AddCustomerIgnoredExternalBody> },
+  TContext
+> => {
+  return useMutation(getAddCustomerIgnoredExternalMutationOptions(options));
+};
+
+/**
+ * @summary Forget a per-customer "not a driver" decision (admin-only). The id will start showing up in upload previews again.
+ */
+export const getDeleteCustomerIgnoredExternalUrl = (id: number) => {
+  return `/api/customer-ignored-externals/${id}`;
+};
+
+export const deleteCustomerIgnoredExternal = async (
+  id: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteCustomerIgnoredExternalUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteCustomerIgnoredExternalMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCustomerIgnoredExternal>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteCustomerIgnoredExternal>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteCustomerIgnoredExternal"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteCustomerIgnoredExternal>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteCustomerIgnoredExternal(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteCustomerIgnoredExternalMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteCustomerIgnoredExternal>>
+>;
+
+export type DeleteCustomerIgnoredExternalMutationError = ErrorType<void>;
+
+/**
+ * @summary Forget a per-customer "not a driver" decision (admin-only). The id will start showing up in upload previews again.
+ */
+export const useDeleteCustomerIgnoredExternal = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCustomerIgnoredExternal>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteCustomerIgnoredExternal>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteCustomerIgnoredExternalMutationOptions(options));
 };
 
 /**

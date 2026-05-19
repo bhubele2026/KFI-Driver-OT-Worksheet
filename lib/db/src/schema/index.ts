@@ -16,6 +16,7 @@ export * from "./rateLimitEvents";
 export * from "./ipBlocklist";
 export * from "./parserPromotionSnoozes";
 export * from "./driverIdAliases";
+export * from "./customerIgnoredExternals";
 export * from "./connecteamDailySnapshots";
 export * from "./customerTzPreferences";
 export * from "./driverPayrollProfiles";

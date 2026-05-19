@@ -7,6 +7,7 @@
  */
 
 export * from "./acceptInviteBody";
+export * from "./addCustomerIgnoredExternalBody";
 export * from "./addIpBlocklistBody";
 export * from "./aiExtractedRow";
 export * from "./aiExtractPreview";
@@ -16,6 +17,7 @@ export * from "./authCredentials";
 export * from "./check";
 export * from "./checkLevel";
 export * from "./confirmCustomerFileInput";
+export * from "./confirmCustomerFileInputAddToIgnoreItem";
 export * from "./confirmCustomerFileInputMapNewAliasesItem";
 export * from "./confirmNewCustomerInput";
 export * from "./confirmNewCustomerInputMapping";
@@ -30,6 +32,7 @@ export * from "./createParserPromotionSnoozeBody";
 export * from "./customerAliasAuditLogEntry";
 export * from "./customerExtractPreview";
 export * from "./customerExtractRow";
+export * from "./customerIgnoredExternal";
 export * from "./customerNameAlias";
 export * from "./customerNameAliasList";
 export * from "./customerTzPreference";

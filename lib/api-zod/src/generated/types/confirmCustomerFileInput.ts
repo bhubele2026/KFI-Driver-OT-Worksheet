@@ -5,6 +5,7 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { ConfirmCustomerFileInputAddToIgnoreItem } from "./confirmCustomerFileInputAddToIgnoreItem";
 import type { ConfirmCustomerFileInputMapNewAliasesItem } from "./confirmCustomerFileInputMapNewAliasesItem";
 
 export interface ConfirmCustomerFileInput {
@@ -20,4 +21,11 @@ commit, then the file is re-parsed with the merged map so the
 previously-dropped rows are imported in this same run.
  */
   mapNewAliases?: ConfirmCustomerFileInputMapNewAliasesItem[];
+  /** On-the-fly "not a driver — never import for this customer" decisions
+made in the preview's unmapped-ids picker. Each entry is upserted
+into `customer_ignored_externals` inside the same transaction as
+the punch commit, so future uploads of this customer's file will
+silently drop these ids instead of nagging the dispatcher.
+ */
+  addToIgnore?: ConfirmCustomerFileInputAddToIgnoreItem[];
 }

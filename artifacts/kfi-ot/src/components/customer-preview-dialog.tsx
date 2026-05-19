@@ -34,6 +34,7 @@ import { formatPersonName } from "@/lib/format-name";
 import { AlertCircle, Loader2, UploadCloud } from "lucide-react";
 
 const SKIP_PICK = "__skip__";
+const IGNORE_PICK = "__ignore__";
 
 export interface CustomerPreviewRow {
   index: number;
@@ -67,6 +68,7 @@ export interface CustomerPreviewData {
   sampleId: number;
   rows: CustomerPreviewRow[];
   unmappedIds: CustomerPreviewUnmappedId[];
+  autoIgnoredIds?: CustomerPreviewUnmappedId[];
   existingPunchCount: number;
   aiFallback?: boolean;
   aiFallbackReason?: string | null;
@@ -172,11 +174,17 @@ export function CustomerPreviewDialog({
   const mapNewAliases = preview.unmappedIds
     .map((u) => {
       const kfiId = picks[u.id];
-      if (!kfiId || kfiId === SKIP_PICK) return null;
+      if (!kfiId || kfiId === SKIP_PICK || kfiId === IGNORE_PICK) return null;
       return { externalId: u.id, kfiId, sampleName: u.sampleName ?? null };
     })
     .filter((a): a is { externalId: string; kfiId: string; sampleName: string | null } => a !== null);
+  // Persist "not a driver — never import for this customer" decisions so
+  // future uploads silently drop these ids instead of nagging.
+  const addToIgnore = preview.unmappedIds
+    .filter((u) => picks[u.id] === IGNORE_PICK)
+    .map((u) => ({ externalId: u.id, sampleName: u.sampleName ?? null }));
   const mappedCount = mapNewAliases.length;
+  const ignoredCount = addToIgnore.length;
   const unresolvedPicks = preview.unmappedIds.filter(
     (u) => !picks[u.id],
   ).length;
@@ -190,6 +198,7 @@ export function CustomerPreviewDialog({
           sampleId: preview.sampleId,
           excludedIndices: [...excluded].sort((a, b) => a - b),
           mapNewAliases: mapNewAliases.length > 0 ? mapNewAliases : undefined,
+          addToIgnore: addToIgnore.length > 0 ? addToIgnore : undefined,
         },
       },
       {
@@ -374,7 +383,10 @@ export function CustomerPreviewDialog({
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value={SKIP_PICK}>
-                              Skip — leave dropped
+                              Skip — leave dropped (this upload only)
+                            </SelectItem>
+                            <SelectItem value={IGNORE_PICK}>
+                              Not a driver — never import for {preview.customer}
                             </SelectItem>
                             {orderedDrivers.length === 0 ? (
                               <SelectItem value="__no_drivers" disabled>
@@ -413,6 +425,18 @@ export function CustomerPreviewDialog({
                   re-import the previously-dropped rows.
                 </div>
               ) : null}
+              {ignoredCount > 0 ? (
+                <div
+                  className="text-[11px] text-muted-foreground"
+                  data-testid="text-ignore-summary"
+                >
+                  Will remember {ignoredCount}{" "}
+                  {ignoredCount === 1 ? "id" : "ids"} as "not a driver" for{" "}
+                  {preview.customer} — future uploads will skip{" "}
+                  {ignoredCount === 1 ? "it" : "them"} silently. Undo from
+                  /admin/driver-id-aliases.
+                </div>
+              ) : null}
               {unresolvedPicks > 0 ? (
                 <div className="text-[11px] text-muted-foreground">
                   {unresolvedPicks}{" "}
@@ -422,6 +446,25 @@ export function CustomerPreviewDialog({
               ) : null}
             </div>
           )}
+          {preview.autoIgnoredIds && preview.autoIgnoredIds.length > 0 ? (
+            <div
+              className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground"
+              data-testid="text-auto-ignored"
+            >
+              Silently dropped{" "}
+              <strong>{preview.autoIgnoredIds.length}</strong>{" "}
+              {preview.autoIgnoredIds.length === 1 ? "id" : "ids"} previously
+              marked "not a driver" for {preview.customer}:{" "}
+              <span className="font-mono">
+                {preview.autoIgnoredIds
+                  .map((u) =>
+                    u.sampleName ? `${u.id} (${u.sampleName})` : u.id,
+                  )
+                  .join(", ")}
+              </span>
+              . Manage from /admin/driver-id-aliases.
+            </div>
+          ) : null}
         </div>
 
         <div className="flex-1 overflow-auto rounded-md border border-border">

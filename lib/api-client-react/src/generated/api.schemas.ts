@@ -1015,6 +1015,13 @@ export interface CustomerExtractPreview {
   sampleId: number;
   rows: CustomerExtractRow[];
   unmappedIds: UnmappedId[];
+  /** Badge / employee IDs that the parser would have surfaced as unmapped
+but were silently dropped because a per-customer "not a driver" rule
+in `customer_ignored_externals` matched. Surfaced here so the
+dispatcher knows the file did contain those people and can lift the
+ignore from /admin/customer-ignored-externals if needed.
+ */
+  autoIgnoredIds?: UnmappedId[];
   /** Number of existing Customer-source punches for `(week, customer)` that this confirm would actually replace — i.e. excluding manual rows, inline-edited rows, and any rows belonging to a locked driver-week (all of which the wipe preserves). */
   existingPunchCount: number;
   /** True when the deterministic parser for this customer returned zero punches and the server fell back to AI extraction (Gemini) to recover rows. Indicates the source file format has likely drifted from what the parser expects — the dispatcher should review every row carefully before confirming, and engineering should update the deterministic parser (or promote the AI fallback to a parser; see `docs/promote-ai-customer-to-parser.md`). */
@@ -1038,6 +1045,13 @@ export type ConfirmCustomerFileInputMapNewAliasesItem = {
   sampleName?: string | null;
 };
 
+export type ConfirmCustomerFileInputAddToIgnoreItem = {
+  /** @minLength 1 */
+  externalId: string;
+  /** @nullable */
+  sampleName?: string | null;
+};
+
 export interface ConfirmCustomerFileInput {
   /** @minLength 1 */
   customer: string;
@@ -1051,6 +1065,13 @@ commit, then the file is re-parsed with the merged map so the
 previously-dropped rows are imported in this same run.
  */
   mapNewAliases?: ConfirmCustomerFileInputMapNewAliasesItem[];
+  /** On-the-fly "not a driver — never import for this customer" decisions
+made in the preview's unmapped-ids picker. Each entry is upserted
+into `customer_ignored_externals` inside the same transaction as
+the punch commit, so future uploads of this customer's file will
+silently drop these ids instead of nagging the dispatcher.
+ */
+  addToIgnore?: ConfirmCustomerFileInputAddToIgnoreItem[];
 }
 
 export interface AiExtractedRow {
@@ -1270,6 +1291,30 @@ export interface UpdateDriverIdAliasBody {
   kfiId?: string;
   /** @nullable */
   customer?: string | null;
+  /** @nullable */
+  sampleName?: string | null;
+  /** @nullable */
+  note?: string | null;
+}
+
+export interface CustomerIgnoredExternal {
+  id: number;
+  customer: string;
+  externalId: string;
+  /** @nullable */
+  sampleName?: string | null;
+  /** @nullable */
+  note?: string | null;
+  createdAt: string;
+  /** @nullable */
+  createdByEmail?: string | null;
+}
+
+export interface AddCustomerIgnoredExternalBody {
+  /** @minLength 1 */
+  customer: string;
+  /** @minLength 1 */
+  externalId: string;
   /** @nullable */
   sampleName?: string | null;
   /** @nullable */

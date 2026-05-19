@@ -4,6 +4,7 @@ import multer from "multer";
 import { and, asc, desc, eq, gt, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
+  AddCustomerIgnoredExternalBody,
   ConfirmCustomerFileBody,
   ConfirmNewCustomerFileBody,
   CreateDriverNoteBody,
@@ -109,6 +110,25 @@ function imagePunchesForStash(
     payType: p.payType,
     ...(p.noTz ? { noTz: true as const } : {}),
   }));
+}
+
+// Load the per-customer "not a driver — never import" list as a Set of
+// lower-cased external ids. The extract route uses this to filter the
+// parser's unmappedIds before sending them to the dispatcher, and the
+// one-shot upload route uses it to keep ignored ids out of the response /
+// audit trail.
+async function loadIgnoredExternalIds(
+  customer: string,
+): Promise<Set<string>> {
+  const rows = await db
+    .select({
+      externalId: schema.customerIgnoredExternalsTable.externalId,
+    })
+    .from(schema.customerIgnoredExternalsTable)
+    .where(
+      sql`lower(${schema.customerIgnoredExternalsTable.customer}) = lower(${customer})`,
+    );
+  return new Set(rows.map((r) => r.externalId.toLowerCase()));
 }
 
 async function loadMergedIdMap(): Promise<Record<string, string>> {
@@ -1301,21 +1321,28 @@ weeksRouter.post(
         );
       }
     });
+    // Filter the unmapped-ids surfaced to the dispatcher / audit trail by
+    // the per-customer "not a driver — never import" list, so the one-shot
+    // route honors the same ignore decisions as the preview/confirm flow.
+    const oneShotIgnored = await loadIgnoredExternalIds(result.customer);
+    const visibleUnmappedOneShot = result.unmappedIds.filter(
+      (u) => !oneShotIgnored.has(u.id.toLowerCase()),
+    );
     await recordAttempt(
       startDate,
       result.customer,
       fileName,
       null,
       "parser",
-      result.unmappedIds,
+      visibleUnmappedOneShot,
       contentHash,
     );
-    if (result.unmappedIds.length > 0) {
+    if (visibleUnmappedOneShot.length > 0) {
       req.log.warn(
         {
           fileName,
           customer: result.customer,
-          unmappedIds: result.unmappedIds,
+          unmappedIds: visibleUnmappedOneShot,
         },
         "Customer file contained badge IDs not in the KFI roster",
       );
@@ -1330,7 +1357,7 @@ weeksRouter.post(
       customer: result.customer,
       fileName,
       punchesUpserted: insertablePunches.length,
-      unmappedIds: result.unmappedIds,
+      unmappedIds: visibleUnmappedOneShot,
       lockedSkipped,
     });
   },
@@ -1570,7 +1597,21 @@ weeksRouter.post(
       name: d.name,
       customer: d.customer ?? "",
     }));
-    const unmappedWithSuggestions = result.unmappedIds.map((u) => {
+    // Partition unmapped ids using the per-customer "not a driver" ignore
+    // list. Ignored ids skip the picker entirely (we surface them in a
+    // separate `autoIgnoredIds` array for transparency) so the dispatcher
+    // isn't re-asked about people they've already classified as non-drivers.
+    const ignoredSet = await loadIgnoredExternalIds(result.customer);
+    const visibleUnmapped: typeof result.unmappedIds = [];
+    const autoIgnored: typeof result.unmappedIds = [];
+    for (const u of result.unmappedIds) {
+      if (ignoredSet.has(u.id.toLowerCase())) {
+        autoIgnored.push(u);
+      } else {
+        visibleUnmapped.push(u);
+      }
+    }
+    const unmappedWithSuggestions = visibleUnmapped.map((u) => {
       const suggestions =
         u.sampleName && driverCandidates.length > 0
           ? topMatches(u.sampleName, driverCandidates, 5).map((m) => ({
@@ -1602,6 +1643,7 @@ weeksRouter.post(
         payType: p.payType,
       })),
       unmappedIds: unmappedWithSuggestions,
+      autoIgnoredIds: autoIgnored,
       existingPunchCount,
       aiFallback,
       aiFallbackReason,
@@ -1683,6 +1725,17 @@ weeksRouter.post(
         sampleName: a.sampleName?.trim() || null,
       }))
       .filter((a) => a.externalId && a.kfiId && kfiSet.has(a.kfiId));
+
+    // Dispatcher's "not a driver — never import for this customer" picks.
+    // Persisted inside the same tx as the punch commit so a failure rolls
+    // back the ignore list writes alongside the punches.
+    const requestedIgnores = parsed.data.addToIgnore ?? [];
+    const cleanedIgnores = requestedIgnores
+      .map((i) => ({
+        externalId: i.externalId.trim(),
+        sampleName: i.sampleName?.trim() || null,
+      }))
+      .filter((i) => i.externalId.length > 0);
     if (cleanedAliases.length !== requestedAliases.length) {
       req.log.warn(
         {
@@ -1775,6 +1828,23 @@ weeksRouter.post(
                 updatedAt: new Date(),
               },
             });
+        }
+
+        // (1b) Persist any "not a driver — never import for this customer"
+        // picks. The unique index is on (lower(customer), lower(external_id))
+        // which drizzle's `target` syntax doesn't model cleanly, so we use a
+        // raw ON CONFLICT against the named index for an idempotent upsert.
+        if (cleanedIgnores.length > 0) {
+          const userId = req.session.userId ?? null;
+          for (const ig of cleanedIgnores) {
+            await tx.execute(sql`
+              INSERT INTO customer_ignored_externals
+                (customer, external_id, sample_name, created_by)
+              VALUES (${customer}, ${ig.externalId}, ${ig.sampleName}, ${userId})
+              ON CONFLICT (lower(customer), lower(external_id))
+              DO NOTHING
+            `);
+          }
         }
 
         // (2) Re-parse with the merged map (now including the just-written
@@ -1882,20 +1952,30 @@ weeksRouter.post(
     }
     result = finalResult;
 
+    // Honor any "not a driver" picks the dispatcher just confirmed: the
+    // ignore rows were inserted in-tx above, but the parser's unmappedIds
+    // were computed before that, so filter them here so the response /
+    // toast / audit row don't re-nag about ids the dispatcher just
+    // silenced. Reload from DB to also pick up rules added in parallel.
+    const postCommitIgnored = await loadIgnoredExternalIds(result.customer);
+    const visibleUnmappedConfirm = result.unmappedIds.filter(
+      (u) => !postCommitIgnored.has(u.id.toLowerCase()),
+    );
+
     await recordAttempt(
       startDate,
       result.customer,
       fileName,
       null,
       sampleSource,
-      result.unmappedIds,
+      visibleUnmappedConfirm,
     );
-    if (result.unmappedIds.length > 0) {
+    if (visibleUnmappedConfirm.length > 0) {
       req.log.warn(
         {
           fileName,
           customer: result.customer,
-          unmappedIds: result.unmappedIds,
+          unmappedIds: visibleUnmappedConfirm,
         },
         "Customer file contained badge IDs not in the KFI roster",
       );
@@ -1904,7 +1984,7 @@ weeksRouter.post(
       customer: result.customer,
       fileName,
       punchesUpserted: insertablePunches.length,
-      unmappedIds: result.unmappedIds,
+      unmappedIds: visibleUnmappedConfirm,
       lockedSkipped,
     });
   },
@@ -3300,6 +3380,118 @@ weeksRouter.delete(
       .where(
         sql`lower(${schema.driverIdAliasesTable.externalId}) = lower(${externalId})`,
       );
+    res.status(204).end();
+  },
+);
+
+// ---------- /customer-ignored-externals (admin-only) ----------
+//
+// Manage the per-customer "not a driver — never import" list that the
+// upload preview consults to silently drop ids the dispatcher has already
+// classified.
+
+const ignoredCreator = alias(schema.usersTable, "ignored_creator");
+
+weeksRouter.get(
+  "/customer-ignored-externals",
+  requireAdmin,
+  async (_req, res) => {
+    const rows = await db
+      .select({
+        id: schema.customerIgnoredExternalsTable.id,
+        customer: schema.customerIgnoredExternalsTable.customer,
+        externalId: schema.customerIgnoredExternalsTable.externalId,
+        sampleName: schema.customerIgnoredExternalsTable.sampleName,
+        note: schema.customerIgnoredExternalsTable.note,
+        createdAt: schema.customerIgnoredExternalsTable.createdAt,
+        createdByEmail: ignoredCreator.email,
+      })
+      .from(schema.customerIgnoredExternalsTable)
+      .leftJoin(
+        ignoredCreator,
+        eq(schema.customerIgnoredExternalsTable.createdBy, ignoredCreator.id),
+      )
+      .orderBy(
+        asc(sql`lower(${schema.customerIgnoredExternalsTable.customer})`),
+        asc(sql`lower(${schema.customerIgnoredExternalsTable.externalId})`),
+      );
+    res.json(
+      rows.map((r) => ({
+        ...r,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    );
+  },
+);
+
+weeksRouter.post(
+  "/customer-ignored-externals",
+  requireAdmin,
+  async (req, res) => {
+    const parsed = AddCustomerIgnoredExternalBody.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "Invalid input", details: parsed.error.issues });
+      return;
+    }
+    const customer = parsed.data.customer.trim();
+    const externalId = parsed.data.externalId.trim();
+    if (!customer || !externalId) {
+      res.status(400).json({ error: "customer and externalId are required" });
+      return;
+    }
+    const sampleName = parsed.data.sampleName?.trim() || null;
+    const note = parsed.data.note?.trim() || null;
+    const userId = req.session.userId ?? null;
+    await db.execute(sql`
+      INSERT INTO customer_ignored_externals
+        (customer, external_id, sample_name, note, created_by)
+      VALUES (${customer}, ${externalId}, ${sampleName}, ${note}, ${userId})
+      ON CONFLICT (lower(customer), lower(external_id)) DO NOTHING
+    `);
+    const [row] = await db
+      .select({
+        id: schema.customerIgnoredExternalsTable.id,
+        customer: schema.customerIgnoredExternalsTable.customer,
+        externalId: schema.customerIgnoredExternalsTable.externalId,
+        sampleName: schema.customerIgnoredExternalsTable.sampleName,
+        note: schema.customerIgnoredExternalsTable.note,
+        createdAt: schema.customerIgnoredExternalsTable.createdAt,
+        createdByEmail: ignoredCreator.email,
+      })
+      .from(schema.customerIgnoredExternalsTable)
+      .leftJoin(
+        ignoredCreator,
+        eq(schema.customerIgnoredExternalsTable.createdBy, ignoredCreator.id),
+      )
+      .where(
+        and(
+          sql`lower(${schema.customerIgnoredExternalsTable.customer}) = lower(${customer})`,
+          sql`lower(${schema.customerIgnoredExternalsTable.externalId}) = lower(${externalId})`,
+        ),
+      )
+      .limit(1);
+    if (!row) {
+      res.status(500).json({ error: "Insert succeeded but row not found" });
+      return;
+    }
+    res.json({ ...row, createdAt: row.createdAt.toISOString() });
+  },
+);
+
+weeksRouter.delete(
+  "/customer-ignored-externals/:id",
+  requireAdmin,
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    await db
+      .delete(schema.customerIgnoredExternalsTable)
+      .where(eq(schema.customerIgnoredExternalsTable.id, id));
     res.status(204).end();
   },
 );

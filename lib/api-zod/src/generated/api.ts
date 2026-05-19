@@ -1331,6 +1331,39 @@ export const ExtractCustomerFileResponse = zod.object({
         ),
     }),
   ),
+  autoIgnoredIds: zod
+    .array(
+      zod.object({
+        id: zod.string(),
+        count: zod
+          .number()
+          .describe(
+            "Number of rows in the file that referenced this id and were dropped.",
+          ),
+        sampleName: zod
+          .string()
+          .nullable()
+          .describe(
+            "Driver name as printed next to the id in the source file, when available.",
+          ),
+        suggestions: zod
+          .array(
+            zod.object({
+              kfiId: zod.string(),
+              name: zod.string(),
+              confidence: zod.number(),
+            }),
+          )
+          .optional()
+          .describe(
+            "Up to 5 candidate KFI drivers ranked by fuzzy match of `sampleName`\nagainst the active roster. Used by the upload preview dialog to\npre-fill a driver picker so dispatchers can map the id on the fly\nand have it remembered via `driver_id_aliases`. Omitted\/empty when\nno `sampleName` is available or the roster is empty.\n",
+          ),
+      }),
+    )
+    .optional()
+    .describe(
+      'Badge \/ employee IDs that the parser would have surfaced as unmapped\nbut were silently dropped because a per-customer \"not a driver\" rule\nin `customer_ignored_externals` matched. Surfaced here so the\ndispatcher knows the file did contain those people and can lift the\nignore from \/admin\/customer-ignored-externals if needed.\n',
+    ),
   existingPunchCount: zod
     .number()
     .describe(
@@ -1395,6 +1428,17 @@ export const ConfirmCustomerFileBody = zod.object({
     .optional()
     .describe(
       'On-the-fly driver-id mappings the dispatcher created in the\npreview\'s \"Unrecognized IDs\" picker. Each entry is upserted into\n`driver_id_aliases` inside the same transaction as the punch\ncommit, then the file is re-parsed with the merged map so the\npreviously-dropped rows are imported in this same run.\n',
+    ),
+  addToIgnore: zod
+    .array(
+      zod.object({
+        externalId: zod.string().min(1),
+        sampleName: zod.string().nullish(),
+      }),
+    )
+    .optional()
+    .describe(
+      "On-the-fly \"not a driver — never import for this customer\" decisions\nmade in the preview's unmapped-ids picker. Each entry is upserted\ninto `customer_ignored_externals` inside the same transaction as\nthe punch commit, so future uploads of this customer's file will\nsilently drop these ids instead of nagging the dispatcher.\n",
     ),
 });
 
@@ -2096,6 +2140,50 @@ export const UpdateDriverIdAliasResponse = zod.object({
  */
 export const DeleteDriverIdAliasParams = zod.object({
   externalId: zod.coerce.string(),
+});
+
+/**
+ * @summary List every per-customer "not a driver — never import" decision (admin-only).
+ */
+export const ListCustomerIgnoredExternalsResponseItem = zod.object({
+  id: zod.number(),
+  customer: zod.string(),
+  externalId: zod.string(),
+  sampleName: zod.string().nullish(),
+  note: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+});
+export const ListCustomerIgnoredExternalsResponse = zod.array(
+  ListCustomerIgnoredExternalsResponseItem,
+);
+
+/**
+ * @summary Mark a customer external id as "not a driver — never import" (admin-only).
+ */
+
+export const AddCustomerIgnoredExternalBody = zod.object({
+  customer: zod.string().min(1),
+  externalId: zod.string().min(1),
+  sampleName: zod.string().nullish(),
+  note: zod.string().nullish(),
+});
+
+export const AddCustomerIgnoredExternalResponse = zod.object({
+  id: zod.number(),
+  customer: zod.string(),
+  externalId: zod.string(),
+  sampleName: zod.string().nullish(),
+  note: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Forget a per-customer "not a driver" decision (admin-only). The id will start showing up in upload previews again.
+ */
+export const DeleteCustomerIgnoredExternalParams = zod.object({
+  id: zod.coerce.number(),
 });
 
 /**

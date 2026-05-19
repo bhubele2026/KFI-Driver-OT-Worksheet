@@ -8,7 +8,10 @@ import {
   useCreateDriverIdAlias,
   useUpdateDriverIdAlias,
   useDeleteDriverIdAlias,
+  useListCustomerIgnoredExternals,
+  useDeleteCustomerIgnoredExternal,
   getListDriverIdAliasesQueryKey,
+  getListCustomerIgnoredExternalsQueryKey,
   type DriverIdAlias,
   type DriverInfo,
 } from "@workspace/api-client-react";
@@ -36,6 +39,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   AlertTriangle,
   ArrowLeft,
+  Ban,
   Link as LinkIcon,
   Loader2,
   Plus,
@@ -68,6 +72,39 @@ export default function AdminDriverIdAliases() {
   const createAlias = useCreateDriverIdAlias();
   const updateAlias = useUpdateDriverIdAlias();
   const deleteAlias = useDeleteDriverIdAlias();
+
+  const ignoredQuery = useListCustomerIgnoredExternals({
+    query: {
+      enabled: !!me?.isAdmin,
+      queryKey: getListCustomerIgnoredExternalsQueryKey(),
+    },
+  });
+  const deleteIgnored = useDeleteCustomerIgnoredExternal();
+  const ignoredRows = useMemo(() => ignoredQuery.data ?? [], [ignoredQuery.data]);
+  const refetchIgnored = () =>
+    qc.invalidateQueries({
+      queryKey: getListCustomerIgnoredExternalsQueryKey(),
+    });
+  const handleDeleteIgnored = (id: number, label: string) => {
+    deleteIgnored.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          refetchIgnored();
+          toast({
+            title: "Ignore rule lifted",
+            description: `${label} will surface in the next upload preview.`,
+          });
+        },
+        onError: (err) =>
+          toast({
+            title: "Couldn't lift the ignore rule",
+            description: err instanceof Error ? err.message : "Unknown error",
+            variant: "destructive",
+          }),
+      },
+    );
+  };
 
   const [edit, setEdit] = useState<EditState>(null);
   const [newExternalId, setNewExternalId] = useState("");
@@ -479,6 +516,94 @@ export default function AdminDriverIdAliases() {
                       </Fragment>
                     );
                   })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-display text-base flex items-center gap-2">
+              <Ban className="h-4 w-4" />
+              "Not a driver" ignore list
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-4">
+              Per-customer ids dispatchers marked as "not a driver" from the
+              upload preview. Future uploads silently drop these ids instead
+              of nagging. Delete a row here to start surfacing it again on
+              the next upload.
+            </p>
+            {ignoredQuery.isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            ) : ignoredRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">
+                No ignore rules yet. Dispatchers can add them from the upload
+                preview's unmapped-ids picker.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>External id</TableHead>
+                    <TableHead>Sample name on doc</TableHead>
+                    <TableHead>Added</TableHead>
+                    <TableHead className="w-[1%]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {ignoredRows.map((r) => (
+                    <TableRow key={r.id} data-testid={`row-ignored-${r.id}`}>
+                      <TableCell className="text-xs align-top font-medium">
+                        {r.customer}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs align-top">
+                        {r.externalId}
+                      </TableCell>
+                      <TableCell className="text-xs align-top">
+                        {r.sampleName ? (
+                          <span className="font-mono text-[11px]">
+                            {r.sampleName}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground italic">
+                            —
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs align-top whitespace-nowrap">
+                        <div className="font-mono text-muted-foreground">
+                          {format(new Date(r.createdAt), "yyyy-MM-dd HH:mm")}
+                        </div>
+                        {r.createdByEmail && (
+                          <div className="font-mono text-[10px] text-muted-foreground">
+                            by {r.createdByEmail}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            handleDeleteIgnored(
+                              r.id,
+                              `${r.customer} · ${r.externalId}`,
+                            )
+                          }
+                          disabled={deleteIgnored.isPending}
+                          title="Lift this ignore rule"
+                          data-testid={`button-delete-ignored-${r.id}`}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             )}
