@@ -1397,6 +1397,57 @@ export const ResetDriverCustomerPunchesResponse = zod.object({
 });
 
 /**
+ * Admin-only surgical wipe. Hard-deletes every row in `punches` for
+`(weekStart, kfiId)` whose `source = 'Driver' AND isManual =
+false` inside a single transaction, snapshotting each deleted
+row into `punch_deletions` first so the wipe remains
+attributable. Edited Connecteam-imported rows ARE deleted (the
+whole point of this button is to give the dispatcher a clean
+slate so they can re-pull from Connecteam). Manual driver
+entries (`isManual = true`) and Customer-source rows are left
+untouched.
+
+Blocks with 409 if this driver-week is locked — the admin must
+unlock it first.
+
+The `confirm` field must equal the `kfiId` path param exactly
+(the UI is a type-to-confirm dialog); the server re-checks so a
+malicious client can't bypass it.
+
+Writes a `user_audit_log` row (`action =
+'driver-connecteam-remove'`) and publishes a
+`driver-connecteam-remove` realtime event after the transaction
+commits.
+
+ * @summary Hard-delete one driver's Connecteam-source punches for a week (admin)
+ */
+export const removeDriverConnecteamTimePathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const RemoveDriverConnecteamTimeParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(removeDriverConnecteamTimePathWeekStartRegExp)
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
+  kfiId: zod.coerce.string(),
+});
+
+export const RemoveDriverConnecteamTimeBody = zod.object({
+  confirm: zod
+    .string()
+    .describe(
+      "Must exactly equal the `kfiId` path parameter. The UI is a\ntype-to-confirm dialog; the server re-checks so a malicious\nclient can't bypass it.\n",
+    ),
+});
+
+export const RemoveDriverConnecteamTimeResponse = zod.object({
+  weekStart: zod.coerce.date(),
+  kfiId: zod.string(),
+  punchesDeleted: zod.number(),
+});
+
+/**
  * @summary Parse a known-customer time export (xlsx/pdf, or a photo: jpg/png/heic/webp,
 max 15 MB; HEIC is transcoded to JPEG server-side) into preview rows WITHOUT
 writing anything. Image uploads route through Gemini AI extraction and persist

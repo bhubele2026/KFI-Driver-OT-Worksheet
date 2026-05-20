@@ -779,6 +779,55 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ResetWeekLockedError" }
 
+  /weeks/{weekStart}/drivers/{kfiId}/remove-connecteam-time:
+    post:
+      operationId: removeDriverConnecteamTime
+      tags: [ingest]
+      summary: Hard-delete one driver's Connecteam-source punches for a week (admin)
+      description: |
+        Admin-only surgical wipe. Hard-deletes every row in `punches` for
+        `(weekStart, kfiId)` whose `source = 'Driver' AND isManual =
+        false` inside a single transaction, snapshotting each deleted
+        row into `punch_deletions` first so the wipe remains
+        attributable. Edited Connecteam-imported rows ARE deleted (the
+        whole point of this button is to give the dispatcher a clean
+        slate so they can re-pull from Connecteam). Manual driver
+        entries (`isManual = true`) and Customer-source rows are left
+        untouched.
+
+        Blocks with 409 if this driver-week is locked — the admin must
+        unlock it first.
+
+        The `confirm` field must equal the `kfiId` path param exactly
+        (the UI is a type-to-confirm dialog); the server re-checks so a
+        malicious client can't bypass it.
+
+        Writes a `user_audit_log` row (`action =
+        'driver-connecteam-remove'`) and publishes a
+        `driver-connecteam-remove` realtime event after the transaction
+        commits.
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - $ref: "#/components/parameters/KfiId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RemoveDriverConnecteamTimeBody" }
+      responses:
+        "200":
+          description: Remove result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RemoveDriverConnecteamTimeResult" }
+        "400": { description: Invalid input or confirm mismatch }
+        "403": { description: Admin only }
+        "409":
+          description: Driver-week is locked; unlock first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResetWeekLockedError" }
+
   /weeks/{weekStart}/extract-customer-file:
     post:
       operationId: extractCustomerFile
@@ -3152,6 +3201,25 @@ components:
             client can't bypass it.
 
     ResetDriverCustomerPunchesResult:
+      type: object
+      required: [weekStart, kfiId, punchesDeleted]
+      properties:
+        weekStart: { type: string, format: date }
+        kfiId: { type: string }
+        punchesDeleted: { type: integer }
+
+    RemoveDriverConnecteamTimeBody:
+      type: object
+      required: [confirm]
+      properties:
+        confirm:
+          type: string
+          description: |
+            Must exactly equal the `kfiId` path parameter. The UI is a
+            type-to-confirm dialog; the server re-checks so a malicious
+            client can't bypass it.
+
+    RemoveDriverConnecteamTimeResult:
       type: object
       required: [weekStart, kfiId, punchesDeleted]
       properties:

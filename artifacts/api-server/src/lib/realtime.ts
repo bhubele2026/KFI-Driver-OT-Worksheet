@@ -62,6 +62,13 @@ export type RealtimeEvent =
       actor: ActorRef | null;
     }
   | {
+      type: "driver-connecteam-remove";
+      weekStart: string;
+      kfiId: string;
+      punchesDeleted: number;
+      actor: ActorRef | null;
+    }
+  | {
       type: "customer-upload";
       weekStart: string;
       customer: string;

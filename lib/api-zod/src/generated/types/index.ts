@@ -126,6 +126,8 @@ export * from "./refreshConnecteamDriverResult";
 export * from "./refreshResult";
 export * from "./refreshUnresolvedUser";
 export * from "./registrationStatus";
+export * from "./removeDriverConnecteamTimeBody";
+export * from "./removeDriverConnecteamTimeResult";
 export * from "./removeIpBlocklistBody";
 export * from "./requestPasswordResetBody";
 export * from "./resetDriverCustomerPunchesBody";

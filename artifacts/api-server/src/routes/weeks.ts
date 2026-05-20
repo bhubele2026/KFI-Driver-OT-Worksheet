@@ -17,6 +17,7 @@ import {
   MarkCustomerInactiveBody,
   UpdateCustomerBody,
   ResetWeekBody,
+  RemoveDriverConnecteamTimeBody,
   ResetDriverCustomerPunchesBody,
   SetDriverCustomerOverrideBody,
   SetReviewedBody,
@@ -1601,6 +1602,114 @@ weeksRouter.post(
   },
 );
 
+// Per-driver Remove Connecteam time: hard-delete only the Driver-source
+// punches (Connecteam imports + any edited Connecteam rows) for one
+// driver-week so the dispatcher can wipe the slate before re-pulling
+// from Connecteam. Mirrors reset-customer-punches above: snapshot every
+// deleted row to punch_deletions, refuse when the driver-week is
+// locked, audit + realtime publish AFTER commit. Manual driver entries
+// (isManual=true) and Customer-source rows are left untouched.
+weeksRouter.post(
+  "/weeks/:weekStart/drivers/:kfiId/remove-connecteam-time",
+  requireAdmin,
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    const kfiId = String(req.params.kfiId ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    if (!kfiId) {
+      res.status(400).json({ error: "Invalid driver id" });
+      return;
+    }
+    const parsed = RemoveDriverConnecteamTimeBody.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "Invalid body", details: parsed.error.flatten() });
+      return;
+    }
+    if (parsed.data.confirm !== kfiId) {
+      res
+        .status(400)
+        .json({ error: "Confirmation does not match the driver id." });
+      return;
+    }
+    const lockedKfiIds = await loadLockedKfiIds(weekStart);
+    if (lockedKfiIds.has(kfiId)) {
+      res.status(409).json({
+        error: `Cannot remove: driver ${kfiId} is locked for this week. Unlock first.`,
+        lockedKfiIds: [kfiId],
+      });
+      return;
+    }
+    const userId = req.session.userId ?? null;
+    const now = new Date();
+    let punchesDeleted = 0;
+    try {
+      await db.transaction(async (tx) => {
+        const deleted = await tx
+          .delete(schema.punchesTable)
+          .where(
+            and(
+              eq(schema.punchesTable.weekStart, weekStart),
+              eq(schema.punchesTable.kfiId, kfiId),
+              eq(schema.punchesTable.source, "Driver"),
+              eq(schema.punchesTable.isManual, false),
+            ),
+          )
+          .returning({
+            id: schema.punchesTable.id,
+            kfiId: schema.punchesTable.kfiId,
+            customer: schema.punchesTable.customer,
+            source: schema.punchesTable.source,
+          });
+        if (deleted.length > 0) {
+          await tx.insert(schema.punchDeletionsTable).values(
+            deleted.map((p) => ({
+              punchId: p.id,
+              weekStart,
+              kfiId: p.kfiId,
+              customer: p.customer,
+              source: p.source,
+              deletedBy: userId,
+              deletedAt: now,
+            })),
+          );
+        }
+        punchesDeleted = deleted.length;
+        await tx.insert(schema.userAuditLogTable).values({
+          actorUserId: userId,
+          targetUserId: null,
+          targetEmail: `driver-connecteam-remove:${weekStart}|kfi=${kfiId}|punches=${punchesDeleted}`,
+          action: "driver-connecteam-remove",
+        });
+      });
+    } catch (err) {
+      req.log.error(
+        { err, weekStart, kfiId },
+        "driver Connecteam-time remove failed",
+      );
+      res.status(500).json({
+        error:
+          err instanceof Error
+            ? err.message
+            : "Driver Connecteam-time remove failed",
+      });
+      return;
+    }
+    publishRealtime({
+      type: "driver-connecteam-remove",
+      weekStart,
+      kfiId,
+      punchesDeleted,
+      actor: actorRef(req),
+    });
+    res.json({ weekStart, kfiId, punchesDeleted });
+  },
+);
+
 // Task #296: poll endpoint for "chunk N of M" progress during an AI
 // extract. The browser mints an opaque progressKey, sends it in the
 // extract POST's multipart body, and starts polling this endpoint
@@ -1915,7 +2024,7 @@ weeksRouter.post(
                 detectedCustomer,
                 req.file.buffer,
                 schemaHit.columnRoles,
-                cacheKfiSet,
+                kfiSet,
                 idMap,
                 startDate,
                 endDate,
@@ -1925,7 +2034,7 @@ weeksRouter.post(
                 detectedCustomer,
                 req.file.buffer,
                 schemaHit.columnRoles,
-                cacheKfiSet,
+                kfiSet,
                 idMap,
                 startDate,
                 endDate,

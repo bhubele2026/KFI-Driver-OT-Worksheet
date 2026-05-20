@@ -96,6 +96,8 @@ import type {
   RefreshConnecteamDriverResult,
   RefreshResult,
   RegistrationStatus,
+  RemoveDriverConnecteamTimeBody,
+  RemoveDriverConnecteamTimeResult,
   RemoveIpBlocklistBody,
   RequestPasswordResetBody,
   ResetDriverCustomerPunchesBody,
@@ -3722,6 +3724,144 @@ export const useResetDriverCustomerPunches = <
   TContext
 > => {
   return useMutation(getResetDriverCustomerPunchesMutationOptions(options));
+};
+
+/**
+ * Admin-only surgical wipe. Hard-deletes every row in `punches` for
+`(weekStart, kfiId)` whose `source = 'Driver' AND isManual =
+false` inside a single transaction, snapshotting each deleted
+row into `punch_deletions` first so the wipe remains
+attributable. Edited Connecteam-imported rows ARE deleted (the
+whole point of this button is to give the dispatcher a clean
+slate so they can re-pull from Connecteam). Manual driver
+entries (`isManual = true`) and Customer-source rows are left
+untouched.
+
+Blocks with 409 if this driver-week is locked — the admin must
+unlock it first.
+
+The `confirm` field must equal the `kfiId` path param exactly
+(the UI is a type-to-confirm dialog); the server re-checks so a
+malicious client can't bypass it.
+
+Writes a `user_audit_log` row (`action =
+'driver-connecteam-remove'`) and publishes a
+`driver-connecteam-remove` realtime event after the transaction
+commits.
+
+ * @summary Hard-delete one driver's Connecteam-source punches for a week (admin)
+ */
+export const getRemoveDriverConnecteamTimeUrl = (
+  weekStart: string,
+  kfiId: string,
+) => {
+  return `/api/weeks/${weekStart}/drivers/${kfiId}/remove-connecteam-time`;
+};
+
+export const removeDriverConnecteamTime = async (
+  weekStart: string,
+  kfiId: string,
+  removeDriverConnecteamTimeBody: RemoveDriverConnecteamTimeBody,
+  options?: RequestInit,
+): Promise<RemoveDriverConnecteamTimeResult> => {
+  return customFetch<RemoveDriverConnecteamTimeResult>(
+    getRemoveDriverConnecteamTimeUrl(weekStart, kfiId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(removeDriverConnecteamTimeBody),
+    },
+  );
+};
+
+export const getRemoveDriverConnecteamTimeMutationOptions = <
+  TError = ErrorType<void | ResetWeekLockedError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeDriverConnecteamTime>>,
+    TError,
+    {
+      weekStart: string;
+      kfiId: string;
+      data: BodyType<RemoveDriverConnecteamTimeBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeDriverConnecteamTime>>,
+  TError,
+  {
+    weekStart: string;
+    kfiId: string;
+    data: BodyType<RemoveDriverConnecteamTimeBody>;
+  },
+  TContext
+> => {
+  const mutationKey = ["removeDriverConnecteamTime"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeDriverConnecteamTime>>,
+    {
+      weekStart: string;
+      kfiId: string;
+      data: BodyType<RemoveDriverConnecteamTimeBody>;
+    }
+  > = (props) => {
+    const { weekStart, kfiId, data } = props ?? {};
+
+    return removeDriverConnecteamTime(weekStart, kfiId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveDriverConnecteamTimeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeDriverConnecteamTime>>
+>;
+export type RemoveDriverConnecteamTimeMutationBody =
+  BodyType<RemoveDriverConnecteamTimeBody>;
+export type RemoveDriverConnecteamTimeMutationError =
+  ErrorType<void | ResetWeekLockedError>;
+
+/**
+ * @summary Hard-delete one driver's Connecteam-source punches for a week (admin)
+ */
+export const useRemoveDriverConnecteamTime = <
+  TError = ErrorType<void | ResetWeekLockedError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeDriverConnecteamTime>>,
+    TError,
+    {
+      weekStart: string;
+      kfiId: string;
+      data: BodyType<RemoveDriverConnecteamTimeBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof removeDriverConnecteamTime>>,
+  TError,
+  {
+    weekStart: string;
+    kfiId: string;
+    data: BodyType<RemoveDriverConnecteamTimeBody>;
+  },
+  TContext
+> => {
+  return useMutation(getRemoveDriverConnecteamTimeMutationOptions(options));
 };
 
 /**

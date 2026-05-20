@@ -140,6 +140,22 @@ export function useLiveUpdates({
             }
             break;
 
+          case "driver-customer-reset":
+          case "driver-connecteam-remove":
+            qc.invalidateQueries({
+              queryKey: getGetWeekSummaryQueryKey(event.weekStart),
+            });
+            qc.invalidateQueries({
+              queryKey: getGetDriverWeekQueryKey(event.weekStart, event.kfiId),
+            });
+            qc.invalidateQueries({
+              queryKey: getGetDriverWeekAuditQueryKey(
+                event.weekStart,
+                event.kfiId,
+              ),
+            });
+            break;
+
           case "customer-upload":
             qc.invalidateQueries({
               queryKey: getGetWeekSummaryQueryKey(event.weekStart),

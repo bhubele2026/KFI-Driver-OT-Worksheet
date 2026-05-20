@@ -26,6 +26,7 @@ import {
   useCreateDriverNote,
   useSoftDeleteDriverNote,
   useResetDriverCustomerPunches,
+  useRemoveDriverConnecteamTime,
   getGetDriverWeekQueryKey,
   getGetWeekSummaryQueryKey,
   getGetDriverWeekAuditQueryKey,
@@ -236,6 +237,10 @@ export default function DriverDetail() {
   const resetDriverCustomerMut = useResetDriverCustomerPunches();
   const [resetCustomerOpen, setResetCustomerOpen] = useState(false);
   const [resetCustomerConfirmText, setResetCustomerConfirmText] = useState("");
+  const removeConnecteamMut = useRemoveDriverConnecteamTime();
+  const [removeConnecteamOpen, setRemoveConnecteamOpen] = useState(false);
+  const [removeConnecteamConfirmText, setRemoveConnecteamConfirmText] =
+    useState("");
   const driverLocked = !!(data as { locked?: boolean } | undefined)?.locked;
   const driverStatus =
     ((data as { reviewStatus?: string } | undefined)?.reviewStatus ?? null) as
@@ -1840,7 +1845,25 @@ export default function DriverDetail() {
 
 
         {me?.isAdmin && !driverLocked && (
-          <div className="flex justify-end print:hidden">
+          <div className="flex justify-end gap-2 print:hidden">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => {
+                setRemoveConnecteamConfirmText("");
+                setRemoveConnecteamOpen(true);
+              }}
+              disabled={removeConnecteamMut.isPending}
+              data-testid="button-open-remove-driver-connecteam"
+            >
+              {removeConnecteamMut.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              {t("driverDetail.removeConnecteamBtn")}
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -1964,6 +1987,126 @@ export default function DriverDetail() {
                   <Trash2 className="mr-2 h-4 w-4" />
                 )}
                 {t("driverDetail.resetCustomerConfirm")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={removeConnecteamOpen}
+          onOpenChange={setRemoveConnecteamOpen}
+        >
+          <DialogContent data-testid="dialog-remove-driver-connecteam">
+            <DialogHeader>
+              <DialogTitle>
+                {t("driverDetail.removeConnecteamTitle")}
+              </DialogTitle>
+              <DialogDescription>
+                {t("driverDetail.removeConnecteamDesc")}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="remove-driver-connecteam-confirm"
+                className="text-xs uppercase tracking-wide text-muted-foreground"
+              >
+                {t("driverDetail.removeConnecteamTypePrefix")}{" "}
+                <span className="font-mono">{kfiId}</span>{" "}
+                {t("driverDetail.removeConnecteamTypeSuffix")}
+              </Label>
+              <Input
+                id="remove-driver-connecteam-confirm"
+                value={removeConnecteamConfirmText}
+                onChange={(e) =>
+                  setRemoveConnecteamConfirmText(e.target.value)
+                }
+                placeholder={kfiId}
+                className="font-mono"
+                data-testid="input-remove-driver-connecteam-confirm"
+                autoComplete="off"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setRemoveConnecteamOpen(false)}
+                disabled={removeConnecteamMut.isPending}
+                data-testid="button-remove-driver-connecteam-cancel"
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  removeConnecteamMut.mutate(
+                    {
+                      weekStart,
+                      kfiId,
+                      data: { confirm: removeConnecteamConfirmText },
+                    },
+                    {
+                      onSuccess: (resp) => {
+                        setRemoveConnecteamOpen(false);
+                        setRemoveConnecteamConfirmText("");
+                        queryClient.invalidateQueries({
+                          queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
+                        });
+                        queryClient.invalidateQueries({
+                          queryKey: getGetWeekSummaryQueryKey(weekStart),
+                        });
+                        toast({
+                          title: t(
+                            "driverDetail.removeConnecteamToastTitle",
+                          ),
+                          description: t(
+                            "driverDetail.removeConnecteamToastDesc",
+                            { count: resp.punchesDeleted, kfi: kfiId },
+                          ),
+                        });
+                      },
+                      onError: (err) => {
+                        const e = err as unknown as {
+                          status?: number;
+                          data?: { error?: string };
+                        };
+                        if (e.status === 409) {
+                          toast({
+                            title: t(
+                              "driverDetail.removeConnecteamLockedTitle",
+                            ),
+                            description: t(
+                              "driverDetail.removeConnecteamLockedDesc",
+                            ),
+                            variant: "destructive",
+                          });
+                        } else {
+                          toast({
+                            title: t(
+                              "driverDetail.removeConnecteamFailedTitle",
+                            ),
+                            description: errMsg(
+                              err,
+                              t("driverDetail.removeConnecteamFailed"),
+                            ),
+                            variant: "destructive",
+                          });
+                        }
+                      },
+                    },
+                  );
+                }}
+                disabled={
+                  removeConnecteamConfirmText !== kfiId ||
+                  removeConnecteamMut.isPending
+                }
+                data-testid="button-remove-driver-connecteam-confirm"
+              >
+                {removeConnecteamMut.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="mr-2 h-4 w-4" />
+                )}
+                {t("driverDetail.removeConnecteamConfirm")}
               </Button>
             </DialogFooter>
           </DialogContent>
