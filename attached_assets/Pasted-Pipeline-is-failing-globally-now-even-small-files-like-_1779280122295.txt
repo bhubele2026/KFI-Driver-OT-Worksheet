@@ -1,0 +1,30 @@
+Pipeline is failing globally now — even small files like Landscape Structures are failing. This is new, started in roughly the last 30-60 minutes. Stopping all upload testing immediately.
+Before any more changes: I need to know what shipped in the last hour. Specifically:
+
+Did the MAX_CALLS_PER_UPLOAD raise get deployed?
+Did #339 deploy with anything else bundled in?
+Are there any other commits in main since the last working state (Burnett ✅, Schuette ✅, IWG ✅)?
+
+What's the actual error message on the Landscape failure? Send me the full text from the badge.
+Also: please restart the API server before doing anything else. Pacer state may be poisoned from the last hour of failures, and a clean process is the baseline we need to test against.
+
+3. Take a screenshot of the actual Landscape error message. I need the exact text to diagnose. "It failed" doesn't tell us if it's:
+
+Another IngestionBudgetExceeded (cap-related)
+A makeUploadKey style import error (regression from #339)
+A new salvage failure
+A pacer timeout
+Something else entirely
+
+The error text usually tells us in one line which subsystem is broken.
+The pattern worth recognizing
+In the last few hours, we've gone from "Burnett works, Schuette works, IWG works" to "everything fails." That regression had to come from a code change. There's no environmental drift that would cause this. So either:
+
+A recent merge broke something
+Or all uploads share a single broken dependency that just started failing
+Or your Anthropic API key/billing hit a wall (less likely but check the console)
+
+Worth quickly checking https://console.anthropic.com for any quota warnings or auth errors before assuming it's code.
+Don't panic
+Three hours ago, you had a pipeline that worked on most customers. The work that's been done since then has been narrowing the failure modes. A global failure right now is probably a regression from a recent change, not a fundamental break in the architecture. Replit can roll back the last change in 5 minutes if needed.
+Send me the actual Landscape error text and what Replit says about recent deploys, and we'll figure out what specifically broke. Don't upload anything else in the meantime.Opus 4.7AdaptiveClaude is AI and can make mistakes. Please double-check responses.
