@@ -155,6 +155,12 @@ function friendlyUploadError(
   // the dispatcher at Admin → Driver ID aliases. Pass it through verbatim
   // — rewriting it would lose the actionable diagnostics.
   if (lower.includes("parsed 0 punches")) return raw;
+  // Task #356: `IngestionBudgetExceeded` errors carry the limit + current
+  // call count and direct admins to either split the file or raise the
+  // cap. The "Retry with higher limit" button on the row reads off the
+  // same regex, so dropping this into the generic AI-extract bucket
+  // would both hide the actionable counts and contradict the button.
+  if (/per-file safety limit of \d+ model calls/i.test(lower)) return raw;
   if (
     lower.includes("model did not return valid json") ||
     lower.includes("truncated") ||
@@ -255,6 +261,20 @@ interface RowState {
    * pre-extract, or in-flight bulk).
    */
   chunkProgress: { current: number; total: number } | null;
+  /**
+   * Task #356: when the last extract aborted with
+   * `IngestionBudgetExceeded`, we stash the originating file so the
+   * admin "Retry with higher limit" button can re-submit it with
+   * `?maxCalls=200`. Cleared on the next successful upload or any
+   * non-cap error.
+   */
+  retryFile: File | null;
+  /**
+   * Task #356: true when the most recent error on this row was the
+   * per-upload AI call-cap. Drives whether the "Retry with higher
+   * limit" button renders (admin-only).
+   */
+  capExceeded: boolean;
 }
 
 interface BulkItem {
@@ -345,6 +365,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           error: null,
           uploadStartedAt: null,
           chunkProgress: null,
+          retryFile: null,
+          capExceeded: false,
         },
         ...prev[customer],
         ...patch,
@@ -522,7 +544,11 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   // Two-step flow used by per-row single-file uploads: extract (preview only)
   // → dispatcher confirms in dialog → /confirm-customer-file commits.
   // Cancel = no DB writes.
-  const extractFor = async (customer: string, file: File) => {
+  const extractFor = async (
+    customer: string,
+    file: File,
+    opts?: { maxCalls?: number },
+  ) => {
     cancelRowUpload(customer);
     const controller = new AbortController();
     rowAborts.current[customer] = controller;
@@ -530,6 +556,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       uploading: true,
       error: null,
       uploadStartedAt: Date.now(),
+      retryFile: null,
+      capExceeded: false,
     });
     const formData = new FormData();
     formData.append("file", file);
@@ -545,8 +573,14 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       setRow(customer, { chunkProgress: snap }),
     );
     try {
+      // Task #356: admin one-shot "Retry with higher limit" passes
+      // `?maxCalls=N` (server-validated + clamped to BACKSTOP=200).
+      const qs =
+        opts?.maxCalls != null
+          ? `?maxCalls=${encodeURIComponent(String(opts.maxCalls))}`
+          : "";
       const res = await fetch(
-        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file`,
+        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file${qs}`,
         {
           method: "POST",
           credentials: "include",
@@ -588,11 +622,20 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         ? t("customerUpload.uploadCanceled")
         : errMessage(err, t("customerUpload.uploadFailedFallback"));
       const msg = friendlyUploadError(raw, t);
+      // Task #356: detect `IngestionBudgetExceeded` so the row can
+      // surface an admin-only "Retry with higher limit" button. The
+      // raw server message looks like:
+      //   "AI extraction stopped: this upload would exceed the per-file
+      //    safety limit of N model calls (currently M). ..."
+      const capExceeded =
+        !aborted && /per-file safety limit of \d+ model calls/i.test(raw);
       if (rowAborts.current[customer] === controller) {
         setRow(customer, {
           uploading: false,
           error: aborted ? null : msg,
           uploadStartedAt: null,
+          retryFile: capExceeded ? file : null,
+          capExceeded,
         });
       }
       if (!aborted) {
@@ -1246,7 +1289,14 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       )}
       <ul className="divide-y divide-border">
         {(statuses ?? []).map((s) => {
-          const st = rowState[s.customer] ?? { uploading: false, error: null };
+          const st = rowState[s.customer] ?? {
+            uploading: false,
+            error: null,
+            uploadStartedAt: null,
+            chunkProgress: null,
+            retryFile: null,
+            capExceeded: false,
+          };
           const uploaded = s.punchCount > 0;
           // Compute failure age from the persisted attempt timestamp so an
           // hours-old failure renders as a muted "Failed Xm ago" tag (or
@@ -1423,6 +1473,25 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   >
                     <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
                     <span>{lastError}</span>
+                  </div>
+                )}
+                {st.capExceeded && st.retryFile && me?.isAdmin && (
+                  <div className="mt-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 px-2 text-[11px]"
+                      data-testid={`button-retry-higher-limit-${s.customer}`}
+                      onClick={() => {
+                        if (st.retryFile) {
+                          void extractFor(s.customer, st.retryFile, {
+                            maxCalls: 200,
+                          });
+                        }
+                      }}
+                    >
+                      {t("customerUpload.retryHigherLimit")}
+                    </Button>
                   </div>
                 )}
                 {!showError && s.lastUnmappedIds.length > 0 && (

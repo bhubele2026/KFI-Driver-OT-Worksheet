@@ -1214,6 +1214,7 @@
     "punches_one": "{{count}} registro",
     "punches_other": "{{count}} registros",
     "lastUploadFailed": "Falló la última subida",
+    "retryHigherLimit": "Reintentar con límite mayor",
     "failedAgoMin_one": "Falló hace {{count}} min",
     "failedAgoMin_other": "Falló hace {{count}} min",
     "failedAgoHour_one": "Falló hace {{count}} h",

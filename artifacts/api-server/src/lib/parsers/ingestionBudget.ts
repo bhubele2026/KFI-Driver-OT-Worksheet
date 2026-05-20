@@ -180,6 +180,7 @@ export class IngestionBudget {
   private rowsPerChunk: number | null = null;
   private pacerWaitMs = 0;
   private maxCalls: number;
+  private readonly maxCallsOverride: number | null;
   private readonly log: BudgetLogger;
   private readonly fileName: string;
   private readonly customer: string;
@@ -194,13 +195,31 @@ export class IngestionBudget {
      * the planned chunk count is known.
      */
     maxCalls?: number;
+    /**
+     * Task #356: admin-supplied per-upload floor that subsequent
+     * `setMaxCalls` calls (e.g. the xlsx chunker's auto-sizing) are
+     * never allowed to drop below. Clamped to
+     * `[MIN_MAX_CALLS_PER_UPLOAD, BACKSTOP_MAX_CALLS_PER_UPLOAD]`.
+     * When set, the initial `maxCalls` is also raised to at least
+     * this value so a `?maxCalls=` retry actually authorizes more
+     * calls regardless of what the caller passed for the default.
+     */
+    maxCallsOverride?: number;
   }) {
     this.fileName = opts.fileName;
     this.customer = opts.customer;
     this.log = opts.log ?? logger;
-    this.maxCalls = this.clampMaxCalls(
+    this.maxCallsOverride =
+      opts.maxCallsOverride != null
+        ? this.clampMaxCalls(opts.maxCallsOverride)
+        : null;
+    const initial = this.clampMaxCalls(
       opts.maxCalls ?? BACKSTOP_MAX_CALLS_PER_UPLOAD,
     );
+    this.maxCalls =
+      this.maxCallsOverride != null
+        ? Math.max(initial, this.maxCallsOverride)
+        : initial;
   }
 
   private clampMaxCalls(n: number): number {
@@ -220,7 +239,11 @@ export class IngestionBudget {
    * `[MIN_MAX_CALLS_PER_UPLOAD, BACKSTOP_MAX_CALLS_PER_UPLOAD]`.
    */
   setMaxCalls(n: number): void {
-    this.maxCalls = this.clampMaxCalls(n);
+    const clamped = this.clampMaxCalls(n);
+    this.maxCalls =
+      this.maxCallsOverride != null
+        ? Math.max(clamped, this.maxCallsOverride)
+        : clamped;
   }
 
   /** The configured per-upload call ceiling, post-clamp. */

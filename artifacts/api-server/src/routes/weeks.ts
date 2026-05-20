@@ -1,4 +1,4 @@
-import { Router, type Request } from "express";
+import { Router, type Request, type Response } from "express";
 import { createHash, randomUUID } from "node:crypto";
 import multer from "multer";
 import { and, asc, desc, eq, gt, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
@@ -64,9 +64,11 @@ import {
   readExtractProgress,
 } from "../lib/parsers/extractProgress.js";
 import {
+  BACKSTOP_MAX_CALLS_PER_UPLOAD,
   IngestionBudget,
   IngestionBudgetExceeded,
   type IngestionBudgetSummary,
+  MIN_MAX_CALLS_PER_UPLOAD,
 } from "../lib/parsers/ingestionBudget.js";
 import { lookupSchema } from "../lib/parsers/schemaLookup.js";
 import {
@@ -257,6 +259,50 @@ weeksRouter.use(requireAuth);
 
 const WEEK_RE = /^\d{4}-\d{2}-\d{2}$/;
 const isWeek = (w: string) => WEEK_RE.test(w);
+
+/**
+ * Task #356: parse + validate the admin-only `?maxCalls=N` override
+ * for retrying a customer-file extract that previously aborted with
+ * `IngestionBudgetExceeded`. Returns the validated integer, `null`
+ * when the param is absent, or the sentinel `"invalid"` after writing
+ * an error response (the caller must early-return on that sentinel).
+ */
+export function parseMaxCallsOverride(
+  req: Request,
+  res: Response,
+): number | null | "invalid" {
+  const raw = req.query.maxCalls;
+  if (raw == null || String(raw).length === 0) return null;
+  const user = (req as Request & { user?: typeof schema.usersTable.$inferSelect }).user;
+  if (!user?.isAdmin) {
+    res.status(403).json({
+      error: "Admin access required to raise the per-upload AI call limit.",
+    });
+    return "invalid";
+  }
+  // Strict integer parse: reject things like "200abc" or "1.5" that
+  // `Number.parseInt` would silently coerce. Only an all-digits string
+  // (optionally with leading +) qualifies.
+  const str = String(raw).trim();
+  if (!/^\+?\d+$/.test(str)) {
+    res.status(400).json({
+      error: `maxCalls must be an integer between ${MIN_MAX_CALLS_PER_UPLOAD} and ${BACKSTOP_MAX_CALLS_PER_UPLOAD}.`,
+    });
+    return "invalid";
+  }
+  const n = Number(str);
+  if (
+    !Number.isFinite(n) ||
+    n < MIN_MAX_CALLS_PER_UPLOAD ||
+    n > BACKSTOP_MAX_CALLS_PER_UPLOAD
+  ) {
+    res.status(400).json({
+      error: `maxCalls must be an integer between ${MIN_MAX_CALLS_PER_UPLOAD} and ${BACKSTOP_MAX_CALLS_PER_UPLOAD}.`,
+    });
+    return "invalid";
+  }
+  return n;
+}
 
 async function ensureWeek(weekStart: string): Promise<{
   startDate: string;
@@ -1819,6 +1865,12 @@ weeksRouter.post(
     // Step 2: AI extraction. Triggered when the cache missed or when
     // the cached role reader threw / returned no rows.
     const needsAi = !result;
+    // Task #356: admin-only `?maxCalls=N` override for retrying an
+    // upload that previously aborted with `IngestionBudgetExceeded`.
+    // Validated + audited up-front; clamped to
+    // `[MIN, BACKSTOP_MAX_CALLS_PER_UPLOAD]`. Non-admin → 403.
+    const maxCallsOverride = parseMaxCallsOverride(req, res);
+    if (maxCallsOverride === "invalid") return;
     // Per-upload AI spend tracker (Task #297). Constructed even when
     // the cache hit short-circuits AI, so an unused-but-present
     // `aiBudgetSummary` keeps the post-extract success branch
@@ -1827,7 +1879,16 @@ weeksRouter.post(
       fileName,
       customer: detectedCustomer,
       log: req.log,
+      maxCalls: maxCallsOverride ?? undefined,
+      maxCallsOverride: maxCallsOverride ?? undefined,
     });
+    if (maxCallsOverride != null) {
+      await db.insert(schema.userAuditLogTable).values({
+        actorUserId: req.session.userId ?? null,
+        targetEmail: `cap-override:${detectedCustomer}:${startDate}:${fileName}:${maxCallsOverride}`,
+        action: "customer-upload-cap-override",
+      });
+    }
     // Task #314: per-upload id tagged onto every pacer event this
     // extraction pushes. The `finally` below releases the events the
     // instant extraction resolves so the next upload doesn't queue
@@ -3783,11 +3844,24 @@ weeksRouter.post(
     // try so the catch branch can still persist a budget_exceeded /
     // extraction_failed audit row with whatever counts accrued before
     // the throw.
+    // Task #356: same admin-only `?maxCalls=N` override as the
+    // known-customer extract route.
+    const maxCallsOverrideNew = parseMaxCallsOverride(req, res);
+    if (maxCallsOverrideNew === "invalid") return;
     const aiBudgetNew = new IngestionBudget({
       fileName: req.file.originalname,
       customer,
       log: req.log,
+      maxCalls: maxCallsOverrideNew ?? undefined,
+      maxCallsOverride: maxCallsOverrideNew ?? undefined,
     });
+    if (maxCallsOverrideNew != null) {
+      await db.insert(schema.userAuditLogTable).values({
+        actorUserId: req.session.userId ?? null,
+        targetEmail: `cap-override:${customer}:${startDate}:${req.file.originalname}:${maxCallsOverrideNew}`,
+        action: "customer-upload-cap-override",
+      });
+    }
     const reqUserNew = (req as Request & { user?: typeof schema.usersTable.$inferSelect }).user;
     const allowGeminiFallbackNewOverride =
       Boolean(reqUserNew?.isAdmin) &&

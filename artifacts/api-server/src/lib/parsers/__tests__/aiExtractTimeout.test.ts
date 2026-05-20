@@ -642,6 +642,38 @@ test("setMaxCalls clamps to the floor and backstop (Task #336)", () => {
 });
 
 /**
+ * Task #356: admin "Retry with higher limit" path. Passing
+ * `maxCallsOverride: N` to the constructor raises the initial
+ * ceiling to at least N, and a subsequent `setMaxCalls(small)` from
+ * the chunk planner must not lower it below the override — otherwise
+ * the retry would re-trip the same per-file cap the admin just bumped.
+ * Override is itself clamped to [MIN, BACKSTOP].
+ */
+test("maxCallsOverride raises and pins the floor (Task #356)", () => {
+  const budget = new IngestionBudget({
+    fileName: "retry.xlsx",
+    customer: "C",
+    maxCalls: 30,
+    maxCallsOverride: 200,
+  });
+  // Override raises the initial ceiling.
+  assert.equal(budget.getMaxCalls(), 200);
+  // Chunk planner picking a smaller ceiling cannot lower it.
+  budget.setMaxCalls(45);
+  assert.equal(budget.getMaxCalls(), 200);
+  // Chunk planner picking a larger ceiling still wins.
+  budget.setMaxCalls(Number.MAX_SAFE_INTEGER);
+  assert.equal(budget.getMaxCalls(), BACKSTOP_MAX_CALLS_PER_UPLOAD);
+  // Override above backstop clamps to backstop.
+  const huge = new IngestionBudget({
+    fileName: "retry2.xlsx",
+    customer: "C",
+    maxCallsOverride: 9_999,
+  });
+  assert.equal(huge.getMaxCalls(), BACKSTOP_MAX_CALLS_PER_UPLOAD);
+});
+
+/**
  * Task #336: the percentage-based soft warn fires once when totalCalls
  * crosses ~66% of the configured ceiling, regardless of file shape.
  * Pins SOFT_WARN_FRACTION's behavior so a 152-call Adient and a

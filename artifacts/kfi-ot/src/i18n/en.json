@@ -1216,6 +1216,7 @@
     "punches_one": "{{count}} punch",
     "punches_other": "{{count}} punches",
     "lastUploadFailed": "Last upload failed",
+    "retryHigherLimit": "Retry with higher limit",
     "failedAgoMin_one": "Failed {{count}} min ago",
     "failedAgoMin_other": "Failed {{count}} min ago",
     "failedAgoHour_one": "Failed {{count}} hr ago",
