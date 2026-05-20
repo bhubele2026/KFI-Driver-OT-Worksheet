@@ -22,9 +22,9 @@ turned the demo-night Adient 429 RATELIMIT_EXCEEDED from a hard
 
 Chunked spreadsheet extraction uses a bounded worker pool
 (`XLSX_CHUNK_CONCURRENCY`, currently 3 — see Task #296) plus the shared
-`runWithConcurrency` helper. The chunking math, the schema cache, the
-OCR fallback for scanned DeLallo PDFs, and AI-sample retention are all
-unchanged from before the Claude swap. Per-chunk recovery now uses
+`runWithConcurrency` helper. The chunking math, the schema cache, and
+AI-sample retention are all unchanged from before the Claude swap.
+Per-chunk recovery now uses
 NDJSON row-tag re-issue instead of the legacy chunk-halving — see
 [NDJSON output with `[R<n>]` row tags](#ndjson-output-with-rn-row-tags-task-308)
 below.
@@ -221,13 +221,25 @@ unknown (key not seen yet, single-chunk file, cache-hit fast path, or
 expired). The customer-upload row badge renders `Chunk N of M` next to
 the existing elapsed-seconds counter as soon as the first tick arrives.
 
-## OCR fallback for scanned PDFs
+## PDF routing by per-file text density (Task #349)
 
-DeLallo PDFs that come from a scanner (no text layer) automatically fall back
-to OCR via Gemini (`@google/genai`, `gemini-2.5-flash`) using the Replit AI
-Integrations proxy. The fallback only fires when pdfjs extracts zero text, so
-digital PDFs stay on the fast path. Env vars `AI_INTEGRATIONS_GEMINI_BASE_URL`
-and `AI_INTEGRATIONS_GEMINI_API_KEY` are auto-provisioned.
+PDF uploads are routed by **per-file text density**, not by customer
+name. `extractTextFromPdf` (pdfjs) runs on every PDF; if it returns
+meaningful text (>50 non-whitespace chars), the document goes through
+the generic PDF-text → AI extraction path (Lane B) alongside Adient,
+IWG, and every other text-extractable PDF customer. If pdfjs extracts
+no text (scanned image), the raw PDF bytes are sent to the model as
+an `application/pdf` inline-data attachment for OCR (Lane C).
+
+DeLallo used to have a customer-specific OCR fallback
+(`ocrDelalloPDF`) hardcoded on the `customer === "delallo"` branch:
+every DeLallo PDF — even fully digital ones with selectable text —
+took the heavy vision path, and the separate code path silently
+missed pipeline improvements (#306, #307, #339, pacer fixes). Task
+\#349 removed that branch entirely and deleted `lib/parsers/ocr.ts`.
+DeLallo is now "just another customer" and inherits every improvement
+to the main pipeline; scanned weeks still produce rows via the generic
+Lane C path.
 
 ## AI sample retention
 
