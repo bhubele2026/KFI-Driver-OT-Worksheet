@@ -418,6 +418,59 @@ const FIXUPS: Fixup[] = [
     `,
   },
   // ---------------------------------------------------------------------
+  // Task #354 (Penda full reset) — one-shot Penda-only state wipe so the
+  // next dispatcher upload re-learns the AI recipe from scratch through
+  // Claude. The dispatcher's confidence in the cached recipe was broken
+  // by today's e2e contamination episode (driver roster contained 78
+  // stub rows when the recipe was first written), so we wipe and re-derive
+  // even though the cached `customer_column_schemas` row (id=111) has the
+  // same header_signature as the working Trienda cache.
+  //
+  // Scoped strictly to Penda. Other customers' caches are untouched.
+  // Pre-deletion inventory snapshot is preserved at
+  // .local/forensics/penda-prod-inventory-pre-wipe.txt for forensics.
+  // Marker-gated so future Penda data the dispatcher creates after the
+  // wipe will NOT be re-deleted on subsequent deploys.
+  {
+    name: "wipe Penda customer state for clean re-derivation (Task #354)",
+    describe:
+      "Delete Penda-only rows from customer_column_schemas, ai_extract_samples, customer_upload_attempts, and driver_id_aliases so the next upload re-runs through Claude. Marker-gated; runs once.",
+    detect: `SELECT 1`,
+    apply: `
+      CREATE TABLE IF NOT EXISTS schema_fixup_markers (
+        name text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      );
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM schema_fixup_markers
+          WHERE name = 'wipe_penda_state_2026'
+        ) THEN
+          RETURN;
+        END IF;
+
+        DELETE FROM customer_column_schemas
+         WHERE customer IN ('Penda Corp', 'Penda');
+
+        DELETE FROM ai_extract_samples
+         WHERE customer IN ('Penda Corp', 'Penda');
+
+        DELETE FROM customer_upload_attempts
+         WHERE customer IN ('Penda Corp', 'Penda');
+
+        BEGIN
+          DELETE FROM driver_id_aliases
+           WHERE customer IN ('Penda Corp', 'Penda');
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+
+        INSERT INTO schema_fixup_markers (name)
+          VALUES ('wipe_penda_state_2026')
+          ON CONFLICT (name) DO NOTHING;
+      END$$;
+    `,
+  },
+  // ---------------------------------------------------------------------
   // Task #354 (companion) — quarantine the e2e onboarding test data
   // that leaked into production today. Two synthetic customers
   // ("E2E Penda e2e-onb-pen-…", "E2E DeLallo e2e-onb-del-…") and ~78
