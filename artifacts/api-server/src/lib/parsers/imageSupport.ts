@@ -238,6 +238,16 @@ export async function extractImageForKnownCustomer(args: {
   // Fuzzy match falls back to the same customer-preferred pool used for
   // the AI roster hint.
   const fuzzyPool = rosterPool;
+  // Task #360: prefer same-customer matches over cross-customer for
+  // badge resolution too. When `preferredDrivers` has any rows we
+  // narrow the badge-resolution set to that pool so a badge that maps
+  // (or self-resolves) to a driver attached to a different customer is
+  // rejected — the picker prompts the dispatcher instead of silently
+  // attributing punches across customers. When the customer has no
+  // attached drivers yet (rare bootstrap case for a brand-new customer),
+  // `rosterPool` falls back to the full archived-filtered roster and
+  // `poolKfiSet` equals `kfiSet`, so behavior is unchanged.
+  const poolKfiSet = new Set(fuzzyPool.map((d) => d.kfiId));
 
   const unmapped = new UnmappedIdAccumulator();
   const punches: ParsedPunch[] = [];
