@@ -3,6 +3,7 @@ import { logger } from "../logger.js";
 import { fmtDT } from "../time.js";
 import { getGeminiClient } from "./gemini.js";
 import type { IngestionBudget } from "./ingestionBudget.js";
+import { parseOrSalvageJsonObject } from "./jsonSalvage.js";
 import type { ParsedPunch, UnmappedIdAccumulator } from "./types.js";
 
 interface OcrPunchRow {
@@ -120,14 +121,13 @@ export async function ocrDelalloPDF(
   }
 
   const raw = response.text ?? "";
-  let parsed: { punches?: OcrPunchRow[] };
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(
-      `DeLallo OCR fallback: model did not return valid JSON (${(err as Error).message}).`,
-    );
-  }
+  const { parsed } = parseOrSalvageJsonObject<{ punches?: OcrPunchRow[] }>(
+    raw,
+    {
+      log: logger,
+      errorPrefix: "DeLallo OCR fallback",
+    },
+  );
 
   const out: ParsedPunch[] = [];
   for (const row of parsed.punches ?? []) {
