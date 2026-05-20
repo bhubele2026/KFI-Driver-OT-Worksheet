@@ -246,6 +246,56 @@ const FIXUPS: Fixup[] = [
       END$$;
     `,
   },
+  // ---------------------------------------------------------------------
+  // Task #288 — seed `clock_offsets` with the two legacy Shuster +1h fix
+  // rows so existing Connecteam ingest keeps applying the same offset
+  // after the hardcoded SHUSTER_CLOCK_IDS constant in `lib/mappings.ts`
+  // is removed. One-shot, marker-gated. Safe to re-run; the marker
+  // prevents reseeding a row that a dispatcher later deleted on purpose.
+  // The CREATE TABLE IF NOT EXISTS guard lets the seed succeed even on a
+  // fresh DB where drizzle-kit push hasn't run yet.
+  {
+    name: "seed clock_offsets with legacy Shuster +1h rows",
+    describe:
+      "Insert the two Shuster clock_ids (2005033 and 2004992) with +1.00h offsets. Marker-gated so deleting a row in the admin UI doesn't reintroduce it on the next deploy.",
+    detect: `SELECT 1`,
+    apply: `
+      CREATE TABLE IF NOT EXISTS schema_fixup_markers (
+        name text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      );
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM schema_fixup_markers
+          WHERE name = 'seed_clock_offsets_shuster_2026'
+        ) THEN
+          RETURN;
+        END IF;
+        -- Pre-migrate runs before drizzle-kit push, so on the first deploy
+        -- the table may not exist yet. Create a minimal compatible shape so
+        -- the seed INSERT succeeds; push will reconcile the rest of the
+        -- schema (constraints, FKs, defaults) immediately afterward.
+        CREATE TABLE IF NOT EXISTS clock_offsets (
+          clock_id     text PRIMARY KEY,
+          hours_offset numeric(6, 2) NOT NULL,
+          note         text,
+          created_at   timestamptz NOT NULL DEFAULT now(),
+          updated_at   timestamptz NOT NULL DEFAULT now(),
+          created_by   integer,
+          updated_by   integer
+        );
+        INSERT INTO clock_offsets (clock_id, hours_offset, note)
+        VALUES
+          ('2005033', 1.00, 'Legacy Shuster +1h fix (seeded from SHUSTER_CLOCK_IDS).'),
+          ('2004992', 1.00, 'Legacy Shuster +1h fix (seeded from SHUSTER_CLOCK_IDS).')
+        ON CONFLICT (clock_id) DO NOTHING;
+        INSERT INTO schema_fixup_markers (name)
+          VALUES ('seed_clock_offsets_shuster_2026')
+          ON CONFLICT (name) DO NOTHING;
+      END$$;
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------

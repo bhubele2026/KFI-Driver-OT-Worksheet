@@ -26,3 +26,4 @@ export * from "./connecteamUserAliases";
 export * from "./connecteamClockRefreshStats";
 export * from "./schemaFixupMarkers";
 export * from "./customerColumnSchemas";
+export * from "./clockOffsets";

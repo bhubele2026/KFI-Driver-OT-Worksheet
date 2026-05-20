@@ -2526,6 +2526,81 @@ export const DeleteConnecteamUserAliasParams = zod.object({
 });
 
 /**
+ * @summary List every admin-managed Connecteam clock-id hour offset (admin-only).
+ */
+export const ListClockOffsetsResponseItem = zod.object({
+  clockId: zod.string(),
+  hoursOffset: zod
+    .number()
+    .describe(
+      "Hours to add to every raw punch timestamp coming from this clock. Fractions allowed (e.g. 0.5, -1.5).",
+    ),
+  note: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+});
+export const ListClockOffsetsResponse = zod.array(ListClockOffsetsResponseItem);
+
+/**
+ * @summary Add (or replace) the hour offset for a Connecteam clock id (admin-only).
+ */
+
+export const CreateClockOffsetBody = zod.object({
+  clockId: zod.string().min(1),
+  hoursOffset: zod.number(),
+  note: zod.string().nullish(),
+});
+
+export const CreateClockOffsetResponse = zod.object({
+  clockId: zod.string(),
+  hoursOffset: zod
+    .number()
+    .describe(
+      "Hours to add to every raw punch timestamp coming from this clock. Fractions allowed (e.g. 0.5, -1.5).",
+    ),
+  note: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Update an existing clock offset's hours or note (admin-only).
+ */
+export const UpdateClockOffsetParams = zod.object({
+  clockId: zod.coerce.string(),
+});
+
+export const UpdateClockOffsetBody = zod.object({
+  hoursOffset: zod.number().optional(),
+  note: zod.string().nullish(),
+});
+
+export const UpdateClockOffsetResponse = zod.object({
+  clockId: zod.string(),
+  hoursOffset: zod
+    .number()
+    .describe(
+      "Hours to add to every raw punch timestamp coming from this clock. Fractions allowed (e.g. 0.5, -1.5).",
+    ),
+  note: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Delete a clock offset (admin-only). Future ingests use zero offset for this clock.
+ */
+export const DeleteClockOffsetParams = zod.object({
+  clockId: zod.coerce.string(),
+});
+
+/**
  * @summary List every per-customer "not a driver — never import" decision (admin-only).
  */
 export const ListCustomerIgnoredExternalsResponseItem = zod.object({

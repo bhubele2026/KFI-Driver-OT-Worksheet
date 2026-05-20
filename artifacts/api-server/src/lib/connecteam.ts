@@ -1,4 +1,3 @@
-import { SHUSTER_CLOCK_IDS } from "./mappings.js";
 import { CT_TZ, msToLocalStr, msToLocalDate, addDays, isAllowedTz } from "./time.js";
 import { toDisplayName } from "./parsers/displayName.js";
 
@@ -253,6 +252,13 @@ export async function fetchPunchesForWeek(
    */
   ctUserAliases: Map<number, string> = new Map(),
   /**
+   * Per-clock raw-timestamp fix in milliseconds, keyed by Connecteam clockId.
+   * Replaces the legacy hardcoded SHUSTER_CLOCK_IDS +1h fix — the route layer
+   * now loads this from the admin-managed `clock_offsets` table so dispatchers
+   * can add or remove offsets without a code change. Empty map = no offsets.
+   */
+  clockOffsetsMs: Map<number, number> = new Map(),
+  /**
    * Optional injection point for tests / alternative transports. Defaults
    * to the production ctFetch helper.
    */
@@ -313,7 +319,7 @@ export async function fetchPunchesForWeek(
       });
       continue;
     }
-    const shiftFix = SHUSTER_CLOCK_IDS.has(clockId) ? 3_600_000 : 0;
+    const shiftFix = clockOffsetsMs.get(clockId) ?? 0;
     let clockShiftCount = 0;
     for (const g of groups) {
       const ctUserId = g.userId;

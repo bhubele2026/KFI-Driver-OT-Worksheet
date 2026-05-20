@@ -19,9 +19,6 @@ export const TIME_CLOCKS = [
   14672594, // Landscape Structures
 ] as const;
 
-/**
- * Connecteam time-clock IDs whose raw timestamps need a +1h fix so that the
- * displayed wall-clock matches what the driver punched. This was reverse-
- * engineered in the legacy app and is preserved for parity.
- */
-export const SHUSTER_CLOCK_IDS = new Set<number>([2005033, 2004992]);
+// Per-clock raw-timestamp offsets (the legacy Shuster +1h fix and any future
+// cases) were lifted into the `clock_offsets` table by Task #288 — managed
+// from /admin/clock-offsets and loaded once per Connecteam refresh.

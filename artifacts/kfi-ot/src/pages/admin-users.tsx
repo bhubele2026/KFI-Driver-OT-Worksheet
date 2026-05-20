@@ -821,6 +821,16 @@ export default function AdminUsers() {
               Connecteam aliases
             </Button>
           </Link>
+          <Link href="/admin/clock-offsets">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
+              data-testid="link-admin-clock-offsets"
+            >
+              Clock offsets
+            </Button>
+          </Link>
           <HiddenNotesBadge />
           <Link href="/admin/i18n">
             <Button

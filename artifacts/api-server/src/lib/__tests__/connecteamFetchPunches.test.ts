@@ -54,6 +54,7 @@ test("fetchPunchesForWeek: dynamic clocks, alias merging, per-clock counts", asy
     ctUserIdToKfi,
     new Map(),
     ctUserAliases,
+    new Map(),
     {
       listClocks: async () => clocks,
       fetchActivities: async (path: string) => {
@@ -85,6 +86,7 @@ test("fetchPunchesForWeek: per-clock failure is isolated", async () => {
     startIso,
     endIso,
     new Map([[7, "kfi-X"]]),
+    new Map(),
     new Map(),
     new Map(),
     {
@@ -120,7 +122,7 @@ test("fetchPunchesForWeek: per-clock failure is isolated", async () => {
 
 test("fetchPunchesForWeek: listClocks failure throws", async () => {
   await assert.rejects(
-    fetchPunchesForWeek(startIso, endIso, new Map(), new Map(), new Map(), {
+    fetchPunchesForWeek(startIso, endIso, new Map(), new Map(), new Map(), new Map(), {
       listClocks: async () => {
         throw new Error("auth failed");
       },

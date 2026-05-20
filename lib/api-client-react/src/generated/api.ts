@@ -25,12 +25,14 @@ import type {
   AllowedTimezones,
   AuthCredentials,
   ClearDriverCustomerOverrideParams,
+  ClockOffset,
   ConfirmCustomerFileInput,
   ConfirmNewCustomerInput,
   ConfirmNewCustomerResult,
   ConnecteamClocksAudit,
   ConnecteamUserAlias,
   ConnecteamUserAliasList,
+  CreateClockOffsetBody,
   CreateConnecteamUserAliasBody,
   CreateCustomerBody,
   CreateDriverIdAliasBody,
@@ -109,6 +111,7 @@ import type {
   ShiftPunchesInput,
   ShiftPunchesResult,
   SuggestedIpBlock,
+  UpdateClockOffsetBody,
   UpdateConnecteamUserAliasBody,
   UpdateCustomerBody,
   UpdateCustomerNameAliasBody,
@@ -6725,6 +6728,338 @@ export const useDeleteConnecteamUserAlias = <
   TContext
 > => {
   return useMutation(getDeleteConnecteamUserAliasMutationOptions(options));
+};
+
+/**
+ * @summary List every admin-managed Connecteam clock-id hour offset (admin-only).
+ */
+export const getListClockOffsetsUrl = () => {
+  return `/api/admin/clock-offsets`;
+};
+
+export const listClockOffsets = async (
+  options?: RequestInit,
+): Promise<ClockOffset[]> => {
+  return customFetch<ClockOffset[]>(getListClockOffsetsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListClockOffsetsQueryKey = () => {
+  return [`/api/admin/clock-offsets`] as const;
+};
+
+export const getListClockOffsetsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listClockOffsets>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listClockOffsets>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListClockOffsetsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listClockOffsets>>
+  > = ({ signal }) => listClockOffsets({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listClockOffsets>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListClockOffsetsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listClockOffsets>>
+>;
+export type ListClockOffsetsQueryError = ErrorType<void>;
+
+/**
+ * @summary List every admin-managed Connecteam clock-id hour offset (admin-only).
+ */
+
+export function useListClockOffsets<
+  TData = Awaited<ReturnType<typeof listClockOffsets>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listClockOffsets>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListClockOffsetsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Add (or replace) the hour offset for a Connecteam clock id (admin-only).
+ */
+export const getCreateClockOffsetUrl = () => {
+  return `/api/admin/clock-offsets`;
+};
+
+export const createClockOffset = async (
+  createClockOffsetBody: CreateClockOffsetBody,
+  options?: RequestInit,
+): Promise<ClockOffset> => {
+  return customFetch<ClockOffset>(getCreateClockOffsetUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createClockOffsetBody),
+  });
+};
+
+export const getCreateClockOffsetMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createClockOffset>>,
+    TError,
+    { data: BodyType<CreateClockOffsetBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createClockOffset>>,
+  TError,
+  { data: BodyType<CreateClockOffsetBody> },
+  TContext
+> => {
+  const mutationKey = ["createClockOffset"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createClockOffset>>,
+    { data: BodyType<CreateClockOffsetBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createClockOffset(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateClockOffsetMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createClockOffset>>
+>;
+export type CreateClockOffsetMutationBody = BodyType<CreateClockOffsetBody>;
+export type CreateClockOffsetMutationError = ErrorType<void>;
+
+/**
+ * @summary Add (or replace) the hour offset for a Connecteam clock id (admin-only).
+ */
+export const useCreateClockOffset = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createClockOffset>>,
+    TError,
+    { data: BodyType<CreateClockOffsetBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createClockOffset>>,
+  TError,
+  { data: BodyType<CreateClockOffsetBody> },
+  TContext
+> => {
+  return useMutation(getCreateClockOffsetMutationOptions(options));
+};
+
+/**
+ * @summary Update an existing clock offset's hours or note (admin-only).
+ */
+export const getUpdateClockOffsetUrl = (clockId: string) => {
+  return `/api/admin/clock-offsets/${clockId}`;
+};
+
+export const updateClockOffset = async (
+  clockId: string,
+  updateClockOffsetBody: UpdateClockOffsetBody,
+  options?: RequestInit,
+): Promise<ClockOffset> => {
+  return customFetch<ClockOffset>(getUpdateClockOffsetUrl(clockId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateClockOffsetBody),
+  });
+};
+
+export const getUpdateClockOffsetMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateClockOffset>>,
+    TError,
+    { clockId: string; data: BodyType<UpdateClockOffsetBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateClockOffset>>,
+  TError,
+  { clockId: string; data: BodyType<UpdateClockOffsetBody> },
+  TContext
+> => {
+  const mutationKey = ["updateClockOffset"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateClockOffset>>,
+    { clockId: string; data: BodyType<UpdateClockOffsetBody> }
+  > = (props) => {
+    const { clockId, data } = props ?? {};
+
+    return updateClockOffset(clockId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateClockOffsetMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateClockOffset>>
+>;
+export type UpdateClockOffsetMutationBody = BodyType<UpdateClockOffsetBody>;
+export type UpdateClockOffsetMutationError = ErrorType<void>;
+
+/**
+ * @summary Update an existing clock offset's hours or note (admin-only).
+ */
+export const useUpdateClockOffset = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateClockOffset>>,
+    TError,
+    { clockId: string; data: BodyType<UpdateClockOffsetBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateClockOffset>>,
+  TError,
+  { clockId: string; data: BodyType<UpdateClockOffsetBody> },
+  TContext
+> => {
+  return useMutation(getUpdateClockOffsetMutationOptions(options));
+};
+
+/**
+ * @summary Delete a clock offset (admin-only). Future ingests use zero offset for this clock.
+ */
+export const getDeleteClockOffsetUrl = (clockId: string) => {
+  return `/api/admin/clock-offsets/${clockId}`;
+};
+
+export const deleteClockOffset = async (
+  clockId: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteClockOffsetUrl(clockId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteClockOffsetMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteClockOffset>>,
+    TError,
+    { clockId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteClockOffset>>,
+  TError,
+  { clockId: string },
+  TContext
+> => {
+  const mutationKey = ["deleteClockOffset"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteClockOffset>>,
+    { clockId: string }
+  > = (props) => {
+    const { clockId } = props ?? {};
+
+    return deleteClockOffset(clockId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteClockOffsetMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteClockOffset>>
+>;
+
+export type DeleteClockOffsetMutationError = ErrorType<void>;
+
+/**
+ * @summary Delete a clock offset (admin-only). Future ingests use zero offset for this clock.
+ */
+export const useDeleteClockOffset = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteClockOffset>>,
+    TError,
+    { clockId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteClockOffset>>,
+  TError,
+  { clockId: string },
+  TContext
+> => {
+  return useMutation(getDeleteClockOffsetMutationOptions(options));
 };
 
 /**

@@ -13,6 +13,8 @@ import {
   CreateDriverIdAliasBody,
   CreateConnecteamUserAliasBody,
   CreateCustomerBody,
+  CreateClockOffsetBody,
+  UpdateClockOffsetBody,
   MarkCustomerInactiveBody,
   UpdateCustomerBody,
   ResetWeekBody,
@@ -978,6 +980,21 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
       .from(schema.connecteamUserAliasesTable);
     const ctUserAliases = new Map<number, string>();
     for (const row of ctAliasRows) ctUserAliases.set(row.ctUserId, row.kfiId);
+    // Admin-managed per-clock raw-timestamp offsets (replaces the legacy
+    // hardcoded SHUSTER_CLOCK_IDS constant). Loaded once per refresh.
+    const offsetRows = await db
+      .select({
+        clockId: schema.clockOffsetsTable.clockId,
+        hoursOffset: schema.clockOffsetsTable.hoursOffset,
+      })
+      .from(schema.clockOffsetsTable);
+    const clockOffsetsMs = new Map<number, number>();
+    for (const row of offsetRows) {
+      const id = Number(row.clockId);
+      const hrs = Number(row.hoursOffset);
+      if (!Number.isFinite(id) || !Number.isFinite(hrs) || hrs === 0) continue;
+      clockOffsetsMs.set(id, Math.round(hrs * 3_600_000));
+    }
     const {
       punches,
       perClock,
@@ -989,6 +1006,7 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
       ctUserIdToKfi,
       driverTzByKfi,
       ctUserAliases,
+      clockOffsetsMs,
     );
     // De-dupe by ctExternalKey before inserting to avoid mid-batch aborts.
     const uniqByKey = new Map<string, (typeof punches)[number]>();
@@ -4717,6 +4735,179 @@ weeksRouter.delete(
   },
 );
 
+// ---------------------------------------------------------------------------
+// Clock offsets (admin-managed replacement for the legacy SHUSTER_CLOCK_IDS
+// constant). Maps a Connecteam clock_id to an hour offset that is applied to
+// every raw punch timestamp coming from that clock during ingest.
+// ---------------------------------------------------------------------------
+
+async function serializeClockOffsets(
+  rows: Array<{
+    clockId: string;
+    hoursOffset: string;
+    note: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    createdBy: number | null;
+    updatedBy: number | null;
+  }>,
+) {
+  const actorIds = new Set<number>();
+  for (const r of rows) {
+    if (r.createdBy) actorIds.add(r.createdBy);
+    if (r.updatedBy) actorIds.add(r.updatedBy);
+  }
+  const actorEmailById = new Map<number, string>();
+  if (actorIds.size > 0) {
+    const actorRows = await db
+      .select({ id: schema.usersTable.id, email: schema.usersTable.email })
+      .from(schema.usersTable)
+      .where(inArray(schema.usersTable.id, [...actorIds]));
+    for (const a of actorRows) actorEmailById.set(a.id, a.email);
+  }
+  return rows.map((r) => ({
+    clockId: r.clockId,
+    hoursOffset: Number(r.hoursOffset),
+    note: r.note,
+    createdAt: new Date(r.createdAt).toISOString(),
+    updatedAt: new Date(r.updatedAt).toISOString(),
+    createdByEmail: r.createdBy ? actorEmailById.get(r.createdBy) ?? null : null,
+    updatedByEmail: r.updatedBy ? actorEmailById.get(r.updatedBy) ?? null : null,
+  }));
+}
+
+weeksRouter.get(
+  "/admin/clock-offsets",
+  requireAdmin,
+  async (_req, res) => {
+    const rows = await db
+      .select()
+      .from(schema.clockOffsetsTable)
+      .orderBy(asc(schema.clockOffsetsTable.clockId));
+    const serialized = await serializeClockOffsets(rows);
+    res.json(serialized);
+  },
+);
+
+weeksRouter.post(
+  "/admin/clock-offsets",
+  requireAdmin,
+  async (req, res) => {
+    const parsed = CreateClockOffsetBody.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "Invalid input", details: parsed.error.issues });
+      return;
+    }
+    const clockId = parsed.data.clockId.trim();
+    if (!clockId) {
+      res.status(400).json({ error: "clockId is required" });
+      return;
+    }
+    const hoursOffset = parsed.data.hoursOffset;
+    if (!Number.isFinite(hoursOffset)) {
+      res.status(400).json({ error: "hoursOffset must be a finite number" });
+      return;
+    }
+    const userId = req.session.userId ?? null;
+    await db
+      .insert(schema.clockOffsetsTable)
+      .values({
+        clockId,
+        hoursOffset: hoursOffset.toFixed(2),
+        note: parsed.data.note ?? null,
+        createdBy: userId,
+        updatedBy: userId,
+      })
+      .onConflictDoUpdate({
+        target: schema.clockOffsetsTable.clockId,
+        set: {
+          hoursOffset: hoursOffset.toFixed(2),
+          note: parsed.data.note ?? null,
+          updatedBy: userId,
+          updatedAt: new Date(),
+        },
+      });
+    const [row] = await db
+      .select()
+      .from(schema.clockOffsetsTable)
+      .where(eq(schema.clockOffsetsTable.clockId, clockId));
+    if (!row) {
+      res.status(500).json({ error: "Insert succeeded but row not found" });
+      return;
+    }
+    const [serialized] = await serializeClockOffsets([row]);
+    res.json(serialized);
+  },
+);
+
+weeksRouter.patch(
+  "/admin/clock-offsets/:clockId",
+  requireAdmin,
+  async (req, res) => {
+    const clockId = String(req.params.clockId ?? "");
+    if (!clockId) {
+      res.status(400).json({ error: "clockId is required" });
+      return;
+    }
+    const parsed = UpdateClockOffsetBody.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "Invalid input", details: parsed.error.issues });
+      return;
+    }
+    const updates: Record<string, unknown> = {
+      updatedBy: req.session.userId ?? null,
+      updatedAt: new Date(),
+    };
+    if (parsed.data.hoursOffset !== undefined) {
+      if (!Number.isFinite(parsed.data.hoursOffset)) {
+        res.status(400).json({ error: "hoursOffset must be a finite number" });
+        return;
+      }
+      updates.hoursOffset = parsed.data.hoursOffset.toFixed(2);
+    }
+    if (parsed.data.note !== undefined) updates.note = parsed.data.note;
+    const [updated] = await db
+      .update(schema.clockOffsetsTable)
+      .set(updates)
+      .where(eq(schema.clockOffsetsTable.clockId, clockId))
+      .returning({ clockId: schema.clockOffsetsTable.clockId });
+    if (!updated) {
+      res.status(404).json({ error: "Clock offset not found" });
+      return;
+    }
+    const [row] = await db
+      .select()
+      .from(schema.clockOffsetsTable)
+      .where(eq(schema.clockOffsetsTable.clockId, clockId));
+    if (!row) {
+      res.status(404).json({ error: "Clock offset not found" });
+      return;
+    }
+    const [serialized] = await serializeClockOffsets([row]);
+    res.json(serialized);
+  },
+);
+
+weeksRouter.delete(
+  "/admin/clock-offsets/:clockId",
+  requireAdmin,
+  async (req, res) => {
+    const clockId = String(req.params.clockId ?? "");
+    if (!clockId) {
+      res.status(400).json({ error: "clockId is required" });
+      return;
+    }
+    await db
+      .delete(schema.clockOffsetsTable)
+      .where(eq(schema.clockOffsetsTable.clockId, clockId));
+    res.status(204).end();
+  },
+);
+
 // ---------- /customer-ignored-externals (admin-only) ----------
 //
 // Manage the per-customer "not a driver — never import" list that the
@@ -6166,12 +6357,31 @@ weeksRouter.post(
       const driverTzByKfi = await loadDriverTzMap();
       const ctUserIdToKfi = new Map<number, string>();
       if (driver.ctUserId != null) ctUserIdToKfi.set(driver.ctUserId, kfiId);
+      // Admin-managed per-clock raw-timestamp offsets (replaces the legacy
+      // hardcoded SHUSTER_CLOCK_IDS). Same load as the week-wide refresh so
+      // single-driver refresh applies the identical offset.
+      const offsetRows = await db
+        .select({
+          clockId: schema.clockOffsetsTable.clockId,
+          hoursOffset: schema.clockOffsetsTable.hoursOffset,
+        })
+        .from(schema.clockOffsetsTable);
+      const clockOffsetsMs = new Map<number, number>();
+      for (const row of offsetRows) {
+        const id = Number(row.clockId);
+        const hrs = Number(row.hoursOffset);
+        if (!Number.isFinite(id) || !Number.isFinite(hrs) || hrs === 0)
+          continue;
+        clockOffsetsMs.set(id, Math.round(hrs * 3_600_000));
+      }
       // Pull every shift for the week, then keep only this driver's rows.
       const { punches: allPunches } = await fetchPunchesForWeek(
         startDate,
         endDate,
         ctUserIdToKfi,
         driverTzByKfi,
+        undefined,
+        clockOffsetsMs,
       );
       const punches = allPunches.filter((p) => p.kfiId === kfiId);
       const seen = new Map<string, (typeof punches)[number]>();

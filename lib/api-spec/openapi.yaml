@@ -1360,6 +1360,75 @@ paths:
         "204": { description: Deleted (or no alias existed) }
         "403": { description: Admin only }
 
+  /admin/clock-offsets:
+    get:
+      operationId: listClockOffsets
+      tags: [ingest]
+      summary: List every admin-managed Connecteam clock-id hour offset (admin-only).
+      responses:
+        "200":
+          description: All saved clock offsets, sorted by clockId.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ClockOffset" }
+        "403": { description: Admin only }
+    post:
+      operationId: createClockOffset
+      tags: [ingest]
+      summary: Add (or replace) the hour offset for a Connecteam clock id (admin-only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateClockOffsetBody" }
+      responses:
+        "200":
+          description: Saved (upsert — existing rows for the same clockId are replaced).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClockOffset" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+
+  /admin/clock-offsets/{clockId}:
+    patch:
+      operationId: updateClockOffset
+      tags: [ingest]
+      summary: Update an existing clock offset's hours or note (admin-only).
+      parameters:
+        - name: clockId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateClockOffsetBody" }
+      responses:
+        "200":
+          description: Updated row.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClockOffset" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+        "404": { description: Clock offset not found }
+    delete:
+      operationId: deleteClockOffset
+      tags: [ingest]
+      summary: Delete a clock offset (admin-only). Future ingests use zero offset for this clock.
+      parameters:
+        - name: clockId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Deleted (or no row existed) }
+        "403": { description: Admin only }
+
   /customer-ignored-externals:
     get:
       operationId: listCustomerIgnoredExternals
@@ -3680,6 +3749,39 @@ components:
       type: object
       properties:
         kfiId: { type: string, minLength: 1 }
+        note:
+          type: ["string", "null"]
+
+    ClockOffset:
+      type: object
+      required: [clockId, hoursOffset, createdAt, updatedAt]
+      properties:
+        clockId: { type: string }
+        hoursOffset:
+          type: number
+          description: Hours to add to every raw punch timestamp coming from this clock. Fractions allowed (e.g. 0.5, -1.5).
+        note:
+          type: ["string", "null"]
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        createdByEmail:
+          type: ["string", "null"]
+        updatedByEmail:
+          type: ["string", "null"]
+
+    CreateClockOffsetBody:
+      type: object
+      required: [clockId, hoursOffset]
+      properties:
+        clockId: { type: string, minLength: 1 }
+        hoursOffset: { type: number }
+        note:
+          type: ["string", "null"]
+
+    UpdateClockOffsetBody:
+      type: object
+      properties:
+        hoursOffset: { type: number }
         note:
           type: ["string", "null"]
 

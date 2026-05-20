@@ -1576,6 +1576,34 @@ export interface UpdateConnecteamUserAliasBody {
   note?: string | null;
 }
 
+export interface ClockOffset {
+  clockId: string;
+  /** Hours to add to every raw punch timestamp coming from this clock. Fractions allowed (e.g. 0.5, -1.5). */
+  hoursOffset: number;
+  /** @nullable */
+  note?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  createdByEmail?: string | null;
+  /** @nullable */
+  updatedByEmail?: string | null;
+}
+
+export interface CreateClockOffsetBody {
+  /** @minLength 1 */
+  clockId: string;
+  hoursOffset: number;
+  /** @nullable */
+  note?: string | null;
+}
+
+export interface UpdateClockOffsetBody {
+  hoursOffset?: number;
+  /** @nullable */
+  note?: string | null;
+}
+
 export interface CustomerIgnoredExternal {
   id: number;
   customer: string;
