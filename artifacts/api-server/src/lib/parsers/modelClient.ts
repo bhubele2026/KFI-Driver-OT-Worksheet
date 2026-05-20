@@ -264,14 +264,45 @@ export async function runWithConcurrency<T>(
  * to BPE tokenization for the rate-shaping use case; the IngestionBudget
  * uses the actual usage numbers reported back by the SDK.
  */
+/**
+ * Per-upload load tagging (Task #314): every event pushed into the
+ * bucket carries the id of the ingestion that pushed it so that the
+ * upload route can evict all of its events when extraction completes
+ * — success OR failure. Without eviction the natural 60s window would
+ * leave "ghost load" in the bucket and stall a brand-new upload behind
+ * a previous one that already finished.
+ */
+export interface PacerStateSnapshot {
+  /** Sum of tokens currently in the trailing window (after pruning). */
+  currentBucket: number;
+  capacity: number;
+  eventsInBucket: number;
+  /** Age (ms) of the oldest event still in the window; 0 when empty. */
+  oldestEventAgeMs: number;
+  /** How many of `eventsInBucket` belong to the calling ingestion. */
+  myIngestionEventCount: number;
+}
+
 export interface TokenPacer {
-  acquire(estimatedTokens: number): Promise<void>;
-  /** @internal test seam */
-  _state(): { capacity: number; windowMs: number; pending: number };
+  /**
+   * Reserve capacity for `estimatedTokens` and stamp the event with
+   * `ingestionId`. Returns the total ms spent sleeping inside this
+   * call so the caller can roll it up into per-upload telemetry.
+   */
+  acquire(estimatedTokens: number, ingestionId: string): Promise<number>;
+  /**
+   * Evict every event tagged with `ingestionId` from the bucket and
+   * wake any waiters so they re-check capacity. Idempotent and safe
+   * to call multiple times (e.g. from both a success path and a
+   * `finally`); a no-op when the id is unknown.
+   */
+  releaseIngestion(ingestionId: string): void;
+  /** Snapshot of the bucket as seen by `ingestionId` (for telemetry). */
+  state(ingestionId?: string): PacerStateSnapshot;
 }
 
 class LeakyBucketPacer implements TokenPacer {
-  private events: Array<{ at: number; tokens: number }> = [];
+  private events: Array<{ at: number; tokens: number; ingestionId: string }> = [];
   private waiters: Array<() => void> = [];
   constructor(
     private readonly capacity: number,
@@ -289,30 +320,76 @@ class LeakyBucketPacer implements TokenPacer {
     for (const e of this.events) used += e.tokens;
     return used;
   }
-  async acquire(estimatedTokens: number): Promise<void> {
+  async acquire(estimatedTokens: number, ingestionId: string): Promise<number> {
     const want = Math.max(0, Math.ceil(estimatedTokens));
     // Single-shot requests larger than the whole bucket can never fit —
     // clamp the reservation to the capacity so they still get scheduled
     // (and pay the full window's wait afterward via subsequent prunes).
     const reservation = Math.min(want, this.capacity);
+    let waited = 0;
     for (;;) {
       const used = this.prune();
       if (used + reservation <= this.capacity) {
-        this.events.push({ at: this.now(), tokens: reservation });
-        return;
+        this.events.push({ at: this.now(), tokens: reservation, ingestionId });
+        return waited;
       }
       // Wait until the oldest event ages out — that's the earliest
-      // possible moment new headroom appears.
+      // possible moment new headroom appears. If the oldest belongs
+      // to a since-released ingestion the prune above already dropped
+      // it, so `events[0]` here is always still in-window.
       const oldest = this.events[0];
       const waitMs = Math.max(50, oldest.at + this.windowMs - this.now() + 25);
+      waited += waitMs;
       await this.sleep(waitMs);
     }
   }
-  _state() {
+  releaseIngestion(ingestionId: string): void {
+    if (this.events.length === 0) {
+      // Still wake any waiters in case they're spinning on a stale
+      // sleep timer (cheap; no-op when none).
+      this.flushWaiters();
+      return;
+    }
+    let dropped = 0;
+    const kept: typeof this.events = [];
+    for (const e of this.events) {
+      if (e.ingestionId === ingestionId) {
+        dropped++;
+      } else {
+        kept.push(e);
+      }
+    }
+    if (dropped > 0) {
+      this.events = kept;
+    }
+    this.flushWaiters();
+  }
+  private flushWaiters(): void {
+    if (this.waiters.length === 0) return;
+    const wake = this.waiters;
+    this.waiters = [];
+    for (const w of wake) {
+      try {
+        w();
+      } catch {
+        /* observer */
+      }
+    }
+  }
+  state(ingestionId?: string): PacerStateSnapshot {
+    const used = this.prune();
+    const now = this.now();
+    const oldest = this.events[0];
+    let mine = 0;
+    if (ingestionId) {
+      for (const e of this.events) if (e.ingestionId === ingestionId) mine++;
+    }
     return {
+      currentBucket: used,
       capacity: this.capacity,
-      windowMs: this.windowMs,
-      pending: this.waiters.length,
+      eventsInBucket: this.events.length,
+      oldestEventAgeMs: oldest ? Math.max(0, now - oldest.at) : 0,
+      myIngestionEventCount: mine,
     };
   }
 }
@@ -320,8 +397,15 @@ class LeakyBucketPacer implements TokenPacer {
 const _pacersByProvider = new Map<string, TokenPacer>();
 function noopPacer(): TokenPacer {
   return {
-    acquire: async () => {},
-    _state: () => ({ capacity: Infinity, windowMs: 0, pending: 0 }),
+    acquire: async () => 0,
+    releaseIngestion: () => {},
+    state: () => ({
+      currentBucket: 0,
+      capacity: Number.POSITIVE_INFINITY,
+      eventsInBucket: 0,
+      oldestEventAgeMs: 0,
+      myIngestionEventCount: 0,
+    }),
   };
 }
 export function getTokenPacer(providerName: string): TokenPacer {
@@ -340,6 +424,22 @@ export function getTokenPacer(providerName: string): TokenPacer {
   return np;
 }
 
+/**
+ * Drop every event tagged with `ingestionId` from every provider's
+ * pacer. Called from the upload route's `finally` so the bucket
+ * reflects only currently-active load the instant an extraction
+ * resolves (success, failure, abort, thrown exception). Idempotent.
+ */
+export function releaseIngestion(ingestionId: string): void {
+  for (const p of _pacersByProvider.values()) {
+    try {
+      p.releaseIngestion(ingestionId);
+    } catch {
+      /* never let pacer cleanup mask the original error */
+    }
+  }
+}
+
 /** @internal test seam — replace (or reset) the pacer for a provider. */
 export function __setTestTokenPacer(providerName: string, pacer: TokenPacer | null): void {
   if (process.env.NODE_ENV === "production") {
@@ -347,6 +447,14 @@ export function __setTestTokenPacer(providerName: string, pacer: TokenPacer | nu
   }
   if (pacer) _pacersByProvider.set(providerName.toLowerCase(), pacer);
   else _pacersByProvider.delete(providerName.toLowerCase());
+}
+
+/** @internal test seam — wipe a provider's pacer so the next acquire constructs a fresh one. */
+export function __resetPacerForTests(providerName: string): void {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("__resetPacerForTests is a test seam — not callable in production");
+  }
+  _pacersByProvider.delete(providerName.toLowerCase());
 }
 
 /** @internal test seam — construct a pacer with custom limits + clock. */

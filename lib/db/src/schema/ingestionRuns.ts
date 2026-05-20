@@ -45,6 +45,14 @@ export const ingestionRunsTable = pgTable(
     totalInputTokens: integer("total_input_tokens").notNull().default(0),
     totalOutputTokens: integer("total_output_tokens").notNull().default(0),
     totalCostUsd: doublePrecision("total_cost_usd").notNull().default(0),
+    /**
+     * Task #314: total ms spent inside `TokenPacer.acquire()` across
+     * every chunk of this upload. Near-zero on uncontended uploads;
+     * dominates `wallTimeMs` when concurrent uploads collectively bump
+     * against Anthropic's per-minute TPM ceiling, telling the operator
+     * the upload was pacer-bound rather than model-bound.
+     */
+    pacerWaitMs: integer("pacer_wait_ms").notNull().default(0),
     geminiFallbackUsed: boolean("gemini_fallback_used")
       .notNull()
       .default(false),

@@ -107,6 +107,14 @@ export interface IngestionBudgetSummary {
    * for non-xlsx paths.
    */
   rowsPerChunk: number | null;
+  /**
+   * Total ms spent sleeping inside `TokenPacer.acquire()` across every
+   * chunk of this upload (Task #314). When near zero the upload was
+   * model-bound; when it dominates `wallTimeMs` the upload was
+   * pacer-bound and the operator should suspect TPM-ceiling contention
+   * (other concurrent uploads, or events not yet released).
+   */
+  pacerWaitMs: number;
 }
 
 /** Minimal logger shape — accepts req.log (pino child) or the module logger. */
@@ -129,6 +137,7 @@ export class IngestionBudget {
   private geminiFallbackUsed = false;
   private blockStructured: boolean | null = null;
   private rowsPerChunk: number | null = null;
+  private pacerWaitMs = 0;
   private readonly log: BudgetLogger;
   private readonly fileName: string;
   private readonly customer: string;
@@ -212,6 +221,16 @@ export class IngestionBudget {
     this.geminiFallbackUsed = true;
   }
 
+  /**
+   * Roll the ms returned by `TokenPacer.acquire()` into this upload's
+   * pacer-wait total (Task #314). Called once per chunk dispatch so
+   * the `ingest_done` summary and the persisted `ingestion_runs` row
+   * surface how much wall time was eaten by Anthropic-TPM throttling.
+   */
+  addPacerWait(ms: number): void {
+    if (ms > 0) this.pacerWaitMs += ms;
+  }
+
   isSoftWarned(): boolean {
     return this.warned;
   }
@@ -258,6 +277,7 @@ export class IngestionBudget {
       warnedHot: this.warned,
       blockStructured: this.blockStructured,
       rowsPerChunk: this.rowsPerChunk,
+      pacerWaitMs: this.pacerWaitMs,
     };
   }
 }

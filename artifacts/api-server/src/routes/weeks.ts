@@ -1,5 +1,5 @@
 import { Router, type Request } from "express";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import multer from "multer";
 import { and, asc, desc, eq, gt, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -57,6 +57,7 @@ import {
   loadCustomers,
 } from "../lib/customersStore.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
+import { releaseIngestion } from "../lib/parsers/modelClient.js";
 import {
   publishExtractProgress,
   readExtractProgress,
@@ -1654,6 +1655,11 @@ weeksRouter.post(
       customer: detectedCustomer,
       log: req.log,
     });
+    // Task #314: per-upload id tagged onto every pacer event this
+    // extraction pushes. The `finally` below releases the events the
+    // instant extraction resolves so the next upload doesn't queue
+    // behind ghost load from this one.
+    const ingestionId = randomUUID();
     // `?allowGeminiFallback=1` is an admin-only escape hatch for the
     // dispatcher to flip on the cross-provider fallback for ONE upload
     // without editing the customers row. Defaults to the per-customer
@@ -1699,6 +1705,7 @@ weeksRouter.post(
           aiOpts: {
             budget: aiBudget,
             allowGeminiFallback,
+            ingestionId,
             onChunkProgress: (current, total) =>
               publishExtractProgress(progressKey, current, total),
           },
@@ -1744,6 +1751,11 @@ weeksRouter.post(
         });
         res.status(400).json({ error: msg });
         return;
+      } finally {
+        // Task #314: drop this upload's pacer events the moment
+        // extraction resolves (success, throw, or early return) so the
+        // next upload doesn't queue behind ghost load.
+        releaseIngestion(ingestionId);
       }
     }
     // Persist the success-path audit row before we touch the response.
@@ -2933,6 +2945,7 @@ async function insertIngestionRun(args: {
       totalInputTokens: args.summary.totalInputTokens,
       totalOutputTokens: args.summary.totalOutputTokens,
       totalCostUsd: args.summary.totalCostUsd,
+      pacerWaitMs: args.summary.pacerWaitMs,
       geminiFallbackUsed: args.summary.geminiFallbackUsed,
       warnedHot: args.summary.warnedHot,
       byPurpose: args.summary.byPurpose,
@@ -3515,6 +3528,10 @@ weeksRouter.post(
       idMap: rosterIdMap,
       nameAliasMap: nameAliasMapForRoster,
     });
+    // Task #314: per-upload id tagged onto every pacer event this
+    // extraction pushes; released in `finally` below so the bucket
+    // empties the moment this upload resolves.
+    const ingestionIdNew = randomUUID();
     try {
       const extracted = await aiExtractRows(
         req.file.originalname,
@@ -3528,6 +3545,7 @@ weeksRouter.post(
         {
           budget: aiBudgetNew,
           allowGeminiFallback: allowGeminiFallbackNew,
+          ingestionId: ingestionIdNew,
           onChunkProgress: (current, total) =>
             publishExtractProgress(progressKey, current, total),
         },
@@ -3557,6 +3575,11 @@ weeksRouter.post(
       });
       res.status(400).json({ error: msg });
       return;
+    } finally {
+      // Task #314: drop this upload's pacer events the moment
+      // extraction resolves so the next upload doesn't queue behind
+      // ghost load.
+      releaseIngestion(ingestionIdNew);
     }
     // Success-path audit row. Written before the response so the
     // /admin/ingestion-runs view never lags reality (the user's first
@@ -6332,6 +6355,7 @@ weeksRouter.get("/admin/ingestion-runs", requireAdmin, async (req, res) => {
       totalInputTokens: schema.ingestionRunsTable.totalInputTokens,
       totalOutputTokens: schema.ingestionRunsTable.totalOutputTokens,
       totalCostUsd: schema.ingestionRunsTable.totalCostUsd,
+      pacerWaitMs: schema.ingestionRunsTable.pacerWaitMs,
       geminiFallbackUsed: schema.ingestionRunsTable.geminiFallbackUsed,
       warnedHot: schema.ingestionRunsTable.warnedHot,
       byPurpose: schema.ingestionRunsTable.byPurpose,
@@ -6363,6 +6387,7 @@ weeksRouter.get("/admin/ingestion-runs", requireAdmin, async (req, res) => {
       totalInputTokens: r.totalInputTokens,
       totalOutputTokens: r.totalOutputTokens,
       totalCostUsd: r.totalCostUsd,
+      pacerWaitMs: r.pacerWaitMs,
       geminiFallbackUsed: r.geminiFallbackUsed,
       warnedHot: r.warnedHot,
       byPurpose: r.byPurpose,

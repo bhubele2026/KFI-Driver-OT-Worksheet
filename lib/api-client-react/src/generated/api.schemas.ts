@@ -1554,6 +1554,7 @@ export interface IngestionRun {
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCostUsd: number;
+  pacerWaitMs?: number;
   geminiFallbackUsed: boolean;
   warnedHot: boolean;
   byPurpose?: IngestionRunByPurpose;

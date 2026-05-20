@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { Type } from "@google/genai";
 import { logger } from "../logger.js";
@@ -52,6 +53,18 @@ export interface AiExtractOptions {
    * a completion event. Never throws — observer-only.
    */
   onChunkProgress?: (current: number, total: number) => void;
+  /**
+   * Task #314: opaque per-upload id minted at the route boundary and
+   * stamped onto every event this upload pushes into the process-wide
+   * `TokenPacer`. The route handler MUST call
+   * `releaseIngestion(ingestionId)` in `finally` so the bucket evicts
+   * this upload's events the instant extraction resolves — without
+   * eviction the natural 60s rolling window leaves "ghost load"
+   * stalling the next upload. When omitted, `aiExtractRows` mints a
+   * throwaway uuid (still tagged so backstop eviction works, but
+   * cleanup is left to the 60s window).
+   */
+  ingestionId?: string;
 }
 
 /** Result shape returned by `aiExtractRows`, extended with budget telemetry (Task #297). */
@@ -899,6 +912,7 @@ async function callModelForChunk(
   label: string,
   budget: IngestionBudget,
   allowGeminiFallback: boolean,
+  ingestionId: string,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean }> {
   // `buildParts(c)` is called per-attempt so the prompt is re-tailored
   // to whichever provider actually handles the request — important on
@@ -924,7 +938,29 @@ async function callModelForChunk(
         // extra pause is far cheaper than a 429 retry-after sleep.
         const parts = buildParts(c);
         const estTokens = estimatePromptTokens(parts);
-        await getTokenPacer(c.name).acquire(estTokens);
+        const pacer = getTokenPacer(c.name);
+        const waited = await pacer.acquire(estTokens, ingestionId);
+        budget.addPacerWait(waited);
+        // Task #314: one structured info line per dispatch so the log
+        // answers "is the pacer throttling me?" without extra forensics.
+        const pacerState = pacer.state(ingestionId);
+        const dispatchLogTarget = (log ?? logger) as SalvageLogger & {
+          info?: (obj: Record<string, unknown>, msg: string) => void;
+        };
+        const dispatchFields = {
+          customer,
+          fileName,
+          chunkLabel: label,
+          provider: c.name,
+          estTokens,
+          pacerWaitMs: waited,
+          pacerState,
+        };
+        if (typeof dispatchLogTarget.info === "function") {
+          dispatchLogTarget.info(dispatchFields, "AI chunk dispatch");
+        } else {
+          dispatchLogTarget.warn(dispatchFields, "AI chunk dispatch");
+        }
         const result = await c.generate({
           parts,
           maxOutputTokens: 32768,
@@ -1034,6 +1070,7 @@ async function runChunkedXlsxExtract(
   log: SalvageLogger | undefined,
   budget: IngestionBudget,
   allowGeminiFallback: boolean,
+  ingestionId: string,
   roster?: RosterContext,
   onChunkProgress?: (current: number, total: number) => void,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
@@ -1133,6 +1170,7 @@ async function runChunkedXlsxExtract(
       label,
       budget,
       allowGeminiFallback,
+      ingestionId,
     );
     return {
       rows: rows.map((r) => ({
@@ -1315,6 +1353,11 @@ export async function aiExtractRows(
   const budget =
     opts?.budget ?? new IngestionBudget({ fileName, customer, log });
   const allowGeminiFallback = opts?.allowGeminiFallback ?? false;
+  // Task #314: when the caller didn't mint an id, fabricate one so
+  // every pacer event still carries some tag (the 60s window then
+  // acts as the eviction backstop). Production callers always pass
+  // one through so the route's `finally` can release cleanly.
+  const ingestionId = opts?.ingestionId ?? randomUUID();
   return aiExtractRowsImpl(
     fileName,
     buffer,
@@ -1326,6 +1369,7 @@ export async function aiExtractRows(
     roster,
     budget,
     allowGeminiFallback,
+    ingestionId,
     opts?.onChunkProgress,
   );
 }
@@ -1341,6 +1385,7 @@ async function aiExtractRowsImpl(
   roster: RosterContext | undefined,
   budget: IngestionBudget,
   allowGeminiFallback: boolean,
+  ingestionId: string,
   onChunkProgress?: (current: number, total: number) => void,
 ): Promise<AiExtractResult> {
   const overallStart = Date.now();
@@ -1360,6 +1405,7 @@ async function aiExtractRowsImpl(
       roster,
       budget,
       allowGeminiFallback,
+      ingestionId,
       onChunkProgress,
     );
     const summary = budget.summary();
@@ -1406,6 +1452,7 @@ async function runExtraction(
   roster: RosterContext | undefined,
   budget: IngestionBudget,
   allowGeminiFallback: boolean,
+  ingestionId: string,
   onChunkProgress?: (current: number, total: number) => void,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
   // Task #296: never let an observer throw bubble out and tank the
@@ -1565,6 +1612,7 @@ async function runExtraction(
         log,
         budget,
         allowGeminiFallback,
+        ingestionId,
         roster,
         onChunkProgress,
       );
@@ -1620,8 +1668,36 @@ async function runExtraction(
         async () => {
           attempt++;
           const callStart = Date.now();
+          // Task #314: pace the single-call path with the same tagged
+          // pacer used by chunked uploads so concurrent single-call
+          // and chunked uploads share the global TPM budget honestly,
+          // and so the `finally` release in the route handler evicts
+          // events from both paths.
+          const parts = buildParts(c);
+          const estTokens = estimatePromptTokens(parts);
+          const pacer = getTokenPacer(c.name);
+          const waited = await pacer.acquire(estTokens, ingestionId);
+          budget.addPacerWait(waited);
+          const pacerState = pacer.state(ingestionId);
+          const dispatchLogTarget = (log ?? logger) as SalvageLogger & {
+            info?: (obj: Record<string, unknown>, msg: string) => void;
+          };
+          const dispatchFields = {
+            customer,
+            fileName,
+            chunkLabel: "single-call",
+            provider: c.name,
+            estTokens,
+            pacerWaitMs: waited,
+            pacerState,
+          };
+          if (typeof dispatchLogTarget.info === "function") {
+            dispatchLogTarget.info(dispatchFields, "AI chunk dispatch");
+          } else {
+            dispatchLogTarget.warn(dispatchFields, "AI chunk dispatch");
+          }
           const result = await c.generate({
-            parts: buildParts(c),
+            parts,
             maxOutputTokens: 32768,
             timeoutMs: AI_TIMEOUT_MS,
             jsonSchema: ROW_SCHEMA,
@@ -1702,6 +1778,7 @@ async function runExtraction(
       log,
       budget,
       allowGeminiFallback,
+      ingestionId,
       roster,
       onChunkProgress,
     );

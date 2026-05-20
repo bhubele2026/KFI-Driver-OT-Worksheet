@@ -3719,6 +3719,7 @@ components:
         totalInputTokens: { type: integer }
         totalOutputTokens: { type: integer }
         totalCostUsd: { type: number }
+        pacerWaitMs: { type: integer }
         geminiFallbackUsed: { type: boolean }
         warnedHot: { type: boolean }
         byPurpose:

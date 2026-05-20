@@ -2541,6 +2541,7 @@ export const ListIngestionRunsResponseItem = zod.object({
   totalInputTokens: zod.number(),
   totalOutputTokens: zod.number(),
   totalCostUsd: zod.number(),
+  pacerWaitMs: zod.number().optional(),
   geminiFallbackUsed: zod.boolean(),
   warnedHot: zod.boolean(),
   byPurpose: zod.record(zod.string(), zod.unknown()).optional(),
