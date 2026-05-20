@@ -9,20 +9,52 @@ import { costUsd } from "./pricing.js";
  * can't burn unbounded provider spend before the dispatcher even
  * sees an error.
  *
- * Hard limits chosen so the worst LEGITIMATE upload (a fresh
- * Penda/TriEnda format with no schema-cache hit, ~25 chunks @ 6
- * concurrency, no retries) clears comfortably while the
- * pathological retry-storm path trips early:
- *   - 30 calls / upload
- *   - 400k tokens / upload (input + output, combined)
+ * Two ceilings, two different jobs (Task #336):
  *
- * Soft warn at 20 calls so the API log shows the upload was running hot
- * even when it ultimately succeeded, giving us a leading indicator for
- * future format-drift incidents before they tip into a full trip.
+ *  - **Token ceiling** (`MAX_TOKENS_PER_UPLOAD = 400_000`, input + output
+ *    combined). This is the real spend guard. Static, never relaxed.
+ *  - **Call ceiling** (per-upload dynamic). Sized at upload start from
+ *    the planned chunk count via `computeMaxCalls(plannedChunks)`. A
+ *    flat 4-chunk Burnett gets ~18 calls; a block-structured 71-chunk
+ *    Adient gets ~152. Both share the same `BACKSTOP_MAX_CALLS_PER_UPLOAD = 200`
+ *    absolute cap so a bug in chunk planning can't authorize unbounded
+ *    calls. Single-call / image / pdf paths leave the default backstop
+ *    in place — they don't chunk by rows.
+ *
+ * The soft-warn threshold tracks the configured ceiling
+ * (`SOFT_WARN_FRACTION` of `maxCalls`) so it still fires "running hot"
+ * regardless of file shape.
  */
-export const MAX_CALLS_PER_UPLOAD = 30;
+export const BACKSTOP_MAX_CALLS_PER_UPLOAD = 200;
+/** Floor for the dynamic ceiling so small files still get a sane budget. */
+export const MIN_MAX_CALLS_PER_UPLOAD = 20;
+/**
+ * Backwards-compatible alias for the old constant. Callers that didn't
+ * size their budget per-upload (e.g. test harnesses) still get the
+ * backstop. The trip-check itself reads the per-instance `maxCalls`.
+ */
+export const MAX_CALLS_PER_UPLOAD = BACKSTOP_MAX_CALLS_PER_UPLOAD;
 export const MAX_TOKENS_PER_UPLOAD = 400_000;
-export const SOFT_WARN_CALLS = 20;
+/** Soft warn fires once when totalCalls crosses this fraction of `maxCalls`. */
+export const SOFT_WARN_FRACTION = 0.66;
+
+/**
+ * Right-size the per-upload call ceiling from the planned chunk count.
+ *   `(plannedChunks × 2) + 10`, clamped between `MIN_MAX_CALLS_PER_UPLOAD`
+ *   and `BACKSTOP_MAX_CALLS_PER_UPLOAD`.
+ *
+ * The `×2 + 10` shape leaves room for: 1 primary call per chunk, a
+ * second model call for the NDJSON re-issue retry on a few chunks
+ * (Task #308), the occasional `withModelRetry` retry on a transient
+ * 429/5xx, plus the few non-chunk calls (structure probe, recipe
+ * derivation in future) that share the budget.
+ */
+export function computeMaxCalls(plannedChunks: number): number {
+  const raw = Math.max(0, Math.floor(plannedChunks)) * 2 + 10;
+  if (raw < MIN_MAX_CALLS_PER_UPLOAD) return MIN_MAX_CALLS_PER_UPLOAD;
+  if (raw > BACKSTOP_MAX_CALLS_PER_UPLOAD) return BACKSTOP_MAX_CALLS_PER_UPLOAD;
+  return raw;
+}
 
 /**
  * What kind of model call this is, recorded per-call so the
@@ -93,6 +125,15 @@ export interface IngestionBudgetSummary {
   geminiFallbackUsed: boolean;
   warnedHot: boolean;
   /**
+   * Task #336: the per-upload call ceiling this budget was configured
+   * with. Right-sized from the planned chunk count for xlsx uploads;
+   * `BACKSTOP_MAX_CALLS_PER_UPLOAD` for non-xlsx paths and for budgets
+   * the caller never resized. Surfaced on `ingest_done` + the
+   * persisted `ingestion_runs` row so operators can see how close any
+   * given upload ran to its own limit.
+   */
+  maxCalls: number;
+  /**
    * Task #307: xlsx layout the chunker saw at extract time.
    * True for "block-structured" exports (e.g. Adient: a header band that
    * repeats once per driver) where we halve the per-chunk row budget so
@@ -138,6 +179,7 @@ export class IngestionBudget {
   private blockStructured: boolean | null = null;
   private rowsPerChunk: number | null = null;
   private pacerWaitMs = 0;
+  private maxCalls: number;
   private readonly log: BudgetLogger;
   private readonly fileName: string;
   private readonly customer: string;
@@ -146,10 +188,44 @@ export class IngestionBudget {
     fileName: string;
     customer: string;
     log?: BudgetLogger;
+    /**
+     * Optional initial call ceiling. Defaults to the backstop; the
+     * xlsx branch in `aiExtract.ts` resizes it via `setMaxCalls` once
+     * the planned chunk count is known.
+     */
+    maxCalls?: number;
   }) {
     this.fileName = opts.fileName;
     this.customer = opts.customer;
     this.log = opts.log ?? logger;
+    this.maxCalls = this.clampMaxCalls(
+      opts.maxCalls ?? BACKSTOP_MAX_CALLS_PER_UPLOAD,
+    );
+  }
+
+  private clampMaxCalls(n: number): number {
+    if (!Number.isFinite(n) || n < MIN_MAX_CALLS_PER_UPLOAD) {
+      return MIN_MAX_CALLS_PER_UPLOAD;
+    }
+    if (n > BACKSTOP_MAX_CALLS_PER_UPLOAD) {
+      return BACKSTOP_MAX_CALLS_PER_UPLOAD;
+    }
+    return Math.floor(n);
+  }
+
+  /**
+   * Resize the per-upload call ceiling. Called once from the xlsx
+   * branch in `aiExtract.ts` after the chunker has decided how many
+   * chunks the file will be split into. Clamped to
+   * `[MIN_MAX_CALLS_PER_UPLOAD, BACKSTOP_MAX_CALLS_PER_UPLOAD]`.
+   */
+  setMaxCalls(n: number): void {
+    this.maxCalls = this.clampMaxCalls(n);
+  }
+
+  /** The configured per-upload call ceiling, post-clamp. */
+  getMaxCalls(): number {
+    return this.maxCalls;
   }
 
   /**
@@ -184,8 +260,9 @@ export class IngestionBudget {
     if (purpose === "gemini_fallback") this.geminiFallbackUsed = true;
 
     const totalTokens = this.totalInputTokens + this.totalOutputTokens;
+    const softWarnAt = Math.max(1, Math.floor(this.maxCalls * SOFT_WARN_FRACTION));
 
-    if (!this.warned && this.totalCalls >= SOFT_WARN_CALLS) {
+    if (!this.warned && this.totalCalls >= softWarnAt) {
       this.warned = true;
       this.log.warn(
         {
@@ -194,7 +271,8 @@ export class IngestionBudget {
           calls: this.totalCalls,
           totalTokens,
           totalCostUsd: this.totalCostUsd,
-          maxCalls: MAX_CALLS_PER_UPLOAD,
+          maxCalls: this.maxCalls,
+          softWarnAt,
           maxTokens: MAX_TOKENS_PER_UPLOAD,
           byPurpose: this.byPurpose,
         },
@@ -202,9 +280,9 @@ export class IngestionBudget {
       );
     }
 
-    if (this.totalCalls > MAX_CALLS_PER_UPLOAD) {
+    if (this.totalCalls > this.maxCalls) {
       throw new IngestionBudgetExceeded(
-        `AI extraction stopped: this upload would exceed the per-file safety limit of ${MAX_CALLS_PER_UPLOAD} model calls (currently ${this.totalCalls}). Split the file into smaller pieces, or contact an admin to raise the cap.`,
+        `AI extraction stopped: this upload would exceed the per-file safety limit of ${this.maxCalls} model calls (currently ${this.totalCalls}). Split the file into smaller pieces, or contact an admin to raise the cap.`,
         this.makeDiagnostics("max_calls"),
       );
     }
@@ -257,7 +335,7 @@ export class IngestionBudget {
       callsAtTrip: this.totalCalls,
       tokensAtTrip: this.totalInputTokens + this.totalOutputTokens,
       costUsdAtTrip: this.totalCostUsd,
-      maxCalls: MAX_CALLS_PER_UPLOAD,
+      maxCalls: this.maxCalls,
       maxTokens: MAX_TOKENS_PER_UPLOAD,
       byPurpose: this.byPurpose,
       byProvider: this.byProvider,
@@ -275,6 +353,7 @@ export class IngestionBudget {
       byProvider: this.byProvider,
       geminiFallbackUsed: this.geminiFallbackUsed,
       warnedHot: this.warned,
+      maxCalls: this.maxCalls,
       blockStructured: this.blockStructured,
       rowsPerChunk: this.rowsPerChunk,
       pacerWaitMs: this.pacerWaitMs,

@@ -247,13 +247,41 @@ deployment infra unchanged.
 ## Spend safety net (Task #297)
 
 Every AI-powered customer-file upload runs inside an `IngestionBudget`
-(`lib/parsers/ingestionBudget.ts`) that hard-caps spend per upload:
+(`lib/parsers/ingestionBudget.ts`) that hard-caps spend per upload.
+Two ceilings, two different jobs (Task #336):
 
-| Constant | Value | Behavior on hit |
+| Ceiling | Value | Behavior on hit |
 | --- | --- | --- |
-| `MAX_CALLS_PER_UPLOAD` | 30 | Throw `IngestionBudgetExceeded`; route returns HTTP 400. |
+| Per-upload call ceiling | **Dynamic** — `computeMaxCalls(plannedChunks) = (chunks × 2) + 10`, clamped to `[20, 200]` | Throw `IngestionBudgetExceeded`; route returns HTTP 400. |
 | `MAX_TOKENS_PER_UPLOAD` | 400_000 (input + output) | Same. |
-| `SOFT_WARN_CALLS` | 20 | Single `warn` log (`warnedHot=true`) then continue. |
+| Soft warn | `floor(maxCalls × SOFT_WARN_FRACTION)` where `SOFT_WARN_FRACTION = 0.66` | Single `warn` log (`warnedHot=true`) then continue. |
+
+**Why a per-upload dynamic call ceiling.** The token ceiling is the
+real spend guard — it never moves. The call count is a separate
+"catch pathological retry-storm" proxy that has to bound files of
+very different shapes: a 4-chunk Burnett and a 71-chunk
+block-structured Adient can't share one static number. The xlsx
+branch in `aiExtract.ts` calls `budget.setMaxCalls(computeMaxCalls(chunks.length))`
+immediately after the chunker decides how to split the file:
+
+- Tiny file (1 chunk) → clamped up to the **20-call floor**.
+- Flat Penda-style upload (~20 chunks) → ~50 calls.
+- Block-structured Adient (~71 chunks) → 152 calls.
+- Pathological / buggy chunk plan → clamped down to the **200-call
+  backstop** (`BACKSTOP_MAX_CALLS_PER_UPLOAD`) so an outright bug
+  can't authorize unbounded model calls.
+
+Non-xlsx paths (image, pdf, single-call) don't chunk by rows, so they
+keep the constructor's default backstop — they never legitimately
+need more than a handful of calls anyway.
+
+The configured ceiling is surfaced on the budget summary as
+`maxCalls`, written into the `ingest_done` log payload, and persisted
+on `ingestion_runs.max_calls` so the admin audit feed
+(`GET /admin/ingestion-runs`) shows each upload's actual call count
+next to its configured ceiling. The soft warn payload also carries
+the computed `softWarnAt` value so it's obvious from the log line
+how hot "hot" was for that particular file shape.
 
 Each model invocation (chunk, chunk_retry, chunk_reissue, gemini_fallback,
 single_call) calls `budget.recordCall(usage, purpose)` immediately after

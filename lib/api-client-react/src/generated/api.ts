@@ -49,7 +49,6 @@ import type {
   DayHoursResult,
   DeleteCustomerTzPreferenceParams,
   DeletedDriverNote,
-  DiscardExtractStaging200,
   DriverCustomerOverride,
   DriverIdAlias,
   DriverIdAliasList,
@@ -61,7 +60,6 @@ import type {
   DriverWeekLockState,
   EditPunchInput,
   EmailDeliveryResult,
-  ExtractStagingRow,
   ForgetCustomerNameAliasParams,
   HealthStatus,
   HiddenNotesUnseenCount,
@@ -73,7 +71,6 @@ import type {
   ListAiExtractSamplesParams,
   ListCustomerAliasAuditLogParams,
   ListDeletedDriverNotesParams,
-  ListExtractStagingParams,
   ListIngestionRunsParams,
   ListRateLimitEventTimeseriesParams,
   ListRateLimitEventTopOffendersParams,
@@ -6569,204 +6566,6 @@ export function useListIngestionRuns<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
-
-/**
- * @summary List in-flight AI-extract uploads (admin-only). One row per
-uploadKey aggregating the staging table: how many chunks are
-already extracted vs the total, plus customer/week/file context
-so an operator can spot hung resumable uploads and discard them.
-Backs the `/admin/extract-staging` admin page (Task #327).
-
- */
-export const getListExtractStagingUrl = (params?: ListExtractStagingParams) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? "null" : value.toString());
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0
-    ? `/api/admin/extract-staging?${stringifiedParams}`
-    : `/api/admin/extract-staging`;
-};
-
-export const listExtractStaging = async (
-  params?: ListExtractStagingParams,
-  options?: RequestInit,
-): Promise<ExtractStagingRow[]> => {
-  return customFetch<ExtractStagingRow[]>(getListExtractStagingUrl(params), {
-    ...options,
-    method: "GET",
-  });
-};
-
-export const getListExtractStagingQueryKey = (
-  params?: ListExtractStagingParams,
-) => {
-  return [`/api/admin/extract-staging`, ...(params ? [params] : [])] as const;
-};
-
-export const getListExtractStagingQueryOptions = <
-  TData = Awaited<ReturnType<typeof listExtractStaging>>,
-  TError = ErrorType<void>,
->(
-  params?: ListExtractStagingParams,
-  options?: {
-    query?: UseQueryOptions<
-      Awaited<ReturnType<typeof listExtractStaging>>,
-      TError,
-      TData
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-) => {
-  const { query: queryOptions, request: requestOptions } = options ?? {};
-
-  const queryKey =
-    queryOptions?.queryKey ?? getListExtractStagingQueryKey(params);
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof listExtractStaging>>
-  > = ({ signal }) => listExtractStaging(params, { signal, ...requestOptions });
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof listExtractStaging>>,
-    TError,
-    TData
-  > & { queryKey: QueryKey };
-};
-
-export type ListExtractStagingQueryResult = NonNullable<
-  Awaited<ReturnType<typeof listExtractStaging>>
->;
-export type ListExtractStagingQueryError = ErrorType<void>;
-
-/**
- * @summary List in-flight AI-extract uploads (admin-only). One row per
-uploadKey aggregating the staging table: how many chunks are
-already extracted vs the total, plus customer/week/file context
-so an operator can spot hung resumable uploads and discard them.
-Backs the `/admin/extract-staging` admin page (Task #327).
-
- */
-
-export function useListExtractStaging<
-  TData = Awaited<ReturnType<typeof listExtractStaging>>,
-  TError = ErrorType<void>,
->(
-  params?: ListExtractStagingParams,
-  options?: {
-    query?: UseQueryOptions<
-      Awaited<ReturnType<typeof listExtractStaging>>,
-      TError,
-      TData
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getListExtractStagingQueryOptions(params, options);
-
-  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
-    queryKey: QueryKey;
-  };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
- * @summary Discard every staged chunk for a given uploadKey (admin-only).
-Used to free a resumable upload that's been abandoned client-side.
-
- */
-export const getDiscardExtractStagingUrl = (uploadKey: string) => {
-  return `/api/admin/extract-staging/${uploadKey}`;
-};
-
-export const discardExtractStaging = async (
-  uploadKey: string,
-  options?: RequestInit,
-): Promise<DiscardExtractStaging200> => {
-  return customFetch<DiscardExtractStaging200>(
-    getDiscardExtractStagingUrl(uploadKey),
-    {
-      ...options,
-      method: "DELETE",
-    },
-  );
-};
-
-export const getDiscardExtractStagingMutationOptions = <
-  TError = ErrorType<void>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof discardExtractStaging>>,
-    TError,
-    { uploadKey: string },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof discardExtractStaging>>,
-  TError,
-  { uploadKey: string },
-  TContext
-> => {
-  const mutationKey = ["discardExtractStaging"];
-  const { mutation: mutationOptions, request: requestOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, request: undefined };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof discardExtractStaging>>,
-    { uploadKey: string }
-  > = (props) => {
-    const { uploadKey } = props ?? {};
-
-    return discardExtractStaging(uploadKey, requestOptions);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type DiscardExtractStagingMutationResult = NonNullable<
-  Awaited<ReturnType<typeof discardExtractStaging>>
->;
-
-export type DiscardExtractStagingMutationError = ErrorType<void>;
-
-/**
- * @summary Discard every staged chunk for a given uploadKey (admin-only).
-Used to free a resumable upload that's been abandoned client-side.
-
- */
-export const useDiscardExtractStaging = <
-  TError = ErrorType<void>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof discardExtractStaging>>,
-    TError,
-    { uploadKey: string },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof discardExtractStaging>>,
-  TError,
-  { uploadKey: string },
-  TContext
-> => {
-  return useMutation(getDiscardExtractStagingMutationOptions(options));
-};
 
 /**
  * @summary List every admin-managed Connecteam clock-id hour offset (admin-only).

@@ -20,6 +20,7 @@ import {
 import {
   IngestionBudget,
   IngestionBudgetExceeded,
+  computeMaxCalls,
   type IngestionBudgetSummary,
   type IngestionPurpose,
 } from "./ingestionBudget.js";
@@ -1327,6 +1328,7 @@ function logIngestDone(
     byProvider: fields.summary.byProvider,
     geminiFallbackUsed: fields.summary.geminiFallbackUsed,
     warnedHot: fields.summary.warnedHot,
+    maxCalls: fields.summary.maxCalls,
     blockStructured: fields.summary.blockStructured,
     rowsPerChunk: fields.summary.rowsPerChunk,
     ...(fields.errMsg ? { errMsg: fields.errMsg } : {}),
@@ -1600,6 +1602,12 @@ async function runExtraction(
       : XLSX_CHUNK_MAX_ROWS;
     budget.recordXlsxLayout({ blockStructured, rowsPerChunk });
     const chunks = xlsxToChunks(buffer, log, { maxRowsPerChunk: rowsPerChunk });
+    // Task #336: right-size the per-upload call ceiling from the
+    // actual chunk count now that the chunker has decided how to
+    // split this file. The single-chunk path below still gets the
+    // bumped (floor-clamped) ceiling so a 1-chunk file with a few
+    // legitimate retries doesn't trip 20.
+    budget.setMaxCalls(computeMaxCalls(chunks.length));
     if (chunks.length > 1) {
       return await runChunkedXlsxExtract(
         client,

@@ -2559,56 +2559,16 @@ export const ListIngestionRunsResponseItem = zod.object({
     .describe(
       "Task #307: per-chunk row cap the xlsx chunker used. 60 for block-structured layouts, 120 for flat layouts, null for non-xlsx paths.\n",
     ),
+  maxCalls: zod
+    .number()
+    .nullish()
+    .describe(
+      "Task #336: per-upload call ceiling this budget was configured with. Right-sized from the planned chunk count for xlsx uploads (`(chunks \* 2) + 10`, clamped 20..200); the static backstop (200) for non-xlsx paths. Null on rows written before the column existed.\n",
+    ),
 });
 export const ListIngestionRunsResponse = zod.array(
   ListIngestionRunsResponseItem,
 );
-
-/**
- * @summary List in-flight AI-extract uploads (admin-only). One row per
-uploadKey aggregating the staging table: how many chunks are
-already extracted vs the total, plus customer/week/file context
-so an operator can spot hung resumable uploads and discard them.
-Backs the `/admin/extract-staging` admin page (Task #327).
-
- */
-export const listExtractStagingQueryLimitDefault = 50;
-export const listExtractStagingQueryLimitMax = 500;
-
-export const ListExtractStagingQueryParams = zod.object({
-  limit: zod.coerce
-    .number()
-    .min(1)
-    .max(listExtractStagingQueryLimitMax)
-    .default(listExtractStagingQueryLimitDefault),
-});
-
-export const ListExtractStagingResponseItem = zod.object({
-  uploadKey: zod.string(),
-  customer: zod.string(),
-  weekStart: zod.string(),
-  fileName: zod.string(),
-  chunksStaged: zod.number(),
-  chunkCount: zod.number(),
-  createdAt: zod.coerce.date(),
-  lastTouchedAt: zod.coerce.date(),
-});
-export const ListExtractStagingResponse = zod.array(
-  ListExtractStagingResponseItem,
-);
-
-/**
- * @summary Discard every staged chunk for a given uploadKey (admin-only).
-Used to free a resumable upload that's been abandoned client-side.
-
- */
-export const DiscardExtractStagingParams = zod.object({
-  uploadKey: zod.coerce.string(),
-});
-
-export const DiscardExtractStagingResponse = zod.object({
-  deleted: zod.number(),
-});
 
 /**
  * @summary List every admin-managed Connecteam clock-id hour offset (admin-only).

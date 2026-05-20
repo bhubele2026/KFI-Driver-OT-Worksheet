@@ -1525,17 +1525,6 @@ export interface UpdateCustomerBody {
   sortOrder?: number;
 }
 
-export interface ExtractStagingRow {
-  uploadKey: string;
-  customer: string;
-  weekStart: string;
-  fileName: string;
-  chunksStaged: number;
-  chunkCount: number;
-  createdAt: string;
-  lastTouchedAt: string;
-}
-
 export type IngestionRunOutcome =
   (typeof IngestionRunOutcome)[keyof typeof IngestionRunOutcome];
 
@@ -1584,6 +1573,12 @@ export interface IngestionRun {
    * @nullable
    */
   rowsPerChunk?: number | null;
+  /**
+   * Task #336: per-upload call ceiling this budget was configured with. Right-sized from the planned chunk count for xlsx uploads (`(chunks * 2) + 10`, clamped 20..200); the static backstop (200) for non-xlsx paths. Null on rows written before the column existed.
+
+   * @nullable
+   */
+  maxCalls?: number | null;
 }
 
 export interface ConnecteamUserAlias {
@@ -1960,18 +1955,6 @@ export type ListIngestionRunsParams = {
    * @maximum 500
    */
   limit?: number;
-};
-
-export type ListExtractStagingParams = {
-  /**
-   * @minimum 1
-   * @maximum 500
-   */
-  limit?: number;
-};
-
-export type DiscardExtractStaging200 = {
-  deleted: number;
 };
 
 export type SetPunchReviewedBody = {

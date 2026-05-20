@@ -3743,6 +3743,14 @@ components:
             Task #307: per-chunk row cap the xlsx chunker used. 60 for
             block-structured layouts, 120 for flat layouts, null for
             non-xlsx paths.
+        maxCalls:
+          type: ["integer", "null"]
+          description: >
+            Task #336: per-upload call ceiling this budget was
+            configured with. Right-sized from the planned chunk count
+            for xlsx uploads (`(chunks * 2) + 10`, clamped 20..200);
+            the static backstop (200) for non-xlsx paths. Null on
+            rows written before the column existed.
 
     ConnecteamUserAlias:
       type: object

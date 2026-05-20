@@ -26,7 +26,12 @@ import {
   __pushAiExtractErrorStub,
   __clearAiExtractStubs,
 } from "../aiExtract.js";
-import { IngestionBudget } from "../ingestionBudget.js";
+import {
+  IngestionBudget,
+  BACKSTOP_MAX_CALLS_PER_UPLOAD,
+  MIN_MAX_CALLS_PER_UPLOAD,
+  computeMaxCalls,
+} from "../ingestionBudget.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(
@@ -702,6 +707,171 @@ test("aiExtractRows leaves flat layouts on the 120-row budget (Task #307)", asyn
     );
     assert.equal(out.budgetSummary.blockStructured, false);
     assert.equal(out.budgetSummary.rowsPerChunk, 120);
+  } finally {
+    __clearAiExtractStubs();
+  }
+});
+
+/**
+ * Task #336: `computeMaxCalls` right-sizes the per-upload call ceiling
+ * from the planned chunk count. `(chunks × 2) + 10`, clamped between
+ * MIN_MAX_CALLS_PER_UPLOAD (20) and BACKSTOP_MAX_CALLS_PER_UPLOAD (200).
+ */
+test("computeMaxCalls scales with chunk count and clamps to the backstop (Task #336)", () => {
+  // Tiny file (1 chunk) → 12 raw, clamped up to the 20 floor.
+  assert.equal(computeMaxCalls(1), MIN_MAX_CALLS_PER_UPLOAD);
+  assert.equal(computeMaxCalls(0), MIN_MAX_CALLS_PER_UPLOAD);
+  // Small flat file (4 chunks) → 18 raw, clamped up to 20.
+  assert.equal(computeMaxCalls(4), MIN_MAX_CALLS_PER_UPLOAD);
+  // 5 chunks → 20, exactly at the floor.
+  assert.equal(computeMaxCalls(5), 20);
+  // Medium file (10 chunks) → 30.
+  assert.equal(computeMaxCalls(10), 30);
+  // Adient-shape block-structured xlsx (~71 chunks) → 152.
+  assert.equal(computeMaxCalls(71), 152);
+  // Pathological chunk count clamps to the backstop.
+  assert.equal(computeMaxCalls(1000), BACKSTOP_MAX_CALLS_PER_UPLOAD);
+  assert.equal(computeMaxCalls(95), BACKSTOP_MAX_CALLS_PER_UPLOAD);
+  // 94 chunks → 198, still under the backstop.
+  assert.equal(computeMaxCalls(94), 198);
+});
+
+/**
+ * Task #336: a budget configured with a low per-upload ceiling must
+ * trip at THAT ceiling, not the module backstop. Proves
+ * `IngestionBudget.maxCalls` is per-instance and the trip-check reads
+ * the configured value (not the static constant).
+ */
+test("IngestionBudget trips at the configured per-upload ceiling (Task #336)", () => {
+  const budget = new IngestionBudget({
+    fileName: "tiny.xlsx",
+    customer: "TestCo",
+    maxCalls: 20,
+  });
+  assert.equal(budget.getMaxCalls(), 20);
+  const usage = {
+    inputTokens: 100,
+    outputTokens: 50,
+    model: "claude-sonnet-4-5",
+    provider: "claude",
+  };
+  // 20 calls succeed; the 21st must throw with the per-instance ceiling
+  // in the message and well below the static backstop (200).
+  for (let i = 0; i < 20; i++) {
+    budget.recordCall(usage, "chunk");
+  }
+  assert.throws(
+    () => budget.recordCall(usage, "chunk"),
+    /per-file safety limit of 20 model calls/,
+    "must reference the configured per-upload ceiling, not the backstop",
+  );
+  const summary = budget.summary();
+  assert.equal(summary.maxCalls, 20);
+  assert.equal(summary.totalCalls, 21);
+});
+
+/**
+ * Task #336: `setMaxCalls` resizes the ceiling and clamps to
+ * [MIN_MAX_CALLS_PER_UPLOAD, BACKSTOP_MAX_CALLS_PER_UPLOAD] so a buggy
+ * chunk planner can't authorize unbounded calls.
+ */
+test("setMaxCalls clamps to the floor and backstop (Task #336)", () => {
+  const budget = new IngestionBudget({ fileName: "f.xlsx", customer: "C" });
+  budget.setMaxCalls(5);
+  assert.equal(budget.getMaxCalls(), MIN_MAX_CALLS_PER_UPLOAD);
+  budget.setMaxCalls(10_000);
+  assert.equal(budget.getMaxCalls(), BACKSTOP_MAX_CALLS_PER_UPLOAD);
+  budget.setMaxCalls(73);
+  assert.equal(budget.getMaxCalls(), 73);
+});
+
+/**
+ * Task #336: the percentage-based soft warn fires once when totalCalls
+ * crosses ~66% of the configured ceiling, regardless of file shape.
+ * Pins SOFT_WARN_FRACTION's behavior so a 152-call Adient and a
+ * 20-call Burnett both get a meaningful "running hot" signal.
+ */
+test("soft warn fires at ~66% of the configured per-upload ceiling (Task #336)", () => {
+  const warns: Array<{ payload: Record<string, unknown>; msg: string }> = [];
+  const budget = new IngestionBudget({
+    fileName: "warn.xlsx",
+    customer: "C",
+    maxCalls: 30,
+    log: {
+      warn: (payload, msg) => warns.push({ payload, msg }),
+    },
+  });
+  const usage = {
+    inputTokens: 10,
+    outputTokens: 5,
+    model: "claude-sonnet-4-5",
+    provider: "claude",
+  };
+  // floor(30 * 0.66) = 19 — must NOT warn yet on call 18.
+  for (let i = 0; i < 18; i++) budget.recordCall(usage, "chunk");
+  assert.equal(warns.length, 0, "soft warn must not fire before threshold");
+  // Call 19 crosses threshold → exactly one warn line.
+  budget.recordCall(usage, "chunk");
+  assert.equal(warns.length, 1, "soft warn must fire exactly once at threshold");
+  assert.equal(warns[0].payload.maxCalls, 30);
+  assert.equal(warns[0].payload.softWarnAt, 19);
+  // No further warns even as totalCalls climbs.
+  for (let i = 0; i < 5; i++) budget.recordCall(usage, "chunk");
+  assert.equal(warns.length, 1, "soft warn must only fire once per upload");
+});
+
+/**
+ * Task #336: the `ingest_done` log payload must surface the configured
+ * per-upload ceiling next to the actual `totalCalls`, so an operator
+ * grep'ing `ingest_done` can see how close any given upload ran to its
+ * own limit. End-to-end check using a synthetic 2-chunk fixture.
+ */
+test("ingest_done log payload includes maxCalls (Task #336)", async () => {
+  const rows = Array.from({ length: 240 }, (_, i) => ({
+    Name: `Driver ${i}`,
+    Badge: `B${i}`,
+    Date: "2026-05-12",
+    In: "7:00 AM",
+    Out: "3:00 PM",
+  }));
+  const buf = makeXlsx(rows);
+  const chunks = xlsxToChunks(buf);
+  assert.ok(chunks.length >= 2, "test setup needs >=2 chunks");
+  __clearAiExtractStubs();
+  const captured: Array<{ msg: string; payload: Record<string, unknown> }> = [];
+  const capture = {
+    info: (payload: Record<string, unknown>, msg: string) =>
+      captured.push({ msg, payload }),
+    warn: (payload: Record<string, unknown>, msg: string) =>
+      captured.push({ msg, payload }),
+    error: (payload: Record<string, unknown>, msg: string) =>
+      captured.push({ msg, payload }),
+    debug: () => {},
+  } as unknown as Parameters<typeof aiExtractRows>[6];
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      __pushAiExtractStub([
+        {
+          driverNameOnDoc: `chunk-${i}`,
+          badgeOrId: `C${i}`,
+          date: "2026-05-12",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+        },
+      ]);
+    }
+    await aiExtractRows(
+      "flat.xlsx",
+      buf,
+      "TestCo",
+      "2026-05-10",
+      "2026-05-16",
+      undefined,
+      capture,
+    );
+    const done = captured.find((c) => c.msg === "ingest_done");
+    assert.ok(done, "ingest_done log line must be emitted");
+    assert.equal(done!.payload.maxCalls, computeMaxCalls(chunks.length));
   } finally {
     __clearAiExtractStubs();
   }

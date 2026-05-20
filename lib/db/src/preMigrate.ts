@@ -327,6 +327,22 @@ const FIXUPS: Fixup[] = [
       END$$;
     `,
   },
+  // ---------------------------------------------------------------------
+  // Task #336 — add a nullable `max_calls` integer column to
+  // `ingestion_runs` to record the per-upload AI call ceiling the
+  // budget was configured with. Idempotent: re-runs are no-ops once
+  // the column exists. Marker is unnecessary because the CREATE
+  // guard is already DDL-conditional.
+  {
+    name: "add ingestion_runs.max_calls (Task #336)",
+    describe:
+      "Add a nullable max_calls integer column to ingestion_runs so each row records the per-upload call ceiling next to its actual totalCalls.",
+    detect: `SELECT 1`,
+    apply: `
+      ALTER TABLE IF EXISTS ingestion_runs
+        ADD COLUMN IF NOT EXISTS max_calls integer;
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------

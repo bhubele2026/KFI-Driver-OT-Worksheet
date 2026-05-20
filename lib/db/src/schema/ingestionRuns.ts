@@ -69,6 +69,14 @@ export const ingestionRunsTable = pgTable(
     blockStructured: boolean("block_structured"),
     rowsPerChunk: integer("rows_per_chunk"),
     /**
+     * Task #336: the per-upload call ceiling this budget was
+     * configured with. Right-sized from the planned chunk count for
+     * xlsx uploads via `computeMaxCalls`; the static backstop (200)
+     * for non-xlsx paths and for budgets the caller never resized.
+     * Nullable for rows written before the column existed.
+     */
+    maxCalls: integer("max_calls"),
+    /**
      * Task #310: true when the upload short-circuited via the
      * `customer_column_schemas` recipe cache and made zero model
      * calls. Lets the operator compute the "pay once" hit rate

@@ -44,4 +44,10 @@ export interface IngestionRun {
    * @nullable
    */
   rowsPerChunk?: number | null;
+  /**
+   * Task #336: per-upload call ceiling this budget was configured with. Right-sized from the planned chunk count for xlsx uploads (`(chunks * 2) + 10`, clamped 20..200); the static backstop (200) for non-xlsx paths. Null on rows written before the column existed.
+
+   * @nullable
+   */
+  maxCalls?: number | null;
 }
