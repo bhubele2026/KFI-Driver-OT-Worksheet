@@ -873,6 +873,10 @@ export function __clearAiExtractStubs(): void {
   _aiStubTruncatedQueue.length = 0;
   _aiStubErrorQueue.length = 0;
 }
+/** @internal test seam — number of stubs still queued (i.e. "would-have-been AI calls remaining"). */
+export function __aiExtractStubQueueLength(): number {
+  return _aiStubQueue.length;
+}
 
 // Per-chunk model-call ceiling for the chunked xlsx path. Shorter than
 // the single-call 5-minute budget because each chunk is small; we still
@@ -986,14 +990,11 @@ async function callModelForChunk(
           parts,
           maxOutputTokens: 32768,
           timeoutMs: XLSX_CHUNK_TIMEOUT_MS,
-          jsonSchema: ROW_SCHEMA,
         });
         const purpose: IngestionPurpose = isFallback
           ? "gemini_fallback"
           : attempt > 1
           ? "chunk_retry"
-          : label.includes("halved")
-          ? "chunk_halved"
           : "chunk";
         logModelCall({
           log,
@@ -1834,7 +1835,6 @@ async function runExtraction(
             parts,
             maxOutputTokens: 32768,
             timeoutMs: AI_TIMEOUT_MS,
-            jsonSchema: ROW_SCHEMA,
           });
           const purpose: IngestionPurpose = isFallback
             ? "gemini_fallback"
