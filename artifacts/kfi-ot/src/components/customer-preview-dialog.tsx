@@ -113,7 +113,8 @@ export function CustomerPreviewDialog({
   const discardMutation = useDiscardCustomerExtract();
   const aliasesQuery = useListDriverIdAliases();
   const allDrivers = useMemo(
-    () => aliasesQuery.data?.drivers ?? [],
+    () =>
+      (aliasesQuery.data?.drivers ?? []).filter((d) => d.ctUserId != null),
     [aliasesQuery.data],
   );
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
@@ -456,7 +457,7 @@ export function CustomerPreviewDialog({
                           >
                             <SelectValue placeholder={t("customerPreview.pickDriverPlaceholder")} />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent className="max-h-[50vh]">
                             <SelectItem value={SKIP_PICK}>
                               {t("customerPreview.skipLeaveDropped")}
                             </SelectItem>
