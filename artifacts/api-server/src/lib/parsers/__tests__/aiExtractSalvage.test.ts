@@ -106,6 +106,61 @@ test("parseOrSalvage handles escaped quotes and backslashes in strings", () => {
   assert.equal(out.rows?.[1].driverNameOnDoc, "path C:\\Users\\");
 });
 
+test("parseOrSalvage salvages a complete object followed by trailing prose (Task #306)", () => {
+  // Real Adient failure mode on 5/19: the model returned a fully
+  // valid `{"rows":[...]}` then continued writing prose, which made
+  // plain JSON.parse throw "Unexpected non-whitespace character after
+  // JSON at position N". The salvage walker (rows-only) used to keep
+  // updating lastGood inside the trailing text and produce invalid
+  // JSON when reconstructing.
+  const inner = JSON.stringify({
+    rows: [
+      { driverNameOnDoc: "Jane Doe", date: "2026-05-11", timeIn: "7:00 AM" },
+      { driverNameOnDoc: "John Roe", date: "2026-05-12", timeIn: "6:30 AM" },
+    ],
+  });
+  const raw = inner + "\n\nNote: I have extracted all rows from the file.";
+  const out = parseOrSalvage(raw, "Adient", "test.xlsx", { warn: () => {} });
+  // Prefix parse succeeded — this is NOT a token-truncation, so
+  // truncated must stay false to avoid triggering chunk-halving.
+  assert.equal(out.truncated, false);
+  assert.equal(out.rows?.length, 2);
+  assert.equal(out.rows?.[0].driverNameOnDoc, "Jane Doe");
+});
+
+test("parseOrSalvage salvages a duplicated {\"rows\":...} object (Task #306)", () => {
+  // Observed once during pacing/cache experiments: the model emits a
+  // complete rows object, then emits a second one. The first object's
+  // rows are the authoritative answer.
+  const first = JSON.stringify({
+    rows: [{ driverNameOnDoc: "Jane Doe", date: "2026-05-11" }],
+  });
+  const second = JSON.stringify({
+    rows: [{ driverNameOnDoc: "John Roe", date: "2026-05-12" }],
+  });
+  const raw = first + second;
+  const out = parseOrSalvage(raw, "Adient", "test.xlsx", { warn: () => {} });
+  assert.equal(out.truncated, false);
+  assert.equal(out.rows?.length, 1);
+  assert.equal(out.rows?.[0].driverNameOnDoc, "Jane Doe");
+});
+
+test("parseOrSalvage salvages a fenced complete object with trailing line (Task #306)", () => {
+  // Mixed shape: markdown fence opener, a complete `{"rows":[...]}`
+  // object, fence closer, then a trailing prose line. Fence stripper
+  // peels the opener but the trailing line survives.
+  const inner = JSON.stringify({
+    rows: [
+      { driverNameOnDoc: "Jane Doe", date: "2026-05-11", timeIn: "7:00 AM" },
+    ],
+  });
+  const raw = "```json\n" + inner + "\n```\nDone.";
+  const out = parseOrSalvage(raw, "Adient", "test.xlsx", { warn: () => {} });
+  assert.equal(out.truncated, false);
+  assert.equal(out.rows?.length, 1);
+  assert.equal(out.rows?.[0].driverNameOnDoc, "Jane Doe");
+});
+
 test("parseOrSalvage throws when there is no rows array at all", () => {
   const raw = "garbage with no brackets";
   assert.throws(

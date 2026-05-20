@@ -580,9 +580,35 @@ export function parseOrSalvage(
     const parsed = JSON.parse(raw) as { rows?: AiExtractedRow[] };
     return { ...parsed, truncated: false };
   } catch {
+    // First, prefer the "valid JSON prefix" path. The model sometimes
+    // returns a complete `{"rows":[...]}` followed by trailing prose,
+    // a duplicate `{"rows":...}` block, or other non-whitespace garbage
+    // that defeats a plain `JSON.parse`. Find the outer object's
+    // matching `}` and try parsing just that prefix.
+    const prefix = findOuterObjectPrefix(raw);
+    if (prefix !== null) {
+      try {
+        const parsed = JSON.parse(prefix) as { rows?: AiExtractedRow[] };
+        (log ?? logger).warn(
+          {
+            customer,
+            fileName,
+            rawLen: raw.length,
+            prefixLen: prefix.length,
+            rows: parsed.rows?.length ?? 0,
+          },
+          "AI extraction: salvaged JSON prefix (trailing garbage after outer object)",
+        );
+        return { ...parsed, truncated: false };
+      } catch {
+        // fall through to row-by-row salvage
+      }
+    }
     // Locate the `rows` array, walk it row-by-row with a brace counter,
-    // and stop at the last fully-balanced row object. Then reconstruct
-    // `{"rows":[<balanced rows>]}` and parse that.
+    // and stop at the last fully-balanced row object. Bracket depth is
+    // also tracked so the walker bails out at the matching `]` of the
+    // rows array — trailing content past it must not influence
+    // `lastGood`.
     const rowsStart = raw.indexOf("[");
     if (rowsStart === -1) {
       throw new Error(
@@ -611,6 +637,10 @@ export function parseOrSalvage(
       } else if (ch === "}") {
         depth--;
         if (depth === 0) lastGood = i + 1;
+      } else if (ch === "]" && depth === 0) {
+        // Matching close of the rows array — stop. Anything past this
+        // point is trailing garbage outside the array.
+        break;
       }
       i++;
     }
@@ -639,6 +669,40 @@ export function parseOrSalvage(
       );
     }
   }
+}
+
+/**
+ * Find the smallest prefix of `raw` that ends at the matching `}` of
+ * the first outer `{ ... }` object, respecting string state so braces
+ * inside quoted strings don't count. Returns `null` if there is no
+ * outer object or its closing brace is not present.
+ */
+function findOuterObjectPrefix(raw: string): string | null {
+  const start = raw.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i];
+    if (inStr) {
+      if (esc) {
+        esc = false;
+      } else if (ch === "\\") {
+        esc = true;
+      } else if (ch === '"') {
+        inStr = false;
+      }
+    } else if (ch === '"') {
+      inStr = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) return raw.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
