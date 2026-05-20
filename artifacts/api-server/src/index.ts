@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { initMailer, isMailerConfigured } from "./lib/mailer";
+import { initMailer } from "./lib/mailer";
 import { ensureAtLeastOneAdmin } from "./lib/adminBootstrap";
 import { repairBogusObjectCustomers } from "./lib/repairBogusCustomers";
 import { pool } from "./lib/db";
@@ -40,16 +40,10 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function main() {
-  // Prime the SendGrid connector lookup so isMailerConfigured() reflects
-  // reality before anything reads it (admin banner, prod boot check, etc).
+  // Email delivery is disabled; initMailer is a no-op kept for shape.
   await initMailer().catch((err) => {
     logger.warn({ err }, "initMailer failed");
   });
-  if (process.env.NODE_ENV === "production" && !isMailerConfigured()) {
-    throw new Error(
-      "SendGrid integration is not connected — wire it up via Replit integrations (or set SENDGRID_API_KEY) so password reset and invite emails can be delivered",
-    );
-  }
 
   try {
     await ensureAtLeastOneAdmin();
@@ -152,10 +146,7 @@ async function main() {
       process.exit(1);
     }
 
-    logger.info(
-      { port, mailerConfigured: isMailerConfigured() },
-      "Server listening",
-    );
+    logger.info({ port }, "Server listening");
   });
 }
 

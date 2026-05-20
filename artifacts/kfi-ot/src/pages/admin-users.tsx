@@ -10,7 +10,6 @@ import {
   useResendInvite,
   useSendPasswordResetForUser,
   useGetMe,
-  useGetMailerStatus,
   useListRateLimitBuckets,
   useListRateLimitEvents,
   useListRateLimitEventTimeseries,
@@ -24,7 +23,6 @@ import {
   useListSuggestedIpBlocks,
   getListUsersQueryKey,
   getListInvitesQueryKey,
-  getGetMailerStatusQueryKey,
   getListRateLimitBucketsQueryKey,
   getListRateLimitEventsQueryKey,
   getListRateLimitEventTimeseriesQueryKey,
@@ -131,17 +129,6 @@ export default function AdminUsers() {
       queryKey: getListInvitesQueryKey(),
     },
   });
-  const { data: mailerStatus } = useGetMailerStatus({
-    query: {
-      enabled: !!me?.isAdmin,
-      queryKey: getGetMailerStatusQueryKey(),
-    },
-  });
-  const [mailerWarningDismissed, setMailerWarningDismissed] = useState(false);
-  const showMailerWarning =
-    !!me?.isAdmin &&
-    mailerStatus?.configured === false &&
-    !mailerWarningDismissed;
   const { data: auditLog, isLoading: auditLoading } = useListUserAuditLog(
     { limit: 50 },
     {
@@ -851,42 +838,6 @@ export default function AdminUsers() {
       </header>
 
       <main className="flex-1 px-4 py-6 max-w-5xl w-full mx-auto space-y-6">
-        {showMailerWarning && (
-          <div
-            role="alert"
-            className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm flex items-start gap-3"
-          >
-            <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
-            <div className="flex-1 space-y-1">
-              <div className="font-semibold">
-                {t("adminUsers.emailNotConnectedTitle")}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t("adminUsers.emailNotConnectedBefore")}
-                <strong>{t("adminUsers.emailNotConnectedNot")}</strong>
-                {t("adminUsers.emailNotConnectedAfter")}
-              </p>
-              <div className="pt-1">
-                <a
-                  href="https://docs.replit.com/replit-workspace/integrations"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-medium text-amber-700 dark:text-amber-300 underline underline-offset-2"
-                >
-                  {t("adminUsers.openIntegrationsLink")}
-                </a>
-              </div>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => setMailerWarningDismissed(true)}
-            >
-              {t("adminUsers.dismiss")}
-            </Button>
-          </div>
-        )}
         <Card>
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">

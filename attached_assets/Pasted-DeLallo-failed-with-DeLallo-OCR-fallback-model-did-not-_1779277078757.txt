@@ -1,0 +1,19 @@
+DeLallo failed with: "DeLallo OCR fallback: model did not return valid JSON (Expected ',' or '}' at position 2679 line 126 column 19)."
+Three observations:
+
+DeLallo is on a separate code path — the error message reveals it goes through a legacy "DeLallo OCR fallback" branch, not the main aiExtract.ts chunked pipeline. None of the recent fixes (#306 salvage, #307 chunk sizing, pacer fix, #339 import) apply here.
+The DeLallo file is text-extractable, not scanned. I can select every employee name, badge, date, and time value in the source PDF. pdfjs would get clean text out of this in 2-3 seconds. The OCR fallback path is doing unnecessary work — sending each page as a vision call when text extraction would work.
+The salvage logic from #306 isn't running here. Whatever JSON parsing is happening in the OCR fallback path is fragile in exactly the same way parseOrSalvage was fragile before #306 — but didn't get the fix because it's separate code.
+
+Two asks:
+a) Short-term: Apply the same parse-with-salvage logic from #306 to the DeLallo OCR fallback path. Same class of bug, same fix. Should be a quick port.
+b) Medium-term: Retire the DeLallo OCR fallback entirely. Route DeLallo PDFs through the main pipeline like every other customer. The router should check text density per file, not hardcode customer-specific behavior. If pdfjs gets text out, use Lane B (fast, cheap, accurate). If not, use Lane C (vision). DeLallo's actual PDFs vary — some weeks they might be photos, some weeks clean exports. Per-file detection beats per-customer hardcoding.
+
+What this means for your demo prep
+DeLallo is the only customer still failing right now. Everything else either works or is one ceiling-raise away from working. DeLallo needs its own dedicated fix — but it's a contained problem in a separate code path, not a regression in the new architecture.
+Realistic outcomes:
+
+If Replit ports the salvage logic to the OCR fallback path → DeLallo works on retry, slow and expensive but it works
+If Replit kills the OCR fallback and routes DeLallo through the main pipeline → DeLallo becomes a 20-second Lane B customer, dramatically faster
+
+The second option is the right long-term answer. The first is the quick demo-saver.
