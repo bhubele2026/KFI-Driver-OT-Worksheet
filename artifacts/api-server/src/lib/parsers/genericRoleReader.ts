@@ -2,6 +2,21 @@ import * as XLSX from "xlsx";
 import { UnmappedIdAccumulator } from "./types.js";
 import type { ParseResult, ParsedPunch } from "./types.js";
 import { extractPdfLinesByPage } from "./schemaSignature.js";
+import { isBadgeMatchTrustworthy } from "./fuzzy.js";
+
+/**
+ * Task #363: optional collision-guard context the readers use to
+ * refuse a bare badge → kfi match when the matched driver isn't on
+ * the uploaded customer's roster (and no name alias / name agreement
+ * vouches for the pairing). Callers in production pass both; tests
+ * that don't care can omit the bag and the legacy permissive
+ * behaviour returns.
+ */
+export interface BadgeGuardContext {
+  uploadedCustomer: string;
+  driversByKfi: ReadonlyMap<string, { name: string; customer: string | null }>;
+  nameAliasMap?: ReadonlyMap<string, string> | null;
+}
 
 export interface ColumnRoles {
   badge: number;
@@ -118,6 +133,7 @@ export function readWithRoles(
   idMap: Record<string, string>,
   weekStart: string,
   weekEnd: string,
+  badgeGuard?: BadgeGuardContext,
 ): ParseResult | null {
   if (!isColumnRoles(columnRoles)) return null;
   let wb: XLSX.WorkBook;
@@ -153,21 +169,42 @@ export function readWithRoles(
     // which accepts kfiSet.has(badge) as a self-mapping so files
     // that ship driver kfi_ids in the badge column don't need a
     // dummy alias per driver).
+    // Carry the driver name through when the cached recipe knows
+    // which column held it (Task #338). Older recipes written before
+    // the name column was tracked simply fall back to null and the
+    // panel renders "(no name on doc)" until the next AI re-run
+    // rewrites the recipe with the column included. Read it up-front
+    // so the Task #363 collision guard can compare against the
+    // candidate driver's name on file.
+    let sampleName: string | null = null;
+    if (columnRoles.name != null) {
+      const raw = cellToString(row[columnRoles.name]).trim();
+      if (raw) sampleName = raw;
+    }
     const aliased = idMap[rawBadge];
     let mapped: string | null = null;
     if (aliased && kfiSet.has(aliased)) mapped = aliased;
     else if (kfiSet.has(rawBadge)) mapped = rawBadge;
+    // Task #363: when the cached recipe self-resolves a numeric
+    // employee number to a real KFI badge (e.g. Trienda's "Employee
+    // Number" column accidentally matching Felix Baez Caballero's
+    // badge), refuse the match unless corroborated by roster /
+    // alias / name agreement. Older callers without the guard
+    // context retain the previous permissive behaviour.
+    if (
+      mapped &&
+      badgeGuard &&
+      !isBadgeMatchTrustworthy({
+        candidateKfiId: mapped,
+        nameOnDoc: sampleName ?? "",
+        uploadedCustomer: badgeGuard.uploadedCustomer,
+        driversByKfi: badgeGuard.driversByKfi,
+        nameAliasMap: badgeGuard.nameAliasMap,
+      })
+    ) {
+      mapped = null;
+    }
     if (!mapped) {
-      // Carry the driver name through when the cached recipe knows
-      // which column held it (Task #338). Older recipes written before
-      // the name column was tracked simply fall back to null and the
-      // panel renders "(no name on doc)" until the next AI re-run
-      // rewrites the recipe with the column included.
-      let sampleName: string | null = null;
-      if (columnRoles.name != null) {
-        const raw = cellToString(row[columnRoles.name]).trim();
-        if (raw) sampleName = raw;
-      }
       unmapped.add(rawBadge, sampleName);
       continue;
     }
@@ -312,6 +349,7 @@ export async function readPdfWithRoles(
   idMap: Record<string, string>,
   weekStart: string,
   weekEnd: string,
+  badgeGuard?: BadgeGuardContext,
 ): Promise<ParseResult | null> {
   if (!isPdfColumnRoles(columnRoles)) return null;
   const pages = await extractPdfLinesByPage(buffer);
@@ -358,8 +396,27 @@ export async function readPdfWithRoles(
         currentRawBadge = badgeRaw;
         currentSampleName =
           (eMatch.groups?.name ?? eMatch[2] ?? "").trim() || null;
-        const mapped = idMap[currentRawBadge];
-        if (mapped && kfiSet.has(mapped)) {
+        const aliased = idMap[currentRawBadge];
+        let mapped: string | null = null;
+        if (aliased && kfiSet.has(aliased)) mapped = aliased;
+        else if (kfiSet.has(currentRawBadge)) mapped = currentRawBadge;
+        // Task #363 collision guard — mirror the xlsx cache reader so
+        // a numeric employee number that happens to equal a real KFI
+        // badge from a different customer doesn't auto-resolve.
+        if (
+          mapped &&
+          badgeGuard &&
+          !isBadgeMatchTrustworthy({
+            candidateKfiId: mapped,
+            nameOnDoc: currentSampleName ?? "",
+            uploadedCustomer: badgeGuard.uploadedCustomer,
+            driversByKfi: badgeGuard.driversByKfi,
+            nameAliasMap: badgeGuard.nameAliasMap,
+          })
+        ) {
+          mapped = null;
+        }
+        if (mapped) {
           currentKfiId = mapped;
           currentMapped = true;
         } else {

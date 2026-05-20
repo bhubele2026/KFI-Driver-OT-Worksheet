@@ -1,5 +1,5 @@
 import { fmtDT } from "../time.js";
-import { topMatches } from "./fuzzy.js";
+import { isBadgeMatchTrustworthy, topMatches } from "./fuzzy.js";
 import type {
   ExtractDiagnostics,
   ParseResult,
@@ -245,8 +245,24 @@ export async function extractImageForKnownCustomer(args: {
   let unmappedDriverCount = 0;
   let invalidTimeCount = 0;
 
+  // Task #363: full driver-by-kfi map so resolveKfiId can guard against
+  // numeric "employee number" collisions on customer-supplied files
+  // (e.g. a Trienda employee number that happens to equal a KFI badge
+  // belonging to a Burnett driver).
+  const driversByKfi = new Map(
+    drivers.map((d) => [d.kfiId, { name: d.name, customer: d.customer }] as const),
+  );
+
   for (const r of inWindow) {
-    const kfiId = resolveKfiId(r, idMap, fuzzyPool, kfiSet, nameAliasMap);
+    const kfiId = resolveKfiId(
+      r,
+      idMap,
+      fuzzyPool,
+      kfiSet,
+      nameAliasMap,
+      customer,
+      driversByKfi,
+    );
     if (!kfiId) {
       const id = (r.badgeOrId ?? "").trim() || `name:${r.driverNameOnDoc}`;
       unmapped.add(id, r.driverNameOnDoc);
@@ -300,9 +316,12 @@ function resolveKfiId(
   idMap: Record<string, string>,
   fuzzyPool: Array<{ kfiId: string; name: string }>,
   kfiSet: Set<string>,
-  nameAliasMap?: Map<string, string>,
+  nameAliasMap: Map<string, string> | undefined,
+  uploadedCustomer: string,
+  driversByKfi: ReadonlyMap<string, { name: string; customer: string | null }>,
 ): string | null {
   const badge = (row.badgeOrId ?? "").trim();
+  const nameOnDoc = row.driverNameOnDoc?.trim() ?? "";
   // Badge mapping is the source of truth — when a badge maps to a
   // known kfi, that wins even over the AI's resolvedKfiId hint. This
   // is the badge-disagree guard (Task #271): if the model's pick
@@ -314,10 +333,38 @@ function resolveKfiId(
   // DB and `teld123` from the doc would slip past the guard and
   // let the AI hint resolve a row that should have been pinned by
   // the existing mapping.
+  //
+  // Task #363 collision guard: a customer file's "employee number"
+  // column is an unrelated id space, so accepting a bare badge match
+  // can misroute punches when the number happens to equal a real
+  // KFI badge belonging to a driver on a different customer. The
+  // badge match is only accepted when corroborated by either roster
+  // membership, a saved name alias, or a high-confidence name match
+  // against the candidate driver (see `isBadgeMatchTrustworthy`).
   if (badge) {
     const mapped = idMap[badge] ?? idMap[badge.toLowerCase()] ?? idMap[badge.toUpperCase()];
-    if (mapped && kfiSet.has(mapped)) return mapped;
-    if (kfiSet.has(badge)) return badge;
+    const candidate =
+      mapped && kfiSet.has(mapped)
+        ? mapped
+        : kfiSet.has(badge)
+          ? badge
+          : null;
+    if (
+      candidate &&
+      isBadgeMatchTrustworthy({
+        candidateKfiId: candidate,
+        nameOnDoc,
+        uploadedCustomer,
+        driversByKfi,
+        nameAliasMap,
+      })
+    ) {
+      return candidate;
+    }
+    // Fall through: a bare numeric match against an unrelated-customer
+    // driver shouldn't auto-resolve. Let the AI hint / name alias /
+    // fuzzy paths below take a shot, otherwise the row lands in the
+    // pending-named-rows bucket for dispatcher review.
   }
   // AI hint (Task #271). Only accepted when the model returned an id
   // that's actually in the active roster. We also require the

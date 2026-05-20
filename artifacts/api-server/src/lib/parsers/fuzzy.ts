@@ -62,6 +62,72 @@ export interface DriverMatch {
   confidence: number;
 }
 
+/**
+ * Task #363: guard against a numeric "employee number" on a customer
+ * file accidentally colliding with a real KFI badge id. Trienda's
+ * "Employee Number" column is an unrelated id space, but a Trienda row
+ * for "Cortes, Natalia I" carried employee number `2003283` — which
+ * happens to be the KFI badge of Felix Baez Caballero (a Burnett Dairy
+ * driver who has never worked at Trienda). Without this check the row
+ * silently imported as a Felix punch on top of his real shifts.
+ *
+ * A bare badge → kfi match is only "trustworthy" when at least ONE of
+ * the following corroborating signals holds:
+ *   - the matched KFI driver is actually on the uploaded customer's
+ *     roster (drivers.customer matches the file's customer), OR
+ *   - the dispatcher has previously saved a customer_name_aliases row
+ *     pairing this exact (customer, nameOnDoc) with this candidate, OR
+ *   - the row's nameOnDoc fuzzy-matches the candidate driver's name
+ *     with high confidence (the same 0.85 threshold the AI extractor
+ *     uses elsewhere).
+ *
+ * When none of those hold, callers must treat the badge as unresolved
+ * and let the row fall through to the existing pending-named-rows /
+ * unmappedIds path instead of silently misattributing the punches.
+ *
+ * The helper is intentionally tolerant of missing context (empty
+ * nameOnDoc, missing alias map, candidate not in the driver map): in
+ * any of those cases it still accepts the match IF the customer
+ * happens to line up. The collision-protection only kicks in when the
+ * row carries a recognizable name AND the driver belongs to a
+ * different customer.
+ */
+export function isBadgeMatchTrustworthy(args: {
+  candidateKfiId: string;
+  nameOnDoc: string;
+  uploadedCustomer: string;
+  driversByKfi: ReadonlyMap<string, { name: string; customer: string | null }>;
+  nameAliasMap?: ReadonlyMap<string, string> | null;
+  similarityThreshold?: number;
+}): boolean {
+  const {
+    candidateKfiId,
+    nameOnDoc,
+    uploadedCustomer,
+    driversByKfi,
+    nameAliasMap,
+    similarityThreshold = 0.85,
+  } = args;
+  const driver = driversByKfi.get(candidateKfiId);
+  // No driver record → can't compare customers/names. Be permissive
+  // (callers already verified `kfiSet.has(candidate)`); the only way
+  // to land here is a roster row that was excluded from the lookup
+  // map, which is fine to accept.
+  if (!driver) return true;
+  const uploadedLower = uploadedCustomer.trim().toLowerCase();
+  const driverCustomerLower = (driver.customer ?? "").trim().toLowerCase();
+  if (uploadedLower && driverCustomerLower === uploadedLower) return true;
+  const name = nameOnDoc.trim();
+  if (nameAliasMap && name) {
+    const aliased = nameAliasMap.get(name.toLowerCase());
+    if (aliased && aliased === candidateKfiId) return true;
+  }
+  if (name && nameSimilarity(name, driver.name) >= similarityThreshold) {
+    return true;
+  }
+  return false;
+}
+
 export function topMatches(
   query: string,
   drivers: Array<{ kfiId: string; name: string; customer: string }>,

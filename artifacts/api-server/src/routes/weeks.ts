@@ -93,7 +93,7 @@ import {
   isImageMime,
   normalizeImageBuffer,
 } from "../lib/parsers/imageSupport.js";
-import { topMatches } from "../lib/parsers/fuzzy.js";
+import { isBadgeMatchTrustworthy, topMatches } from "../lib/parsers/fuzzy.js";
 import { narrowDriverPool } from "../lib/parsers/candidatePool.js";
 import {
   ALLOWED_TZS,
@@ -1823,6 +1823,24 @@ weeksRouter.post(
       // overwrite the cache row.
       try {
         const idMap = await loadMergedIdMap();
+        // Task #363 collision guard context. Without this a cached
+        // recipe that maps an unrelated customer's employee number
+        // straight to a real KFI badge (the Trienda × Felix Baez
+        // Caballero case) would silently misroute punches on every
+        // subsequent same-format upload.
+        const cacheNameAliasMap =
+          await loadCustomerNameAliasMap(detectedCustomer);
+        const cacheDriversByKfi = new Map(
+          drivers.map(
+            (d) =>
+              [d.kfiId, { name: d.name, customer: d.customer }] as const,
+          ),
+        );
+        const badgeGuard = {
+          uploadedCustomer: detectedCustomer,
+          driversByKfi: cacheDriversByKfi,
+          nameAliasMap: cacheNameAliasMap,
+        };
         const parsed =
           schemaHit.format === "pdf"
             ? await readPdfWithRoles(
@@ -1833,6 +1851,7 @@ weeksRouter.post(
                 idMap,
                 startDate,
                 endDate,
+                badgeGuard,
               )
             : readWithRoles(
                 detectedCustomer,
@@ -1842,6 +1861,7 @@ weeksRouter.post(
                 idMap,
                 startDate,
                 endDate,
+                badgeGuard,
               );
         if (parsed && parsed.punches.length > 0) {
           result = parsed;
@@ -2718,6 +2738,18 @@ weeksRouter.post(
             for (const r of nameAliasRows) {
               nameMap.set(r.nameOnDoc.toLowerCase(), r.kfiId);
             }
+            // Task #363 collision guard context — same shape the
+            // extract-side AI/cache paths use. Without it, a pending
+            // row whose `badgeOrId` happens to equal a real KFI badge
+            // for an unrelated customer would be auto-promoted at
+            // confirm time even though the dispatcher only picked a
+            // name alias (or didn't pick anything).
+            const confirmDriversByKfi = new Map(
+              drivers.map(
+                (d) =>
+                  [d.kfiId, { name: d.name, customer: d.customer }] as const,
+              ),
+            );
             for (const p of pending) {
               // Badge alias takes priority (mergedMap was already
               // rebuilt above with the just-written driver_id_aliases),
@@ -2726,15 +2758,30 @@ weeksRouter.post(
               // truth now.
               let kfiId: string | null = null;
               const badge = (p.badgeOrId ?? "").trim();
+              const pendingName = p.driverNameOnDoc?.trim() ?? "";
               if (badge) {
                 const mapped = mergedMap[badge];
-                if (mapped && kfiSet.has(mapped)) kfiId = mapped;
-                else if (kfiSet.has(badge)) kfiId = badge;
+                const candidate =
+                  mapped && kfiSet.has(mapped)
+                    ? mapped
+                    : kfiSet.has(badge)
+                      ? badge
+                      : null;
+                if (
+                  candidate &&
+                  isBadgeMatchTrustworthy({
+                    candidateKfiId: candidate,
+                    nameOnDoc: pendingName,
+                    uploadedCustomer: customer,
+                    driversByKfi: confirmDriversByKfi,
+                    nameAliasMap: nameMap,
+                  })
+                ) {
+                  kfiId = candidate;
+                }
               }
               if (!kfiId) {
-                const aliased = nameMap.get(
-                  p.driverNameOnDoc.trim().toLowerCase(),
-                );
+                const aliased = nameMap.get(pendingName.toLowerCase());
                 if (aliased && kfiSet.has(aliased)) kfiId = aliased;
               }
               if (!kfiId) continue;
