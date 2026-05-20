@@ -62,6 +62,8 @@ import { releaseIngestion } from "../lib/parsers/modelClient.js";
 import {
   publishExtractProgress,
   readExtractProgress,
+  publishExtractResult,
+  readExtractResult,
 } from "../lib/parsers/extractProgress.js";
 import {
   BACKSTOP_MAX_CALLS_PER_UPLOAD,
@@ -1619,12 +1621,34 @@ weeksRouter.get(
       res.status(400).json({ error: "Missing progressKey" });
       return;
     }
+    // Task #369: when the Replit proxy's 5-minute response cap kills
+    // the original extract POST, the in-flight handler keeps running
+    // server-side and eventually stashes its terminal response into
+    // the result store. Surface that here so the client can recover
+    // (and reattach across reloads via sessionStorage) instead of
+    // showing "Upload failed". Result wins over a stale progress
+    // snapshot — once the extract is truly done, "current/total" is
+    // no longer interesting.
+    const result = readExtractResult(key);
+    if (result) {
+      const body =
+        result.body && typeof result.body === "object"
+          ? (result.body as Record<string, unknown>)
+          : { value: result.body };
+      const isSuccess = result.httpStatus >= 200 && result.httpStatus < 300;
+      res.json({
+        status: isSuccess ? "succeeded" : "failed",
+        httpStatus: result.httpStatus,
+        result: body,
+      });
+      return;
+    }
     const snapshot = readExtractProgress(key);
     if (!snapshot) {
       res.status(204).end();
       return;
     }
-    res.json(snapshot);
+    res.json({ status: "running", ...snapshot });
   },
 );
 
@@ -1669,6 +1693,38 @@ weeksRouter.post(
       progressKeyRaw.length > 0 && progressKeyRaw.length <= 128
         ? progressKeyRaw
         : undefined;
+    // Task #369: when the client provided a progressKey, every
+    // terminal response we send must ALSO be stashed in the result
+    // store so the client (or a different tab after reload) can
+    // recover via GET .../extract-progress/:key when the proxy's
+    // 5-minute response cap killed the original POST socket. We
+    // monkey-patch `res.json` here — rather than rewriting all ~30
+    // `res.status(X).json(Y)` call sites in this 700-line handler —
+    // and capture both the chained status code and the body before
+    // delegating to the real `res.json`. Writes to a dead socket
+    // are swallowed; the captured copy lives on with the same
+    // 10-minute TTL as progress entries.
+    if (progressKey) {
+      const origJson = res.json.bind(res);
+      res.json = ((body: unknown) => {
+        try {
+          publishExtractResult(progressKey, res.statusCode || 200, body);
+        } catch (err) {
+          req.log.warn(
+            { err, progressKey },
+            "extract_result_stash_failed",
+          );
+        }
+        try {
+          return origJson(body);
+        } catch {
+          // Client likely disconnected (proxy cap or user nav).
+          // The captured copy is what matters; ignore the write
+          // failure so the handler can return cleanly.
+          return res;
+        }
+      }) as typeof res.json;
+    }
     // Optional explicit customer override (per-row upload / drag-drop sends
     // this). When supplied, we trust the dispatcher's choice over filename
     // detection and route the file through AI extraction whenever the

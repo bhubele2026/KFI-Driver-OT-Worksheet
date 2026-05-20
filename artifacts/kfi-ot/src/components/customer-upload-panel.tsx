@@ -68,11 +68,18 @@ function mintProgressKey(): string {
 
 // Task #296: poll `GET /weeks/:weekStart/extract-progress/:key` once
 // every 1 second while an upload is in flight. The endpoint returns
-// `{ current, total }` once the chunker has published its first tick
-// and 204 when the key is unknown (key not seen yet, single-call /
-// cache-hit path that never publishes, or already cleared). Returns a
-// stop function the caller invokes from `finally`. Polling errors are
-// swallowed — this is a UX nicety, not a correctness signal.
+// `{ status: "running", current, total }` once the chunker has
+// published its first tick and 204 when the key is unknown (key not
+// seen yet, single-call / cache-hit path that never publishes, or
+// already cleared). Returns a stop function the caller invokes from
+// `finally`. Polling errors are swallowed — this is a UX nicety, not
+// a correctness signal.
+//
+// Task #369: the endpoint may also return
+// `{ status: "succeeded" | "failed", httpStatus, result }` once the
+// extract is truly done (the result lives on past `clearExtractProgress`
+// with a 10-minute TTL). The progress poller here ignores those —
+// `waitForExtractResult` below handles them.
 function startProgressPolling(
   weekStart: string,
   progressKey: string,
@@ -106,6 +113,133 @@ function startProgressPolling(
     stopped = true;
     window.clearInterval(id);
   };
+}
+
+// Task #369: when the Replit proxy's 5-minute response cap kills an
+// extract POST mid-flight, the server-side handler keeps running and
+// eventually stashes its terminal `res.json(...)` body into the
+// progress tracker. This poll loop waits for that stashed result.
+// Resolves with the captured `{ httpStatus, body }` when the server
+// publishes one; rejects on `signal.aborted` or after `timeoutMs`.
+// Polls every 2 seconds — the extract is already done, we're just
+// fetching its persisted result so a longer interval is fine.
+//
+// `signal` lets the caller bail (e.g. the dispatcher clicks Cancel
+// after the proxy abort, or another upload supersedes this one).
+export interface ExtractStashedResult {
+  status: "succeeded" | "failed";
+  httpStatus: number;
+  body: Record<string, unknown>;
+}
+async function waitForExtractResult(
+  weekStart: string,
+  progressKey: string,
+  opts: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<ExtractStashedResult> {
+  const url = `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-progress/${progressKey}`;
+  const deadline = Date.now() + (opts.timeoutMs ?? 10 * 60 * 1000);
+  // Initial 1s grace so the server has a moment to flush its captured
+  // result after the socket died.
+  await new Promise((r) => window.setTimeout(r, 1000));
+  while (Date.now() < deadline) {
+    if (opts.signal?.aborted) {
+      throw new DOMException("aborted", "AbortError");
+    }
+    try {
+      const res = await fetch(url, {
+        credentials: "include",
+        signal: opts.signal,
+      });
+      if (res.status === 200) {
+        const body = (await res.json().catch(() => null)) as
+          | {
+              status?: "running" | "succeeded" | "failed";
+              httpStatus?: number;
+              result?: Record<string, unknown>;
+            }
+          | null;
+        if (
+          body &&
+          (body.status === "succeeded" || body.status === "failed") &&
+          typeof body.httpStatus === "number" &&
+          body.result
+        ) {
+          return {
+            status: body.status,
+            httpStatus: body.httpStatus,
+            body: body.result,
+          };
+        }
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") throw err;
+      /* network blip — keep polling */
+    }
+    await new Promise((r) => window.setTimeout(r, 2000));
+  }
+  throw new Error("extract-result-timeout");
+}
+
+// Task #369: sessionStorage key shape for in-flight extract recovery
+// across a browser reload. Stored once the POST is in flight; cleared
+// on any terminal outcome (success, error, cancel). On panel mount we
+// scan for entries matching the current week and reattach via
+// `waitForExtractResult`. We intentionally do NOT persist the file
+// bytes — the server-side extract is already running; we just need
+// to pick up its eventual result.
+const REATTACH_STORAGE_PREFIX = "kfi-ot:extract-in-flight:";
+interface ReattachEntry {
+  weekStart: string;
+  customer: string;
+  progressKey: string;
+  fileName: string;
+  startedAt: number;
+}
+function reattachKey(weekStart: string, customer: string): string {
+  return `${REATTACH_STORAGE_PREFIX}${weekStart}::${customer}`;
+}
+function rememberInFlightExtract(entry: ReattachEntry): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      reattachKey(entry.weekStart, entry.customer),
+      JSON.stringify(entry),
+    );
+  } catch {
+    /* sessionStorage may be unavailable (privacy mode) — non-fatal */
+  }
+}
+function forgetInFlightExtract(weekStart: string, customer: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(reattachKey(weekStart, customer));
+  } catch {
+    /* ignore */
+  }
+}
+function listInFlightExtractsForWeek(weekStart: string): ReattachEntry[] {
+  if (typeof window === "undefined") return [];
+  const out: ReattachEntry[] = [];
+  try {
+    for (let i = 0; i < window.sessionStorage.length; i++) {
+      const k = window.sessionStorage.key(i);
+      if (!k || !k.startsWith(REATTACH_STORAGE_PREFIX)) continue;
+      const raw = window.sessionStorage.getItem(k);
+      if (!raw) continue;
+      try {
+        const parsed = JSON.parse(raw) as ReattachEntry;
+        if (parsed && parsed.weekStart === weekStart && parsed.progressKey) {
+          out.push(parsed);
+        }
+      } catch {
+        /* corrupt entry — drop it */
+        window.sessionStorage.removeItem(k);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return out;
 }
 
 // Single source of truth for the file extensions any customer row will
@@ -469,22 +603,50 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     const stopPolling = startProgressPolling(weekStart, progressKey, (snap) =>
       setRow(customer, { chunkProgress: snap }),
     );
+    rememberInFlightExtract({
+      weekStart,
+      customer,
+      progressKey,
+      fileName: file.name,
+      startedAt: Date.now(),
+    });
     try {
       const qs = opts?.force ? "?force=1" : "";
-      const extractRes = await fetch(
-        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file${qs}`,
-        {
-          method: "POST",
-          credentials: "include",
-          body: formData,
-          signal: opts?.signal,
-        },
-      );
-      const extractBody = (await extractRes.json().catch(() => null)) as
+      let extractStatus = 0;
+      let extractBody:
         | (CustomerPreviewData & { skipped?: boolean; error?: string })
         | { error?: string }
-        | null;
-      if (!extractRes.ok) {
+        | null = null;
+      try {
+        const extractRes = await fetch(
+          `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file${qs}`,
+          {
+            method: "POST",
+            credentials: "include",
+            body: formData,
+            signal: opts?.signal,
+          },
+        );
+        extractStatus = extractRes.status;
+        extractBody = (await extractRes.json().catch(() => null)) as
+          | (CustomerPreviewData & { skipped?: boolean; error?: string })
+          | { error?: string }
+          | null;
+      } catch (err) {
+        // Task #369: proxy-cap or transient network kill — fall through
+        // to the persisted-result poll. User-initiated abort is
+        // rethrown so the outer catch surfaces "canceled".
+        const userAborted =
+          opts?.signal?.aborted ||
+          (err instanceof DOMException && err.name === "AbortError");
+        if (userAborted) throw err;
+        const stashed = await waitForExtractResult(weekStart, progressKey, {
+          signal: opts?.signal,
+        });
+        extractStatus = stashed.httpStatus;
+        extractBody = stashed.body as typeof extractBody;
+      }
+      if (extractStatus < 200 || extractStatus >= 300) {
         const msg =
           (extractBody && "error" in extractBody && extractBody.error) ||
           t("customerUpload.uploadFailedFallback");
@@ -537,6 +699,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       return { ok: false, error: errMessage(err, t("customerUpload.uploadFailedFallback")) };
     } finally {
       stopPolling();
+      forgetInFlightExtract(weekStart, customer);
       setRow(customer, { chunkProgress: null });
     }
   };
@@ -584,6 +747,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     const stopPolling = startProgressPolling(weekStart, progressKey, (snap) =>
       setRow(customer, { chunkProgress: snap }),
     );
+    rememberInFlightExtract({
+      weekStart,
+      customer,
+      progressKey,
+      fileName: file.name,
+      startedAt: Date.now(),
+    });
     try {
       // `force` (Task #358) bypasses the server's same-bytes skip on a
       // per-row Re-upload so identical bytes still produce a preview.
@@ -593,20 +763,41 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       if (opts?.force) params.set("force", "1");
       if (opts?.maxCalls != null) params.set("maxCalls", String(opts.maxCalls));
       const qs = params.toString() ? `?${params.toString()}` : "";
-      const res = await fetch(
-        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file${qs}`,
-        {
-          method: "POST",
-          credentials: "include",
-          body: formData,
-          signal: controller.signal,
-        },
-      );
-      const body = (await res.json().catch(() => null)) as
+      let resStatus = 0;
+      let body:
         | (CustomerPreviewData & { error?: string })
         | { error?: string }
-        | null;
-      if (!res.ok) {
+        | null = null;
+      try {
+        const res = await fetch(
+          `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file${qs}`,
+          {
+            method: "POST",
+            credentials: "include",
+            body: formData,
+            signal: controller.signal,
+          },
+        );
+        resStatus = res.status;
+        body = (await res.json().catch(() => null)) as typeof body;
+      } catch (err) {
+        // Task #369: the Replit proxy caps proxied responses at 5
+        // minutes, so a long AI extract can have its POST socket
+        // killed mid-flight even though the server-side handler runs
+        // to completion. Recover by polling the result-stash endpoint
+        // for the persisted terminal response — but only if the
+        // dispatcher didn't explicitly cancel.
+        const userAborted =
+          controller.signal.aborted ||
+          (err instanceof DOMException && err.name === "AbortError");
+        if (userAborted) throw err;
+        const stashed = await waitForExtractResult(weekStart, progressKey, {
+          signal: controller.signal,
+        });
+        resStatus = stashed.httpStatus;
+        body = stashed.body as typeof body;
+      }
+      if (resStatus < 200 || resStatus >= 300) {
         throw new Error(
           (body && "error" in body && body.error) ||
             t("customerUpload.uploadFailedFallback"),
@@ -664,9 +855,85 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         delete rowAborts.current[customer];
       }
       stopPolling();
+      forgetInFlightExtract(weekStart, customer);
       setRow(customer, { chunkProgress: null });
     }
   };
+
+  // Task #369: reattach to any extract that was in flight when the
+  // panel last unmounted (browser reload, navigation back, etc.).
+  // We persisted the progressKey to sessionStorage at POST time;
+  // here we poll the result-stash endpoint and pick up where we
+  // left off. Best-effort — if the server already TTL'd the result
+  // (10 minutes), the row clears and the dispatcher just re-uploads.
+  useEffect(() => {
+    const pending = listInFlightExtractsForWeek(weekStart);
+    if (pending.length === 0) return;
+    const controllers: AbortController[] = [];
+    for (const entry of pending) {
+      // Skip rows that already have a fresh in-flight upload — the
+      // active POST owns the row and will clean sessionStorage in
+      // its own finally block.
+      if (rowAborts.current[entry.customer]) continue;
+      const controller = new AbortController();
+      controllers.push(controller);
+      rowAborts.current[entry.customer] = controller;
+      setRow(entry.customer, {
+        uploading: true,
+        error: null,
+        uploadStartedAt: entry.startedAt,
+      });
+      void (async () => {
+        try {
+          const stashed = await waitForExtractResult(
+            weekStart,
+            entry.progressKey,
+            { signal: controller.signal },
+          );
+          if (rowAborts.current[entry.customer] !== controller) return;
+          if (stashed.status === "succeeded") {
+            const data = stashed.body as unknown as CustomerPreviewData;
+            setRow(entry.customer, {
+              uploading: false,
+              error: null,
+              uploadStartedAt: null,
+            });
+            setPreview(data);
+            setPreviewOpen(true);
+          } else {
+            const errRaw =
+              (stashed.body as { error?: string })?.error ??
+              t("customerUpload.uploadFailedFallback");
+            const msg = friendlyUploadError(errRaw, t);
+            setRow(entry.customer, {
+              uploading: false,
+              error: msg,
+              uploadStartedAt: null,
+            });
+          }
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") {
+            return;
+          }
+          if (rowAborts.current[entry.customer] !== controller) return;
+          setRow(entry.customer, {
+            uploading: false,
+            error: t("customerUpload.uploadFailedFallback"),
+            uploadStartedAt: null,
+          });
+        } finally {
+          if (rowAborts.current[entry.customer] === controller) {
+            delete rowAborts.current[entry.customer];
+          }
+          forgetInFlightExtract(weekStart, entry.customer);
+        }
+      })();
+    }
+    return () => {
+      for (const c of controllers) c.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart]);
 
   const isAcceptedUpload = (name: string): boolean => {
     const lower = name.toLowerCase();
