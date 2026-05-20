@@ -2156,9 +2156,6 @@ export default function DriverDetail() {
           connecteamParity={data.connecteamParity ?? null}
         />
 
-        {/* Zenople pay & bill rates (admin-edit) */}
-        <PayrollProfileCard kfiId={kfiId} canEdit={!!me?.isAdmin} />
-
         {/* Punch table */}
 
         <Card>
@@ -2632,6 +2629,9 @@ export default function DriverDetail() {
             </Table>
           </div>
         </Card>
+
+        {/* Zenople pay & bill rates (admin-edit) */}
+        <PayrollProfileCard kfiId={kfiId} canEdit={!!me?.isAdmin} />
         </main>
       </div>
 
