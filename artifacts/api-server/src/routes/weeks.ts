@@ -1600,7 +1600,13 @@ weeksRouter.post(
       return;
     }
     const { startDate, endDate } = await ensureWeek(weekStart);
-    const drivers = await db.select().from(schema.driversTable);
+    // Task #359: badge → driver resolution must NEVER consider archived
+    // drivers. Archived stub rows that leaked into prod were silently
+    // poisoning real Penda badges before this filter was added.
+    const drivers = await db
+      .select()
+      .from(schema.driversTable)
+      .where(eq(schema.driversTable.isArchived, false));
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
     const nameByKfi = new Map(drivers.map((d) => [d.kfiId, d.name] as const));
     const fileName = req.file.originalname;
@@ -2282,7 +2288,12 @@ weeksRouter.post(
     // down the existing commit path. Only fall back to a hard "re-upload"
     // when the stashed bytes themselves are truly missing.
     const sampleSource = "ai" as const;
-    const drivers = await db.select().from(schema.driversTable);
+    // Task #359: same archived-exclusion as /extract-customer-file so the
+    // confirm-side re-resolution can't promote an archived stub either.
+    const drivers = await db
+      .select()
+      .from(schema.driversTable)
+      .where(eq(schema.driversTable.isArchived, false));
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
 
     let hasAiRows =

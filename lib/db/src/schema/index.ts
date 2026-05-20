@@ -28,3 +28,4 @@ export * from "./customerColumnSchemas";
 export * from "./clockOffsets";
 export * from "./ingestionRuns";
 export * from "./aiExtractChunkStage";
+export * from "./quarantinedPunches";

@@ -590,6 +590,244 @@ const FIXUPS: Fixup[] = [
       END$$;
     `,
   },
+  // ---------------------------------------------------------------------
+  // Task #359 — purge the e2e onboarding stub rows that yesterday's
+  // "flip flags" fixup left behind.
+  //
+  // The companion fixup above only set `customers.active=false` and
+  // `drivers.is_archived=true`. That was not enough: the customer-file
+  // extract path (`POST /extract-customer-file` and
+  // `POST /confirm-customer-file` in `artifacts/api-server/src/routes/
+  // weeks.ts`) was loading drivers via
+  //   `db.select().from(schema.driversTable)`
+  // with NO `is_archived = false` filter, so the badge-resolution map
+  // built from that query happily resolved real customer badges
+  // (Penda 2001117, 2001234, …) onto the archived stub driver rows.
+  // A dispatcher who hit "Confirm import" before today's fix would
+  // have written real payroll punches against fake drivers.
+  //
+  // Task #359 fixes both halves:
+  //   1. Code: the two extract-path queries now filter on
+  //      `isArchived = false` so a future archived stub can't be matched
+  //      again even if the row itself escapes deletion.
+  //   2. Data (this fixup): hard-delete every e2e-pattern customer +
+  //      driver row, but FIRST move any punches that were attributed to
+  //      those stubs into `quarantined_punches` for forensics. All
+  //      side-table rows that reference the deleted ids are wiped too.
+  //
+  // Everything runs inside a single transaction (the DO block); a partial
+  // failure rolls the whole thing back. Marker-gated so subsequent
+  // deploys are no-ops, and pattern-matched (not id-pinned) so any
+  // future leak of the same shape is also cleaned up the first time
+  // this fixup lands on that environment.
+  {
+    name: "purge e2e onboarding leakage (Task #359)",
+    describe:
+      "Quarantine punches attributed to e2e-pattern stub drivers/customers, then hard-delete the stub rows and every side-table row referencing them.",
+    detect: `SELECT 1`,
+    apply: `
+      CREATE TABLE IF NOT EXISTS schema_fixup_markers (
+        name text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS quarantined_punches (
+        id serial PRIMARY KEY,
+        quarantined_at timestamptz NOT NULL DEFAULT now(),
+        quarantine_reason text NOT NULL,
+        original_driver_name text,
+        original_driver_customer text,
+        original_punch_id integer NOT NULL,
+        week_start date NOT NULL,
+        kfi_id text NOT NULL,
+        customer text,
+        source text NOT NULL,
+        date text NOT NULL,
+        clock_in text NOT NULL,
+        clock_out text NOT NULL,
+        hours numeric(7,3) NOT NULL,
+        pay_type text,
+        disp_tz text NOT NULL DEFAULT 'America/Chicago',
+        is_manual boolean NOT NULL DEFAULT false,
+        edited boolean NOT NULL DEFAULT false,
+        ct_external_key text,
+        file_origin text,
+        created_by integer,
+        updated_by integer,
+        reviewed_by integer,
+        reviewed_at timestamptz,
+        flagged_for_review boolean NOT NULL DEFAULT false,
+        flagged_by integer,
+        flagged_at timestamptz,
+        original_created_at timestamptz,
+        original_updated_at timestamptz
+      );
+      CREATE INDEX IF NOT EXISTS quarantined_punches_week_kfi_idx
+        ON quarantined_punches (week_start, kfi_id);
+      CREATE INDEX IF NOT EXISTS quarantined_punches_quarantined_at_idx
+        ON quarantined_punches (quarantined_at);
+      DO $$
+      DECLARE
+        e2e_kfi_ids text[];
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM schema_fixup_markers
+          WHERE name = 'purge_e2e_onboarding_leak_2026'
+        ) THEN
+          RETURN;
+        END IF;
+
+        -- Snapshot which kfi_ids are doomed so we can use the list
+        -- across multiple statements without re-evaluating the pattern.
+        SELECT COALESCE(array_agg(kfi_id), ARRAY[]::text[])
+          INTO e2e_kfi_ids
+          FROM drivers
+         WHERE name ILIKE 'E2E %'
+            OR name ILIKE '%e2e-onb-%'
+            OR customer ILIKE 'E2E %'
+            OR customer ILIKE '%e2e-onb-%'
+            OR (name ILIKE '%Stub%'
+                AND (name ILIKE '%e2e%' OR customer ILIKE '%e2e%'));
+
+        -- 1. Quarantine punches attributed to a stub driver (by kfi_id).
+        INSERT INTO quarantined_punches (
+          quarantine_reason, original_driver_name, original_driver_customer,
+          original_punch_id, week_start, kfi_id, customer, source, date,
+          clock_in, clock_out, hours, pay_type, disp_tz, is_manual, edited,
+          ct_external_key, file_origin, created_by, updated_by, reviewed_by,
+          reviewed_at, flagged_for_review, flagged_by, flagged_at,
+          original_created_at, original_updated_at
+        )
+        SELECT 'task-359 e2e stub driver kfi_id match',
+               d.name, d.customer,
+               p.id, p.week_start, p.kfi_id, p.customer, p.source, p.date,
+               p.clock_in, p.clock_out, p.hours, p.pay_type, p.disp_tz,
+               p.is_manual, p.edited, p.ct_external_key, p.file_origin,
+               p.created_by, p.updated_by, p.reviewed_by, p.reviewed_at,
+               p.flagged_for_review, p.flagged_by, p.flagged_at,
+               p.created_at, p.updated_at
+          FROM punches p
+          JOIN drivers d ON d.kfi_id = p.kfi_id
+         WHERE p.kfi_id = ANY(e2e_kfi_ids);
+
+        DELETE FROM punches WHERE kfi_id = ANY(e2e_kfi_ids);
+
+        -- 2. Defensive: also quarantine any punches whose customer
+        -- column matches the e2e pattern even when the kfi_id no longer
+        -- maps to a stub row (e.g. the spec's per-process suffix had
+        -- not yet been added at write time).
+        INSERT INTO quarantined_punches (
+          quarantine_reason, original_driver_name, original_driver_customer,
+          original_punch_id, week_start, kfi_id, customer, source, date,
+          clock_in, clock_out, hours, pay_type, disp_tz, is_manual, edited,
+          ct_external_key, file_origin, created_by, updated_by, reviewed_by,
+          reviewed_at, flagged_for_review, flagged_by, flagged_at,
+          original_created_at, original_updated_at
+        )
+        SELECT 'task-359 e2e customer pattern match',
+               NULL, p.customer,
+               p.id, p.week_start, p.kfi_id, p.customer, p.source, p.date,
+               p.clock_in, p.clock_out, p.hours, p.pay_type, p.disp_tz,
+               p.is_manual, p.edited, p.ct_external_key, p.file_origin,
+               p.created_by, p.updated_by, p.reviewed_by, p.reviewed_at,
+               p.flagged_for_review, p.flagged_by, p.flagged_at,
+               p.created_at, p.updated_at
+          FROM punches p
+         WHERE p.customer ILIKE 'E2E %'
+            OR p.customer ILIKE '%e2e-onb-%';
+
+        DELETE FROM punches
+         WHERE customer ILIKE 'E2E %'
+            OR customer ILIKE '%e2e-onb-%';
+
+        -- 3. Wipe side-table rows keyed by a doomed kfi_id.
+        BEGIN
+          DELETE FROM driver_id_aliases
+           WHERE kfi_id = ANY(e2e_kfi_ids)
+              OR customer ILIKE 'E2E %'
+              OR customer ILIKE '%e2e-onb-%';
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM driver_customer_overrides
+           WHERE kfi_id = ANY(e2e_kfi_ids)
+              OR override_customer ILIKE 'E2E %'
+              OR override_customer ILIKE '%e2e-onb-%';
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM driver_notes WHERE kfi_id = ANY(e2e_kfi_ids);
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM reviewed_drivers WHERE kfi_id = ANY(e2e_kfi_ids);
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM driver_week_audit_log WHERE kfi_id = ANY(e2e_kfi_ids);
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM connecteam_user_aliases WHERE kfi_id = ANY(e2e_kfi_ids);
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM connecteam_daily_snapshots WHERE kfi_id = ANY(e2e_kfi_ids);
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM driver_payroll_profiles WHERE kfi_id = ANY(e2e_kfi_ids);
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM punch_deletions
+           WHERE kfi_id = ANY(e2e_kfi_ids)
+              OR customer ILIKE 'E2E %'
+              OR customer ILIKE '%e2e-onb-%';
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+
+        -- 4. Wipe side-table rows keyed by an e2e customer name.
+        BEGIN
+          DELETE FROM customer_name_aliases
+           WHERE customer ILIKE 'E2E %' OR customer ILIKE '%e2e-onb-%';
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM customer_column_schemas
+           WHERE customer ILIKE 'E2E %' OR customer ILIKE '%e2e-onb-%';
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM ai_extract_samples
+           WHERE customer ILIKE 'E2E %' OR customer ILIKE '%e2e-onb-%';
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM customer_upload_attempts
+           WHERE customer ILIKE 'E2E %' OR customer ILIKE '%e2e-onb-%';
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM customer_ignored_externals
+           WHERE customer ILIKE 'E2E %' OR customer ILIKE '%e2e-onb-%';
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM customer_tz_preferences
+           WHERE customer ILIKE 'E2E %' OR customer ILIKE '%e2e-onb-%';
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM customer_alias_audit_log
+           WHERE customer ILIKE 'E2E %' OR customer ILIKE '%e2e-onb-%';
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM ai_extract_chunk_stage
+           WHERE customer ILIKE 'E2E %' OR customer ILIKE '%e2e-onb-%';
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+        BEGIN
+          DELETE FROM ingestion_runs
+           WHERE customer ILIKE 'E2E %' OR customer ILIKE '%e2e-onb-%';
+        EXCEPTION WHEN undefined_table THEN NULL; END;
+
+        -- 5. Hard-delete the stub driver and customer rows themselves.
+        DELETE FROM drivers
+         WHERE kfi_id = ANY(e2e_kfi_ids);
+        DELETE FROM customers
+         WHERE display_name ILIKE 'E2E %'
+            OR display_name ILIKE '%e2e-onb-%';
+
+        INSERT INTO schema_fixup_markers (name)
+          VALUES ('purge_e2e_onboarding_leak_2026')
+          ON CONFLICT (name) DO NOTHING;
+      END$$;
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------
