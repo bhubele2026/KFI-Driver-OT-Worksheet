@@ -800,7 +800,13 @@
     "customerTzSetPrefix": "Estableció la zona horaria de",
     "customerTzSetMiddle": "a",
     "customerTzClearedPrefix": "Borró la zona horaria de",
-    "customerTzClearedSuffix": ""
+    "customerTzClearedSuffix": "",
+    "parserSnoozeResumedPrefix": "Reanudado",
+    "parserSnoozeResumedSuffix": "aviso del parser",
+    "parserSnoozedPrefix": "Pospuesto",
+    "parserSnoozedSuffix": "aviso del parser {{until}}",
+    "parserSnoozeForever": "para siempre",
+    "parserSnoozeUntil": "hasta {{date}}"
   },
   "adminI18n": {
     "title": "Administración · Estado de traducción",

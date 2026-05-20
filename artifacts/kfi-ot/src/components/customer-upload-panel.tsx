@@ -1619,6 +1619,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           return (
             <li
               key={s.customer}
+              data-testid={`customer-upload-row-${s.customer}`}
               className={`relative px-4 py-2.5 flex items-center gap-3 hover:bg-muted/20 transition-colors ${
                 isRowDragTarget
                   ? "bg-primary/10 ring-2 ring-primary ring-inset"
@@ -1815,6 +1816,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
               </div>
               <input
                 type="file"
+                data-testid={`customer-upload-input-${s.customer}`}
                 ref={(el) => {
                   inputs.current[s.customer] = el;
                 }}

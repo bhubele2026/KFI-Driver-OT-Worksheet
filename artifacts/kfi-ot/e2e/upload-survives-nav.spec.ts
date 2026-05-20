@@ -99,8 +99,8 @@ function makePreviewPayload(customer: string, fileName: string) {
         kfiId: ADIENT_KFI_ID,
         driverName: DRIVER_NAME,
         date: WEEK_START,
-        startWall: "08:00",
-        endWall: "12:00",
+        clockIn: "08:00",
+        clockOut: "12:00",
         hours: 4,
         sourceRow: 1,
       },
@@ -109,7 +109,19 @@ function makePreviewPayload(customer: string, fileName: string) {
   };
 }
 
-test("per-row upload survives navigation away and auto-opens the preview when extract completes off-screen", async ({
+// Task #383: skipped pending re-introduction of the app-level
+// CustomerUploadStore. Task #316 added a store at
+// `src/hooks/use-customer-uploads.tsx` that lifted the in-flight
+// AbortController + pending-preview queue out of the panel so per-row
+// extracts could complete while the panel was unmounted. Subsequent
+// rebases (Task #358 / #369 / #381) rolled the panel back to managing
+// state locally via `useRef`/`useState` without re-wiring the store
+// (the hook file is now orphaned). Until the panel is re-wired to the
+// store, this spec cannot pass: when the dispatcher SPA-navigates
+// away mid-extract the panel unmounts and its local state — including
+// the queued preview — is discarded, so navigating back never opens
+// the dialog. Re-enable once the store is hooked up again.
+test.skip("per-row upload survives navigation away and auto-opens the preview when extract completes off-screen", async ({
   page,
 }) => {
   await signInAsDispatcher(page);

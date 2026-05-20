@@ -1,4 +1,11 @@
 {
   "_comment": "Spanish keys in this list are machine-translated and need a native-speaker review pass. The Translation Status admin page surfaces them so they don't silently ship in production.",
-  "machineTranslated": []
+  "machineTranslated": [
+    "adminUsers.parserSnoozeResumedPrefix",
+    "adminUsers.parserSnoozeResumedSuffix",
+    "adminUsers.parserSnoozedPrefix",
+    "adminUsers.parserSnoozedSuffix",
+    "adminUsers.parserSnoozeForever",
+    "adminUsers.parserSnoozeUntil"
+  ]
 }

@@ -108,7 +108,12 @@ test("customer-preview dialog renders the truncation warning when the backend re
   ).toBeVisible();
 });
 
-test("new-customer dialog renders the truncation warning when the backend reports it", async ({
+// Skipped: the "New customer file…" button this test clicks is gated behind
+// `SHOW_BULK_UPLOAD_BUTTONS = false` in customer-upload-panel.tsx, so the
+// header entry-point no longer exists in the rendered DOM. The truncation-
+// warning behaviour itself is still covered by the known-customer test
+// above; re-enable when the bulk-upload controls are reintroduced.
+test.skip("new-customer dialog renders the truncation warning when the backend reports it", async ({
   page,
 }) => {
   await page.route("**/api/weeks/*/extract-new-customer**", async (route) => {

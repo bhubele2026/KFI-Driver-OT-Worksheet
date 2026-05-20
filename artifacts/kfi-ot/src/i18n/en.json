@@ -802,7 +802,11 @@
     "parserSnoozedPrefix": "Snoozed",
     "parserSnoozedSuffix": "parser nudge {{until}}",
     "parserSnoozeForever": "forever",
-    "parserSnoozeUntil": "until {{date}}"
+    "parserSnoozeUntil": "until {{date}}",
+    "customerTzSetPrefix": "Set timezone for",
+    "customerTzSetMiddle": "to",
+    "customerTzClearedPrefix": "Cleared timezone for",
+    "customerTzClearedSuffix": ""
   },
   "adminI18n": {
     "title": "Admin · Translation status",

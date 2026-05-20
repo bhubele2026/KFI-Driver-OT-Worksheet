@@ -103,6 +103,9 @@ test.afterAll(async () => {
   await pool.end();
 });
 
+// The upload-test spec triggers a real Claude extract under the hood;
+// give it plenty of headroom past the 30s Playwright default.
+
 // Skipped in CI: hits real Gemini via /extract-customer-file, which times out
 // at Playwright's 10s actionTimeout and exhausts the AI proxy rate limit.
 // Tracked by follow-up task #285 (add HTTP-level fake-Gemini mode).
@@ -184,7 +187,7 @@ const UPLOAD_SUFFIX = `e2e-12h-up-${Date.now().toString(36)}`;
 const UPLOAD_DRIVER = {
   kfiId: `8${Date.now()}`,
   name: "Twelve Hour Upload Tester",
-  customer: "Penda",
+  customer: "Penda Corp",
 };
 const PENDA_UPLOAD_FILE = `penda-${UPLOAD_SUFFIX}.xlsx`;
 
@@ -270,6 +273,10 @@ test.describe("real customer-file upload writes 12-hour clocks", () => {
   test("uploaded Penda punches with 24-hour times persist as h:MM AM/PM", async ({
     page,
   }) => {
+    // Real Claude extract on a small Penda fixture: bump the test budget
+    // well past the 30s Playwright default. File-scope test.setTimeout
+    // does not propagate reliably, so set it inside the body.
+    test.setTimeout(600_000);
     await signInAsDispatcher(page);
 
     const buffer = buildPenda24HourXlsx(UPLOAD_DRIVER.kfiId);
@@ -286,6 +293,7 @@ test.describe("real customer-file upload writes 12-hour clocks", () => {
             buffer,
           },
         },
+        timeout: 240_000,
       },
     );
     expect(
