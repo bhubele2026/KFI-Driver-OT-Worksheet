@@ -18,6 +18,12 @@ import { initIpBlocklist } from "./lib/ipBlocklist";
 import { startRealtimeHeartbeat } from "./lib/realtime";
 import { seedDriverPayrollProfiles } from "@workspace/db/seedDriverPayrollProfiles";
 import { deleteLegacyParserSchemaRows } from "./lib/parsers/schemaLookup";
+import { recordMutation } from "./lib/dataMutationAudit";
+
+// Captured once at module load so the boot-summary log can scope its
+// audit query to "rows whose startedAt >= this boot's start" — see the
+// summary block at the end of main().
+const BOOT_STARTED_AT = new Date();
 
 if (process.env.NODE_ENV === "production") {
   if (!process.env.APP_BASE_URL && !process.env.REPLIT_DOMAINS) {
@@ -92,6 +98,15 @@ async function main() {
     }
   } catch (err) {
     logger.warn({ err }, "deleteLegacyParserSchemaRows failed");
+    // safeBulkDelete already wrote its own audit row on the happy paths; on
+    // throw we still want a marker so /admin/boot-audit shows the failed boot.
+    await recordMutation({
+      routine: "deleteLegacyParserSchemaRows",
+      outcome: "error",
+      rowsAffected: 0,
+      startedAt: new Date(),
+      detail: err instanceof Error ? err.message : String(err),
+    });
   }
 
   void (async () => {
@@ -115,9 +130,24 @@ async function main() {
         logger.error({}, msg);
         return;
       }
+      const seedStartedAt = new Date();
       const result = await seedDriverPayrollProfiles(client);
       logger.info({ result }, "seedDriverPayrollProfiles complete");
+      await recordMutation({
+        routine: "seedDriverPayrollProfiles",
+        outcome: result.inserted > 0 ? "ok" : "noop",
+        rowsAffected: result.inserted,
+        startedAt: seedStartedAt,
+        detail: `matched=${result.matched} inserted=${result.inserted} skippedExisting=${result.skippedExisting} unmatched=${result.unmatched.length}`,
+      });
     } catch (err) {
+      await recordMutation({
+        routine: "seedDriverPayrollProfiles",
+        outcome: "error",
+        rowsAffected: 0,
+        startedAt: new Date(),
+        detail: err instanceof Error ? err.message : String(err),
+      });
       if (process.env.NODE_ENV !== "production") throw err;
       logger.warn({ err }, "seedDriverPayrollProfiles failed");
     } finally {
@@ -147,6 +177,74 @@ async function main() {
     }
 
     logger.info({ port }, "Server listening");
+    // Task #402 — single boot-summary line so an operator can grep
+    // "boot complete" and confirm at a glance that this republish ran
+    // without firing any of the boot-time mutation routines in anger.
+    // The audit table at /admin/boot-audit is the persisted version.
+    // Boot-scoped summary: wait briefly so the async boot routines
+    // (repairBogusObjectCustomers, seedDriverPayrollProfiles) settle,
+    // then count audit rows whose startedAt is at-or-after THIS
+    // process's boot timestamp. That prevents a stale prior-boot row
+    // from polluting the summary (false mutation warning) and prevents
+    // a freshly written mutation row from being missed because the
+    // routine hadn't finished yet (false clean).
+    void (async () => {
+      try {
+        await new Promise((r) => setTimeout(r, 3000));
+        const { db, schema } = await import("./lib/db.js");
+        const { desc, gte, eq, and } = await import("drizzle-orm");
+        const recent = await db
+          .select({
+            routine: schema.dataMutationAuditTable.routine,
+            outcome: schema.dataMutationAuditTable.outcome,
+            rowsAffected: schema.dataMutationAuditTable.rowsAffected,
+          })
+          .from(schema.dataMutationAuditTable)
+          .where(
+            and(
+              gte(schema.dataMutationAuditTable.startedAt, BOOT_STARTED_AT),
+              process.env.NODE_ENV
+                ? eq(
+                    schema.dataMutationAuditTable.nodeEnv,
+                    process.env.NODE_ENV,
+                  )
+                : undefined,
+            ),
+          )
+          .orderBy(desc(schema.dataMutationAuditTable.startedAt))
+          .limit(50);
+        const totalRowsAffected = recent.reduce(
+          (acc, r) => acc + (r.rowsAffected ?? 0),
+          0,
+        );
+        // A boot is "clean" only when every audit row this process wrote
+        // is outcome=ok|noop AND total rows affected is zero. An `error`
+        // or `refused` row can have rowsAffected=0 (the guard refused
+        // before deleting anything), so we must not let that masquerade
+        // as a clean boot — that's the whole point of the audit.
+        const hadNonCleanOutcome = recent.some(
+          (r) => r.outcome !== "ok" && r.outcome !== "noop",
+        );
+        if (totalRowsAffected === 0 && !hadNonCleanOutcome) {
+          logger.info(
+            { sampled: recent.length, deploymentId: process.env.REPLIT_DEPLOYMENT_ID ?? null },
+            "boot complete: no mutations",
+          );
+        } else {
+          logger.warn(
+            {
+              recent,
+              totalRowsAffected,
+              hadNonCleanOutcome,
+              deploymentId: process.env.REPLIT_DEPLOYMENT_ID ?? null,
+            },
+            "boot complete: mutations or non-clean outcomes recorded — see /admin/boot-audit",
+          );
+        }
+      } catch (auditErr) {
+        logger.warn({ err: auditErr }, "boot summary log failed");
+      }
+    })();
   });
 }
 

@@ -26,6 +26,7 @@ import {
   UpdateDriverIdAliasBody,
 } from "@workspace/api-zod";
 import { db, schema } from "../lib/db.js";
+import { guardBulkPunchDelete } from "../lib/safeBulkDelete.js";
 import {
   requireAuth,
   requireAdmin,
@@ -1145,7 +1146,19 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
           )})`,
         );
       }
-      await tx.delete(schema.punchesTable).where(and(...deleteConds));
+      {
+        const _w = and(...deleteConds)!;
+        const _g = await guardBulkPunchDelete({
+          routine: "weeks.refresh.driverPunches",
+          where: _w,
+          executor: tx,
+        });
+        const _del = await tx
+          .delete(schema.punchesTable)
+          .where(_w)
+          .returning({ id: schema.punchesTable.id });
+        await _g.recordOk(_del.length);
+      }
       // Skip any inbound row whose ctExternalKey was kept (because it was edited).
       const keptKeys = new Set(
         (
@@ -1394,10 +1407,17 @@ weeksRouter.post(
               deletedAt: now,
             })),
           );
+          const _w = eq(schema.punchesTable.weekStart, weekStart);
+          const _g = await guardBulkPunchDelete({
+            routine: "weeks.reset.weekWide",
+            where: _w,
+            executor: tx,
+          });
           const del = await tx
             .delete(schema.punchesTable)
-            .where(eq(schema.punchesTable.weekStart, weekStart))
+            .where(_w)
             .returning({ id: schema.punchesTable.id });
+          await _g.recordOk(del.length);
           punchesDeleted = del.length;
         }
         // 2. punches-and-reviewed + all: wipe every reviewed_drivers row for
@@ -1542,21 +1562,26 @@ weeksRouter.post(
         // exactly the rows we deleted (no SELECT-then-DELETE race window
         // where a concurrent insert could be deleted without being
         // snapshotted).
+        const _w = and(
+          eq(schema.punchesTable.weekStart, weekStart),
+          eq(schema.punchesTable.kfiId, kfiId),
+          eq(schema.punchesTable.source, "Customer"),
+        )!;
+        const _g = await guardBulkPunchDelete({
+          routine: "weeks.driverCustomerReset",
+          where: _w,
+          executor: tx,
+        });
         const deleted = await tx
           .delete(schema.punchesTable)
-          .where(
-            and(
-              eq(schema.punchesTable.weekStart, weekStart),
-              eq(schema.punchesTable.kfiId, kfiId),
-              eq(schema.punchesTable.source, "Customer"),
-            ),
-          )
+          .where(_w)
           .returning({
             id: schema.punchesTable.id,
             kfiId: schema.punchesTable.kfiId,
             customer: schema.punchesTable.customer,
             source: schema.punchesTable.source,
           });
+        await _g.recordOk(deleted.length);
         if (deleted.length > 0) {
           await tx.insert(schema.punchDeletionsTable).values(
             deleted.map((p) => ({
@@ -1649,22 +1674,27 @@ weeksRouter.post(
     let punchesDeleted = 0;
     try {
       await db.transaction(async (tx) => {
+        const _w = and(
+          eq(schema.punchesTable.weekStart, weekStart),
+          eq(schema.punchesTable.kfiId, kfiId),
+          eq(schema.punchesTable.source, "Driver"),
+          eq(schema.punchesTable.isManual, false),
+        )!;
+        const _g = await guardBulkPunchDelete({
+          routine: "weeks.driverConnecteamRemove",
+          where: _w,
+          executor: tx,
+        });
         const deleted = await tx
           .delete(schema.punchesTable)
-          .where(
-            and(
-              eq(schema.punchesTable.weekStart, weekStart),
-              eq(schema.punchesTable.kfiId, kfiId),
-              eq(schema.punchesTable.source, "Driver"),
-              eq(schema.punchesTable.isManual, false),
-            ),
-          )
+          .where(_w)
           .returning({
             id: schema.punchesTable.id,
             kfiId: schema.punchesTable.kfiId,
             customer: schema.punchesTable.customer,
             source: schema.punchesTable.source,
           });
+        await _g.recordOk(deleted.length);
         if (deleted.length > 0) {
           await tx.insert(schema.punchDeletionsTable).values(
             deleted.map((p) => ({
@@ -3050,7 +3080,17 @@ weeksRouter.post(
               )})`,
             );
           }
-          await tx.delete(schema.punchesTable).where(and(...deleteConds));
+          const _w = and(...deleteConds)!;
+          const _g = await guardBulkPunchDelete({
+            routine: "weeks.confirmCustomerFile",
+            where: _w,
+            executor: tx,
+          });
+          const _del = await tx
+            .delete(schema.punchesTable)
+            .where(_w)
+            .returning({ id: schema.punchesTable.id });
+          await _g.recordOk(_del.length);
         }
         if (insertablePunches.length > 0) {
           await tx.insert(schema.punchesTable).values(
@@ -4467,7 +4507,19 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
         )})`,
       );
     }
-    await tx.delete(schema.punchesTable).where(and(...deleteConds));
+    {
+      const _w = and(...deleteConds)!;
+      const _g = await guardBulkPunchDelete({
+        routine: "weeks.uploadCustomerFile",
+        where: _w,
+        executor: tx,
+      });
+      const _del = await tx
+        .delete(schema.punchesTable)
+        .where(_w)
+        .returning({ id: schema.punchesTable.id });
+      await _g.recordOk(_del.length);
+    }
     if (toInsert.length > 0) {
       await tx.insert(schema.punchesTable).values(
         toInsert.map((p) => ({
@@ -6944,6 +6996,39 @@ weeksRouter.post(
 // fell back to Gemini, plus rough $-cost. Optional ?customer filter and
 // ?limit (default 50, capped at 500).
 // -------------------------------------------------------------------------
+// Republish safety audit (Task #402). One row per boot-time mutation
+// routine invocation (including zero-rows "no-op" runs); the matching
+// /admin/boot-audit page surfaces the latest entries newest-first so an
+// operator can confirm a clean republish at a glance and trace any
+// actual mutation back to the routine + deploy that produced it.
+// -------------------------------------------------------------------------
+weeksRouter.get("/admin/boot-audit", requireAdmin, async (req, res) => {
+  const limitParam = Number(req.query.limit);
+  const limit =
+    Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 500
+      ? limitParam
+      : 50;
+  const rows = await db
+    .select()
+    .from(schema.dataMutationAuditTable)
+    .orderBy(desc(schema.dataMutationAuditTable.startedAt))
+    .limit(limit);
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      routine: r.routine,
+      outcome: r.outcome,
+      rowsAffected: r.rowsAffected,
+      startedAt: new Date(r.startedAt).toISOString(),
+      finishedAt: new Date(r.finishedAt).toISOString(),
+      deploymentId: r.deploymentId,
+      gitSha: r.gitSha,
+      nodeEnv: r.nodeEnv,
+      detail: r.detail,
+    })),
+  );
+});
+
 weeksRouter.get("/admin/ingestion-runs", requireAdmin, async (req, res) => {
   const limitParam = Number(req.query.limit);
   const limit =
@@ -7207,17 +7292,25 @@ weeksRouter.post(
       const refreshedAt = new Date();
       await db.transaction(async (tx) => {
         // Replace only this driver's non-manual, non-edited Driver-source rows.
-        await tx
-          .delete(schema.punchesTable)
-          .where(
-            and(
-              eq(schema.punchesTable.weekStart, startDate),
-              eq(schema.punchesTable.kfiId, kfiId),
-              eq(schema.punchesTable.source, "Driver"),
-              eq(schema.punchesTable.isManual, false),
-              ne(schema.punchesTable.edited, true),
-            ),
-          );
+        {
+          const _w = and(
+            eq(schema.punchesTable.weekStart, startDate),
+            eq(schema.punchesTable.kfiId, kfiId),
+            eq(schema.punchesTable.source, "Driver"),
+            eq(schema.punchesTable.isManual, false),
+            ne(schema.punchesTable.edited, true),
+          )!;
+          const _g = await guardBulkPunchDelete({
+            routine: "weeks.refreshSingleDriver",
+            where: _w,
+            executor: tx,
+          });
+          const _del = await tx
+            .delete(schema.punchesTable)
+            .where(_w)
+            .returning({ id: schema.punchesTable.id });
+          await _g.recordOk(_del.length);
+        }
         const keptKeys = new Set(
           (
             await tx

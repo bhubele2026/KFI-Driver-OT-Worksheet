@@ -2688,6 +2688,40 @@ export const ListIngestionRunsResponse = zod.array(
 );
 
 /**
+ * @summary Republish safety audit (Task #402). Lists the most recent
+`data_mutation_audit` rows, newest first. One row per boot-time
+routine invocation (including zero-rows "no-op" runs) so an
+operator can confirm a clean republish at a glance and trace
+any actual mutation back to the routine + deploy that produced
+it.
+
+ */
+export const listBootAuditQueryLimitDefault = 50;
+export const listBootAuditQueryLimitMax = 500;
+
+export const ListBootAuditQueryParams = zod.object({
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listBootAuditQueryLimitMax)
+    .default(listBootAuditQueryLimitDefault),
+});
+
+export const ListBootAuditResponseItem = zod.object({
+  id: zod.number(),
+  routine: zod.string(),
+  outcome: zod.enum(["noop", "ok", "refused", "error"]),
+  rowsAffected: zod.number(),
+  startedAt: zod.coerce.date(),
+  finishedAt: zod.coerce.date(),
+  deploymentId: zod.string().nullish(),
+  gitSha: zod.string().nullish(),
+  nodeEnv: zod.string().nullish(),
+  detail: zod.string().nullish(),
+});
+export const ListBootAuditResponse = zod.array(ListBootAuditResponseItem);
+
+/**
  * @summary List every admin-managed Connecteam clock-id hour offset (admin-only).
  */
 export const ListClockOffsetsResponseItem = zod.object({

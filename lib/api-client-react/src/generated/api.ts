@@ -24,6 +24,7 @@ import type {
   AiExtractSample,
   AllowedTimezones,
   AuthCredentials,
+  BootAuditRow,
   ClearDriverCustomerOverrideParams,
   ClockOffset,
   ConfirmCustomerFileInput,
@@ -70,6 +71,7 @@ import type {
   InviteWithLink,
   IpBlocklistEntry,
   ListAiExtractSamplesParams,
+  ListBootAuditParams,
   ListCustomerAliasAuditLogParams,
   ListDeletedDriverNotesParams,
   ListIngestionRunsParams,
@@ -6851,6 +6853,112 @@ export function useListIngestionRuns<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListIngestionRunsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Republish safety audit (Task #402). Lists the most recent
+`data_mutation_audit` rows, newest first. One row per boot-time
+routine invocation (including zero-rows "no-op" runs) so an
+operator can confirm a clean republish at a glance and trace
+any actual mutation back to the routine + deploy that produced
+it.
+
+ */
+export const getListBootAuditUrl = (params?: ListBootAuditParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/boot-audit?${stringifiedParams}`
+    : `/api/admin/boot-audit`;
+};
+
+export const listBootAudit = async (
+  params?: ListBootAuditParams,
+  options?: RequestInit,
+): Promise<BootAuditRow[]> => {
+  return customFetch<BootAuditRow[]>(getListBootAuditUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListBootAuditQueryKey = (params?: ListBootAuditParams) => {
+  return [`/api/admin/boot-audit`, ...(params ? [params] : [])] as const;
+};
+
+export const getListBootAuditQueryOptions = <
+  TData = Awaited<ReturnType<typeof listBootAudit>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListBootAuditParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listBootAudit>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListBootAuditQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listBootAudit>>> = ({
+    signal,
+  }) => listBootAudit(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listBootAudit>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListBootAuditQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listBootAudit>>
+>;
+export type ListBootAuditQueryError = ErrorType<void>;
+
+/**
+ * @summary Republish safety audit (Task #402). Lists the most recent
+`data_mutation_audit` rows, newest first. One row per boot-time
+routine invocation (including zero-rows "no-op" runs) so an
+operator can confirm a clean republish at a glance and trace
+any actual mutation back to the routine + deploy that produced
+it.
+
+ */
+
+export function useListBootAudit<
+  TData = Awaited<ReturnType<typeof listBootAudit>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListBootAuditParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listBootAudit>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListBootAuditQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

@@ -83,9 +83,20 @@ export async function lookupSchema(
 export async function deleteLegacyParserSchemaRows(): Promise<{
   deleted: number;
 }> {
-  const result = await db
-    .delete(schema.customerColumnSchemasTable)
-    .where(eq(schema.customerColumnSchemasTable.source, "legacy-parser"))
-    .returning({ id: schema.customerColumnSchemasTable.id });
-  return { deleted: result.length };
+  // Task #402: routed through safeBulkDelete so every boot writes an
+  // audit row (including the steady-state "matched=0" no-op). The
+  // legacy-parser sentinel set is bounded (≤ the number of customers,
+  // historically <20), but in production we still cap it via the guard
+  // threshold — if a real future regression ever produces hundreds of
+  // sentinel rows, that's much more likely a bug than something the
+  // boot should silently delete.
+  const { safeBulkDelete } = await import("../safeBulkDelete.js");
+  const result = await safeBulkDelete({
+    routine: "deleteLegacyParserSchemaRows",
+    tableLabel: "customer_column_schemas (source=legacy-parser)",
+    table: schema.customerColumnSchemasTable,
+    where: eq(schema.customerColumnSchemasTable.source, "legacy-parser"),
+    threshold: 50,
+  });
+  return { deleted: result.deleted };
 }

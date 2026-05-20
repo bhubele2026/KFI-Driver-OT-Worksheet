@@ -24,6 +24,7 @@ import AdminDriverCustomerOverrides from "@/pages/admin-driver-customer-override
 import AdminConnecteamUserAliases from "@/pages/admin-connecteam-user-aliases";
 import AdminClockOffsets from "@/pages/admin-clock-offsets";
 import AdminDeletedNotes from "@/pages/admin-deleted-notes";
+import AdminBootAudit from "@/pages/admin-boot-audit";
 import AdminRealtime from "@/pages/admin-realtime";
 import AdminTimezones from "@/pages/admin-timezones";
 import WeekSummary from "@/pages/week-summary";
@@ -126,6 +127,7 @@ function Router() {
         />
         <Route path="/admin/clock-offsets" component={AdminClockOffsets} />
         <Route path="/admin/notes" component={AdminDeletedNotes} />
+        <Route path="/admin/boot-audit" component={AdminBootAudit} />
         <Route path="/admin/realtime" component={AdminRealtime} />
         <Route path="/admin/timezones" component={AdminTimezones} />
         <Route path="/admin/i18n" component={AdminI18nStatus} />

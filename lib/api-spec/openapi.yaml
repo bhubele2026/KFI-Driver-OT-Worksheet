@@ -1450,6 +1450,32 @@ paths:
                 items: { $ref: "#/components/schemas/IngestionRun" }
         "403": { description: Admin only }
 
+  /admin/boot-audit:
+    get:
+      operationId: listBootAudit
+      tags: [ingest]
+      summary: |
+        Republish safety audit (Task #402). Lists the most recent
+        `data_mutation_audit` rows, newest first. One row per boot-time
+        routine invocation (including zero-rows "no-op" runs) so an
+        operator can confirm a clean republish at a glance and trace
+        any actual mutation back to the routine + deploy that produced
+        it.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        "200":
+          description: Recent boot-time mutation audit rows, most-recent first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BootAuditRow" }
+        "403": { description: Admin only }
+
   /admin/clock-offsets:
     get:
       operationId: listClockOffsets
@@ -3849,6 +3875,35 @@ components:
         active: { type: boolean }
         allowGeminiFallback: { type: boolean }
         sortOrder: { type: integer }
+
+    BootAuditRow:
+      type: object
+      required:
+        [
+          id,
+          routine,
+          outcome,
+          rowsAffected,
+          startedAt,
+          finishedAt,
+        ]
+      properties:
+        id: { type: integer }
+        routine: { type: string }
+        outcome:
+          type: string
+          enum: [noop, ok, refused, error]
+        rowsAffected: { type: integer }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        deploymentId:
+          type: ["string", "null"]
+        gitSha:
+          type: ["string", "null"]
+        nodeEnv:
+          type: ["string", "null"]
+        detail:
+          type: ["string", "null"]
 
     IngestionRun:
       type: object

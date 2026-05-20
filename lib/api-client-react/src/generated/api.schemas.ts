@@ -1580,6 +1580,33 @@ export interface UpdateCustomerBody {
   sortOrder?: number;
 }
 
+export type BootAuditRowOutcome =
+  (typeof BootAuditRowOutcome)[keyof typeof BootAuditRowOutcome];
+
+export const BootAuditRowOutcome = {
+  noop: "noop",
+  ok: "ok",
+  refused: "refused",
+  error: "error",
+} as const;
+
+export interface BootAuditRow {
+  id: number;
+  routine: string;
+  outcome: BootAuditRowOutcome;
+  rowsAffected: number;
+  startedAt: string;
+  finishedAt: string;
+  /** @nullable */
+  deploymentId?: string | null;
+  /** @nullable */
+  gitSha?: string | null;
+  /** @nullable */
+  nodeEnv?: string | null;
+  /** @nullable */
+  detail?: string | null;
+}
+
 export type IngestionRunOutcome =
   (typeof IngestionRunOutcome)[keyof typeof IngestionRunOutcome];
 
@@ -2015,6 +2042,14 @@ export type ListIngestionRunsParams = {
    * Case-insensitive substring filter on the customer name.
    */
   customer?: string;
+  /**
+   * @minimum 1
+   * @maximum 500
+   */
+  limit?: number;
+};
+
+export type ListBootAuditParams = {
   /**
    * @minimum 1
    * @maximum 500

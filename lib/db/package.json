@@ -12,7 +12,8 @@
     "pre-migrate": "tsx ./src/preMigrate.ts",
     "push": "pnpm run pre-migrate && drizzle-kit push --force --config ./drizzle.config.ts",
     "push-interactive": "pnpm run pre-migrate && drizzle-kit push --config ./drizzle.config.ts",
-    "check-drift": "tsx ./src/checkDrift.ts"
+    "check-drift": "tsx ./src/checkDrift.ts",
+    "test": "node --import tsx --test 'src/__tests__/*.test.ts'"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

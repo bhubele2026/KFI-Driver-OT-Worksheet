@@ -1,4 +1,9 @@
 import pg from "pg";
+import {
+  evaluatePreMigrateGuard,
+  recordPreMigrateAudit,
+  PRE_MIGRATE_OPT_IN_ENV,
+} from "./preMigrateGuard.js";
 
 const { Client } = pg;
 
@@ -949,9 +954,31 @@ async function backfillDisplayNames(client: pg.Client): Promise<void> {
 }
 
 async function main() {
+  const startedAt = new Date();
+  // Republish safety (Task #402): refuse to run any DELETE FROM punches
+  // fixup against a production DB unless the operator has explicitly
+  // opted in via KFI_ALLOW_BULK_PUNCH_DELETE=1. See preMigrateGuard.ts.
+  const decision = evaluatePreMigrateGuard(
+    {
+      nodeEnv: process.env.NODE_ENV,
+      optIn: process.env[PRE_MIGRATE_OPT_IN_ENV],
+    },
+    FIXUPS.map((f) => f.name),
+  );
   const client = new Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   try {
+    if (decision.outcome === "refuse") {
+      await recordPreMigrateAudit(
+        client,
+        "refused",
+        decision.reason,
+        startedAt,
+      );
+      // eslint-disable-next-line no-console
+      console.error(`[pre-migrate] ${decision.reason}`);
+      throw new Error(decision.reason);
+    }
     for (const fixup of FIXUPS) {
       const detected = await client.query(fixup.detect);
       if (detected.rowCount && detected.rowCount > 0) {
@@ -961,6 +988,17 @@ async function main() {
       }
     }
     await backfillDisplayNames(client);
+    await recordPreMigrateAudit(client, "ok", decision.reason, startedAt);
+  } catch (err) {
+    if (!(err instanceof Error && err.message === decision.reason)) {
+      await recordPreMigrateAudit(
+        client,
+        "error",
+        err instanceof Error ? err.message : String(err),
+        startedAt,
+      );
+    }
+    throw err;
   } finally {
     await client.end();
   }

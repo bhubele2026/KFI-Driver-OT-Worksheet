@@ -75,6 +75,28 @@ production environment and redeploy). Local dev is unaffected — it already
 auto-bypasses via `import.meta.env.DEV`. See
 [`docs/auth-and-activity.md`](docs/auth-and-activity.md#temporary-public-access-no-login).
 
+## Republish safety (Task #402)
+
+Republish itself does **not** run `pnpm db push` — the autoscale deploy
+`postBuild` is only `pnpm store prune`. The only writes a republish can
+cause come from the API server's boot sequence in
+`artifacts/api-server/src/index.ts`. Every audited boot routine now
+writes one row per invocation (including zero-rows "no-op" runs) to
+`data_mutation_audit`; the admin view at `/admin/boot-audit` lists the
+last 50 newest-first. Any bulk delete in production is funnelled through
+`artifacts/api-server/src/lib/safeBulkDelete.ts`, which refuses anything
+over the 5-row default threshold unless `KFI_ALLOW_BULK_PUNCH_DELETE=1`
+is set for the process — set it only for a known-safe one-off cleanup
+and unset it immediately after. The same opt-in env also gates the
+destructive `DELETE FROM punches` fixups in `lib/db/src/preMigrate.ts`
+via `lib/db/src/preMigrateGuard.ts`: in production, `pnpm db push`
+refuses to run those fixups (and audits the refusal to
+`data_mutation_audit`) unless that env is set.
+`repairBogusObjectCustomers` no longer rewrites missing-from-roster
+drivers to the literal `"Unknown"`; it warns and leaves the row alone.
+Full inventory of boot-time write paths lives in
+[`docs/republish-safety.md`](docs/republish-safety.md).
+
 ## Gotchas
 
 - Payroll week is **Sunday → Saturday** (`weeks.start_date` is always a Sunday). `sundayOf(iso)` in `lib/time.ts` snaps any date to the Sunday of its payroll week; `weekEndOf(start)` returns the Saturday. Cutover docs + the one-shot DB fixup that wipes legacy Mon-anchored weeks live in [`docs/sun-sat-week-cutover.md`](docs/sun-sat-week-cutover.md) (do **not** run the fixup against prod — execute the SQL there manually).
