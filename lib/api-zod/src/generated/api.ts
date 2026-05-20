@@ -2335,6 +2335,83 @@ export const DeleteDriverIdAliasParams = zod.object({
 });
 
 /**
+ * @summary List every customer the dispatcher has configured (filename routing, dropdowns, customer-files panel). Authenticated.
+ */
+export const ListCustomersResponseItem = zod.object({
+  id: zod.number(),
+  displayName: zod.string(),
+  filenameKeywords: zod.array(zod.string()),
+  extensions: zod.array(zod.enum(["xlsx", "pdf"])),
+  active: zod.boolean(),
+  sortOrder: zod.number(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+});
+export const ListCustomersResponse = zod.array(ListCustomersResponseItem);
+
+/**
+ * @summary Add a new customer (admin-only).
+ */
+
+export const CreateCustomerBody = zod.object({
+  displayName: zod.string().min(1),
+  filenameKeywords: zod.array(zod.string().min(1)).optional(),
+  extensions: zod.array(zod.enum(["xlsx", "pdf"])).optional(),
+  active: zod.boolean().optional(),
+  sortOrder: zod.number().optional(),
+});
+
+export const CreateCustomerResponse = zod.object({
+  id: zod.number(),
+  displayName: zod.string(),
+  filenameKeywords: zod.array(zod.string()),
+  extensions: zod.array(zod.enum(["xlsx", "pdf"])),
+  active: zod.boolean(),
+  sortOrder: zod.number(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Update a customer's display name, filename keywords, accepted extensions, sort order, or active flag (admin-only).
+ */
+export const UpdateCustomerParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateCustomerBody = zod.object({
+  displayName: zod.string().min(1).optional(),
+  filenameKeywords: zod.array(zod.string().min(1)).optional(),
+  extensions: zod.array(zod.enum(["xlsx", "pdf"])).optional(),
+  active: zod.boolean().optional(),
+  sortOrder: zod.number().optional(),
+});
+
+export const UpdateCustomerResponse = zod.object({
+  id: zod.number(),
+  displayName: zod.string(),
+  filenameKeywords: zod.array(zod.string()),
+  extensions: zod.array(zod.enum(["xlsx", "pdf"])),
+  active: zod.boolean(),
+  sortOrder: zod.number(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+});
+
+/**
+ * @summary Permanently remove a customer (admin-only). Prefer setting active=false unless the row was added by mistake.
+ */
+export const DeleteCustomerParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
  * @summary List every admin-managed Connecteam userId → KFI driver mapping (admin-only).
  */
 export const ListConnecteamUserAliasesResponse = zod.object({

@@ -6,7 +6,6 @@ import {
   type PunchCheck,
 } from "./hoursEngine.js";
 import { ensureTime12, isoDateToUtcMs, localStrToSortMs, weekEndOf } from "./time.js";
-import { KNOWN_CUSTOMERS } from "./parsers/index.js";
 import { looksLikeRosterDateJunk } from "./connecteam.js";
 import { renderTimesheetsPdf } from "./timesheetsPdf.js";
 
@@ -73,6 +72,11 @@ export interface BuildTimesheetsOptions {
   /** Per-driver note summary keyed by kfiId. Drivers without an entry render
    * with `noteCount: 0`. */
   noteSummariesByKfi?: ReadonlyMap<string, DriverNoteSummary> | null;
+  /** Admin-configured customer display order (from the customers table).
+   * Customers not in this list sort alphabetically after the listed ones,
+   * with "Needs roster cleanup" always last. Defaults to empty (pure
+   * alphabetical) for tests. */
+  customerOrder?: readonly string[];
 }
 
 /**
@@ -96,7 +100,7 @@ export function buildTimesheets(
   }
 
   const knownOrder = new Map<string, number>(
-    KNOWN_CUSTOMERS.map((c, i) => [c.displayName, i]),
+    (options.customerOrder ?? []).map((c, i) => [c, i]),
   );
   const customerFilterKey =
     options.customerFilter && options.customerFilter.trim().length > 0
@@ -169,8 +173,8 @@ export function buildTimesheets(
 
   const presentCustomers = new Set(sheets.map((s) => customerKey(s.customer)));
   const orderedCustomers: string[] = [];
-  for (const c of KNOWN_CUSTOMERS) {
-    if (presentCustomers.has(c.displayName)) orderedCustomers.push(c.displayName);
+  for (const c of options.customerOrder ?? []) {
+    if (presentCustomers.has(c)) orderedCustomers.push(c);
   }
   const extras = [...presentCustomers]
     .filter((c) => c !== UNASSIGNED_CUSTOMER && !knownOrder.has(c))
@@ -227,6 +231,10 @@ export interface TimesheetLoaders {
   getNoteSummaries?: (
     weekStart: string,
   ) => Promise<ReadonlyMap<string, DriverNoteSummary>>;
+  /** Optional loader returning the dispatcher-managed customer display
+   * order (from the customers table). When omitted, sheets fall back to
+   * alphabetical-only ordering. */
+  getCustomerOrder?: () => Promise<readonly string[]>;
 }
 
 /** Build the Express request handler for `GET /weeks/:weekStart/timesheets`.
@@ -256,7 +264,7 @@ export function makeTimesheetsHandler(
     const wantPdf = formatParam === "pdf";
     const week = await loaders.getWeek(weekStart);
     const endDate = week?.endDate ?? weekEndOf(weekStart);
-    const [punches, drivers, reviewedKfiIds, noteSummariesByKfi] =
+    const [punches, drivers, reviewedKfiIds, noteSummariesByKfi, customerOrder] =
       await Promise.all([
         loaders.getPunches(weekStart),
         loaders.getDrivers(),
@@ -266,6 +274,9 @@ export function makeTimesheetsHandler(
         loaders.getNoteSummaries
           ? loaders.getNoteSummaries(weekStart)
           : Promise.resolve(null),
+        loaders.getCustomerOrder
+          ? loaders.getCustomerOrder()
+          : Promise.resolve([] as readonly string[]),
       ]);
     const sheets = buildTimesheets(punches, drivers, {
       reviewedKfiIds,
@@ -273,6 +284,7 @@ export function makeTimesheetsHandler(
       overtimeOnly,
       alertsOnly,
       noteSummariesByKfi,
+      customerOrder,
     });
     if (wantPdf) {
       const filename = pdfFilename(weekStart, reviewedOnly, customerParam);

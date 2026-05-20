@@ -1,5 +1,4 @@
 import { Type } from "@google/genai";
-import { EMBEDDED_MAPPING } from "../mappings.js";
 import { logger } from "../logger.js";
 import { fmtDT } from "../time.js";
 import { getGeminiClient } from "./gemini.js";
@@ -65,7 +64,7 @@ export async function ocrDelalloPDF(
   kfiSet: Set<string>,
   year: number,
   unmappedIds: UnmappedIdAccumulator,
-  idMap: Record<string, string> = EMBEDDED_MAPPING,
+  idMap: Record<string, string> = {},
 ): Promise<ParsedPunch[]> {
   const ai = getGeminiClient();
   const start = Date.now();

@@ -1477,6 +1477,63 @@ export interface UpdateDriverIdAliasBody {
   note?: string | null;
 }
 
+export type CustomerExtensionsItem =
+  (typeof CustomerExtensionsItem)[keyof typeof CustomerExtensionsItem];
+
+export const CustomerExtensionsItem = {
+  xlsx: "xlsx",
+  pdf: "pdf",
+} as const;
+
+export interface Customer {
+  id: number;
+  displayName: string;
+  filenameKeywords: string[];
+  extensions: CustomerExtensionsItem[];
+  active: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  createdByEmail?: string | null;
+  /** @nullable */
+  updatedByEmail?: string | null;
+}
+
+export type CreateCustomerBodyExtensionsItem =
+  (typeof CreateCustomerBodyExtensionsItem)[keyof typeof CreateCustomerBodyExtensionsItem];
+
+export const CreateCustomerBodyExtensionsItem = {
+  xlsx: "xlsx",
+  pdf: "pdf",
+} as const;
+
+export interface CreateCustomerBody {
+  /** @minLength 1 */
+  displayName: string;
+  filenameKeywords?: string[];
+  extensions?: CreateCustomerBodyExtensionsItem[];
+  active?: boolean;
+  sortOrder?: number;
+}
+
+export type UpdateCustomerBodyExtensionsItem =
+  (typeof UpdateCustomerBodyExtensionsItem)[keyof typeof UpdateCustomerBodyExtensionsItem];
+
+export const UpdateCustomerBodyExtensionsItem = {
+  xlsx: "xlsx",
+  pdf: "pdf",
+} as const;
+
+export interface UpdateCustomerBody {
+  /** @minLength 1 */
+  displayName?: string;
+  filenameKeywords?: string[];
+  extensions?: UpdateCustomerBodyExtensionsItem[];
+  active?: boolean;
+  sortOrder?: number;
+}
+
 export interface ConnecteamUserAlias {
   ctUserId: number;
   kfiId: string;

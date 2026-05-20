@@ -21,6 +21,7 @@ import {
   useLockDriverWeek,
   useUnlockDriverWeek,
   useGetMe,
+  useListCustomers,
   useListDriverNotes,
   useCreateDriverNote,
   useSoftDeleteDriverNote,
@@ -78,7 +79,7 @@ import { PayrollProfileCard } from "@/components/payroll-profile-card";
 
 const OT_THRESHOLD = 40;
 
-const KNOWN_CUSTOMERS = [
+const KNOWN_CUSTOMERS_FALLBACK = [
   "Adient",
   "Burnett",
   "DeLallo",
@@ -409,10 +410,21 @@ export default function DriverDetail() {
   const [manualCustomer, setManualCustomer] = useState<string>(
     data?.driver.customer && data.driver.customer !== "Unknown"
       ? data.driver.customer
-      : KNOWN_CUSTOMERS[0],
+      : KNOWN_CUSTOMERS_FALLBACK[0],
   );
   const [manualClockIn, setManualClockIn] = useState("");
   const [manualClockOut, setManualClockOut] = useState("");
+
+  // Pull the dispatcher-managed customer list for the manual-punch dropdown.
+  // Falls back to the seed list while the request is in flight so the dialog
+  // can render synchronously on first paint.
+  const { data: customersData } = useListCustomers();
+  const manualCustomerOptions = useMemo<string[]>(() => {
+    const active = (customersData ?? [])
+      .filter((c) => c.active)
+      .map((c) => c.displayName);
+    return active.length > 0 ? active : KNOWN_CUSTOMERS_FALLBACK;
+  }, [customersData]);
 
   const [editingPunchId, setEditingPunchId] = useState<number | null>(null);
   const [editClockIn, setEditClockIn] = useState("");
@@ -2438,7 +2450,7 @@ export default function DriverDetail() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {KNOWN_CUSTOMERS.map((c) => (
+                    {manualCustomerOptions.map((c) => (
                       <SelectItem key={c} value={c}>
                         {c}
                       </SelectItem>

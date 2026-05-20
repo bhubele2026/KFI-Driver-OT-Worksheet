@@ -1,5 +1,4 @@
 import type { Punch } from "@workspace/db/schema";
-import { IWG_DRIVER_IDS } from "./mappings.js";
 import { CT_TZ, localStrToSortMs, isoDateToUtcMs, listDates } from "./time.js";
 
 export const OT_THRESHOLD = 40;
@@ -239,6 +238,9 @@ export function computeChecks(punches: Punch[]): PunchCheck[] {
   return out;
 }
 
-export function defaultDispTz(kfiId: string): string {
-  return IWG_DRIVER_IDS.has(kfiId) ? "America/New_York" : CT_TZ;
+export function defaultDispTz(_kfiId: string): string {
+  // Per-driver display-tz overrides now live on `drivers.display_tz`
+  // (admin-managed via /admin/timezones). The legacy IWG hardcode was
+  // removed in Task #287.
+  return CT_TZ;
 }

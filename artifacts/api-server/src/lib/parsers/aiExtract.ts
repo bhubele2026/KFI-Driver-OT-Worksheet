@@ -29,7 +29,7 @@ export interface AiExtractedRow {
  * resolve each row to a known KFI driver instead of returning bare
  * names that the server then has to fuzzy-match. Each entry lists the
  * KFI id, the driver's canonical name, any known badge/employee ids
- * (collected from `driver_id_aliases` + `EMBEDDED_MAPPING`), and any
+ * (collected from `driver_id_aliases`), and any
  * dispatcher-saved name aliases for THIS customer (so an alias like
  * "Joey C." resolves on first read after it's been taught once).
  * Task #271.

@@ -46,6 +46,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 
 - Unified `punches` table, display-tz wall-clock strings, hours engine that splits RT/OT at the 40h boundary, server-side Connecteam, Postgres-backed rate limiter. Details: [`docs/architecture-notes.md`](docs/architecture-notes.md).
 - Customer-file uploads: filename routing, customer-files panel, AI-only badges, parser-promotion suggestions, driver-ID / driver-name aliases, inactive-customer flow, per-row drag-and-drop. Details: [`docs/customer-upload-flows.md`](docs/customer-upload-flows.md).
+- Customer roster lives in DB (`customers` table, `displayName` / `filenameKeywords` / `extensions` / `active` / `sortOrder`). Admin CRUD at `/admin/customers`. The legacy `customer_active_state` table was consolidated into `customers.active` by the one-shot `customers_seed_and_wipe_2026` fixup in `lib/db/src/preMigrate.ts`. Connecteam user aliases and driver display-tz overrides are also seeded by that same fixup; `driver_id_aliases` is truncated as part of the cutover.
 - AI extraction: per-row pipeline (legacy-parser / cache / ai), large-file chunking, learned column-role cache, OCR fallback for scanned PDFs, AI-sample retention. Details: [`docs/ai-extraction.md`](docs/ai-extraction.md).
 - Promoting an AI-imported customer to a real parser: [`docs/promote-ai-customer-to-parser.md`](docs/promote-ai-customer-to-parser.md).
 

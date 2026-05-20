@@ -104,6 +104,148 @@ const FIXUPS: Fixup[] = [
         ON CONFLICT (name) DO NOTHING;
     `,
   },
+  // ---------------------------------------------------------------------
+  // Task #287 — seed the new `customers` table from the legacy hardcoded
+  // KNOWN_CUSTOMERS list, copy customer_active_state→customers.active,
+  // backfill two production Connecteam user aliases that were previously
+  // synthesized at runtime, set display_tz on the two East-Coast drivers
+  // that were previously inferred from IWG_DRIVER_IDS, and wipe the
+  // legacy driver_id_aliases table (which seeded itself from
+  // EMBEDDED_MAPPING on every boot — no longer needed now that aliases
+  // are admin-managed only).
+  //
+  // One-shot, gated by schema_fixup_markers. Idempotent: re-runs are
+  // no-ops. The CREATE TABLE IF NOT EXISTS guard lets this run BEFORE
+  // drizzle-kit push (which creates the canonical table), so the seed
+  // can complete even on a brand-new database where push hasn't run
+  // yet. drizzle-kit will then ALTER the table to match the canonical
+  // shape on the next push without disturbing the seeded rows.
+  {
+    name: "seed customers table + bootstrap aliases/tz (Task #287)",
+    describe:
+      "One-shot seed of the customers table from the legacy KNOWN_CUSTOMERS array, copy of customer_active_state, two production ct user aliases, two driver display_tz overrides, and TRUNCATE of driver_id_aliases.",
+    detect: `SELECT 1`,
+    apply: `
+      CREATE TABLE IF NOT EXISTS schema_fixup_markers (
+        name text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      );
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM schema_fixup_markers
+          WHERE name = 'customers_seed_and_wipe_2026'
+        ) THEN
+          RETURN;
+        END IF;
+
+        -- Customers table may not exist yet on a fresh DB; create a
+        -- minimal shape so the seed can populate it. drizzle-kit push
+        -- will then ALTER it to match the canonical schema (adds the
+        -- created_by/updated_by FKs, the unique index, etc).
+        CREATE TABLE IF NOT EXISTS customers (
+          id serial PRIMARY KEY,
+          display_name text NOT NULL,
+          filename_keywords text[] NOT NULL,
+          extensions text[] NOT NULL,
+          active boolean NOT NULL DEFAULT true,
+          sort_order integer NOT NULL DEFAULT 1000,
+          created_by integer,
+          updated_by integer,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        -- Seed the 9 legacy KNOWN_CUSTOMERS in original order with
+        -- sortOrder gaps of 10 so an admin can slot a new customer in
+        -- between two existing rows without renumbering everything.
+        INSERT INTO customers (display_name, filename_keywords, extensions, sort_order)
+        VALUES
+          ('Adient',                    ARRAY['adient'],         ARRAY['xlsx'],       10),
+          ('IWG',                       ARRAY['iwg'],            ARRAY['pdf'],        20),
+          ('DeLallo',                   ARRAY['delallo'],        ARRAY['pdf'],        30),
+          ('Trienda',                   ARRAY['trienda'],        ARRAY['xlsx'],       40),
+          ('Penda',                     ARRAY['penda'],          ARRAY['xlsx'],       50),
+          ('Greystone',                 ARRAY['greystone'],      ARRAY['xlsx','pdf'], 60),
+          ('LSI',                       ARRAY['lsi'],            ARRAY['xlsx','pdf'], 70),
+          ('Burnett Dairy-Grantsburg',  ARRAY['burnett'],        ARRAY['xlsx','pdf'], 80),
+          ('Zenople',                   ARRAY['zenople'],        ARRAY['xlsx','pdf'], 90)
+        ON CONFLICT DO NOTHING;
+
+        -- Copy customer_active_state → customers.active. Match
+        -- case-insensitively on display_name; rows in the active-state
+        -- table that don't correspond to a seeded customer get
+        -- INSERTed as inactive entries so the per-week "hidden" panel
+        -- keeps showing them.
+        IF EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'customer_active_state'
+        ) THEN
+          -- customer_active_state stored only the inactive list (every
+          -- row implied active=false). Mirror that into customers.active.
+          UPDATE customers c
+             SET active = false,
+                 updated_at = s.inactive_at,
+                 updated_by = s.inactive_by_user_id
+            FROM customer_active_state s
+           WHERE lower(c.display_name) = lower(s.customer);
+
+          INSERT INTO customers (display_name, filename_keywords, extensions, active, sort_order, created_by, updated_by, created_at, updated_at)
+          SELECT s.customer, ARRAY[]::text[], ARRAY[]::text[], false, 1000, s.inactive_by_user_id, s.inactive_by_user_id, s.inactive_at, s.inactive_at
+            FROM customer_active_state s
+           WHERE NOT EXISTS (
+                   SELECT 1 FROM customers c
+                    WHERE lower(c.display_name) = lower(s.customer)
+                 );
+
+          DROP TABLE customer_active_state;
+        END IF;
+
+        -- Two production Connecteam aliases that were previously
+        -- synthesized from USER_ID_ALIASES_LD on every ingest. Insert
+        -- only if the table exists (it may not yet on a fresh DB) and
+        -- only if the target driver exists.
+        IF EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'connecteam_user_aliases'
+        ) THEN
+          INSERT INTO connecteam_user_aliases (ct_user_id, kfi_id, note)
+          SELECT 13213413, '2004805', 'Backfilled from legacy USER_ID_ALIASES_LD (Task #287)'
+          WHERE EXISTS (SELECT 1 FROM drivers WHERE kfi_id = '2004805')
+          ON CONFLICT DO NOTHING;
+          INSERT INTO connecteam_user_aliases (ct_user_id, kfi_id, note)
+          SELECT 13441325, '2004589', 'Backfilled from legacy USER_ID_ALIASES_LD (Task #287)'
+          WHERE EXISTS (SELECT 1 FROM drivers WHERE kfi_id = '2004589')
+          ON CONFLICT DO NOTHING;
+        END IF;
+
+        -- Two East-Coast IWG drivers previously inferred at runtime
+        -- from IWG_DRIVER_IDS. Persist their display_tz so the
+        -- hardcoded list can be removed.
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'drivers' AND column_name = 'display_tz'
+        ) THEN
+          UPDATE drivers
+             SET display_tz = 'America/New_York'
+           WHERE kfi_id IN ('2005056', '2005212')
+             AND (display_tz IS NULL OR display_tz = '');
+        END IF;
+
+        -- driver_id_aliases used to be auto-seeded from EMBEDDED_MAPPING
+        -- on every boot. The table now holds admin-managed entries only,
+        -- so wipe the legacy seed once. Subsequent runs are no-ops.
+        IF EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'driver_id_aliases'
+        ) THEN
+          TRUNCATE driver_id_aliases;
+        END IF;
+
+        INSERT INTO schema_fixup_markers (name) VALUES ('customers_seed_and_wipe_2026');
+      END$$;
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------

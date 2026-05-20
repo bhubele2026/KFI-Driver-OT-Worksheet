@@ -1,7 +1,4 @@
-import {
-  IWG_DRIVER_IDS,
-  SHUSTER_CLOCK_IDS,
-} from "./mappings.js";
+import { SHUSTER_CLOCK_IDS } from "./mappings.js";
 import { CT_TZ, msToLocalStr, msToLocalDate, addDays, isAllowedTz } from "./time.js";
 import { toDisplayName } from "./parsers/displayName.js";
 
@@ -336,11 +333,7 @@ export async function fetchPunchesForWeek(
       }
       const driverTz = driverTzByKfi.get(kfiId);
       const dispTz =
-        driverTz && isAllowedTz(driverTz)
-          ? driverTz
-          : IWG_DRIVER_IDS.has(kfiId)
-            ? "America/New_York"
-            : CT_TZ;
+        driverTz && isAllowedTz(driverTz) ? driverTz : CT_TZ;
       for (const s of shifts) {
         const startTs = s.start?.timestamp;
         const endTs = s.end?.timestamp;

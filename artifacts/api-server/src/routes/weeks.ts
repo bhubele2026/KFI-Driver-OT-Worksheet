@@ -12,7 +12,9 @@ import {
   CreateParserPromotionSnoozeBody,
   CreateDriverIdAliasBody,
   CreateConnecteamUserAliasBody,
+  CreateCustomerBody,
   MarkCustomerInactiveBody,
+  UpdateCustomerBody,
   ResetWeekBody,
   SetDriverCustomerOverrideBody,
   SetReviewedBody,
@@ -33,7 +35,6 @@ import {
   fetchPunchesForWeek,
   looksLikeRosterDateJunk,
 } from "../lib/connecteam.js";
-import { EMBEDDED_MAPPING, USER_ID_ALIASES_LD } from "../lib/mappings.js";
 import {
   computeChecks,
   computeDailyTotals,
@@ -49,8 +50,11 @@ import {
   computeBaselineStaleness,
   summarizeParity,
 } from "../lib/connecteamParity.js";
-import { KNOWN_CUSTOMERS } from "../lib/parsers/index.js";
-import { detectCustomerFromFileName } from "../lib/parsers/customers.js";
+import {
+  detectCustomerFromFileName,
+  loadActiveCustomers,
+  loadCustomers,
+} from "../lib/customersStore.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { lookupSchema } from "../lib/parsers/schemaLookup.js";
 import {
@@ -174,9 +178,9 @@ async function loadMergedIdMap(): Promise<Record<string, string>> {
       kfiId: schema.driverIdAliasesTable.kfiId,
     })
     .from(schema.driverIdAliasesTable);
-  // Admin DB rows take precedence over the static map so an admin can also
-  // override a stale embedded mapping without a code change.
-  const merged: Record<string, string> = { ...EMBEDDED_MAPPING };
+  // Single source of truth — the legacy EMBEDDED_MAPPING was lifted into
+  // driver_id_aliases by the Task #287 seed-then-wipe migration.
+  const merged: Record<string, string> = {};
   for (const r of rows) merged[r.externalId] = r.kfiId;
   return merged;
 }
@@ -635,11 +639,11 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     (a, b) =>
       a.customer.localeCompare(b.customer) || a.name.localeCompare(b.name),
   );
-  // Group drivers by customer in a stable, dispatcher-friendly order:
-  // KNOWN_CUSTOMERS first (matches the customer-files panel), then any extras
-  // alphabetically, then a single "Needs roster cleanup" bucket for drivers
-  // whose roster customer is missing, "Unknown", or date-shaped junk left
-  // over from a corrupted Connecteam custom field.
+  // Group drivers by customer in a stable, dispatcher-friendly order: the
+  // admin-managed customers table first (matches the customer-files panel),
+  // then any extras alphabetically, then a single "Needs roster cleanup"
+  // bucket for drivers whose roster customer is missing, "Unknown", or
+  // date-shaped junk left over from a corrupted Connecteam custom field.
   const UNASSIGNED = "Needs roster cleanup";
   const customerKey = (c: string) => {
     if (!c) return UNASSIGNED;
@@ -654,12 +658,13 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     }
     return c;
   };
+  const customerList = await loadCustomers();
   const knownOrder = new Map<string, number>(
-    KNOWN_CUSTOMERS.map((c, i) => [c.displayName, i]),
+    customerList.map((c, i) => [c.displayName, i]),
   );
   const present = new Set(rows.map((r) => customerKey(r.customer)));
   const ordered: string[] = [];
-  for (const c of KNOWN_CUSTOMERS) {
+  for (const c of customerList) {
     if (present.has(c.displayName)) ordered.push(c.displayName);
   }
   const extras = [...present]
@@ -962,8 +967,9 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
     }
     const ctUserIdToKfi = new Map(users.map((u) => [u.ctUserId, u.kfiId]));
     const driverTzByKfi = await loadDriverTzMap();
-    // Merge static USER_ID_ALIASES_LD seed with admin-managed rows; DB wins
-    // so an admin can override a stale legacy mapping.
+    // connecteam_user_aliases is the single source of truth — the legacy
+    // USER_ID_ALIASES_LD seed was lifted into the table by the Task #287
+    // seed-then-wipe migration.
     const ctAliasRows = await db
       .select({
         ctUserId: schema.connecteamUserAliasesTable.ctUserId,
@@ -971,10 +977,6 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
       })
       .from(schema.connecteamUserAliasesTable);
     const ctUserAliases = new Map<number, string>();
-    for (const [k, v] of Object.entries(USER_ID_ALIASES_LD)) {
-      const n = Number(k);
-      if (Number.isFinite(n)) ctUserAliases.set(n, v);
-    }
     for (const row of ctAliasRows) ctUserAliases.set(row.ctUserId, row.kfiId);
     const {
       punches,
@@ -1392,17 +1394,18 @@ weeksRouter.post(
     // this). When supplied, we trust the dispatcher's choice over filename
     // detection and route the file through AI extraction whenever the
     // deterministic parser can't handle it (wrong extension, image, csv,
-    // unknown customer, etc.). When the name matches a KNOWN_CUSTOMERS row
-    // we canonicalize it (so "schuette metals" and "Schuette Metals" land in
-    // the same bucket); when it doesn't, we still accept it — every panel
-    // row, including AI-only and roster-derived customers like Schuette
-    // Metals or WB Manufacturing, must be uploadable. The AI extractor
-    // accepts a free-form customer label, so unknown names route through
-    // the AI path below.
+    // unknown customer, etc.). When the name matches a row in the
+    // customers table we canonicalize it (so "schuette metals" and
+    // "Schuette Metals" land in the same bucket); when it doesn't, we
+    // still accept it — every panel row, including AI-only and roster-
+    // derived customers like Schuette Metals or WB Manufacturing, must be
+    // uploadable. The AI extractor accepts a free-form customer label, so
+    // unknown names route through the AI path below.
+    const allCustomersForUpload = await loadCustomers();
     const explicitCustomerRaw = String(req.body.customer ?? "").trim();
     let explicitCustomer: string | null = null;
     if (explicitCustomerRaw) {
-      const match = KNOWN_CUSTOMERS.find(
+      const match = allCustomersForUpload.find(
         (c) =>
           c.displayName.toLowerCase() === explicitCustomerRaw.toLowerCase(),
       );
@@ -1437,7 +1440,8 @@ weeksRouter.post(
       .update(req.file.buffer)
       .digest("hex");
     const detectedForSkip =
-      explicitCustomer ?? detectCustomerFromFileName(fileName);
+      explicitCustomer ??
+      detectCustomerFromFileName(fileName, allCustomersForUpload);
     if (!isImage && !force && detectedForSkip) {
       const prior = await db
         .select({
@@ -1505,7 +1509,8 @@ weeksRouter.post(
     // (filename-detection) path also route here so the behavior tree is
     // one shape regardless of input.
     const detectedCustomer =
-      explicitCustomer ?? detectCustomerFromFileName(fileName);
+      explicitCustomer ??
+      detectCustomerFromFileName(fileName, allCustomersForUpload);
     if (isImage && req.file.size > MAX_IMAGE_BYTES) {
       res.status(400).json({
         error: `Image is ${(req.file.size / (1024 * 1024)).toFixed(1)} MB. Photos must be ${MAX_IMAGE_BYTES / (1024 * 1024)} MB or smaller.`,
@@ -2160,7 +2165,7 @@ weeksRouter.post(
             kfiId: schema.driverIdAliasesTable.kfiId,
           })
           .from(schema.driverIdAliasesTable);
-        const mergedMap: Record<string, string> = { ...EMBEDDED_MAPPING };
+        const mergedMap: Record<string, string> = {};
         for (const r of aliasRows) mergedMap[r.externalId] = r.kfiId;
 
         // AI samples skip the re-parse — the stashed rows ARE the
@@ -2524,9 +2529,14 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
   }
   const prefFor = (name: string): string | null =>
     tzPrefByLower.get(name.toLowerCase()) ?? null;
-  const inactiveSet = await loadInactiveCustomerSet();
+  const customersForPanel = await loadCustomers();
+  const inactiveSet = new Set(
+    customersForPanel
+      .filter((c) => !c.active)
+      .map((c) => c.displayName.toLowerCase()),
+  );
   const isInactive = (name: string) => inactiveSet.has(name.toLowerCase());
-  const knownNames = new Set(KNOWN_CUSTOMERS.map((c) => c.displayName));
+  const knownNames = new Set(customersForPanel.map((c) => c.displayName));
   const byName = new Map<string, (typeof rows)[number]>();
   for (const r of rows) {
     if (r.customer) byName.set(r.customer, r);
@@ -2565,15 +2575,15 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
   // Filter inactive customers out of the per-week panel. Historical punches,
   // upload attempts, aliases, and AI samples are untouched — only the row's
   // visibility on this dashboard changes.
-  const out = KNOWN_CUSTOMERS.filter(
-    (c) => !isInactive(c.displayName) && hasActivityThisWeek(c.displayName),
-  ).map((c) => {
+  const out = customersForPanel
+    .filter((c) => !isInactive(c.displayName) && hasActivityThisWeek(c.displayName))
+    .map((c) => {
     const r = byName.get(c.displayName);
     const a = attemptByName.get(c.displayName);
     return {
       customer: c.displayName,
       extensions: [...c.extensions],
-      keywords: [...c.keywords],
+      keywords: [...c.filenameKeywords],
       punchCount: r?.punchCount ?? 0,
       lastUploadAt: r?.lastUploadAt
         ? new Date(r.lastUploadAt).toISOString()
@@ -2822,12 +2832,14 @@ weeksRouter.delete(
 // Helper: load the set of customer names currently marked inactive, lowercased
 // for case-insensitive comparisons. Used both by /customer-uploads (to filter
 // inactive rows out of the dashboard) and by every upload route (to reject
-// uploads targeted at an inactive customer with a clear error).
+// uploads targeted at an inactive customer with a clear error). After Task
+// #287 the inactive flag lives on `customers.active`.
 async function loadInactiveCustomerSet(): Promise<Set<string>> {
   const rows = await db
-    .select({ customer: schema.customerActiveStateTable.customer })
-    .from(schema.customerActiveStateTable);
-  return new Set(rows.map((r) => r.customer.toLowerCase()));
+    .select({ displayName: schema.customersTable.displayName })
+    .from(schema.customersTable)
+    .where(eq(schema.customersTable.active, false));
+  return new Set(rows.map((r) => r.displayName.toLowerCase()));
 }
 
 // Load every customer's preferred display-tz once, keyed lower-case so the
@@ -2847,20 +2859,215 @@ async function loadCustomerTzPrefMap(): Promise<Map<string, string>> {
   return out;
 }
 
+// -------------------------------------------------------------------------
+// /admin/customers — full CRUD on the dispatcher-managed customer list.
+// This is the source of truth for filename routing, the per-week customer
+// files panel, the manual-punch customer dropdown, and the timesheets
+// sidebar ordering. Replaces the hand-edited `KNOWN_CUSTOMERS` array
+// (Task #287).
+// -------------------------------------------------------------------------
+async function serializeCustomers() {
+  const rows = await db
+    .select({
+      id: schema.customersTable.id,
+      displayName: schema.customersTable.displayName,
+      filenameKeywords: schema.customersTable.filenameKeywords,
+      extensions: schema.customersTable.extensions,
+      active: schema.customersTable.active,
+      sortOrder: schema.customersTable.sortOrder,
+      createdAt: schema.customersTable.createdAt,
+      updatedAt: schema.customersTable.updatedAt,
+      createdBy: schema.customersTable.createdBy,
+      updatedBy: schema.customersTable.updatedBy,
+    })
+    .from(schema.customersTable)
+    .orderBy(asc(schema.customersTable.sortOrder), asc(schema.customersTable.displayName));
+  const actorIds = new Set<number>();
+  for (const r of rows) {
+    if (r.createdBy) actorIds.add(r.createdBy);
+    if (r.updatedBy) actorIds.add(r.updatedBy);
+  }
+  const emailById = new Map<number, string>();
+  if (actorIds.size > 0) {
+    const actors = await db
+      .select({ id: schema.usersTable.id, email: schema.usersTable.email })
+      .from(schema.usersTable)
+      .where(inArray(schema.usersTable.id, [...actorIds]));
+    for (const a of actors) emailById.set(a.id, a.email);
+  }
+  return rows.map((r) => ({
+    id: r.id,
+    displayName: r.displayName,
+    filenameKeywords: r.filenameKeywords ?? [],
+    extensions: (r.extensions ?? []).filter(
+      (e): e is "xlsx" | "pdf" => e === "xlsx" || e === "pdf",
+    ),
+    active: r.active,
+    sortOrder: r.sortOrder,
+    createdAt: new Date(r.createdAt).toISOString(),
+    updatedAt: new Date(r.updatedAt).toISOString(),
+    createdByEmail: r.createdBy ? emailById.get(r.createdBy) ?? null : null,
+    updatedByEmail: r.updatedBy ? emailById.get(r.updatedBy) ?? null : null,
+  }));
+}
+
+weeksRouter.get("/admin/customers", requireAuth, async (_req, res) => {
+  res.json(await serializeCustomers());
+});
+
+weeksRouter.post("/admin/customers", requireAdmin, async (req, res) => {
+  const parsed = CreateCustomerBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+  const displayName = parsed.data.displayName.trim();
+  if (!displayName) {
+    res.status(400).json({ error: "displayName is required" });
+    return;
+  }
+  const filenameKeywords = (parsed.data.filenameKeywords ?? [])
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0);
+  const extensions = parsed.data.extensions ?? ["xlsx", "pdf"];
+  const active = parsed.data.active ?? true;
+  const sortOrder = parsed.data.sortOrder ?? 1000;
+  const userId = req.session.userId ?? null;
+  try {
+    const inserted = await db.transaction(async (tx) => {
+      const rows = await tx
+        .insert(schema.customersTable)
+        .values({
+          displayName,
+          filenameKeywords,
+          extensions,
+          active,
+          sortOrder,
+          createdBy: userId,
+          updatedBy: userId,
+        })
+        .returning({ id: schema.customersTable.id });
+      await tx.insert(schema.userAuditLogTable).values({
+        actorUserId: userId,
+        targetUserId: null,
+        targetEmail: `customer-create:${displayName}`,
+        action: "customer-create",
+      });
+      return rows[0];
+    });
+    const all = await serializeCustomers();
+    const created = all.find((c) => c.id === inserted.id);
+    res.json(created);
+  } catch (e: unknown) {
+    if (e instanceof Error && /duplicate key|unique/i.test(e.message)) {
+      res.status(409).json({ error: "A customer with that display name already exists" });
+      return;
+    }
+    throw e;
+  }
+});
+
+weeksRouter.patch("/admin/customers/:id", requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  const parsed = UpdateCustomerBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.issues });
+    return;
+  }
+  const userId = req.session.userId ?? null;
+  const patch: Record<string, unknown> = { updatedBy: userId, updatedAt: new Date() };
+  if (parsed.data.displayName !== undefined) {
+    const dn = parsed.data.displayName.trim();
+    if (!dn) {
+      res.status(400).json({ error: "displayName cannot be empty" });
+      return;
+    }
+    patch.displayName = dn;
+  }
+  if (parsed.data.filenameKeywords !== undefined) {
+    patch.filenameKeywords = parsed.data.filenameKeywords
+      .map((k) => k.trim())
+      .filter((k) => k.length > 0);
+  }
+  if (parsed.data.extensions !== undefined) patch.extensions = parsed.data.extensions;
+  if (parsed.data.active !== undefined) patch.active = parsed.data.active;
+  if (parsed.data.sortOrder !== undefined) patch.sortOrder = parsed.data.sortOrder;
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const rows = await tx
+        .update(schema.customersTable)
+        .set(patch)
+        .where(eq(schema.customersTable.id, id))
+        .returning({ id: schema.customersTable.id, displayName: schema.customersTable.displayName });
+      if (rows.length === 0) return null;
+      await tx.insert(schema.userAuditLogTable).values({
+        actorUserId: userId,
+        targetUserId: null,
+        targetEmail: `customer-update:${rows[0].displayName}`,
+        action: "customer-update",
+      });
+      return rows[0];
+    });
+    if (!updated) {
+      res.status(404).json({ error: "Customer not found" });
+      return;
+    }
+    const all = await serializeCustomers();
+    res.json(all.find((c) => c.id === id));
+  } catch (e: unknown) {
+    if (e instanceof Error && /duplicate key|unique/i.test(e.message)) {
+      res.status(409).json({ error: "A customer with that display name already exists" });
+      return;
+    }
+    throw e;
+  }
+});
+
+weeksRouter.delete("/admin/customers/:id", requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  await db.transaction(async (tx) => {
+    const rows = await tx
+      .delete(schema.customersTable)
+      .where(eq(schema.customersTable.id, id))
+      .returning({ displayName: schema.customersTable.displayName });
+    if (rows.length === 0) return;
+    await tx.insert(schema.userAuditLogTable).values({
+      actorUserId: req.session.userId ?? null,
+      targetUserId: null,
+      targetEmail: `customer-delete:${rows[0].displayName}`,
+      action: "customer-delete",
+    });
+  });
+  res.status(204).end();
+});
+
 weeksRouter.get(
   "/customer-active-state",
   requireAdmin,
   async (_req, res) => {
+    // After Task #287 the inactive flag lives on customers.active. We
+    // serve the same shape as before so the older
+    // /admin/inactive-customers page keeps working; the richer
+    // /admin/customers screen reads the table directly.
     const rows = await db
       .select({
-        customer: schema.customerActiveStateTable.customer,
-        inactiveAt: schema.customerActiveStateTable.inactiveAt,
-        inactiveByUserId: schema.customerActiveStateTable.inactiveByUserId,
+        displayName: schema.customersTable.displayName,
+        updatedAt: schema.customersTable.updatedAt,
+        updatedBy: schema.customersTable.updatedBy,
       })
-      .from(schema.customerActiveStateTable)
-      .orderBy(desc(schema.customerActiveStateTable.inactiveAt));
+      .from(schema.customersTable)
+      .where(eq(schema.customersTable.active, false))
+      .orderBy(desc(schema.customersTable.updatedAt));
     const actorIds = new Set<number>();
-    for (const r of rows) if (r.inactiveByUserId) actorIds.add(r.inactiveByUserId);
+    for (const r of rows) if (r.updatedBy) actorIds.add(r.updatedBy);
     const emailById = new Map<number, string>();
     if (actorIds.size > 0) {
       const actors = await db
@@ -2871,11 +3078,9 @@ weeksRouter.get(
     }
     res.json(
       rows.map((r) => ({
-        customer: r.customer,
-        inactiveAt: new Date(r.inactiveAt).toISOString(),
-        inactiveByEmail: r.inactiveByUserId
-          ? emailById.get(r.inactiveByUserId) ?? null
-          : null,
+        customer: r.displayName,
+        inactiveAt: new Date(r.updatedAt).toISOString(),
+        inactiveByEmail: r.updatedBy ? emailById.get(r.updatedBy) ?? null : null,
       })),
     );
   },
@@ -2897,39 +3102,52 @@ weeksRouter.post(
       res.status(400).json({ error: "customer is required" });
       return;
     }
-    const inactiveAt = new Date();
-    // Case-insensitive upsert via delete-then-insert, mirroring the parser
-    // snooze pattern: the unique index is on lower(customer) and Drizzle's
-    // onConflict can't target a functional index.
+    const userId = req.session.userId ?? null;
+    const now = new Date();
+    let canonical = customer;
     await db.transaction(async (tx) => {
-      await tx
-        .delete(schema.customerActiveStateTable)
-        .where(
-          sql`lower(${schema.customerActiveStateTable.customer}) = lower(${customer})`,
-        );
-      await tx.insert(schema.customerActiveStateTable).values({
-        customer,
-        inactiveAt,
-        inactiveByUserId: req.session.userId ?? null,
-      });
+      const existing = await tx
+        .select({
+          id: schema.customersTable.id,
+          displayName: schema.customersTable.displayName,
+        })
+        .from(schema.customersTable)
+        .where(sql`lower(${schema.customersTable.displayName}) = lower(${customer})`)
+        .limit(1);
+      if (existing[0]) {
+        canonical = existing[0].displayName;
+        await tx
+          .update(schema.customersTable)
+          .set({ active: false, updatedAt: now, updatedBy: userId })
+          .where(eq(schema.customersTable.id, existing[0].id));
+      } else {
+        await tx.insert(schema.customersTable).values({
+          displayName: customer,
+          filenameKeywords: [],
+          extensions: [],
+          active: false,
+          createdBy: userId,
+          updatedBy: userId,
+        });
+      }
       await tx.insert(schema.userAuditLogTable).values({
-        actorUserId: req.session.userId ?? null,
+        actorUserId: userId,
         targetUserId: null,
-        targetEmail: `customer-inactive:${customer}`,
+        targetEmail: `customer-inactive:${canonical}`,
         action: "customer-inactive",
       });
     });
     let inactiveByEmail: string | null = null;
-    if (req.session.userId) {
+    if (userId) {
       const actor = await db.query.usersTable.findFirst({
-        where: eq(schema.usersTable.id, req.session.userId),
+        where: eq(schema.usersTable.id, userId),
         columns: { email: true },
       });
       inactiveByEmail = actor?.email ?? null;
     }
     res.json({
-      customer,
-      inactiveAt: inactiveAt.toISOString(),
+      customer: canonical,
+      inactiveAt: now.toISOString(),
       inactiveByEmail,
     });
   },
@@ -2945,17 +3163,25 @@ weeksRouter.delete(
       return;
     }
     await db.transaction(async (tx) => {
-      const removed = await tx
-        .delete(schema.customerActiveStateTable)
+      const updated = await tx
+        .update(schema.customersTable)
+        .set({
+          active: true,
+          updatedAt: new Date(),
+          updatedBy: req.session.userId ?? null,
+        })
         .where(
-          sql`lower(${schema.customerActiveStateTable.customer}) = lower(${customer})`,
+          and(
+            sql`lower(${schema.customersTable.displayName}) = lower(${customer})`,
+            eq(schema.customersTable.active, false),
+          ),
         )
-        .returning({ customer: schema.customerActiveStateTable.customer });
-      if (removed.length === 0) return;
+        .returning({ displayName: schema.customersTable.displayName });
+      if (updated.length === 0) return;
       await tx.insert(schema.userAuditLogTable).values({
         actorUserId: req.session.userId ?? null,
         targetUserId: null,
-        targetEmail: `customer-inactive:${removed[0].customer}`,
+        targetEmail: `customer-inactive:${updated[0].displayName}`,
         action: "customer-reactivate",
       });
     });
@@ -4338,51 +4564,9 @@ weeksRouter.get(
         eq(schema.connecteamUserAliasesTable.kfiId, schema.driversTable.kfiId),
       )
       .orderBy(asc(schema.connecteamUserAliasesTable.ctUserId));
-    const dbAliases = await serializeCtUserAliases(rows);
-    // Synthesize ConnecteamUserAlias rows for any USER_ID_ALIASES_LD seed
-    // entries that don't yet exist in the DB so the admin sees them with a
-    // "seededFromStatic" badge and can promote them to first-class rows.
-    const existingIds = new Set(dbAliases.map((a) => a.ctUserId));
-    const seededIds = Object.keys(USER_ID_ALIASES_LD)
-      .map((k) => Number(k))
-      .filter((n) => Number.isFinite(n) && !existingIds.has(n));
-    const seededDriverRows =
-      seededIds.length === 0
-        ? []
-        : await db
-            .select({
-              kfiId: schema.driversTable.kfiId,
-              name: schema.driversTable.name,
-              customer: schema.driversTable.customer,
-              isArchived: schema.driversTable.isArchived,
-            })
-            .from(schema.driversTable)
-            .where(
-              inArray(
-                schema.driversTable.kfiId,
-                seededIds.map((id) => USER_ID_ALIASES_LD[String(id)]!),
-              ),
-            );
-    const seededDriverByKfi = new Map(seededDriverRows.map((d) => [d.kfiId, d]));
-    const now = new Date(0).toISOString();
-    const seededAliases = seededIds.map((ctUserId) => {
-      const kfiId = USER_ID_ALIASES_LD[String(ctUserId)]!;
-      const d = seededDriverByKfi.get(kfiId);
-      return {
-        ctUserId,
-        kfiId,
-        note: "Seeded from USER_ID_ALIASES_LD",
-        driverName: d?.name ?? null,
-        driverCustomer: d?.customer ?? null,
-        driverIsArchived: d?.isArchived ?? null,
-        createdAt: now,
-        updatedAt: now,
-        createdByEmail: null,
-        updatedByEmail: null,
-        seededFromStatic: true,
-      };
-    });
-    const aliases = [...dbAliases, ...seededAliases].sort(
+    // Task #287 lifted USER_ID_ALIASES_LD into the table, so we no longer
+    // synthesize seeded rows on the fly — the DB is the only source.
+    const aliases = [...(await serializeCtUserAliases(rows))].sort(
       (a, b) => a.ctUserId - b.ctUserId,
     );
     const driverRows = await db
@@ -6225,7 +6409,7 @@ weeksRouter.get("/customer-tz-preferences", requireAuth, async (_req, res) => {
       updatedAt: new Date(r.updatedAt).toISOString(),
       updatedByEmail: r.updatedBy ? emailById.get(r.updatedBy) ?? null : null,
     })),
-    knownCustomers: KNOWN_CUSTOMERS.map((c) => c.displayName),
+    knownCustomers: (await loadCustomers()).map((c) => c.displayName),
   });
 });
 
@@ -6371,6 +6555,8 @@ weeksRouter.get(
         .where(eq(schema.reviewedDriversTable.weekStart, weekStart));
       return new Set(rows.map((r) => r.kfiId));
     },
+    getCustomerOrder: async () =>
+      (await loadCustomers()).map((c) => c.displayName),
     getNoteSummaries: async (weekStart) => {
       // Per-punch note count per driver-week. Hidden / soft-deleted notes
       // are excluded by the deleted_at filter; historical week-level rows

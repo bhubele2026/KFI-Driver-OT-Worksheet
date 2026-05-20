@@ -90,11 +90,12 @@ test("buildTimesheets orders drivers like the sidebar (KNOWN_CUSTOMERS, then ext
     shift("1004", "2026-04-27", 8, 8),
     shift("1005", "2026-04-27", 8, 8),
   ];
-  const sheets = buildTimesheets(punches, drivers);
+  const customerOrder = ["Adient", "Greystone"];
+  const sheets = buildTimesheets(punches, drivers, { customerOrder });
   assert.deepEqual(
     sheets.map((s) => s.kfiId),
     ["1001", "1002", "1003", "1004", "1005"],
-    "Adient → Greystone → Acme (alpha) → Widgets (alpha) → roster cleanup",
+    "Adient → Greystone (customerOrder) → Acme (alpha) → Widgets (alpha) → roster cleanup",
   );
   assert.equal(sheets[4].customerLabel, UNASSIGNED_CUSTOMER);
   // Within a customer, drivers sort by name. Add a sibling and verify.
@@ -103,7 +104,7 @@ test("buildTimesheets orders drivers like the sidebar (KNOWN_CUSTOMERS, then ext
     driver("1006", "Aaron Adient", "Adient"),
   ];
   const punches2 = [...punches, shift("1006", "2026-04-27", 8, 8)];
-  const sheets2 = buildTimesheets(punches2, drivers2);
+  const sheets2 = buildTimesheets(punches2, drivers2, { customerOrder });
   const adientOrder = sheets2.filter((s) => s.customer === "Adient").map(
     (s) => s.name,
   );

@@ -20,7 +20,7 @@ export * from "./customerIgnoredExternals";
 export * from "./connecteamDailySnapshots";
 export * from "./customerTzPreferences";
 export * from "./driverPayrollProfiles";
-export * from "./customerActiveState";
+export * from "./customers";
 export * from "./driverCustomerOverrides";
 export * from "./connecteamUserAliases";
 export * from "./connecteamClockRefreshStats";

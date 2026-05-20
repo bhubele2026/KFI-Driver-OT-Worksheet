@@ -1,5 +1,4 @@
 import { eq } from "drizzle-orm";
-import { IWG_DRIVER_IDS } from "./mappings.js";
 import { CT_TZ, isAllowedTz } from "./time.js";
 import { db, schema } from "./db.js";
 
@@ -7,20 +6,19 @@ import { db, schema } from "./db.js";
  * Pick the display timezone for a driver's punches. Precedence:
  *   1. an explicit per-upload override (if provided + valid)
  *   2. the driver's persisted `display_tz` column
- *   3. legacy IWG hardcode (America/New_York)
- *   4. CT_TZ (America/Chicago)
+ *   3. CT_TZ (America/Chicago)
  *
- * The IWG hardcode remains as a safety net for any driver whose row was
- * created before display_tz was backfilled; once backfilled it's a no-op.
+ * The legacy IWG hardcode was removed in Task #287; the seed-then-wipe
+ * migration sets `display_tz='America/New_York'` for the affected kfiIds
+ * (2005056, 2005212) so the persisted column carries the same semantics.
  */
 export function resolveDispTz(
-  kfiId: string,
+  _kfiId: string,
   driverDisplayTz: string | null | undefined,
   override?: string | null,
 ): string {
   if (isAllowedTz(override)) return override;
   if (driverDisplayTz && isAllowedTz(driverDisplayTz)) return driverDisplayTz;
-  if (IWG_DRIVER_IDS.has(kfiId)) return "America/New_York";
   return CT_TZ;
 }
 

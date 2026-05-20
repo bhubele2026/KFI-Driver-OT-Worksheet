@@ -1223,6 +1223,76 @@ paths:
         "204": { description: Deleted (or no alias existed) }
         "403": { description: Admin only }
 
+  /admin/customers:
+    get:
+      operationId: listCustomers
+      tags: [ingest]
+      summary: List every customer the dispatcher has configured (filename routing, dropdowns, customer-files panel). Authenticated.
+      responses:
+        "200":
+          description: All customers sorted by sortOrder then displayName.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Customer" }
+    post:
+      operationId: createCustomer
+      tags: [ingest]
+      summary: Add a new customer (admin-only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCustomerBody" }
+      responses:
+        "200":
+          description: Created customer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Customer" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+        "409": { description: A customer with that display name already exists }
+
+  /admin/customers/{id}:
+    patch:
+      operationId: updateCustomer
+      tags: [ingest]
+      summary: Update a customer's display name, filename keywords, accepted extensions, sort order, or active flag (admin-only).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateCustomerBody" }
+      responses:
+        "200":
+          description: Updated customer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Customer" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+        "404": { description: Customer not found }
+        "409": { description: A customer with that display name already exists }
+    delete:
+      operationId: deleteCustomer
+      tags: [ingest]
+      summary: Permanently remove a customer (admin-only). Prefer setting active=false unless the row was added by mistake.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Deleted (or no customer existed) }
+        "403": { description: Admin only }
+
   /admin/connecteam-user-aliases:
     get:
       operationId: listConnecteamUserAliases
@@ -3513,6 +3583,54 @@ components:
           type: ["string", "null"]
         note:
           type: ["string", "null"]
+
+    Customer:
+      type: object
+      required: [id, displayName, filenameKeywords, extensions, active, sortOrder, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        displayName: { type: string }
+        filenameKeywords:
+          type: array
+          items: { type: string }
+        extensions:
+          type: array
+          items: { type: string, enum: [xlsx, pdf] }
+        active: { type: boolean }
+        sortOrder: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        createdByEmail:
+          type: ["string", "null"]
+        updatedByEmail:
+          type: ["string", "null"]
+
+    CreateCustomerBody:
+      type: object
+      required: [displayName]
+      properties:
+        displayName: { type: string, minLength: 1 }
+        filenameKeywords:
+          type: array
+          items: { type: string, minLength: 1 }
+        extensions:
+          type: array
+          items: { type: string, enum: [xlsx, pdf] }
+        active: { type: boolean }
+        sortOrder: { type: integer }
+
+    UpdateCustomerBody:
+      type: object
+      properties:
+        displayName: { type: string, minLength: 1 }
+        filenameKeywords:
+          type: array
+          items: { type: string, minLength: 1 }
+        extensions:
+          type: array
+          items: { type: string, enum: [xlsx, pdf] }
+        active: { type: boolean }
+        sortOrder: { type: integer }
 
     ConnecteamUserAlias:
       type: object
