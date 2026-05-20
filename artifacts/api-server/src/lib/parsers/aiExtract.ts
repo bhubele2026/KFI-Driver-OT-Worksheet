@@ -397,12 +397,33 @@ type SalvageLogger = {
   warn: (obj: Record<string, unknown>, msg: string) => void;
 };
 
+/**
+ * Strip markdown code fences ("```json … ```") that some providers
+ * wrap structured-output responses in despite an explicit
+ * "JSON only, no markdown fences" system instruction (Claude Sonnet
+ * does this intermittently on long extractions — Task #293 follow-up).
+ * Cheap, safe, and provider-agnostic; runs before every JSON.parse
+ * attempt so both the happy path and the salvage path benefit.
+ */
+function stripJsonFences(raw: string): string {
+  let s = raw.trim();
+  if (s.startsWith("```")) {
+    // Drop the opening fence plus an optional language tag on the same line.
+    const firstNl = s.indexOf("\n");
+    if (firstNl !== -1) s = s.slice(firstNl + 1);
+    if (s.endsWith("```")) s = s.slice(0, -3);
+    s = s.trim();
+  }
+  return s;
+}
+
 export function parseOrSalvage(
   raw: string,
   customer: string,
   fileName: string,
   log?: SalvageLogger,
 ): { rows?: AiExtractedRow[]; truncated: boolean } {
+  raw = stripJsonFences(raw);
   try {
     const parsed = JSON.parse(raw) as { rows?: AiExtractedRow[] };
     return { ...parsed, truncated: false };

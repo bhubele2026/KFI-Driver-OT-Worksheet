@@ -9,6 +9,45 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseOrSalvage } from "../aiExtract.js";
 
+test("parseOrSalvage strips markdown code fences before parsing (Claude #293 follow-up)", () => {
+  // Claude Sonnet intermittently wraps structured-output responses in
+  // ```json … ``` despite the explicit "no markdown fences" system
+  // instruction. Verified on Adient Daily punches PP 05.10.2026
+  // upload during the first live Claude run.
+  const inner = JSON.stringify({
+    rows: [
+      { driverNameOnDoc: "Jane Doe", date: "2026-05-11", timeIn: "7:00 AM" },
+      { driverNameOnDoc: "John Roe", date: "2026-05-12", timeIn: "6:30 AM" },
+    ],
+  });
+  const raw = "```json\n" + inner + "\n```";
+  const out = parseOrSalvage(raw, "Adient", "test.xlsx");
+  assert.equal(out.truncated, false);
+  assert.equal(out.rows?.length, 2);
+  assert.equal(out.rows?.[0].driverNameOnDoc, "Jane Doe");
+});
+
+test("parseOrSalvage strips a bare ``` fence (no language tag) too", () => {
+  const inner = JSON.stringify({ rows: [{ driverNameOnDoc: "Jane Doe" }] });
+  const raw = "```\n" + inner + "\n```";
+  const out = parseOrSalvage(raw, "Adient", "test.xlsx");
+  assert.equal(out.rows?.length, 1);
+});
+
+test("parseOrSalvage salvages a fenced + mid-row-truncated Claude response", () => {
+  // Real-world Adient failure mode: fence opener present, no closer
+  // (because the response was cut off mid-row by maxOutputTokens).
+  const raw =
+    "```json\n" +
+    '{"rows":[' +
+    '{"driverNameOnDoc":"Jane Doe","date":"2026-05-11","timeIn":"7:00 AM"},' +
+    '{"driverNameOnDoc":"John Roe","date":"2026-05-12","timeIn":"6:30 AM"},' +
+    '{"driverNameOnDoc":"Jo';
+  const out = parseOrSalvage(raw, "Adient", "test.xlsx", { warn: () => {} });
+  assert.equal(out.truncated, true);
+  assert.equal(out.rows?.length, 2);
+});
+
 test("parseOrSalvage returns parsed JSON unchanged when well-formed", () => {
   const raw = JSON.stringify({
     rows: [
