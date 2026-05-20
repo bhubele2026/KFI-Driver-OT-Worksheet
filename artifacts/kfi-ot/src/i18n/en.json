@@ -386,8 +386,9 @@
     "tz": {
       "override": "override",
       "defaultOption": "(default — customer / system)",
-      "savingHelp": "Saving only changes future ingests. Use \"Re-pull Connecteam\" to restamp this week from Connecteam, or \"Shift existing\" to add Xh to every punch already stored.",
+      "savingHelp": "Save: update the driver default AND restamp this week's Driver-source punches to the new tz (one click — no extra shift needed). Re-pull Connecteam: throw away this week's Driver-source punches and pull fresh from Connecteam (use after a clock_offsets fix). Shift existing: add Xh to every punch already stored — for one-off off-by-one fixes.",
       "updatedTitle": "Timezone updated",
+      "autoShiftedDesc": "Restamped {{count}} Driver-source punches by {{hours}}h.",
       "clearedOverrideDesc": "Cleared override.",
       "nowDesc": "Now {{tz}}.",
       "updateFailed": "Update failed",

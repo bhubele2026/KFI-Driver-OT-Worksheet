@@ -79,6 +79,49 @@ import { PayrollProfileCard } from "@/components/payroll-profile-card";
 
 const OT_THRESHOLD = 40;
 
+/**
+ * Whole-hour delta to apply to wall-clock punch strings when restamping a
+ * driver-week from one display tz to another. Anchored at noon on the
+ * week's Sunday so DST transitions inside the week stay sensible — KFI
+ * tzs (Chicago, NY, Denver, Phoenix, LA) are integer-hour offsets so a
+ * single anchor is good enough; if a future fractional-offset tz lands
+ * here we'd revisit.
+ *
+ * Used by the "Save display tz" popover so picking a new tz also moves
+ * the visible Driver-source punches via the shift-punches API in one
+ * click — instead of silently only changing future ingests.
+ */
+function tzDeltaHours(
+  fromTz: string,
+  toTz: string,
+  anchorIsoDate: string,
+): number {
+  if (fromTz === toTz) return 0;
+  const parts = anchorIsoDate.split("-").map((s) => Number(s));
+  const [y, m, d] = [parts[0] ?? 2000, parts[1] ?? 1, parts[2] ?? 1];
+  const utc = Date.UTC(y, m - 1, d, 12, 0, 0);
+  const localizedMs = (tz: string): number => {
+    let s: string;
+    try {
+      s = new Date(utc).toLocaleString("en-US", {
+        timeZone: tz,
+        hour12: false,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return utc;
+    }
+    const m2 = s.match(/(\d{2})\/(\d{2})\/(\d{4}),?\s+(\d{2}):(\d{2})/);
+    if (!m2) return utc;
+    return Date.UTC(+m2[3], +m2[1] - 1, +m2[2], +m2[4], +m2[5]);
+  };
+  return Math.round((localizedMs(toTz) - localizedMs(fromTz)) / 60_000) / 60;
+}
+
 const KNOWN_CUSTOMERS_FALLBACK = [
   "Adient",
   "Burnett",
@@ -1342,35 +1385,81 @@ export default function DriverDetail() {
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={updateDriverTz.isPending}
+                      disabled={
+                        updateDriverTz.isPending || shiftPunches.isPending
+                      }
                       data-testid="button-save-driver-tz"
-                      onClick={() =>
+                      onClick={() => {
+                        const targetTzRaw =
+                          tzDraft === "__default__" ? null : tzDraft;
+                        const effectiveTarget = targetTzRaw ?? "America/Chicago";
+                        const currentEffective =
+                          data.driver.effectiveDispTz ?? "America/Chicago";
+                        const delta = tzDeltaHours(
+                          currentEffective,
+                          effectiveTarget,
+                          weekStart,
+                        );
+                        const finish = (shiftedCount: number | null) => {
+                          queryClient.invalidateQueries({
+                            queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
+                          });
+                          queryClient.invalidateQueries({
+                            queryKey: getGetWeekSummaryQueryKey(weekStart),
+                          });
+                          const baseDesc =
+                            targetTzRaw === null
+                              ? t("driverDetail.tz.clearedOverrideDesc")
+                              : t("driverDetail.tz.nowDesc", {
+                                  tz: effectiveTarget,
+                                });
+                          const description =
+                            shiftedCount !== null && shiftedCount > 0
+                              ? `${baseDesc} ${t(
+                                  "driverDetail.tz.autoShiftedDesc",
+                                  { count: shiftedCount, hours: delta },
+                                )}`
+                              : baseDesc;
+                          toast({
+                            title: t("driverDetail.tz.updatedTitle"),
+                            description,
+                          });
+                          setTzPopoverOpen(false);
+                        };
                         updateDriverTz.mutate(
                           {
                             kfiId,
-                            data: {
-                              displayTz:
-                                tzDraft === "__default__" ? null : tzDraft,
-                            },
+                            data: { displayTz: targetTzRaw },
                           },
                           {
                             onSuccess: () => {
-                              queryClient.invalidateQueries({
-                                queryKey: getGetDriverWeekQueryKey(
+                              if (delta === 0) {
+                                finish(null);
+                                return;
+                              }
+                              shiftPunches.mutate(
+                                {
                                   weekStart,
                                   kfiId,
-                                ),
-                              });
-                              queryClient.invalidateQueries({
-                                queryKey: getGetWeekSummaryQueryKey(weekStart),
-                              });
-                              toast({
-                                title: t("driverDetail.tz.updatedTitle"),
-                                description:
-                                  tzDraft === "__default__"
-                                    ? t("driverDetail.tz.clearedOverrideDesc")
-                                    : t("driverDetail.tz.nowDesc", { tz: tzDraft }),
-                              });
+                                  data: {
+                                    offsetHours: delta,
+                                    source: "Driver",
+                                    newDispTz: effectiveTarget,
+                                  },
+                                },
+                                {
+                                  onSuccess: (res) => finish(res.shifted),
+                                  onError: (err) =>
+                                    toast({
+                                      title: t("driverDetail.tz.shiftFailed"),
+                                      description: errMsg(
+                                        err,
+                                        t("driverDetail.unknownError"),
+                                      ),
+                                      variant: "destructive",
+                                    }),
+                                },
+                              );
                             },
                             onError: (err) =>
                               toast({
@@ -1379,8 +1468,8 @@ export default function DriverDetail() {
                                 variant: "destructive",
                               }),
                           },
-                        )
-                      }
+                        );
+                      }}
                     >
                       {updateDriverTz.isPending ? (
                         <Loader2 className="h-3 w-3 mr-1 animate-spin" />

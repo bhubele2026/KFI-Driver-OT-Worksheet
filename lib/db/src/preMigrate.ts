@@ -297,6 +297,51 @@ const FIXUPS: Fixup[] = [
     `,
   },
   // ---------------------------------------------------------------------
+  // Task #357 — seed the third Shuster clock (id 2005141) with the same
+  // +1h offset as the other two. Shuster added a new Connecteam clock
+  // and every fresh pull from it landed an hour off until this row
+  // existed. Separate marker from the Task #288 seed so an env that
+  // already ran the original two-row seed still picks this one up.
+  // Idempotent + admin-deletable (the marker prevents reseeding a row
+  // a dispatcher later deleted on purpose).
+  {
+    name: "seed clock_offsets with Shuster clock 2005141 (Task #357)",
+    describe:
+      "Insert Shuster clock_id 2005141 with +1.00h offset, mirroring the existing 2005033 / 2004992 seeds. Marker-gated.",
+    detect: `SELECT 1`,
+    apply: `
+      CREATE TABLE IF NOT EXISTS schema_fixup_markers (
+        name text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      );
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM schema_fixup_markers
+          WHERE name = 'seed_clock_offset_shuster_2005141_2026'
+        ) THEN
+          RETURN;
+        END IF;
+        CREATE TABLE IF NOT EXISTS clock_offsets (
+          clock_id     text PRIMARY KEY,
+          hours_offset numeric(6, 2) NOT NULL,
+          note         text,
+          created_at   timestamptz NOT NULL DEFAULT now(),
+          updated_at   timestamptz NOT NULL DEFAULT now(),
+          created_by   integer,
+          updated_by   integer
+        );
+        INSERT INTO clock_offsets (clock_id, hours_offset, note)
+        VALUES
+          ('2005141', 1.00, 'Shuster +1h fix — third clock added May 2026 (Task #357).')
+        ON CONFLICT (clock_id) DO NOTHING;
+        INSERT INTO schema_fixup_markers (name)
+          VALUES ('seed_clock_offset_shuster_2005141_2026')
+          ON CONFLICT (name) DO NOTHING;
+      END$$;
+    `,
+  },
+  // ---------------------------------------------------------------------
   // Task #301 — drop the orphaned parser_promotion_snoozes table. The
   // promotion-banner scaffolding it backed was removed once the legacy
   // hardcoded parsers were deleted (there's nothing left to "promote

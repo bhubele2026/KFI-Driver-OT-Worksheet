@@ -386,8 +386,9 @@
     "tz": {
       "override": "anulación",
       "defaultOption": "(predeterminado — cliente / sistema)",
-      "savingHelp": "Guardar solo afecta futuras ingestas. Use \"Volver a descargar Connecteam\" para reestampar esta semana desde Connecteam, o \"Desplazar existentes\" para sumar Xh a cada registro ya almacenado.",
+      "savingHelp": "Guardar: actualiza el valor por defecto del conductor Y reestampa los registros Driver de esta semana a la nueva zona (un clic — sin desplazamiento extra). Volver a descargar Connecteam: descarta los registros Driver de esta semana y vuelve a descargar desde Connecteam (úselo tras un ajuste de clock_offsets). Desplazar existentes: suma Xh a cada registro ya almacenado — para correcciones puntuales de una hora.",
       "updatedTitle": "Zona horaria actualizada",
+      "autoShiftedDesc": "Se reestamparon {{count}} registros Driver por {{hours}}h.",
       "clearedOverrideDesc": "Se quitó la anulación.",
       "nowDesc": "Ahora {{tz}}.",
       "updateFailed": "Error al actualizar",
