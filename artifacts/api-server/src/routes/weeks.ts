@@ -3020,22 +3020,38 @@ weeksRouter.post(
         });
 
         // (4) Wipe-and-reinsert the (week, customer) Customer-source rows.
-        const deleteConds: SQL[] = [
-          eq(schema.punchesTable.weekStart, startDate),
-          eq(schema.punchesTable.source, "Customer"),
-          eq(schema.punchesTable.customer, reparsed.customer),
-          eq(schema.punchesTable.isManual, false),
-          ne(schema.punchesTable.edited, true),
-        ];
-        if (lockedKfiIds.size > 0) {
-          deleteConds.push(
-            sql`${schema.punchesTable.kfiId} NOT IN (${sql.join(
-              [...lockedKfiIds].map((k) => sql`${k}`),
-              sql`, `,
-            )})`,
+        // Task #377: scope the delete to only drivers present in this
+        // upload. Drivers NOT mentioned in the new file keep their
+        // previously-imported rows untouched — re-uploading a subset of
+        // drivers must not erase the rest. If the new upload resolves to
+        // zero drivers (everything excluded, or nothing matched), skip
+        // the delete entirely; the prior "wipe everything for this
+        // customer/week" fallback would silently erase a good import.
+        const insertableKfiIds = new Set(insertablePunches.map((p) => p.kfiId));
+        if (insertableKfiIds.size === 0) {
+          req.log.info(
+            { weekStart: startDate, customer: reparsed.customer, fileName },
+            "Confirm-customer-file resolved to zero drivers; preserving prior import (no-op delete)",
           );
+        } else {
+          const deleteConds: SQL[] = [
+            eq(schema.punchesTable.weekStart, startDate),
+            eq(schema.punchesTable.source, "Customer"),
+            eq(schema.punchesTable.customer, reparsed.customer),
+            eq(schema.punchesTable.isManual, false),
+            ne(schema.punchesTable.edited, true),
+            inArray(schema.punchesTable.kfiId, [...insertableKfiIds]),
+          ];
+          if (lockedKfiIds.size > 0) {
+            deleteConds.push(
+              sql`${schema.punchesTable.kfiId} NOT IN (${sql.join(
+                [...lockedKfiIds].map((k) => sql`${k}`),
+                sql`, `,
+              )})`,
+            );
+          }
+          await tx.delete(schema.punchesTable).where(and(...deleteConds));
         }
-        await tx.delete(schema.punchesTable).where(and(...deleteConds));
         if (insertablePunches.length > 0) {
           await tx.insert(schema.punchesTable).values(
             insertablePunches.map((p) => ({

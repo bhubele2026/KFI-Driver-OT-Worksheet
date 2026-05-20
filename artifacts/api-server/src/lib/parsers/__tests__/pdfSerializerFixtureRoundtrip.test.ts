@@ -25,7 +25,7 @@ import { serializePdfTextItems } from "../aiExtract.js";
 
 // Hand-rolled minimal PDF — three text objects on the top line
 // (dates 05/10, 05/11, 05/12) and three on the line directly below
-// (times 6:00 AM, 6:10 AM, 6:20 AM), aligned column-wise. The line
+// (times 6:00AM, 6:10AM, 6:20AM), aligned column-wise. The line
 // gap is ~12pt, well within STACK_MAX_GAP=14, so the serializer
 // must pair them. Built by hand so the test has zero dependencies
 // beyond pdfjs-dist (already pinned in artifacts/api-server).
@@ -100,6 +100,7 @@ async function pdfToItems(buf: Buffer) {
     for (const it of content.items) {
       if (typeof (it as { str?: unknown }).str !== "string") continue;
       const ti = it as { str: string; transform: number[] };
+      if (!ti.str.trim()) continue; // Filter out whitespace-only items
       items.push({ str: ti.str, transform: ti.transform });
     }
     return items;

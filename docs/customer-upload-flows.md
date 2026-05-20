@@ -122,6 +122,24 @@ Bulk upload behavior is intentionally unchanged: the bulk loop never sets
 "Already up to date" without walking the dispatcher through a no-op
 preview.
 
+## Re-upload preserves other drivers (Task #377)
+
+The `/confirm-customer-file` wipe-and-reinsert scopes its DELETE to only
+the drivers actually present in the new upload — `kfi_id IN (<drivers in
+the re-parsed, non-excluded rows>)` is added to the existing predicate.
+Drivers absent from the new file keep their previously-imported
+Customer-source rows untouched, so re-uploading a partial file (or
+excluding everyone but a subset in the preview dialog) updates only the
+mentioned drivers instead of erasing the rest.
+
+Edge case: if the new upload resolves to zero drivers (everything
+excluded, or nothing matched), the route skips the DELETE entirely
+rather than falling back to wiping the whole (week, customer) — the
+prior good import stays in place and the no-op is logged. Manual rows,
+edited rows, and locked driver-weeks continue to be preserved exactly
+as before. Pinned by
+`artifacts/api-server/src/lib/__tests__/customer-confirm-subset-preservation.test.ts`.
+
 ## Inactive customers
 
 Customers can be marked inactive without losing history. The customer-files
