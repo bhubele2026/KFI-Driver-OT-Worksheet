@@ -352,6 +352,34 @@ function resolveKfiId(
   return null;
 }
 
+// Parse a wall-clock string into minutes-since-midnight, tolerating the
+// shapes the AI realistically emits: `H:MM AM/PM`, `HH:MM` (24-hour), and
+// `HH:MM:SS`. Returns null if unrecognized — caller will reject the row.
+// Robust to Claude occasionally returning 24-hour `HH:MM` even when the
+// prompt asks for 12-hour `H:MM AM/PM`.
+export function parseClockToMin(t: string): number | null {
+  const s = t.trim();
+  if (!s) return null;
+  const m12 = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp])\.?[Mm]\.?$/);
+  if (m12) {
+    let h = parseInt(m12[1], 10);
+    const m = parseInt(m12[2], 10);
+    if (h < 0 || h > 12 || m < 0 || m > 59) return null;
+    const isPM = m12[3].toUpperCase() === "P";
+    if (h === 12) h = 0;
+    if (isPM) h += 12;
+    return h * 60 + m;
+  }
+  const m24 = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (m24) {
+    const h = parseInt(m24[1], 10);
+    const m = parseInt(m24[2], 10);
+    if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+    return h * 60 + m;
+  }
+  return null;
+}
+
 function toParsedPunch(
   r: AiExtractedRow,
   kfiId: string,
@@ -361,11 +389,23 @@ function toParsedPunch(
   const clockOut = (r.timeOut ?? "").trim();
   let hours = typeof r.hours === "number" && r.hours > 0 ? r.hours : 0;
   if (!hours && clockIn && clockOut) {
-    const ms =
-      new Date(`${r.date} ${clockOut}`).getTime() -
-      new Date(`${r.date} ${clockIn}`).getTime();
-    if (!Number.isNaN(ms) && ms > 0) {
-      hours = Math.round((ms / 3_600_000) * 1000) / 1000;
+    // Robust regex-based parse first; fall back to `new Date(...)` for
+    // anything exotic (e.g. ISO datetimes Claude occasionally pastes
+    // through). The regex path handles 24-hour `HH:MM` which V8 parses
+    // as "today 07:00 local" but other tz/locales may not — and it
+    // also handles shifts that cross midnight by adding a day.
+    const inMin = parseClockToMin(clockIn);
+    const outMin = parseClockToMin(clockOut);
+    if (inMin != null && outMin != null) {
+      const delta = outMin >= inMin ? outMin - inMin : outMin - inMin + 1440;
+      if (delta > 0) hours = Math.round((delta / 60) * 1000) / 1000;
+    } else {
+      const ms =
+        new Date(`${r.date} ${clockOut}`).getTime() -
+        new Date(`${r.date} ${clockIn}`).getTime();
+      if (!Number.isNaN(ms) && ms > 0) {
+        hours = Math.round((ms / 3_600_000) * 1000) / 1000;
+      }
     }
   }
   if (!(hours > 0)) return null;

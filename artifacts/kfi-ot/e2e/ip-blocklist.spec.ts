@@ -54,8 +54,15 @@ async function seedLockoutEvent(): Promise<void> {
 }
 
 async function cleanup(): Promise<void> {
+  // Wipe by name AND by the shared TEST_IP key — previous interrupted
+  // runs left rows under different `name` values but the same `key`,
+  // which previously caused strict-mode violations on the lockout-row
+  // locator (multiple rows render per (name, key) tuple).
   await pool.query(`DELETE FROM rate_limit_events WHERE name = $1`, [
     BUCKET_NAME,
+  ]);
+  await pool.query(`DELETE FROM rate_limit_events WHERE key = $1`, [
+    BUCKET_KEY,
   ]);
   await pool.query(`DELETE FROM ip_blocklist WHERE ip = $1`, [TEST_IP]);
 }
@@ -84,9 +91,13 @@ test("admin can block an IP, the API rejects it with 403, and admin can unblock"
   ).toBeVisible();
   await expect(page.getByText("Security activity")).toBeVisible();
 
-  // The Recent lockouts row holds the Block IP button. Locate the row by
-  // its monospace key cell so we don't collide with any other test data.
-  const lockoutRow = page.locator("tr", { hasText: BUCKET_KEY });
+  // The Recent lockouts row holds the Block IP button. Scope by BOTH
+  // the per-run bucket name and the IP key so we never collide with
+  // rows seeded by other suites (or stale rows from a prior crashed
+  // run that the cleanup step missed for any reason).
+  const lockoutRow = page
+    .locator("tr", { hasText: BUCKET_KEY })
+    .filter({ hasText: BUCKET_NAME });
   await expect(lockoutRow).toBeVisible();
   const blockBtn = lockoutRow.getByRole("button", { name: /Block IP/ });
   await expect(blockBtn).toBeVisible();

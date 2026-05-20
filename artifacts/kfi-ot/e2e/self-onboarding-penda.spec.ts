@@ -57,8 +57,12 @@ if (!DATABASE_URL) {
 const pool = new Pool({ connectionString: DATABASE_URL });
 
 const SUFFIX = `e2e-onb-pen-${Date.now().toString(36)}`;
-const WEEK_START = "2031-09-07"; // Sunday
-const WEEK_END = "2031-09-13"; // Saturday
+// Must match the fixture's actual week — Gemini reads the dates straight
+// off the sheet and the extractor drops anything outside the requested
+// Sun→Sat window. The fixture lives under `fixtures/2026-04-26/`, so the
+// dispatcher session reconciles that exact week.
+const WEEK_START = "2026-04-26"; // Sunday
+const WEEK_END = "2026-05-02"; // Saturday
 
 // Unique customer + keyword: never collides with the seeded "Penda"
 // customer (display name "Penda", keyword "penda") and survives
@@ -204,10 +208,15 @@ async function cleanup(): Promise<void> {
     [CUSTOMER_NAME],
   );
   // Aliases the picker write (and any leftovers from a prior crashed
-  // run): drop only those scoped to our test customer.
+  // run). Customer name is unique per run, but the badge id is shared
+  // across runs — once the picker writes alias UNMAPPED_BADGE → driver
+  // (scoped to that prior run's customer), the global unique index on
+  // lower(external_id) makes the alias survive future runs and turns
+  // the badge into a pre-mapped row, breaking Step 3's
+  // exactly-one-unmapped-row expectation. Delete by external_id too.
   await pool.query(
-    `DELETE FROM driver_id_aliases WHERE customer = $1`,
-    [CUSTOMER_NAME],
+    `DELETE FROM driver_id_aliases WHERE customer = $1 OR external_id = $2`,
+    [CUSTOMER_NAME, UNMAPPED_BADGE],
   );
   await pool.query(
     `DELETE FROM customers WHERE display_name = $1`,
@@ -222,7 +231,10 @@ async function cleanup(): Promise<void> {
     `DELETE FROM drivers WHERE kfi_id = $1`,
     [PICK_TARGET_DRIVER.kfiId],
   );
-  await pool.query(`DELETE FROM weeks WHERE start_date = $1`, [WEEK_START]);
+  // Intentionally do NOT delete the weeks row — 2026-04-26 is a real
+  // payroll week that other data (and other tests) may reference. The
+  // seedDb INSERT uses ON CONFLICT DO NOTHING so leaving the row in
+  // place is correct and idempotent.
 }
 
 test.beforeAll(async () => {
@@ -238,6 +250,17 @@ test.afterAll(async () => {
 // Real Gemini on a 450-row xlsx: bump the per-test budget for the
 // first-time AI pass (chunked extract can run 30-90s).
 test.setTimeout(300_000);
+
+// The unmapped-driver picker is a Radix Select with ~21 options that
+// Radix renders in an absolutely-positioned popper anchored to the
+// trigger. With the default 720px viewport the matching <Option> can
+// land below the visible page rect; Playwright's click then fails
+// with "Element is outside of the viewport" even after scrolling
+// Radix's internal scroll viewport (and even with force:true — CDP
+// still needs to dispatch the click at an in-viewport point). A
+// taller viewport lets the popper render the full option list
+// on-screen.
+test.use({ viewport: { width: 1280, height: 1800 } });
 
 test("dispatcher self-onboards a new Penda customer end-to-end with real fixture + UI picker", async ({
   page,
@@ -266,13 +289,13 @@ test("dispatcher self-onboards a new Penda customer end-to-end with real fixture
 
   // ----- Step 2: dispatcher uploads via the per-row UI ----------------
   await page.goto(`/weeks/${WEEK_START}`, { waitUntil: "commit" });
-  const customerRow = page
-    .locator("li")
-    .filter({ hasText: CUSTOMER_NAME })
-    .first();
+  // Scope to the upload-panel row testid — the customer name also
+  // shows up in the drivers-sidebar `<li>` (groupings by customer),
+  // which would otherwise be picked first and contains no file input.
+  const customerRow = page.getByTestId(`customer-upload-row-${CUSTOMER_NAME}`);
   await expect(customerRow).toBeVisible({ timeout: 30_000 });
 
-  const fileInput = customerRow.locator('input[type="file"]');
+  const fileInput = page.getByTestId(`customer-upload-input-${CUSTOMER_NAME}`);
   await expect(fileInput).toHaveCount(1);
   await fileInput.setInputFiles({
     name: FILE_NAME,
@@ -315,9 +338,24 @@ test("dispatcher self-onboards a new Penda customer end-to-end with real fixture
   // inside the dialog. Scope the option click to the open listbox.
   const optionList = page.getByRole("listbox");
   await expect(optionList).toBeVisible();
-  await optionList
-    .getByRole("option", { name: new RegExp(PICK_TARGET_DRIVER.name, "i") })
-    .click();
+  // Radix Select's Popper positions the listbox absolute-anchored to
+  // the trigger; the matching <Option> may render at a y-coordinate
+  // past the visible page rect even with a tall viewport (the popper
+  // can spill below the bottom edge of the dialog's own scroll
+  // viewport). Playwright's CDP click requires an in-viewport point
+  // even with force:true. Radix's SelectItem listens for pointerup
+  // (via radix-collection-item) — dispatch the same synthetic event
+  // sequence directly on the element so position doesn't matter.
+  const option = optionList.getByRole("option", {
+    name: new RegExp(PICK_TARGET_DRIVER.name, "i"),
+  });
+  await option.evaluate((el) => {
+    el.scrollIntoView({ block: "center" });
+    const opts = { bubbles: true, cancelable: true } as const;
+    el.dispatchEvent(new PointerEvent("pointerdown", opts));
+    el.dispatchEvent(new PointerEvent("pointerup", opts));
+    el.dispatchEvent(new MouseEvent("click", opts));
+  });
   // Selection rendered back in the trigger.
   await expect(
     previewDialog.getByTestId(`select-unmapped-${UNMAPPED_BADGE}`),

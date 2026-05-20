@@ -52,6 +52,21 @@ export function inferColumnRoles(
   const timeInNeedle = sample.clockIn.split(" ").slice(1).join(" "); // "H:MM AM"
   const timeOutNeedle = sample.clockOut.split(" ").slice(1).join(" ");
 
+  // xlsx (cellDates:true) hands us JS Date objects for cells that
+  // Excel stores as dates/datetimes. These cells have a meaningful
+  // time component when the source column actually holds a clock
+  // value (e.g. Penda's "Time Start Raw" / "Time End Raw"). Match
+  // those by formatting the Date in UTC as "h:mm AM/PM" — Excel
+  // does not encode a tz, and xlsx normalizes to UTC, so this is
+  // the value that lines up with the AI-extracted wall clock.
+  const formatTimeUtc = (d: Date): string => {
+    const h24 = d.getUTCHours();
+    const m = d.getUTCMinutes();
+    const ampm = h24 >= 12 ? "PM" : "AM";
+    const h12 = h24 % 12 || 12;
+    return `${h12}:${m.toString().padStart(2, "0")} ${ampm}`;
+  };
+
   for (const row of rows) {
     if (!Array.isArray(row)) continue;
     let badgeCol = -1;
@@ -63,6 +78,18 @@ export function inferColumnRoles(
       if (v == null) continue;
       const s =
         v instanceof Date ? v.toISOString().slice(0, 10) : String(v).trim();
+      // For time matching, use the wall-clock representation of a
+      // Date cell; for non-Date cells, the cell's own string form
+      // (e.g. "5:40 AM", "05:40").
+      const sTime = v instanceof Date ? formatTimeUtc(v) : s;
+      // A Date cell carries a meaningful time component if its
+      // wall-clock isn't midnight; in that case prefer time-matching
+      // over date-matching so a "Time Start Raw" / "Time End Raw"
+      // style column (date + time on one Date cell) is recognized as
+      // a time column rather than swallowed by the date check.
+      const dateHasTime =
+        v instanceof Date &&
+        (v.getUTCHours() !== 0 || v.getUTCMinutes() !== 0);
       if (
         badgeCol < 0 &&
         s.toLowerCase() === badgeNeedle
@@ -70,7 +97,24 @@ export function inferColumnRoles(
         badgeCol = i;
         continue;
       }
-      if (dateCol < 0) {
+      if (
+        timeInCol < 0 &&
+        timeInNeedle &&
+        sTime.toUpperCase().includes(timeInNeedle.toUpperCase())
+      ) {
+        timeInCol = i;
+        continue;
+      }
+      if (
+        timeOutCol < 0 &&
+        timeOutNeedle &&
+        timeOutNeedle !== timeInNeedle &&
+        sTime.toUpperCase().includes(timeOutNeedle.toUpperCase())
+      ) {
+        timeOutCol = i;
+        continue;
+      }
+      if (dateCol < 0 && !dateHasTime) {
         if (v instanceof Date) {
           if (v.toISOString().slice(0, 10) === dateNeedle) {
             dateCol = i;
@@ -81,23 +125,6 @@ export function inferColumnRoles(
           dateCol = i;
           continue;
         }
-      }
-      if (
-        timeInCol < 0 &&
-        timeInNeedle &&
-        s.toUpperCase().includes(timeInNeedle.toUpperCase())
-      ) {
-        timeInCol = i;
-        continue;
-      }
-      if (
-        timeOutCol < 0 &&
-        timeOutNeedle &&
-        timeOutNeedle !== timeInNeedle &&
-        s.toUpperCase().includes(timeOutNeedle.toUpperCase())
-      ) {
-        timeOutCol = i;
-        continue;
       }
     }
     if (
@@ -409,27 +436,41 @@ export async function deriveSchemaCacheMutation(args: {
         : null;
   if (!format) return { action: "skip", reason: "unsupported-format" };
 
-  const rawBadge = pickRawBadge(first);
-  let roles: unknown;
-  if (format === "xlsx") {
-    roles = inferColumnRoles(buffer, {
-      rawBadge,
-      dateIso: first.date,
-      clockIn: first.clockIn,
-      clockOut: first.clockOut,
-    });
-  } else {
-    const fallbackYear = parseInt(weekStart.slice(0, 4));
-    roles = await inferPdfColumnRoles(
-      buffer,
-      {
+  // Try several emitted punches before giving up on role inference.
+  // The AI occasionally lightly rounds / reformats clock values on its
+  // first emitted row in a way that doesn't perfectly line up against
+  // any single workbook cell (e.g. dropping a leading zero or shifting
+  // a minute). Other rows in the same response usually do line up,
+  // and a single matching row is enough to pin the column layout for
+  // the whole sheet — so a delete-stale outcome from a one-off
+  // first-row mismatch costs the next upload another full AI run for
+  // no real reason.
+  let roles: unknown = null;
+  const candidates = aiResult.punches.slice(0, 8);
+  for (const candidate of candidates) {
+    const rawBadge = pickRawBadge(candidate);
+    if (!rawBadge) continue;
+    if (format === "xlsx") {
+      roles = inferColumnRoles(buffer, {
         rawBadge,
-        clockIn: first.clockIn,
-        clockOut: first.clockOut,
-        hours: first.hours,
-      },
-      fallbackYear,
-    );
+        dateIso: candidate.date,
+        clockIn: candidate.clockIn,
+        clockOut: candidate.clockOut,
+      });
+    } else {
+      const fallbackYear = parseInt(weekStart.slice(0, 4));
+      roles = await inferPdfColumnRoles(
+        buffer,
+        {
+          rawBadge,
+          clockIn: candidate.clockIn,
+          clockOut: candidate.clockOut,
+          hours: candidate.hours,
+        },
+        fallbackYear,
+      );
+    }
+    if (roles) break;
   }
   if (!roles) {
     // AI succeeded but we couldn't infer roles from this buffer. Any

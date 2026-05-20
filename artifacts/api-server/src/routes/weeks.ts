@@ -90,6 +90,7 @@ import {
   imageExtension,
   isImageMime,
   normalizeImageBuffer,
+  parseClockToMin,
 } from "../lib/parsers/imageSupport.js";
 import { topMatches } from "../lib/parsers/fuzzy.js";
 import { narrowDriverPool } from "../lib/parsers/candidatePool.js";
@@ -1639,6 +1640,12 @@ weeksRouter.post(
         if (parsed && parsed.punches.length > 0) {
           result = parsed;
           extractSource = "cache";
+          // Stash resolved rows so /confirm-customer-file can commit
+          // the cache-reader output directly (same shape as the AI
+          // branch). Without this the sample lands with both
+          // extractedRows and pendingNamedRows null and confirm 400s
+          // with "older parser path" even though we have rows in hand.
+          stashedImageRows = imagePunchesForStash(parsed.punches);
         }
       } catch (err) {
         req.log.warn(
@@ -2350,6 +2357,7 @@ weeksRouter.post(
           const baseRows = result.punches;
           const pending = sample.pendingNamedRows ?? [];
           const reResolved: schema.StashedExtractedPunch[] = [];
+          const pendingDropReasons: Record<string, number> = {};
           if (pending.length > 0) {
             // Re-load the per-customer name alias map INSIDE the tx so
             // it includes the rows we just wrote above.
@@ -2375,7 +2383,15 @@ weeksRouter.post(
               let kfiId: string | null = null;
               const badge = (p.badgeOrId ?? "").trim();
               if (badge) {
-                const mapped = mergedMap[badge];
+                // Case-insensitive lookup mirrors the
+                // `lower(external_id)` unique index used by
+                // driver_id_aliases — Claude occasionally lowercases
+                // badges (e.g. `teld123` vs `TELD123`) and we want the
+                // dispatcher's just-written alias to match either way.
+                const mapped =
+                  mergedMap[badge] ??
+                  mergedMap[badge.toLowerCase()] ??
+                  mergedMap[badge.toUpperCase()];
                 if (mapped && kfiSet.has(mapped)) kfiId = mapped;
                 else if (kfiSet.has(badge)) kfiId = badge;
               }
@@ -2385,7 +2401,11 @@ weeksRouter.post(
                 );
                 if (aliased && kfiSet.has(aliased)) kfiId = aliased;
               }
-              if (!kfiId) continue;
+              if (!kfiId) {
+                pendingDropReasons.unresolved =
+                  (pendingDropReasons.unresolved ?? 0) + 1;
+                continue;
+              }
               // Auto-learn badge → kfi mapping (Task #271). When a name
               // alias pick resolves a pending row that ALSO carried a
               // badge, persist that badge as a driver_id_alias so next
@@ -2411,19 +2431,75 @@ weeksRouter.post(
                   ON CONFLICT (lower(external_id)) DO NOTHING
                 `);
               }
-              const clockIn = (p.timeIn ?? "").trim();
-              const clockOut = (p.timeOut ?? "").trim();
-              let hours =
-                typeof p.hours === "number" && p.hours > 0 ? p.hours : 0;
+              let clockIn = (p.timeIn ?? "").trim();
+              let clockOut = (p.timeOut ?? "").trim();
+              // Tolerate AI-emitted hours as numeric strings ("8",
+              // "8.5") in addition to native numbers — pendingNamedRows
+              // jsonb round-trip preserves type, but Claude has shipped
+              // string hours in the past and we shouldn't silently drop
+              // the picker-mapped row over that.
+              let hours = 0;
+              if (typeof p.hours === "number" && p.hours > 0) {
+                hours = p.hours;
+              } else if (typeof p.hours === "string") {
+                const parsed = Number((p.hours as string).trim());
+                if (Number.isFinite(parsed) && parsed > 0) hours = parsed;
+              }
               if (!hours && clockIn && clockOut) {
-                const ms =
-                  new Date(`${p.date} ${clockOut}`).getTime() -
-                  new Date(`${p.date} ${clockIn}`).getTime();
-                if (!Number.isNaN(ms) && ms > 0) {
-                  hours = Math.round((ms / 3_600_000) * 1000) / 1000;
+                // Use the same robust 12/24-hour regex parser the
+                // image-extract path uses (`parseClockToMin`) — Claude
+                // occasionally returns 24-hour `HH:MM` strings that
+                // V8's `new Date("YYYY-MM-DD HH:MM")` parses
+                // inconsistently across locales. Fall through to
+                // `new Date(...)` only if the regex doesn't recognize
+                // the shape (rare ISO datetime case).
+                const inMin = parseClockToMin(clockIn);
+                const outMin = parseClockToMin(clockOut);
+                if (inMin != null && outMin != null) {
+                  const delta =
+                    outMin >= inMin ? outMin - inMin : outMin - inMin + 1440;
+                  if (delta > 0) hours = Math.round((delta / 60) * 1000) / 1000;
+                } else {
+                  const ms =
+                    new Date(`${p.date} ${clockOut}`).getTime() -
+                    new Date(`${p.date} ${clockIn}`).getTime();
+                  if (!Number.isNaN(ms) && ms > 0) {
+                    hours = Math.round((ms / 3_600_000) * 1000) / 1000;
+                  }
                 }
               }
-              if (!(hours > 0) || !clockIn || !clockOut) continue;
+              if (!(hours > 0)) {
+                pendingDropReasons.noHours =
+                  (pendingDropReasons.noHours ?? 0) + 1;
+                continue;
+              }
+              if (!clockIn || !clockOut) {
+                // Hours-only AI row (no clock times). Common when the
+                // source sheet has an "Hours" column alongside but the
+                // AI emitted hours without re-parsing the raw clock
+                // cells. The picker's intent is "import this driver's
+                // time for the week"; the engine only needs hours, so
+                // synthesize a placeholder shift window (08:00 AM
+                // start, +hours, clamped at 23:59 same-day) so the row
+                // round-trips through the same writer path as a
+                // regular punch instead of being silently dropped.
+                const startMin = 8 * 60;
+                const durMin = Math.min(
+                  Math.max(Math.round(hours * 60), 1),
+                  24 * 60 - startMin - 1,
+                );
+                const fmt = (m: number): string => {
+                  const h24 = Math.floor(m / 60) % 24;
+                  const mm = m % 60;
+                  const ampm = h24 >= 12 ? "PM" : "AM";
+                  const h12 = h24 % 12 || 12;
+                  return `${h12}:${mm.toString().padStart(2, "0")} ${ampm}`;
+                };
+                clockIn = fmt(startMin);
+                clockOut = fmt(startMin + durMin);
+                pendingDropReasons.synthesizedClock =
+                  (pendingDropReasons.synthesizedClock ?? 0) + 1;
+              }
               reResolved.push({
                 kfiId,
                 customer: sample.customer,
@@ -2436,6 +2512,17 @@ weeksRouter.post(
                 payType: "Reg",
               });
             }
+          }
+          if (pending.length > 0) {
+            req.log.info(
+              {
+                customer,
+                pendingCount: pending.length,
+                reResolvedCount: reResolved.length,
+                pendingDropReasons,
+              },
+              "confirm: re-resolved pendingNamedRows after picker writes",
+            );
           }
           reparsed = {
             customer: sample.customer,

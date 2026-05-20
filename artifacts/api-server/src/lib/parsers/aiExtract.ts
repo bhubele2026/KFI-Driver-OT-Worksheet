@@ -354,12 +354,25 @@ export function xlsxToChunks(
     if (rows.length === 0) continue;
     const header = rows[0];
     const body = rows.slice(1);
+    // Distribute rows evenly across the chunks we'll need, rather than
+    // greedily packing each chunk to maxRowsPerChunk and leaving a tiny
+    // tail (e.g. 450 rows @60/chunk → 60×7 + 30 = ratio-safety trip on
+    // chunk 8). With a fixed prompt overhead (schema, customer, label),
+    // a 30-row chunk has the same prompt chars as a 60-row chunk, so its
+    // chars-per-row ratio doubles and trips the >500 guard. Even
+    // distribution keeps every chunk near the same row count, so the
+    // safety net only fires on genuinely malformed splits.
+    const numChunks = Math.max(1, Math.ceil(body.length / maxRowsPerChunk));
+    const evenRowsPerChunk = Math.max(
+      1,
+      Math.ceil(body.length / numChunks),
+    );
     let i = 0;
     let part = 1;
     while (i < body.length) {
       const sliceRows: string[] = [];
       let chars = header.length + 1;
-      while (i < body.length && sliceRows.length < maxRowsPerChunk) {
+      while (i < body.length && sliceRows.length < evenRowsPerChunk) {
         const r = body[i];
         if (chars + r.length + 1 > XLSX_CHUNK_MAX_CHARS && sliceRows.length > 0) {
           break;

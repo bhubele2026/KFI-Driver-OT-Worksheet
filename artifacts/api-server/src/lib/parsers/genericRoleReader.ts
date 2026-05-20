@@ -136,8 +136,18 @@ export function readWithRoles(
     const clockIn = normalizeTime(row[columnRoles.timeIn], dateIso);
     const clockOut = normalizeTime(row[columnRoles.timeOut], dateIso);
     if (!clockIn || !clockOut) continue;
-    const mapped = idMap[rawBadge];
-    if (!mapped || !kfiSet.has(mapped)) {
+    // Resolve badge → kfiId. Aliases take precedence (a customer's
+    // external employee number remapped to a KFI driver); otherwise
+    // fall through to the badge itself if it's already a real
+    // kfi_id (matches the AI path in `imageSupport.resolveKfiId`,
+    // which accepts kfiSet.has(badge) as a self-mapping so files
+    // that ship driver kfi_ids in the badge column don't need a
+    // dummy alias per driver).
+    const aliased = idMap[rawBadge];
+    let mapped: string | null = null;
+    if (aliased && kfiSet.has(aliased)) mapped = aliased;
+    else if (kfiSet.has(rawBadge)) mapped = rawBadge;
+    if (!mapped) {
       unmapped.add(rawBadge, null);
       continue;
     }

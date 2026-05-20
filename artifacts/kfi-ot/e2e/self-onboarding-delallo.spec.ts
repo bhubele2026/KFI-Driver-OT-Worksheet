@@ -33,8 +33,12 @@ if (!DATABASE_URL) {
 const pool = new Pool({ connectionString: DATABASE_URL });
 
 const SUFFIX = `e2e-onb-del-${Date.now().toString(36)}`;
-const WEEK_START = "2031-09-14"; // Sunday
-const WEEK_END = "2031-09-20"; // Saturday
+// Must match the fixture's actual week — Gemini reads the dates straight
+// off the page and the extractor drops anything outside the requested
+// Sun→Sat window. The fixture lives under `fixtures/2026-04-26/`, so the
+// dispatcher session reconciles that exact week.
+const WEEK_START = "2026-04-26"; // Sunday
+const WEEK_END = "2026-05-02"; // Saturday
 const CUSTOMER_NAME = `E2E DeLallo ${SUFFIX}`;
 const KEYWORD = `delallo${SUFFIX.replace(/-/g, "")}`.toLowerCase();
 
@@ -126,9 +130,16 @@ async function cleanup(): Promise<void> {
     [CUSTOMER_NAME],
   );
   // Aliases written by this run's picker carry our customer label.
+  // The badge ids are discovered at runtime so we can't list them
+  // explicitly, but every pick in this spec routes the unmapped badge
+  // to PICK_TARGET_DRIVER — so also drop any global alias pointing at
+  // that driver. Without this, the previous run's aliases (scoped to
+  // a now-deleted customer name) survive on the global lower(
+  // external_id) unique index and turn the badges into pre-mapped
+  // rows, breaking the "exactly N unmapped" expectation.
   await pool.query(
-    `DELETE FROM driver_id_aliases WHERE customer = $1`,
-    [CUSTOMER_NAME],
+    `DELETE FROM driver_id_aliases WHERE customer = $1 OR kfi_id = $2`,
+    [CUSTOMER_NAME, PICK_TARGET_DRIVER.kfiId],
   );
   await pool.query(
     `DELETE FROM customers WHERE display_name = $1`,
@@ -138,7 +149,10 @@ async function cleanup(): Promise<void> {
     `DELETE FROM drivers WHERE kfi_id = $1`,
     [PICK_TARGET_DRIVER.kfiId],
   );
-  await pool.query(`DELETE FROM weeks WHERE start_date = $1`, [WEEK_START]);
+  // Intentionally do NOT delete the weeks row — 2026-04-26 is a real
+  // payroll week that other data (and other tests) may reference. The
+  // seedDb INSERT uses ON CONFLICT DO NOTHING so leaving the row in
+  // place is correct and idempotent.
 }
 
 test.beforeAll(async () => {
@@ -153,6 +167,17 @@ test.afterAll(async () => {
 
 // Real Gemini + a multi-page PDF: bump for the AI's image-extract pass.
 test.setTimeout(300_000);
+
+// The unmapped-driver picker is a Radix Select with ~21 options that
+// Radix renders in an absolutely-positioned popper anchored to the
+// trigger. With the default 720px viewport the matching <Option> in
+// the long list can land below the visible page rect; Playwright's
+// click then fails with "Element is outside of the viewport" even
+// after scrolling Radix's internal scroll viewport (and even with
+// force:true — CDP still needs to dispatch the click at an in-viewport
+// point). A taller viewport lets the popper render the full option
+// list on-screen.
+test.use({ viewport: { width: 1280, height: 1800 } });
 
 test("dispatcher self-onboards a new DeLallo customer end-to-end with real fixture + UI picker", async ({
   page,
@@ -175,13 +200,13 @@ test("dispatcher self-onboards a new DeLallo customer end-to-end with real fixtu
 
   // ----- Step 2: dispatcher uploads via the per-row UI ----------------
   await page.goto(`/weeks/${WEEK_START}`, { waitUntil: "commit" });
-  const customerRow = page
-    .locator("li")
-    .filter({ hasText: CUSTOMER_NAME })
-    .first();
+  // Scope to the upload-panel row testid — the customer name also
+  // shows up in the drivers-sidebar `<li>` (groupings by customer),
+  // which would otherwise be picked first and contains no file input.
+  const customerRow = page.getByTestId(`customer-upload-row-${CUSTOMER_NAME}`);
   await expect(customerRow).toBeVisible({ timeout: 30_000 });
 
-  const fileInput = customerRow.locator('input[type="file"]');
+  const fileInput = page.getByTestId(`customer-upload-input-${CUSTOMER_NAME}`);
   await expect(fileInput).toHaveCount(1);
   await fileInput.setInputFiles({
     name: FILE_NAME,
@@ -230,9 +255,23 @@ test("dispatcher self-onboards a new DeLallo customer end-to-end with real fixtu
     // earlier popper.
     const optionList = page.getByRole("listbox");
     await expect(optionList).toBeVisible();
-    await optionList
-      .getByRole("option", { name: new RegExp(PICK_TARGET_DRIVER.name, "i") })
-      .click();
+    // Radix Select's Popper positions the listbox absolute-anchored to
+    // the trigger; with ~21 candidates the matching <Option> can render
+    // past the visible page rect even after scroll, and Playwright's
+    // CDP click requires an in-viewport point even with force:true.
+    // Radix's SelectItem listens for pointerup (via
+    // radix-collection-item) — dispatch the same synthetic event
+    // sequence directly on the element so position doesn't matter.
+    const option = optionList.getByRole("option", {
+      name: new RegExp(PICK_TARGET_DRIVER.name, "i"),
+    });
+    await option.evaluate((el) => {
+      el.scrollIntoView({ block: "center" });
+      const opts = { bubbles: true, cancelable: true } as const;
+      el.dispatchEvent(new PointerEvent("pointerdown", opts));
+      el.dispatchEvent(new PointerEvent("pointerup", opts));
+      el.dispatchEvent(new MouseEvent("click", opts));
+    });
     // Wait for the trigger to reflect the selection before opening the
     // next dropdown — keeps the action serialization clean on slow CI.
     await expect(
