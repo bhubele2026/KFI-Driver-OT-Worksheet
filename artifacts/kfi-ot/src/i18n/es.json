@@ -359,6 +359,8 @@
     "dayOverriddenOn": " el {{when}}",
     "dayClickToSet": "Clic para fijar el total del día — los registros se escalarán proporcionalmente",
     "dayTotalCurrent": "Total del día (actualmente {{hours}}h)",
+    "punchHoursCurrent": "Horas del registro (actualmente {{hours}}h)",
+    "punchHoursClickToEdit": "Clic para editar las horas de este registro — no cambia la entrada/salida ni otros registros",
     "cumulative": "Acumulado: {{hours}}h",
     "reviewedTooltip": "Revisado",
     "reviewedByTooltip": "Revisado por {{email}}",

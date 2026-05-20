@@ -359,6 +359,8 @@
     "dayOverriddenOn": " on {{when}}",
     "dayClickToSet": "Click to set this day's total — punches will be scaled proportionally",
     "dayTotalCurrent": "Day total (currently {{hours}}h)",
+    "punchHoursCurrent": "Punch hours (currently {{hours}}h)",
+    "punchHoursClickToEdit": "Click to edit this punch's hours — won't change clock in/out or any other punch",
     "cumulative": "Cumulative: {{hours}}h",
     "reviewedTooltip": "Reviewed",
     "reviewedByTooltip": "Reviewed by {{email}}",

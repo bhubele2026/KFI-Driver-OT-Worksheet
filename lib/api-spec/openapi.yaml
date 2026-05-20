@@ -3048,11 +3048,22 @@ components:
 
     EditPunchInput:
       type: object
+      description: |
+        Edit one punch. If `hours` is supplied it is stored verbatim and
+        clock-in/clock-out are NOT used to recompute hours (lets a
+        dispatcher correct just the hours total without nudging clock
+        times). If `hours` is omitted and clockIn/clockOut change, hours
+        is recomputed from the time diff. Edits to one punch never
+        affect any other punch.
       properties:
         clockIn:
           type: ["string", "null"]
         clockOut:
           type: ["string", "null"]
+        hours:
+          type: ["number", "null"]
+          minimum: 0
+          maximum: 24
 
     RefreshResult:
       type: object

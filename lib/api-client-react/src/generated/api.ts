@@ -60,6 +60,7 @@ import type {
   DriverWeekLockState,
   EditPunchInput,
   EmailDeliveryResult,
+  ExtractCustomerFileParams,
   ForgetCustomerNameAliasParams,
   HealthStatus,
   HiddenNotesUnseenCount,
@@ -3734,16 +3735,32 @@ replay it on demand. Body is `multipart/form-data` with a single `file` field;
 the frontend builds the FormData manually.
 
  */
-export const getExtractCustomerFileUrl = (weekStart: string) => {
-  return `/api/weeks/${weekStart}/extract-customer-file`;
+export const getExtractCustomerFileUrl = (
+  weekStart: string,
+  params?: ExtractCustomerFileParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/weeks/${weekStart}/extract-customer-file?${stringifiedParams}`
+    : `/api/weeks/${weekStart}/extract-customer-file`;
 };
 
 export const extractCustomerFile = async (
   weekStart: string,
+  params?: ExtractCustomerFileParams,
   options?: RequestInit,
 ): Promise<CustomerExtractPreview> => {
   return customFetch<CustomerExtractPreview>(
-    getExtractCustomerFileUrl(weekStart),
+    getExtractCustomerFileUrl(weekStart, params),
     {
       ...options,
       method: "POST",
@@ -3758,14 +3775,14 @@ export const getExtractCustomerFileMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof extractCustomerFile>>,
     TError,
-    { weekStart: string },
+    { weekStart: string; params?: ExtractCustomerFileParams },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof extractCustomerFile>>,
   TError,
-  { weekStart: string },
+  { weekStart: string; params?: ExtractCustomerFileParams },
   TContext
 > => {
   const mutationKey = ["extractCustomerFile"];
@@ -3779,11 +3796,11 @@ export const getExtractCustomerFileMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof extractCustomerFile>>,
-    { weekStart: string }
+    { weekStart: string; params?: ExtractCustomerFileParams }
   > = (props) => {
-    const { weekStart } = props ?? {};
+    const { weekStart, params } = props ?? {};
 
-    return extractCustomerFile(weekStart, requestOptions);
+    return extractCustomerFile(weekStart, params, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -3813,14 +3830,14 @@ export const useExtractCustomerFile = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof extractCustomerFile>>,
     TError,
-    { weekStart: string },
+    { weekStart: string; params?: ExtractCustomerFileParams },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof extractCustomerFile>>,
   TError,
-  { weekStart: string },
+  { weekStart: string; params?: ExtractCustomerFileParams },
   TContext
 > => {
   return useMutation(getExtractCustomerFileMutationOptions(options));

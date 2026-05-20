@@ -6,9 +6,24 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Edit one punch. If `hours` is supplied it is stored verbatim and
+clock-in/clock-out are NOT used to recompute hours (lets a
+dispatcher correct just the hours total without nudging clock
+times). If `hours` is omitted and clockIn/clockOut change, hours
+is recomputed from the time diff. Edits to one punch never
+affect any other punch.
+
+ */
 export interface EditPunchInput {
   /** @nullable */
   clockIn?: string | null;
   /** @nullable */
   clockOut?: string | null;
+  /**
+   * @minimum 0
+   * @maximum 24
+   * @nullable
+   */
+  hours?: number | null;
 }

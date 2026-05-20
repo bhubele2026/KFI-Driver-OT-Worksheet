@@ -1418,6 +1418,20 @@ export const ExtractCustomerFileParams = zod.object({
     .describe("Week start date (Sunday) in YYYY-MM-DD"),
 });
 
+export const extractCustomerFileQueryMaxCallsMin = 20;
+export const extractCustomerFileQueryMaxCallsMax = 200;
+
+export const ExtractCustomerFileQueryParams = zod.object({
+  maxCalls: zod.coerce
+    .number()
+    .min(extractCustomerFileQueryMaxCallsMin)
+    .max(extractCustomerFileQueryMaxCallsMax)
+    .optional()
+    .describe(
+      "Task #356: admin-only per-upload AI call-ceiling override. When a previous extract aborted with `IngestionBudgetExceeded`, an admin can retry with a higher ceiling (capped at `BACKSTOP_MAX_CALLS_PER_UPLOAD=200`). Non-admin callers get 403; out-of-range values get 400. Every accepted override is audited in `user_audit_log` and surfaced on the resulting `ingestion_runs` row.\n",
+    ),
+});
+
 export const ExtractCustomerFileResponse = zod.object({
   customer: zod.string(),
   fileName: zod.string(),
@@ -2885,10 +2899,22 @@ export const EditPunchParams = zod.object({
   id: zod.coerce.number(),
 });
 
-export const EditPunchBody = zod.object({
-  clockIn: zod.string().nullish(),
-  clockOut: zod.string().nullish(),
-});
+export const editPunchBodyHoursMin = 0;
+export const editPunchBodyHoursMax = 24;
+
+export const EditPunchBody = zod
+  .object({
+    clockIn: zod.string().nullish(),
+    clockOut: zod.string().nullish(),
+    hours: zod
+      .number()
+      .min(editPunchBodyHoursMin)
+      .max(editPunchBodyHoursMax)
+      .nullish(),
+  })
+  .describe(
+    "Edit one punch. If `hours` is supplied it is stored verbatim and\nclock-in\/clock-out are NOT used to recompute hours (lets a\ndispatcher correct just the hours total without nudging clock\ntimes). If `hours` is omitted and clockIn\/clockOut change, hours\nis recomputed from the time diff. Edits to one punch never\naffect any other punch.\n",
+  );
 
 export const EditPunchResponse = zod.object({
   id: zod.number(),

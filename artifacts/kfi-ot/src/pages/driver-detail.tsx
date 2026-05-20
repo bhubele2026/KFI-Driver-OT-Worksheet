@@ -25,7 +25,6 @@ import {
   useListDriverNotes,
   useCreateDriverNote,
   useSoftDeleteDriverNote,
-  useScaleDayHours,
   useResetDriverCustomerPunches,
   getGetDriverWeekQueryKey,
   getGetWeekSummaryQueryKey,
@@ -477,17 +476,16 @@ export default function DriverDetail() {
   const [editPreview, setEditPreview] = useState<PreviewResult | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
-  // Inline day-total editor. `editingDay` is the YYYY-MM-DD of the day
-  // whose total cell is open for edit. Saving proportionally scales the
-  // contributing punches' hours so the day sum matches the new value.
-  const [editingDay, setEditingDay] = useState<string | null>(null);
-  const [editingDayValue, setEditingDayValue] = useState("");
-  // Which punch row's Hours cell is currently rendering the day-total
-  // editor. The edit affordance now lives on every punch row of a day; this
-  // tracks which row to render the input/save/cancel controls on so the
-  // editor only appears once even if a day has multiple punches.
-  const [editingDayRowId, setEditingDayRowId] = useState<number | null>(null);
-  const scaleDayHours = useScaleDayHours();
+  // Inline per-punch hours editor. Clicking a punch row's HOURS cell
+  // opens this editor for THAT row only — saving stores the new hours
+  // verbatim on the one punch (the PATCH /punches/:id route accepts a
+  // `hours` override that bypasses the clock-in/out recompute). No
+  // other punch on the same day is touched. Clock-in/out edits still
+  // recompute hours from the time diff via the existing row editor.
+  const [editingHoursPunchId, setEditingHoursPunchId] = useState<number | null>(
+    null,
+  );
+  const [editHoursValue, setEditHoursValue] = useState("");
 
   // Notes ------------------------------------------------------------------
   const { data: notes } = useListDriverNotes(weekStart, kfiId);
@@ -923,21 +921,21 @@ export default function DriverDetail() {
     );
   };
 
-  const startEditDay = (date: string, currentTotal: number, rowId: number) => {
+  const startEditHours = (p: Punch) => {
     cancelEdit();
-    setEditingDay(date);
-    setEditingDayValue(currentTotal.toFixed(2));
-    setEditingDayRowId(rowId);
+    setEditingHoursPunchId(p.id);
+    setEditHoursValue(p.hours.toFixed(2));
+    claim(p.id);
   };
 
-  const cancelEditDay = () => {
-    setEditingDay(null);
-    setEditingDayValue("");
-    setEditingDayRowId(null);
+  const cancelEditHours = () => {
+    if (editingHoursPunchId !== null) release(editingHoursPunchId);
+    setEditingHoursPunchId(null);
+    setEditHoursValue("");
   };
 
-  const saveEditDay = (date: string) => {
-    const target = parseFloat(editingDayValue);
+  const saveEditHours = (id: number) => {
+    const target = parseFloat(editHoursValue);
     if (!Number.isFinite(target) || target < 0 || target > 24) {
       toast({
         title: t("driverDetail.invalidTotal"),
@@ -946,8 +944,8 @@ export default function DriverDetail() {
       });
       return;
     }
-    scaleDayHours.mutate(
-      { weekStart, kfiId, date, data: { totalHours: target } },
+    editPunch.mutate(
+      { id, data: { hours: Math.round(target * 100) / 100 } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({
@@ -956,12 +954,12 @@ export default function DriverDetail() {
           queryClient.invalidateQueries({
             queryKey: getGetWeekSummaryQueryKey(weekStart),
           });
-          setEditingDay(null);
-          setEditingDayValue("");
-          setEditingDayRowId(null);
-          toast({ title: t("driverDetail.toasts.dailyTotalSet", { hours: target.toFixed(2) }) });
+          release(id);
+          setEditingHoursPunchId(null);
+          setEditHoursValue("");
+          toast({ title: t("driverDetail.toasts.punchUpdated") });
         },
-        onError: (err) => handleLockedError(err, t("driverDetail.couldntUpdateDailyTotal")),
+        onError: (err) => handleLockedError(err, t("driverDetail.failedUpdatePunch")),
       },
     );
   };
@@ -2166,92 +2164,72 @@ export default function DriverDetail() {
                               </div>
                             )}
                           </>
-                        ) : (() => {
-                          const isOverridden = dayOverridesByDate.get(p.date) ?? false;
-                          const lastTouch = dayLastTouchByDate.get(p.date);
-                          const overrideTitle = isOverridden
-                            ? t("driverDetail.dayOverriddenTitle", {
-                                by: lastTouch?.email ? t("driverDetail.dayOverriddenBy", { email: lastTouch.email }) : "",
-                                on: lastTouch?.at ? t("driverDetail.dayOverriddenOn", { when: new Date(lastTouch.at).toLocaleString() }) : "",
-                              })
-                            : t("driverDetail.dayClickToSet");
-                          const isEditorOnThisRow =
-                            editingDay === p.date && editingDayRowId === p.id;
-                          const isSavingThisDay =
-                            scaleDayHours.isPending && editingDay === p.date;
-                          if (isEditorOnThisRow) {
-                            const dayTotal = dailyTotalByDate.get(p.date) ?? 0;
-                            return (
-                              <span
-                                className="inline-flex items-center gap-0.5 justify-end"
-                                data-testid={`row-day-total-${p.date}`}
-                              >
-                                <Input
-                                  autoFocus
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  max="24"
-                                  className="h-6 w-16 font-mono text-xs px-1 py-0"
-                                  value={editingDayValue}
-                                  onChange={(e) => setEditingDayValue(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      saveEditDay(p.date);
-                                    } else if (e.key === "Escape") {
-                                      e.preventDefault();
-                                      cancelEditDay();
-                                    }
-                                  }}
-                                  data-testid={`input-day-total-${p.date}`}
-                                  title={t("driverDetail.dayTotalCurrent", { hours: dayTotal.toFixed(2) })}
-                                />
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-5 w-5 text-green-600"
-                                  onClick={() => saveEditDay(p.date)}
-                                  disabled={isSavingThisDay}
-                                  data-testid={`button-save-day-total-${p.date}`}
-                                >
-                                  {isSavingThisDay ? (
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                  ) : (
-                                    <Save className="h-3 w-3" />
-                                  )}
-                                </Button>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-5 w-5 text-muted-foreground"
-                                  onClick={cancelEditDay}
-                                  data-testid={`button-cancel-day-total-${p.date}`}
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
-                              </span>
-                            );
-                          }
-                          return (
-                            <span className="inline-flex items-center gap-0.5 justify-end">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const prefill = isOverridden
-                                    ? p.hours
-                                    : dailyTotalByDate.get(p.date) ?? 0;
-                                  startEditDay(p.date, prefill, p.id);
-                                }}
-                                className="font-mono tabular-nums px-1 py-0 rounded hover:underline decoration-dotted underline-offset-2 cursor-pointer hover:text-foreground"
-                                title={overrideTitle}
-                                data-testid={`button-edit-day-total-${p.date}`}
-                              >
-                                {p.hours.toFixed(2)}
-                              </button>
-                            </span>
-                          );
-                        })()}
+                        ) : editingHoursPunchId === p.id ? (
+                          <span
+                            className="inline-flex items-center gap-0.5 justify-end"
+                            data-testid={`row-punch-hours-${p.id}`}
+                          >
+                            <Input
+                              autoFocus
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="24"
+                              className="h-6 w-16 font-mono text-xs px-1 py-0"
+                              value={editHoursValue}
+                              onChange={(e) => {
+                                setEditHoursValue(e.target.value);
+                                touchActivity(p.id);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  saveEditHours(p.id);
+                                } else if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  cancelEditHours();
+                                }
+                              }}
+                              data-testid={`input-punch-hours-${p.id}`}
+                              title={t("driverDetail.punchHoursCurrent", { hours: p.hours.toFixed(2) })}
+                            />
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-5 w-5 text-green-600"
+                              onClick={() => saveEditHours(p.id)}
+                              disabled={editPunch.isPending}
+                              data-testid={`button-save-punch-hours-${p.id}`}
+                            >
+                              {editPunch.isPending ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Save className="h-3 w-3" />
+                              )}
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-5 w-5 text-muted-foreground"
+                              onClick={cancelEditHours}
+                              data-testid={`button-cancel-punch-hours-${p.id}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-0.5 justify-end">
+                            <button
+                              type="button"
+                              onClick={() => startEditHours(p)}
+                              className="font-mono tabular-nums px-1 py-0 rounded hover:underline decoration-dotted underline-offset-2 cursor-pointer hover:text-foreground"
+                              title={t("driverDetail.punchHoursClickToEdit")}
+                              data-testid={`button-edit-punch-hours-${p.id}`}
+                            >
+                              {p.hours.toFixed(2)}
+                            </button>
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         <TooltipProvider delayDuration={150}>

@@ -63,12 +63,32 @@ punchesRouter.patch("/punches/:id", async (req, res) => {
   };
   const newIn = prefix(parsed.data.clockIn ?? existing.clockIn);
   const newOut = prefix(parsed.data.clockOut ?? existing.clockOut);
-  const hours = diffHours(newIn, newOut);
+  // Per-punch hours override: if the caller supplied a numeric `hours`,
+  // store it verbatim and DO NOT recompute from clockIn/clockOut. This
+  // is what the inline hours-cell editor uses so a dispatcher can fix
+  // just the hours total (e.g. a 0.18 that should be 0.25) without
+  // touching the clock times or any other punch on the same day.
+  const hoursOverride =
+    typeof parsed.data.hours === "number" && Number.isFinite(parsed.data.hours)
+      ? parsed.data.hours
+      : null;
+  const hours =
+    hoursOverride !== null ? hoursOverride : diffHours(newIn, newOut);
+  if (hoursOverride !== null && (hoursOverride < 0 || hoursOverride > 24)) {
+    res.status(400).json({ error: "hours must be between 0 and 24" });
+    return;
+  }
   // Auto-clear the per-punch reviewed flag when content actually changed.
-  // A pure no-op edit (same in/out) preserves the existing reviewed mark
-  // so an accidental save doesn't force a re-tick.
+  // A pure no-op edit (same in/out and same hours) preserves the
+  // existing reviewed mark so an accidental save doesn't force a re-tick.
+  const existingHours = Number(existing.hours);
+  const hoursChanged =
+    hoursOverride !== null &&
+    Math.abs(hoursOverride - existingHours) >= 0.005;
   const contentChanged =
-    newIn !== existing.clockIn || newOut !== existing.clockOut;
+    newIn !== existing.clockIn ||
+    newOut !== existing.clockOut ||
+    hoursChanged;
   const [row] = await db
     .update(schema.punchesTable)
     .set({

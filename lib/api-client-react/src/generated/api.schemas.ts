@@ -920,11 +920,26 @@ export interface ManualPunchInput {
   dispTz?: string | null;
 }
 
+/**
+ * Edit one punch. If `hours` is supplied it is stored verbatim and
+clock-in/clock-out are NOT used to recompute hours (lets a
+dispatcher correct just the hours total without nudging clock
+times). If `hours` is omitted and clockIn/clockOut change, hours
+is recomputed from the time diff. Edits to one punch never
+affect any other punch.
+
+ */
 export interface EditPunchInput {
   /** @nullable */
   clockIn?: string | null;
   /** @nullable */
   clockOut?: string | null;
+  /**
+   * @minimum 0
+   * @maximum 24
+   * @nullable
+   */
+  hours?: number | null;
 }
 
 export interface RefreshClockFailure {
@@ -1933,6 +1948,16 @@ export type ListUserAuditLogParams = {
    */
   limit?: number;
   targetUserId?: number;
+};
+
+export type ExtractCustomerFileParams = {
+  /**
+ * Task #356: admin-only per-upload AI call-ceiling override. When a previous extract aborted with `IngestionBudgetExceeded`, an admin can retry with a higher ceiling (capped at `BACKSTOP_MAX_CALLS_PER_UPLOAD=200`). Non-admin callers get 403; out-of-range values get 400. Every accepted override is audited in `user_audit_log` and surfaced on the resulting `ingestion_runs` row.
+
+ * @minimum 20
+ * @maximum 200
+ */
+  maxCalls?: number;
 };
 
 export type ListAiExtractSamplesParams = {
