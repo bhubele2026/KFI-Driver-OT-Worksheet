@@ -82,7 +82,16 @@ export class ClaudeModelClient implements ModelClient {
     // sits at 64k; we cap our request at 32k to mirror the Gemini path's
     // budget and to keep the cost/latency profile of the existing
     // chunking math unchanged.
-    const response = await client.messages.create(
+    // The Anthropic SDK refuses non-streaming requests whose configured
+    // `max_tokens` could push the call past its 10-minute internal
+    // ceiling — at 32k output tokens we're well inside that band, so
+    // it throws "Streaming is required for operations that may take
+    // longer than 10 minutes" before the request even goes out.
+    // Switching to `.stream(...)` + `finalMessage()` keeps the same
+    // semantics (we still wait for the full response) without
+    // re-plumbing the caller, and it neatly survives slow first-token
+    // pauses inside our outer timeout race in `aiExtract.ts`.
+    const stream = client.messages.stream(
       {
         model: this.model,
         max_tokens: Math.min(opts.maxOutputTokens, 32768),
@@ -95,6 +104,7 @@ export class ClaudeModelClient implements ModelClient {
       },
       { timeout: opts.timeoutMs },
     );
+    const response = await stream.finalMessage();
     const text = response.content
       .filter((c): c is Anthropic.Messages.TextBlock => c.type === "text")
       .map((c) => c.text)
