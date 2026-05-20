@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=Syne:wght@400..800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=Geist+Mono:wght@100..900&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -70,69 +70,69 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* LIGHT MODE */
+/* LIGHT MODE — Soft Clinical (graduated from canvas mockup #396) */
 :root {
-  --button-outline: rgba(0,0,0, .10);
-  --badge-outline: rgba(0,0,0, .05);
+  --button-outline: rgba(47, 59, 54, .08);
+  --badge-outline: rgba(47, 59, 54, .04);
 
   --opaque-button-border-intensity: -8;
 
-  --elevate-1: rgba(0,0,0, .03);
-  --elevate-2: rgba(0,0,0, .08);
+  --elevate-1: rgba(47, 59, 54, .03);
+  --elevate-2: rgba(47, 59, 54, .07);
 
-  --background: 210 20% 98%;
-  --foreground: 222.2 47.4% 11.2%;
+  --background: 156 13% 97%;          /* #F6F8F7 pale sage paper */
+  --foreground: 155 11% 21%;          /* #2F3B36 deep sage ink */
 
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 173 58% 39%;
+  --border: 156 9% 91%;               /* #E6EBE9 hairline sage */
+  --input: 156 9% 91%;
+  --ring: 152 18% 56%;                /* #7CA38F sage accent */
 
-  --card: 0 0% 100%;
-  --card-foreground: 222.2 47.4% 11.2%;
-  --card-border: 214.3 31.8% 91.4%;
+  --card: 0 0% 100%;                  /* pure white panels */
+  --card-foreground: 155 11% 21%;
+  --card-border: 156 9% 91%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 222.2 47.4% 11.2%;
-  --popover-border: 214.3 31.8% 91.4%;
+  --popover-foreground: 155 11% 21%;
+  --popover-border: 156 9% 91%;
 
-  --primary: 173 58% 39%; /* Teal */
+  --primary: 155 11% 21%;             /* #2F3B36 deep ink CTAs */
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
+  --secondary: 150 19% 95%;           /* #ECF2EE soft sage block */
+  --secondary-foreground: 155 11% 21%;
 
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
+  --muted: 180 12% 99%;               /* #FBFDFD card subhead bg */
+  --muted-foreground: 158 8% 45%;     /* #6A7C75 secondary text */
 
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
+  --accent: 138 18% 91%;              /* #E0EBE3 sage highlight */
+  --accent-foreground: 155 11% 21%;
 
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
+  --destructive: 0 30% 50%;           /* #AA5555 muted brick */
+  --destructive-foreground: 0 0% 100%;
 
-  --warning: 38 92% 50%;
-  --warning-foreground: 222.2 47.4% 11.2%;
+  --warning: 36 47% 44%;              /* #A67D3A muted ochre */
+  --warning-foreground: 0 0% 100%;
 
-  --sidebar: 222.2 47.4% 11.2%; /* Navy */
-  --sidebar-foreground: 0 0% 100%;
-  --sidebar-border: 214.3 31.8% 91.4%;
-  --sidebar-primary: 173 58% 39%;
+  --sidebar: 180 12% 99%;             /* #FCFDFD light rail (was navy) */
+  --sidebar-foreground: 155 11% 21%;
+  --sidebar-border: 156 9% 91%;
+  --sidebar-primary: 152 18% 56%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 210 40% 96.1%;
-  --sidebar-accent-foreground: 222.2 47.4% 11.2%;
-  --sidebar-ring: 173 58% 39%;
+  --sidebar-accent: 138 18% 91%;
+  --sidebar-accent-foreground: 155 11% 21%;
+  --sidebar-ring: 152 18% 56%;
 
-  --chart-1: 173 58% 39%;
-  --chart-2: 38 92% 50%;
-  --chart-3: 222.2 47.4% 11.2%;
-  --chart-4: 0 84.2% 60.2%;
-  --chart-5: 215.4 16.3% 46.9%;
+  --chart-1: 152 18% 56%;             /* sage accent */
+  --chart-2: 36 47% 44%;              /* ochre warning */
+  --chart-3: 155 11% 21%;             /* deep ink */
+  --chart-4: 0 30% 50%;               /* brick destructive */
+  --chart-5: 158 8% 45%;              /* mid-sage */
 
-  --app-font-sans: 'Syne', sans-serif;
-  --app-font-display: 'Syne', sans-serif;
-  --app-font-mono: 'DM Mono', monospace;
+  --app-font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --app-font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --app-font-mono: 'Geist Mono', ui-monospace, monospace;
 
-  --radius: 0.25rem;
+  --radius: 0.5rem;
 
   --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
