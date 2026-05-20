@@ -50,6 +50,64 @@ import {
   type CustomerPreviewData,
 } from "@/components/customer-preview-dialog";
 
+// Task #296: mint a per-upload progress token the server can key the
+// in-process progress tracker by. Uses `crypto.randomUUID()` when
+// available (modern browsers), falls back to a Math.random + Date.now
+// composite for older webviews so the helper never throws — the
+// progress badge is observer-only so a weaker uniqueness guarantee is
+// acceptable.
+function mintProgressKey(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  return `pk-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// Task #296: poll `GET /weeks/:weekStart/extract-progress/:key` once
+// every 1 second while an upload is in flight. The endpoint returns
+// `{ current, total }` once the chunker has published its first tick
+// and 204 when the key is unknown (key not seen yet, single-call /
+// cache-hit path that never publishes, or already cleared). Returns a
+// stop function the caller invokes from `finally`. Polling errors are
+// swallowed — this is a UX nicety, not a correctness signal.
+function startProgressPolling(
+  weekStart: string,
+  progressKey: string,
+  onTick: (snap: { current: number; total: number }) => void,
+): () => void {
+  let stopped = false;
+  const url = `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-progress/${progressKey}`;
+  const tickOnce = async () => {
+    if (stopped) return;
+    try {
+      const res = await fetch(url, { credentials: "include" });
+      if (stopped) return;
+      if (res.status === 200) {
+        const body = (await res.json().catch(() => null)) as
+          | { current?: number; total?: number }
+          | null;
+        if (
+          body &&
+          typeof body.current === "number" &&
+          typeof body.total === "number"
+        ) {
+          onTick({ current: body.current, total: body.total });
+        }
+      }
+    } catch {
+      /* observer-only */
+    }
+  };
+  const id = window.setInterval(tickOnce, 1000);
+  return () => {
+    stopped = true;
+    window.clearInterval(id);
+  };
+}
+
 // Single source of truth for the file extensions any customer row will
 // accept in its `<input accept=...>` and in the bulk dropzone. Every
 // row accepts every supported extension; the server routes by the
@@ -175,6 +233,14 @@ interface RowState {
    * isn't staring at a frozen spinner during a 90s AI extract.
    */
   uploadStartedAt: number | null;
+  /**
+   * Task #296: live "chunk N of M" progress for chunked AI extracts.
+   * Populated by polling /extract-progress/:progressKey once a second
+   * while an upload is in flight; null when no chunked AI extract is
+   * running for this row (cache-hit fast path, single-chunk file,
+   * pre-extract, or in-flight bulk).
+   */
+  chunkProgress: { current: number; total: number } | null;
 }
 
 interface BulkItem {
@@ -260,7 +326,12 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     setRowState((prev) => ({
       ...prev,
       [customer]: {
-        ...{ uploading: false, error: null, uploadStartedAt: null },
+        ...{
+          uploading: false,
+          error: null,
+          uploadStartedAt: null,
+          chunkProgress: null,
+        },
         ...prev[customer],
         ...patch,
       },
@@ -321,6 +392,14 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     if (opts?.explicitCustomer) {
       formData.append("customer", customer);
     }
+    // Task #296: mint a per-upload progress token and start polling
+    // /extract-progress so the row badge reads "Chunk N of M" while
+    // the chunked AI extract runs. Cleaned up in `finally`.
+    const progressKey = mintProgressKey();
+    formData.append("progressKey", progressKey);
+    const stopPolling = startProgressPolling(weekStart, progressKey, (snap) =>
+      setRow(customer, { chunkProgress: snap }),
+    );
     try {
       const qs = opts?.force ? "?force=1" : "";
       const extractRes = await fetch(
@@ -387,6 +466,9 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       };
     } catch (err) {
       return { ok: false, error: errMessage(err, t("customerUpload.uploadFailedFallback")) };
+    } finally {
+      stopPolling();
+      setRow(customer, { chunkProgress: null });
     }
   };
 
@@ -408,6 +490,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     // uses this to route by content rather than filename so xlsx, pdf,
     // csv, and image uploads all work on any row regardless of extension.
     formData.append("customer", customer);
+    // Task #296: see doUpload — same progress-polling wiring for the
+    // two-step preview flow.
+    const progressKey = mintProgressKey();
+    formData.append("progressKey", progressKey);
+    const stopPolling = startProgressPolling(weekStart, progressKey, (snap) =>
+      setRow(customer, { chunkProgress: snap }),
+    );
     try {
       const res = await fetch(
         `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file`,
@@ -470,6 +559,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       if (rowAborts.current[customer] === controller) {
         delete rowAborts.current[customer];
       }
+      stopPolling();
+      setRow(customer, { chunkProgress: null });
     }
   };
 
@@ -1303,6 +1394,12 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   elapsed > 15
                     ? t("customerUpload.readingHint")
                     : null;
+                // Task #296: when the chunked AI extract has published
+                // at least one tick, prefer "Chunk N of M" over a bare
+                // elapsed counter — it gives the dispatcher a real
+                // sense of how close the 71-chunk Adient upload is to
+                // done.
+                const cp = st.chunkProgress;
                 return (
                   <span
                     className="text-xs text-muted-foreground font-mono tabular-nums whitespace-nowrap"
@@ -1311,6 +1408,17 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                     title={hint ?? undefined}
                   >
                     {t("customerUpload.reading", { elapsed })}
+                    {cp && cp.total > 1 ? (
+                      <span
+                        className="ml-2 font-sans normal-case text-[11px] text-muted-foreground"
+                        data-testid={`upload-chunk-${s.customer}`}
+                      >
+                        {t("customerUpload.readingChunk", {
+                          current: cp.current,
+                          total: cp.total,
+                        })}
+                      </span>
+                    ) : null}
                     {hint ? (
                       <span className="ml-2 hidden lg:inline font-sans normal-case text-[10px] text-muted-foreground/80">
                         {hint}

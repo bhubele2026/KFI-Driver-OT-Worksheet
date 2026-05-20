@@ -392,13 +392,13 @@ test("chunked path aborts when any chunk throws (Task #279 reverses #267)", asyn
  * than returning a quietly-incomplete row set.
  */
 test("chunked path throws when a chunk and both retry halves truncate (Task #279)", async () => {
-  // Narrow 120-row workbook: forces chunking on the row-count trigger
-  // (>100 rows) into EXACTLY 2 chunks at the current XLSX_CHUNK_MAX_ROWS.
-  // We need exactly 2 chunks so the worker pool's synchronous stub-shift
-  // race is deterministic: worker 1 grabs chunk1's truncated stub, worker
-  // 2 grabs chunk2's clean stub, then worker 1 halves and consumes both
-  // remaining truncated half stubs in order.
-  const rows = Array.from({ length: 120 }, (_, i) => ({
+  // Narrow 240-row workbook: forces chunking on the row-count trigger
+  // (>100 rows) into EXACTLY 2 chunks at the current XLSX_CHUNK_MAX_ROWS
+  // (=120 post-Task #296). We need exactly 2 chunks so the worker pool's
+  // synchronous stub-shift race is deterministic: worker 1 grabs chunk1's
+  // truncated stub, worker 2 grabs chunk2's clean stub, then worker 1
+  // halves and consumes both remaining truncated half stubs in order.
+  const rows = Array.from({ length: 240 }, (_, i) => ({
     Name: `Driver ${i}`,
     Badge: `B${i}`,
     Date: "2026-05-12",

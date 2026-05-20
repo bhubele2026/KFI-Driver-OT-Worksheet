@@ -5,8 +5,10 @@ import { toDisplayName } from "./displayName.js";
 import { ocrDelalloPDF } from "./ocr.js";
 import { UnmappedIdAccumulator } from "./types.js";
 import {
-  getModelClient,
+  estimatePromptTokens,
   getFallbackModelClient,
+  getModelClient,
+  getTokenPacer,
   isRetryableModelError,
   runWithConcurrency,
   withModelRetry,
@@ -42,6 +44,14 @@ export interface AiExtractOptions {
    * Gemini) is now opt-in per customer.
    */
   allowGeminiFallback?: boolean;
+  /**
+   * Task #296: fired after every chunk completes in the chunked xlsx
+   * path so the upload route can publish "chunk N of M" to the
+   * frontend's polling progress endpoint. Single-call / image / PDF
+   * paths emit one final `(1, 1)` tick so the dispatcher always sees
+   * a completion event. Never throws — observer-only.
+   */
+  onChunkProgress?: (current: number, total: number) => void;
 }
 
 /** Result shape returned by `aiExtractRows`, extended with budget telemetry (Task #297). */
@@ -228,7 +238,13 @@ export const XLSX_CHUNK_THRESHOLD_ROWS = 100;
 // chunks of ~25-35s each and the bumped concurrency (6) finishes
 // them in ~2 waves of <40s each — well under 60s total.
 const XLSX_CHUNK_MAX_CHARS = 180_000;
-const XLSX_CHUNK_MAX_ROWS = 60;
+// Task #296: bumped 60 -> 120 alongside Claude prompt caching. With the
+// shared prefix (rules + roster + schema example) cached at
+// `cache_control: ephemeral`, the per-chunk cost is dominated by the
+// CSV body itself; doubling rows-per-chunk halves the chunk count
+// (Adient: 71 -> ~35) so a tier-1 first-time upload completes in 2
+// waves instead of thrashing against the 30k input-tokens/min cap.
+const XLSX_CHUNK_MAX_ROWS = 120;
 
 /**
  * Split a workbook into one-or-more CSV chunks suitable for separate
@@ -784,8 +800,17 @@ async function callModelForChunk(
       async () => {
         attempt++;
         const startedAt = Date.now();
+        // Task #296: pace dispatch against the provider's per-minute
+        // input-tokens window BEFORE making the HTTP call. The Claude
+        // pacer is sized at 25k/60s (5k headroom below tier-1's 30k
+        // ceiling); Gemini's pacer is a no-op. With prompt caching the
+        // estimate over-counts cached chunks but that's fine — a brief
+        // extra pause is far cheaper than a 429 retry-after sleep.
+        const parts = buildParts(c);
+        const estTokens = estimatePromptTokens(parts);
+        await getTokenPacer(c.name).acquire(estTokens);
         const result = await c.generate({
-          parts: buildParts(c),
+          parts,
           maxOutputTokens: 32768,
           timeoutMs: XLSX_CHUNK_TIMEOUT_MS,
           jsonSchema: ROW_SCHEMA,
@@ -869,14 +894,18 @@ function halveChunk(chunk: string): [string, string] | null {
   ];
 }
 
-// How many chunks to run in parallel. Task #279 bumped from 4 to 6
-// alongside the chunk-rows drop (100 -> 60) to keep Penda's 522-row
-// workbook under a 60s wall-clock budget: 9 chunks @ concurrency 6 =
-// 2 waves of ~30s, vs the prior 6 chunks @ 4 = 2 waves of ~60-90s.
-// Still conservative against either provider's per-minute rate limits;
-// the Task #293 retry/backoff at the model-client layer is the
-// defense-in-depth against transient 429s.
-const XLSX_CHUNK_CONCURRENCY = 6;
+// How many chunks to run in parallel. Task #296 dropped from 6 -> 3
+// after a 71-chunk Adient first-time upload thrashed the Anthropic
+// tier-1 ceiling (30k input tokens/min). With prompt caching cutting
+// the per-chunk new-input tokens to roughly just the CSV body
+// (~3-6k tokens/chunk) AND the bigger chunk size halving the chunk
+// count, 3 concurrent chunks * ~5k input tokens = ~15k/min sustained
+// — leaves room for the cache_creation tokens on chunk 1 + the
+// retry-after-honoring pacer to absorb estimation slips without
+// busting the limit. The Task #293 retry/backoff at the model-client
+// layer is still the defense-in-depth for transient 429s on the
+// tail.
+const XLSX_CHUNK_CONCURRENCY = 3;
 
 async function runChunkedXlsxExtract(
   client: ModelClient,
@@ -890,7 +919,26 @@ async function runChunkedXlsxExtract(
   budget: IngestionBudget,
   allowGeminiFallback: boolean,
   roster?: RosterContext,
+  onChunkProgress?: (current: number, total: number) => void,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
+  // Task #296: emit (0, total) before the first chunk so the polling
+  // client sees a definitive total as soon as work begins, then
+  // (completed, total) after each chunk finishes. Never lets observer
+  // throws bubble.
+  let completedChunks = 0;
+  const tickProgress = () => {
+    completedChunks++;
+    try {
+      onChunkProgress?.(completedChunks, chunks.length);
+    } catch {
+      /* observer-only */
+    }
+  };
+  try {
+    onChunkProgress?.(0, chunks.length);
+  } catch {
+    /* observer-only */
+  }
   const runOne = async (
     chunk: string,
     label: string,
@@ -913,12 +961,22 @@ async function runChunkedXlsxExtract(
         truncated,
       };
     }
+    // Task #296: split the chunked-extract prompt into two text parts so
+    // Claude can cache the (identical-across-chunks) prefix. The prefix
+    // — rules, roster, schema example — is byte-identical for every
+    // chunk of one upload, so marking it `cacheable: true` makes chunk
+    // 1 pay `cache_creation` tokens once and chunks 2..N read from the
+    // ephemeral cache at ~10% the price AND outside the per-minute
+    // input-tokens window. Gemini ignores the flag.
     const buildParts = (c: ModelClient): ContentPart[] => [
       {
         kind: "text",
-        text:
-          buildPrompt(customer, weekStart, weekEnd, roster, c.name) +
-          `\n\n${label} of the same workbook. Return only the rows in this chunk.\n\n--- SPREADSHEET (CSV) ---\n${chunk}\n--- END SPREADSHEET ---`,
+        text: buildPrompt(customer, weekStart, weekEnd, roster, c.name),
+        cacheable: true,
+      },
+      {
+        kind: "text",
+        text: `\n\n${label} of the same workbook. Return only the rows in this chunk.\n\n--- SPREADSHEET (CSV) ---\n${chunk}\n--- END SPREADSHEET ---`,
       },
     ];
     // Defensive assertion: the chunker is supposed to cap each chunk at
@@ -1032,7 +1090,9 @@ async function runChunkedXlsxExtract(
     idx: number,
   ): Promise<{ rows: AiExtractedRow[] }> => {
     try {
-      return await handleChunkInner(idx);
+      const out = await handleChunkInner(idx);
+      tickProgress();
+      return out;
     } catch (err) {
       aborted = true;
       throw err;
@@ -1148,6 +1208,7 @@ export async function aiExtractRows(
     roster,
     budget,
     allowGeminiFallback,
+    opts?.onChunkProgress,
   );
 }
 
@@ -1162,6 +1223,7 @@ async function aiExtractRowsImpl(
   roster: RosterContext | undefined,
   budget: IngestionBudget,
   allowGeminiFallback: boolean,
+  onChunkProgress?: (current: number, total: number) => void,
 ): Promise<AiExtractResult> {
   const overallStart = Date.now();
   // Wrap the rest of the function in try/catch so a budget trip or any
@@ -1180,6 +1242,7 @@ async function aiExtractRowsImpl(
       roster,
       budget,
       allowGeminiFallback,
+      onChunkProgress,
     );
     const summary = budget.summary();
     logIngestDone(log, {
@@ -1225,7 +1288,18 @@ async function runExtraction(
   roster: RosterContext | undefined,
   budget: IngestionBudget,
   allowGeminiFallback: boolean,
+  onChunkProgress?: (current: number, total: number) => void,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
+  // Task #296: never let an observer throw bubble out and tank the
+  // extract. Single-call / image / PDF paths emit a single final
+  // (1, 1) so the polling client always sees a completion event.
+  const safeProgress = (current: number, total: number) => {
+    try {
+      onChunkProgress?.(current, total);
+    } catch {
+      /* observer-only */
+    }
+  };
   const lower = fileName.toLowerCase();
   const isPdf = lower.endsWith(".pdf");
   const isImage =
@@ -1362,6 +1436,7 @@ async function runExtraction(
         budget,
         allowGeminiFallback,
         roster,
+        onChunkProgress,
       );
     }
     attachmentParts.push({
@@ -1498,8 +1573,12 @@ async function runExtraction(
       budget,
       allowGeminiFallback,
       roster,
+      onChunkProgress,
     );
   }
+  // Single-call path completed without re-chunking — emit a final
+  // (1, 1) so the polling client sees a definitive completion event.
+  safeProgress(1, 1);
 
   const rows = (parsed.rows ?? [])
     .filter(

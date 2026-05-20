@@ -74,14 +74,59 @@ Gemini). The bulk filename-routed `/upload-customer-file` path is unchanged.
 The per-format AI ceiling is 90s for images (dispatcher is actively watching a
 photo) and 300s for xlsx/PDF. xlsx whose serialized CSV exceeds 300k chars is
 split into row-range chunks (each carrying the sheet header) and dispatched to
-Gemini one at a time with a 120s per-chunk ceiling, then merged in document
-order — so an oversized first-time upload reliably succeeds and warms the
-column-roles cache (Task #250) for sub-100ms subsequent uploads.
+the model one at a time, then merged in document order — so an oversized
+first-time upload reliably succeeds and warms the column-roles cache
+(Task #250) for sub-100ms subsequent uploads.
 
 `/extract-customer-file` returns `cacheWritten: true` when the AI run
 successfully populated `customer_column_schemas`; the preview dialog renders a
 green "Next upload of this format will be instant" chip, and the upload row
 spinner adds a "first-time AI read can take a few minutes" hint past 15s.
+
+### Survive tier-1 Anthropic rate limits on first-time uploads (Task #296)
+
+The Anthropic tier-1 key is capped at **30,000 input tokens/min** on Claude
+Sonnet 4.5. A first-time Adient upload (~71 chunks, ~355k aggregate input
+tokens) used to spend its entire budget thrashing on 429 retries before the
+`IngestionBudget` tripped. Four pieces work together to keep that upload on
+Claude (switching to Gemini mid-extract was rejected as too risky — the model
+produces different row shapes on the same file):
+
+1. **Prompt caching.** The chunked-extract `buildParts` splits the prompt into
+   a cacheable prefix (rules + roster + schema example) and a per-chunk text
+   body. Cacheable text parts are marked `cacheable: true` in
+   `ContentPart`; `claude.ts#toClaudeContent` translates that into
+   `cache_control: { type: "ephemeral" }`. Chunk 1 of an upload pays
+   `cache_creation` once; chunks 2..N hit `cache_read` at ~10% the input price
+   AND those cached tokens no longer count against the per-minute window.
+2. **`retry-after`-aware backoff.** `parseRetryAfterMs` reads both the standard
+   `retry-after` header and Anthropic's
+   `anthropic-ratelimit-input-tokens-reset` header (ISO timestamp or seconds).
+   `withModelRetry` sleeps that long (capped at 70s) instead of its generic
+   1.5s→8s exponential backoff, so a chunk that hits the window pauses until
+   the window actually rolls.
+3. **Token-bucket pacer.** `LeakyBucketPacer` (25,000 tokens / 60s for Claude,
+   no-op for Gemini) is acquired with the per-chunk estimated input tokens
+   before every `c.generate(…)`. Oversize requests block until enough capacity
+   has freed up. The 25k cap is deliberately below the 30k ceiling so a
+   single estimation slip doesn't trip 429.
+4. **Lower concurrency + larger chunks.** `XLSX_CHUNK_CONCURRENCY` dropped 6→3
+   and `XLSX_CHUNK_MAX_ROWS` bumped 60→120. Fewer chunks * lower fan-out keeps
+   the in-window total under the pacer's cap even when chunk 1 is still
+   paying full `cache_creation` cost.
+
+### Progress reporting (Task #296)
+
+Long extracts no longer leave the dispatcher staring at a frozen spinner.
+The browser mints an opaque `progressKey` (UUID), sends it in the
+`extract-customer-file` multipart body, and polls
+`GET /weeks/:weekStart/extract-progress/:progressKey` once a second. The
+chunked extractor publishes `{ current, total }` snapshots into the
+in-process `extractProgress` tracker after every completed chunk; the
+endpoint returns the latest snapshot (200) or 204 when the key is
+unknown (key not seen yet, single-chunk file, cache-hit fast path, or
+expired). The customer-upload row badge renders `Chunk N of M` next to
+the existing elapsed-seconds counter as soon as the first tick arrives.
 
 ## OCR fallback for scanned PDFs
 

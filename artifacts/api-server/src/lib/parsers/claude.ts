@@ -26,11 +26,27 @@ export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-5";
  * image + scanned-PDF code paths in `aiExtract.ts` keep working without
  * provider-specific branching upstream.
  */
+export function _toClaudeContentForTests(parts: ContentPart[]): Anthropic.Messages.ContentBlockParam[] {
+  return toClaudeContent(parts);
+}
+
 function toClaudeContent(parts: ContentPart[]): Anthropic.Messages.ContentBlockParam[] {
   const out: Anthropic.Messages.ContentBlockParam[] = [];
   for (const p of parts) {
     if (p.kind === "text") {
-      out.push({ type: "text", text: p.text });
+      // Task #296: when a text block is flagged cacheable, attach
+      // Anthropic's `cache_control: { type: "ephemeral" }`. The first
+      // chunk of an upload pays the (slightly higher) cache_creation
+      // tokens; chunks 2..N hit cache_read at ~10% of the input price
+      // AND no longer count those tokens against the per-minute
+      // input-tokens rate limit window. That's the whole reason the
+      // 71-chunk Adient first-time upload can complete on tier-1 now
+      // without thrashing on 429s.
+      const block: Anthropic.Messages.TextBlockParam = { type: "text", text: p.text };
+      if (p.cacheable) {
+        block.cache_control = { type: "ephemeral" };
+      }
+      out.push(block);
       continue;
     }
     const mt = p.mimeType.toLowerCase();

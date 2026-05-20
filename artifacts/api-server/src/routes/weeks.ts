@@ -58,6 +58,10 @@ import {
 } from "../lib/customersStore.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import {
+  publishExtractProgress,
+  readExtractProgress,
+} from "../lib/parsers/extractProgress.js";
+import {
   IngestionBudget,
   IngestionBudgetExceeded,
   type IngestionBudgetSummary,
@@ -1388,6 +1392,35 @@ weeksRouter.post(
   },
 );
 
+// Task #296: poll endpoint for "chunk N of M" progress during an AI
+// extract. The browser mints an opaque progressKey, sends it in the
+// extract POST's multipart body, and starts polling this endpoint
+// once a second. Returns `{ current, total }` when the extractor has
+// published at least one tick, or 204 when the key is unknown (either
+// the extract hasn't started yet, finished + TTL'd, or the file
+// path didn't go through chunked AI — e.g. cache-hit fast path).
+weeksRouter.get(
+  "/weeks/:weekStart/extract-progress/:progressKey",
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    const key = String(req.params.progressKey ?? "").trim();
+    if (!key) {
+      res.status(400).json({ error: "Missing progressKey" });
+      return;
+    }
+    const snapshot = readExtractProgress(key);
+    if (!snapshot) {
+      res.status(204).end();
+      return;
+    }
+    res.json(snapshot);
+  },
+);
+
 // Two-step known-customer upload: extract (preview only) + confirm (writes).
 // Mirrors the existing AI extract/confirm flow so dispatchers can review the
 // parsed rows, exclude any that look wrong, and see exactly how many existing
@@ -1412,6 +1445,17 @@ weeksRouter.post(
     const fileName = req.file.originalname;
     const isImage =
       !!imageExtension(fileName) || isImageMime(req.file.mimetype);
+    // Task #296: opaque per-upload progress token minted by the
+    // client. When present, the AI extractor publishes "chunk N of M"
+    // ticks into the in-process tracker (`extractProgress`) which the
+    // frontend then polls via GET /weeks/:weekStart/extract-progress
+    // /:progressKey. Optional — absent for callers that don't care
+    // about progress (curl, tests, the legacy single-step confirm).
+    const progressKeyRaw = String(req.body.progressKey ?? "").trim();
+    const progressKey =
+      progressKeyRaw.length > 0 && progressKeyRaw.length <= 128
+        ? progressKeyRaw
+        : undefined;
     // Optional explicit customer override (per-row upload / drag-drop sends
     // this). When supplied, we trust the dispatcher's choice over filename
     // detection and route the file through AI extraction whenever the
@@ -1652,7 +1696,12 @@ weeksRouter.post(
           kfiSet,
           nameAliasMap,
           log: req.log,
-          aiOpts: { budget: aiBudget, allowGeminiFallback },
+          aiOpts: {
+            budget: aiBudget,
+            allowGeminiFallback,
+            onChunkProgress: (current, total) =>
+              publishExtractProgress(progressKey, current, total),
+          },
         });
         result = aiResult;
         stashedImageRows = imagePunchesForStash(aiResult.punches);
@@ -3348,6 +3397,13 @@ weeksRouter.post(
       res.status(400).json({ error: "Customer name is required" });
       return;
     }
+    // Task #296: optional per-upload progress token — same shape as
+    // /extract-customer-file. See that route for the contract.
+    const progressKeyRaw = String(req.body?.progressKey ?? "").trim();
+    const progressKey =
+      progressKeyRaw.length > 0 && progressKeyRaw.length <= 128
+        ? progressKeyRaw
+        : undefined;
     {
       const inactiveSet = await loadInactiveCustomerSet();
       if (inactiveSet.has(customer.toLowerCase())) {
@@ -3467,7 +3523,12 @@ weeksRouter.post(
         extractMime,
         req.log,
         rosterContext,
-        { budget: aiBudgetNew, allowGeminiFallback: allowGeminiFallbackNew },
+        {
+          budget: aiBudgetNew,
+          allowGeminiFallback: allowGeminiFallbackNew,
+          onChunkProgress: (current, total) =>
+            publishExtractProgress(progressKey, current, total),
+        },
       );
       rows = extracted.rows;
       extractionTruncated = extracted.truncated;

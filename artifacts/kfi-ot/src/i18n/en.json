@@ -1224,6 +1224,7 @@
     "mapIdsUser": "Ask an admin to add the missing driver mapping.",
     "reading": "Reading… {{elapsed}}s",
     "readingHint": "First-time AI read can take a few minutes — next upload of this format will be instant.",
+    "readingChunk": "Chunk {{current}} of {{total}}",
     "uploadButton": "Upload",
     "reuploadButton": "Re-upload",
     "cancelUpload": "Cancel upload",
