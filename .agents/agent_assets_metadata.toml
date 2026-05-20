@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "j5GyUzCqPvFU0B47LwgWI"
+uri = "file://artifacts/mockup-sandbox/src/components/mockups/kfi-redesign/REFERENCE.md"
+type = "text"
+title = "Driver Detail — Shared Structural Reference"
