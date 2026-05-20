@@ -73,6 +73,10 @@ import {
   readPdfWithRoles,
 } from "../lib/parsers/genericRoleReader.js";
 import { recordAiSchemaIfPossible } from "../lib/parsers/aiSchemaRecorder.js";
+import {
+  makeUploadKey,
+  dbChunkStageStore,
+} from "../lib/parsers/aiExtractStage.js";
 import type {
   ExtractDiagnostics,
   UnmappedIdEntry,

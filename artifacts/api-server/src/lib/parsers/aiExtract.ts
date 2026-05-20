@@ -24,6 +24,7 @@ import {
   type IngestionBudgetSummary,
   type IngestionPurpose,
 } from "./ingestionBudget.js";
+import type { ChunkStageStore } from "./aiExtractStage.js";
 
 /**
  * Per-upload options bag for `aiExtractRows`. All fields optional; the
@@ -70,6 +71,21 @@ export interface AiExtractOptions {
    * cleanup is left to the 60s window).
    */
   ingestionId?: string;
+  /**
+   * Task #309: opaque per-upload identity used by the per-chunk resume
+   * staging store. Same bytes + same (week, customer) must produce the
+   * same key so a failed earlier upload's staged chunks short-circuit
+   * Claude calls on retry. Construct with `makeUploadKey` from
+   * `aiExtractStage.ts`. When omitted (or `stageStore` is omitted),
+   * staging is disabled and every chunk goes to the model.
+   */
+  uploadKey?: string;
+  /**
+   * Task #309: injectable staging store. Production wires this to
+   * `dbChunkStageStore`; tests pass in-memory implementations. When
+   * omitted (or `uploadKey` is omitted), staging is disabled.
+   */
+  stageStore?: ChunkStageStore;
 }
 
 /** Result shape returned by `aiExtractRows`, extended with budget telemetry (Task #297). */
@@ -1244,6 +1260,10 @@ async function runChunkedXlsxExtract(
     idx: number,
   ): Promise<{ rows: AiExtractedRow[] }> => {
     if (aborted) return { rows: [] };
+    // Task #309: short-circuit chunks already in the staging store.
+    // Their rows are reused as-is and no model call is issued.
+    const staged = stagedByIndex.get(idx);
+    if (staged) return { rows: staged };
     const result = await runOne(
       chunks[idx],
       `This is chunk ${idx + 1} of ${chunks.length}`,
@@ -1296,6 +1316,28 @@ async function runChunkedXlsxExtract(
   ): Promise<{ rows: AiExtractedRow[] }> => {
     try {
       const out = await handleChunkInner(idx);
+      // Task #309: checkpoint freshly-extracted chunks so a later
+      // failure mid-run lets a re-upload skip them. Already-staged
+      // chunks (resumed via stagedByIndex) don't need re-saving.
+      if (uploadKey && stageStore && !stagedByIndex.has(idx)) {
+        try {
+          await stageStore.save({
+            uploadKey,
+            chunkIndex: idx,
+            chunkCount: chunks.length,
+            customer,
+            weekStart,
+            fileName,
+            assignedInputRowIds: [],
+            extractedRows: out.rows,
+          });
+        } catch (err) {
+          (log ?? logger).warn(
+            { err, uploadKey, chunkIndex: idx, customer, fileName },
+            "AI extract staging save failed — chunk will re-run on retry",
+          );
+        }
+      }
       tickProgress();
       return out;
     } catch (err) {
@@ -1327,6 +1369,19 @@ async function runChunkedXlsxExtract(
     for (const row of r.rows) merged.push(row);
   }
   const deduped = dedupeAiRows(merged);
+  // Task #309: every chunk landed cleanly, so the in-memory merged
+  // result IS the promotion — drop the staging block. A failure to
+  // clear is logged but not fatal; the 7-day pruner will collect it.
+  if (uploadKey && stageStore) {
+    try {
+      await stageStore.clear(uploadKey);
+    } catch (err) {
+      (log ?? logger).warn(
+        { err, uploadKey, customer, fileName },
+        "AI extract staging clear failed — stale rows will be pruned by the 7-day sweeper",
+      );
+    }
+  }
   logger.info(
     {
       ms: Date.now() - startedAt,
@@ -1423,6 +1478,8 @@ export async function aiExtractRows(
     allowGeminiFallback,
     ingestionId,
     opts?.onChunkProgress,
+    opts?.uploadKey,
+    opts?.stageStore,
   );
 }
 
