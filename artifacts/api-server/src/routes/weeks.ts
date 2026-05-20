@@ -1683,6 +1683,13 @@ weeksRouter.post(
         if (parsed && parsed.punches.length > 0) {
           result = parsed;
           extractSource = "cache";
+          // Stash the cache-reader's resolved rows so /confirm-customer-file
+          // commits them directly. Without this the confirm route sees an
+          // empty `extractedRows`/`pendingNamedRows` stash and falls through
+          // to the Task #352 re-extract fallback — which runs the full
+          // chunked Claude path (minutes per confirm) even though the
+          // cache hit already produced the punches deterministically.
+          stashedImageRows = imagePunchesForStash(parsed.punches);
         }
       } catch (err) {
         req.log.warn(
