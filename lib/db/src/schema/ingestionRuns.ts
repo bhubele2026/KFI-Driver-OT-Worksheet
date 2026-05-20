@@ -53,6 +53,13 @@ export const ingestionRunsTable = pgTable(
     byProvider: jsonb("by_provider").notNull().default({}),
     // On a thrown extraction the dispatcher-actionable message; null on success.
     errMsg: text("err_msg"),
+    // Task #307: xlsx layout the chunker saw at extract time. True for
+    // "block-structured" customer files (header band repeats per
+    // driver, e.g. Adient) where the per-chunk row cap is halved so
+    // Claude doesn't truncate. Null for non-xlsx uploads (image / pdf
+    // / single-call paths don't chunk by rows).
+    blockStructured: boolean("block_structured"),
+    rowsPerChunk: integer("rows_per_chunk"),
   },
   (t) => [
     index("ingestion_runs_created_at_idx").on(t.createdAt),

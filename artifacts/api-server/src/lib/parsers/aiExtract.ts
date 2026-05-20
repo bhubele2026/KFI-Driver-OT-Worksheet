@@ -245,6 +245,58 @@ const XLSX_CHUNK_MAX_CHARS = 180_000;
 // (Adient: 71 -> ~35) so a tier-1 first-time upload completes in 2
 // waves instead of thrashing against the 30k input-tokens/min cap.
 const XLSX_CHUNK_MAX_ROWS = 120;
+// Task #307: per-chunk row cap for block-structured xlsx layouts (a
+// header band that repeats once per driver, e.g. Adient). Halved vs
+// the flat-layout cap so Claude — which writes one JSON row per
+// SOURCE line in a block-structured CSV — doesn't truncate
+// mid-block on the 32k-output-tokens cap. Flat customers (Penda,
+// TriEnda) are unaffected: they continue at 120 rows/chunk.
+export const XLSX_CHUNK_MAX_ROWS_BLOCK = 60;
+
+/**
+ * Task #307: detect a "block-structured" xlsx layout — one where a
+ * short header / marker band repeats once per driver group, like
+ * Adient's per-employee bands ("Job,,,,J0000…", "Transaction Apply
+ * Date,…"). Flat customer exports (Penda: 18-column single-header
+ * CSV with one row per punch) never repeat a full row verbatim, so a
+ * repeated identical non-empty CSV line is a reliable signal.
+ *
+ * Heuristic: returns true when ANY non-trivial trimmed CSV line
+ * appears 3+ times in a sheet. Lines over 400 chars are skipped
+ * (real header bands are short label rows, not long data rows; this
+ * also keeps the cost bounded on multi-MB inputs).
+ *
+ * Cheap, defensive, and safe: any XLSX parse failure returns false
+ * (caller treats the file as flat — same as today).
+ */
+export function detectXlsxBlockStructure(buffer: Buffer): boolean {
+  try {
+    const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
+    for (const name of wb.SheetNames) {
+      const ws = wb.Sheets[name];
+      if (!ws) continue;
+      const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false });
+      const lines = csv.split("\n");
+      const counts = new Map<string, number>();
+      for (const ln of lines) {
+        const t = ln.trim();
+        if (!t) continue;
+        // All-commas / blank-ish lines aren't meaningful repeats.
+        if (!t.replace(/,/g, "").trim()) continue;
+        // Long lines are body rows, not header bands.
+        if (t.length > 400) continue;
+        const n = (counts.get(t) ?? 0) + 1;
+        if (n >= 3) return true;
+        counts.set(t, n);
+      }
+    }
+  } catch {
+    // Parse failures (corrupt workbook, OOM, etc.) — fall back to
+    // flat-layout behaviour. The chunker will throw its own error
+    // downstream if the file is genuinely unreadable.
+  }
+  return false;
+}
 
 /**
  * Split a workbook into one-or-more CSV chunks suitable for separate
@@ -259,7 +311,7 @@ const XLSX_CHUNK_MAX_ROWS = 120;
 export function xlsxToChunks(
   buffer: Buffer,
   log?: SalvageLogger,
-  opts?: { forceChunkMaxRows?: number },
+  opts?: { forceChunkMaxRows?: number; maxRowsPerChunk?: number },
 ): string[] {
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
   // Per-sheet CSV breakdowns, computed once so we can decide single-vs-multi
@@ -291,7 +343,7 @@ export function xlsxToChunks(
     return [single];
   }
 
-  const maxRowsPerChunk = forced ?? XLSX_CHUNK_MAX_ROWS;
+  const maxRowsPerChunk = forced ?? opts?.maxRowsPerChunk ?? XLSX_CHUNK_MAX_ROWS;
   const chunks: string[] = [];
   for (const name of wb.SheetNames) {
     const ws = wb.Sheets[name];
@@ -1237,6 +1289,8 @@ function logIngestDone(
     byProvider: fields.summary.byProvider,
     geminiFallbackUsed: fields.summary.geminiFallbackUsed,
     warnedHot: fields.summary.warnedHot,
+    blockStructured: fields.summary.blockStructured,
+    rowsPerChunk: fields.summary.rowsPerChunk,
     ...(fields.errMsg ? { errMsg: fields.errMsg } : {}),
   };
   const msg = "ingest_done";
@@ -1486,7 +1540,19 @@ async function runExtraction(
     // Spreadsheet path: split into one-or-more CSV chunks. Small files
     // produce a single chunk and behave exactly like before; large files
     // get split + each chunk is sent in its own model call below.
-    const chunks = xlsxToChunks(buffer, log);
+    //
+    // Task #307: detect "block-structured" layouts (Adient-class: a
+    // header band that repeats once per driver) and halve the
+    // per-chunk row cap from 120 to 60. Flat customers (Penda) keep
+    // the 120-row budget. Recorded on the budget so the
+    // `ingest_done` log + `ingestion_runs` row carry the decision
+    // through to the admin audit view.
+    const blockStructured = detectXlsxBlockStructure(buffer);
+    const rowsPerChunk = blockStructured
+      ? XLSX_CHUNK_MAX_ROWS_BLOCK
+      : XLSX_CHUNK_MAX_ROWS;
+    budget.recordXlsxLayout({ blockStructured, rowsPerChunk });
+    const chunks = xlsxToChunks(buffer, log, { maxRowsPerChunk: rowsPerChunk });
     if (chunks.length > 1) {
       return await runChunkedXlsxExtract(
         client,

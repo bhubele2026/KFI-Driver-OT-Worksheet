@@ -92,6 +92,21 @@ export interface IngestionBudgetSummary {
   byProvider: Record<string, PurposeTally>;
   geminiFallbackUsed: boolean;
   warnedHot: boolean;
+  /**
+   * Task #307: xlsx layout the chunker saw at extract time.
+   * True for "block-structured" exports (e.g. Adient: a header band that
+   * repeats once per driver) where we halve the per-chunk row budget so
+   * Claude doesn't truncate mid-block. Null when the upload didn't go
+   * through the xlsx path (image / pdf / single-call) — those paths
+   * don't chunk by rows.
+   */
+  blockStructured: boolean | null;
+  /**
+   * Per-chunk row cap that the xlsx chunker actually used for this
+   * upload. 60 for block-structured layouts, 120 for flat layouts, null
+   * for non-xlsx paths.
+   */
+  rowsPerChunk: number | null;
 }
 
 /** Minimal logger shape — accepts req.log (pino child) or the module logger. */
@@ -112,6 +127,8 @@ export class IngestionBudget {
   private readonly byProvider: Record<string, PurposeTally> = {};
   private warned = false;
   private geminiFallbackUsed = false;
+  private blockStructured: boolean | null = null;
+  private rowsPerChunk: number | null = null;
   private readonly log: BudgetLogger;
   private readonly fileName: string;
   private readonly customer: string;
@@ -203,6 +220,18 @@ export class IngestionBudget {
     return this.geminiFallbackUsed;
   }
 
+  /**
+   * Task #307: record the xlsx layout decision the chunker made for
+   * this upload (block-structured vs flat, and the per-chunk row cap
+   * it used). Called once from the xlsx branch in `runExtraction`;
+   * surfaced in the `ingest_done` log + persisted `ingestion_runs`
+   * row so we can later confirm Adient is detected end-to-end.
+   */
+  recordXlsxLayout(opts: { blockStructured: boolean; rowsPerChunk: number }): void {
+    this.blockStructured = opts.blockStructured;
+    this.rowsPerChunk = opts.rowsPerChunk;
+  }
+
   private makeDiagnostics(tripReason: TripReason): IngestionBudgetDiagnostics {
     return {
       tripReason,
@@ -227,6 +256,8 @@ export class IngestionBudget {
       byProvider: this.byProvider,
       geminiFallbackUsed: this.geminiFallbackUsed,
       warnedHot: this.warned,
+      blockStructured: this.blockStructured,
+      rowsPerChunk: this.rowsPerChunk,
     };
   }
 }

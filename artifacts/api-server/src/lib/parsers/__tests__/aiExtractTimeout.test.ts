@@ -19,11 +19,14 @@ import * as XLSX from "xlsx";
 import {
   xlsxToChunks,
   XLSX_CHUNK_THRESHOLD_CHARS,
+  XLSX_CHUNK_MAX_ROWS_BLOCK,
   aiExtractRows,
+  detectXlsxBlockStructure,
   __pushAiExtractStub,
   __pushAiExtractErrorStub,
   __clearAiExtractStubs,
 } from "../aiExtract.js";
+import { IngestionBudget } from "../ingestionBudget.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(
@@ -583,6 +586,235 @@ test("chunked path runs chunks in parallel, not sequentially (Task #267)", async
     assert.equal(out.rows.length, chunks.length);
     assert.equal(out.failedChunks, 0);
     assert.equal(out.truncated, false);
+  } finally {
+    __clearAiExtractStubs();
+  }
+});
+
+/**
+ * Task #307: the Adient export carries a header band ("Job,,,,J0000…",
+ * "Transaction Apply Date,…") that repeats once per driver group.
+ * detectXlsxBlockStructure must flag it so the chunker halves the
+ * per-chunk row budget; non-block customers (Penda's flat 18-col
+ * single-header export) must NOT trip the detector or the per-chunk
+ * row cap would shrink unnecessarily for them.
+ */
+test("detectXlsxBlockStructure flags Adient and ignores Penda (Task #307)", () => {
+  const adientBuf = readFileSync(
+    resolve(here, "./fixtures/2026-04-26/Adient.xlsx"),
+  );
+  const pendaBuf = readFileSync(
+    resolve(here, "./fixtures/2026-04-26/Penda.xlsx"),
+  );
+  assert.equal(
+    detectXlsxBlockStructure(adientBuf),
+    true,
+    "Adient repeats per-driver header bands and must be detected as block-structured",
+  );
+  assert.equal(
+    detectXlsxBlockStructure(pendaBuf),
+    false,
+    "Penda's flat single-header export must NOT be flagged as block-structured",
+  );
+});
+
+/**
+ * Task #307: a synthetic flat workbook (unique cell values per row) is
+ * a non-block layout — the detector must return false. Used to pin
+ * the heuristic against false positives on the kinds of synthetic
+ * fixtures the rest of this test file builds.
+ */
+test("detectXlsxBlockStructure returns false for flat synthetic workbooks (Task #307)", () => {
+  const rows = Array.from({ length: 240 }, (_, i) => ({
+    Name: `Driver ${i}`,
+    Badge: `B${i}`,
+    Date: "2026-05-12",
+    In: "7:00 AM",
+    Out: "3:00 PM",
+  }));
+  assert.equal(detectXlsxBlockStructure(makeXlsx(rows)), false);
+});
+
+/**
+ * Task #307: per-chunk row cap branches on block-structured detection.
+ * Block-structured layouts (Adient) use ~60 rows/chunk, flat layouts
+ * (Penda) keep 120. Asserted via xlsxToChunks `maxRowsPerChunk` opt
+ * (the same surface runExtraction calls with the detected budget).
+ */
+test("xlsxToChunks honors maxRowsPerChunk override (Task #307)", () => {
+  // 240 narrow rows: trips the row-count chunking trigger.
+  const rows = Array.from({ length: 240 }, (_, i) => ({
+    Name: `Driver ${i}`,
+    Badge: `B${i}`,
+    Date: "2026-05-12",
+    In: "7:00 AM",
+    Out: "3:00 PM",
+  }));
+  const buf = makeXlsx(rows);
+  const flat = xlsxToChunks(buf);
+  assert.equal(flat.length, 2, "default 120 rows/chunk → 240/120 = 2 chunks");
+  const block = xlsxToChunks(buf, undefined, {
+    maxRowsPerChunk: XLSX_CHUNK_MAX_ROWS_BLOCK,
+  });
+  assert.equal(block.length, 4, "60 rows/chunk → 240/60 = 4 chunks");
+  assert.ok(
+    XLSX_CHUNK_MAX_ROWS_BLOCK === 60,
+    `block budget must stay at 60 rows/chunk (got ${XLSX_CHUNK_MAX_ROWS_BLOCK})`,
+  );
+});
+
+/**
+ * Task #307: runExtraction (called via aiExtractRows) detects the
+ * layout and records it on the budget so ingest_done + ingestion_runs
+ * carry the decision through. End-to-end check on the real Adient
+ * fixture: budget summary reports blockStructured=true and
+ * rowsPerChunk=60 after a stubbed extraction.
+ */
+test("aiExtractRows records block-structured layout on the budget (Task #307)", async () => {
+  const adientBuf = readFileSync(
+    resolve(here, "./fixtures/2026-04-26/Adient.xlsx"),
+  );
+  const chunks = xlsxToChunks(adientBuf, undefined, {
+    maxRowsPerChunk: XLSX_CHUNK_MAX_ROWS_BLOCK,
+  });
+  assert.ok(
+    chunks.length >= 2,
+    `Adient must chunk at the block budget (got ${chunks.length})`,
+  );
+  __clearAiExtractStubs();
+  const budget = new IngestionBudget({
+    fileName: "Adient.xlsx",
+    customer: "Adient",
+  });
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      __pushAiExtractStub([
+        {
+          driverNameOnDoc: `adient-${i}`,
+          badgeOrId: `A${i}`,
+          date: "2026-04-27",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+        },
+      ]);
+    }
+    const out = await aiExtractRows(
+      "Adient.xlsx",
+      adientBuf,
+      "Adient",
+      "2026-04-26",
+      "2026-05-02",
+      undefined,
+      undefined,
+      undefined,
+      { budget },
+    );
+    assert.equal(out.budgetSummary.blockStructured, true);
+    assert.equal(out.budgetSummary.rowsPerChunk, XLSX_CHUNK_MAX_ROWS_BLOCK);
+  } finally {
+    __clearAiExtractStubs();
+  }
+});
+
+/**
+ * Task #307: the `ingest_done` summary log must surface
+ * blockStructured + rowsPerChunk so admins greping API logs for
+ * "ingest_done" can spot Adient-style runs at a glance — not just
+ * via the `ingestion_runs` DB row.
+ */
+test("ingest_done log payload includes blockStructured + rowsPerChunk (Task #307)", async () => {
+  const adientBuf = readFileSync(
+    resolve(here, "./fixtures/2026-04-26/Adient.xlsx"),
+  );
+  const chunks = xlsxToChunks(adientBuf, undefined, {
+    maxRowsPerChunk: XLSX_CHUNK_MAX_ROWS_BLOCK,
+  });
+  __clearAiExtractStubs();
+  const captured: Array<{ msg: string; payload: Record<string, unknown> }> = [];
+  const capture = {
+    info: (payload: Record<string, unknown>, msg: string) =>
+      captured.push({ msg, payload }),
+    warn: (payload: Record<string, unknown>, msg: string) =>
+      captured.push({ msg, payload }),
+    error: (payload: Record<string, unknown>, msg: string) =>
+      captured.push({ msg, payload }),
+    debug: () => {},
+  } as unknown as Parameters<typeof aiExtractRows>[6];
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      __pushAiExtractStub([
+        {
+          driverNameOnDoc: `adient-${i}`,
+          badgeOrId: `A${i}`,
+          date: "2026-04-27",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+        },
+      ]);
+    }
+    await aiExtractRows(
+      "Adient.xlsx",
+      adientBuf,
+      "Adient",
+      "2026-04-26",
+      "2026-05-02",
+      undefined,
+      capture,
+    );
+    const done = captured.find((c) => c.msg === "ingest_done");
+    assert.ok(done, "ingest_done log line must be emitted");
+    assert.equal(done!.payload.blockStructured, true);
+    assert.equal(done!.payload.rowsPerChunk, XLSX_CHUNK_MAX_ROWS_BLOCK);
+  } finally {
+    __clearAiExtractStubs();
+  }
+});
+
+/**
+ * Task #307: flat (non-block) workbooks must NOT trip the halved
+ * budget — they continue at the default 120 rows/chunk. End-to-end
+ * check using the real Penda fixture so future drift in either the
+ * detector OR the Penda export shape surfaces here.
+ */
+test("aiExtractRows leaves flat layouts on the 120-row budget (Task #307)", async () => {
+  const pendaBuf = readFileSync(
+    resolve(here, "./fixtures/2026-04-26/Penda.xlsx"),
+  );
+  const chunks = xlsxToChunks(pendaBuf);
+  assert.ok(
+    chunks.length >= 2,
+    `Penda is large enough to chunk at the default budget (got ${chunks.length})`,
+  );
+  __clearAiExtractStubs();
+  const budget = new IngestionBudget({
+    fileName: "Penda.xlsx",
+    customer: "Penda",
+  });
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      __pushAiExtractStub([
+        {
+          driverNameOnDoc: `penda-${i}`,
+          badgeOrId: `P${i}`,
+          date: "2026-04-27",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+        },
+      ]);
+    }
+    const out = await aiExtractRows(
+      "Penda.xlsx",
+      pendaBuf,
+      "Penda",
+      "2026-04-26",
+      "2026-05-02",
+      undefined,
+      undefined,
+      undefined,
+      { budget },
+    );
+    assert.equal(out.budgetSummary.blockStructured, false);
+    assert.equal(out.budgetSummary.rowsPerChunk, 120);
   } finally {
     __clearAiExtractStubs();
   }

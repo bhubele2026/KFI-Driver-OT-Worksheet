@@ -1560,6 +1560,18 @@ export interface IngestionRun {
   byProvider?: IngestionRunByProvider;
   /** @nullable */
   errMsg?: string | null;
+  /**
+   * Task #307: xlsx layout detection. True when the chunker saw a block-structured layout (header band repeats per driver, e.g. Adient) and halved the per-chunk row budget. Null for non-xlsx uploads.
+
+   * @nullable
+   */
+  blockStructured?: boolean | null;
+  /**
+   * Task #307: per-chunk row cap the xlsx chunker used. 60 for block-structured layouts, 120 for flat layouts, null for non-xlsx paths.
+
+   * @nullable
+   */
+  rowsPerChunk?: number | null;
 }
 
 export interface ConnecteamUserAlias {

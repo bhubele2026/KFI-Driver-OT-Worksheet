@@ -2546,6 +2546,18 @@ export const ListIngestionRunsResponseItem = zod.object({
   byPurpose: zod.record(zod.string(), zod.unknown()).optional(),
   byProvider: zod.record(zod.string(), zod.unknown()).optional(),
   errMsg: zod.string().nullish(),
+  blockStructured: zod
+    .boolean()
+    .nullish()
+    .describe(
+      "Task #307: xlsx layout detection. True when the chunker saw a block-structured layout (header band repeats per driver, e.g. Adient) and halved the per-chunk row budget. Null for non-xlsx uploads.\n",
+    ),
+  rowsPerChunk: zod
+    .number()
+    .nullish()
+    .describe(
+      "Task #307: per-chunk row cap the xlsx chunker used. 60 for block-structured layouts, 120 for flat layouts, null for non-xlsx paths.\n",
+    ),
 });
 export const ListIngestionRunsResponse = zod.array(
   ListIngestionRunsResponseItem,

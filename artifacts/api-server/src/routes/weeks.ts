@@ -2938,6 +2938,8 @@ async function insertIngestionRun(args: {
       byPurpose: args.summary.byPurpose,
       byProvider: args.summary.byProvider,
       errMsg: args.errMsg,
+      blockStructured: args.summary.blockStructured,
+      rowsPerChunk: args.summary.rowsPerChunk,
     });
   } catch (err) {
     args.log.error(
@@ -6335,6 +6337,8 @@ weeksRouter.get("/admin/ingestion-runs", requireAdmin, async (req, res) => {
       byPurpose: schema.ingestionRunsTable.byPurpose,
       byProvider: schema.ingestionRunsTable.byProvider,
       errMsg: schema.ingestionRunsTable.errMsg,
+      blockStructured: schema.ingestionRunsTable.blockStructured,
+      rowsPerChunk: schema.ingestionRunsTable.rowsPerChunk,
       createdAt: schema.ingestionRunsTable.createdAt,
     })
     .from(schema.ingestionRunsTable)
@@ -6364,6 +6368,8 @@ weeksRouter.get("/admin/ingestion-runs", requireAdmin, async (req, res) => {
       byPurpose: r.byPurpose,
       byProvider: r.byProvider,
       errMsg: r.errMsg,
+      blockStructured: r.blockStructured,
+      rowsPerChunk: r.rowsPerChunk,
       createdAt: new Date(r.createdAt).toISOString(),
     })),
   );
