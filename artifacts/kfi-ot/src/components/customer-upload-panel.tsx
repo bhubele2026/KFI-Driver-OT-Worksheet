@@ -708,14 +708,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   // → dispatcher confirms in dialog → /confirm-customer-file commits.
   // Cancel = no DB writes.
   //
-  // `force` is set when the dispatcher is re-uploading onto a row that
-  // already has imported data (the button reads "Re-upload" rather than
-  // "Upload"). Without it the server short-circuits identical bytes with
-  // `{ skipped: true }` and the preview dialog never opens, which looks
-  // like the app is ignoring the upload. The first-time upload path
-  // leaves force unset — there's nothing to override yet. The bulk
-  // upload flow keeps the skip too (that's the whole point of the bulk
-  // de-dupe).
+  // `force` should always be true for user-initiated uploads — the
+  // server's same-bytes skip otherwise returns `{ skipped: true }`,
+  // suppresses the preview dialog, and surfaces a confusing
+  // "already imported" toast even when the dispatcher explicitly
+  // wants to replace the existing rows. Every UI caller passes
+  // `force: true`; the option stays here so server contracts and
+  // direct callers can still opt out.
   //
   // `maxCalls` is the admin one-shot "Retry with higher limit" override
   // from Task #356; the server validates + clamps it to BACKSTOP=200.
@@ -1024,15 +1023,17 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         ),
       );
       setRow(customer, { uploading: true, error: null });
-      // Bulk re-runs intentionally do NOT pass force — that's the whole
-      // point of this flow: identical files short-circuit on the server.
-      // Bulk classifier already routed by filename keyword; force the
-      // server to honor that decision so files whose extension doesn't
-      // match the deterministic parser (e.g. an IWG CSV, a DeLallo
-      // image) still land on the right customer and fall through to AI
-      // instead of getting mis-routed or rejected.
+      // Always force in bulk too — dispatchers re-drop a whole folder
+      // to replace whatever's in the week, and the "skipped: already
+      // imported" branch silently leaves stale rows in place, which
+      // looks like the upload was ignored.
+      // `explicitCustomer` ensures the server routes by content, so files
+      // whose extension doesn't match the deterministic parser
+      // (e.g. an IWG CSV, a DeLallo image) still land on the right
+      // customer instead of getting mis-routed or rejected.
       const r = await doUpload(customer, item.file, {
         explicitCustomer: true,
+        force: true,
       });
       if (r.ok) {
         if (r.skipped) {
@@ -1188,12 +1189,11 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     // dispatcher picked the customer by aiming at this row, so we trust
     // that signal over the filename keyword.
     //
-    // Force when the row already has imported punches so the dispatcher
-    // can re-upload the same bytes and still get a preview, instead of
-    // the server silently short-circuiting with `{ skipped: true }`.
-    const existing = (statuses ?? []).find((s) => s.customer === customer);
-    const alreadyUploaded = !!existing && existing.punchCount > 0;
-    void extractFor(customer, file, { force: alreadyUploaded });
+    // Always force on user-initiated row uploads so identical bytes still
+    // produce a preview the dispatcher can confirm-to-replace, instead of
+    // the server short-circuiting with `{ skipped: true }` and a confusing
+    // "already imported" toast.
+    void extractFor(customer, file, { force: true });
   };
 
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
@@ -1711,6 +1711,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       onClick={() => {
                         if (st.retryFile) {
                           void extractFor(s.customer, st.retryFile, {
+                            force: true,
                             maxCalls: 200,
                           });
                         }
@@ -1767,11 +1768,11 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
-                  // Force on re-upload so identical bytes still get a
-                  // preview instead of being silently skipped by the
-                  // SHA-256 dedupe on the server. First-time uploads
-                  // (no punches yet) leave force unset.
-                  if (f) void extractFor(s.customer, f, { force: uploaded });
+                  // Always force on user-initiated row uploads so identical
+                  // bytes still produce a preview the dispatcher can
+                  // confirm-to-replace, instead of the server short-
+                  // circuiting with `{ skipped: true }`.
+                  if (f) void extractFor(s.customer, f, { force: true });
                   e.target.value = "";
                 }}
               />

@@ -67,24 +67,31 @@ test("extract-customer-file sets sameAsLastImport on the force-hit branch", () =
   );
 });
 
-test("customer-upload-panel passes force when the row is already uploaded", () => {
+test("customer-upload-panel always forces on user-initiated row uploads", () => {
   const src = readFileSync(PANEL_PATH, "utf8");
-  // File-input onChange site: this is the per-row Upload/Re-upload
-  // button. `uploaded` is the boolean that drives the button label
-  // ("Upload" vs "Re-upload"), so passing it as `force` keeps the two
-  // in lockstep — if the button says Re-upload, force is on.
+  // Task #384 follow-up: every UI upload entry point (Upload button,
+  // Re-upload button, per-row drop) now passes `force: true`
+  // unconditionally so the server's same-bytes skip never silently
+  // suppresses a re-upload. The original Task #358 nuance (only force
+  // when `uploaded` was already true) confused dispatchers who
+  // expected their re-upload to replace the data either way.
   assert.match(
     src,
-    /extractFor\s*\(\s*s\.customer\s*,\s*f\s*,\s*\{\s*force:\s*uploaded\s*\}\s*\)/,
-    "the per-row file input must call `extractFor(s.customer, f, { force: uploaded })` so a Re-upload of identical bytes still opens the preview (Task #358).",
+    /extractFor\s*\(\s*s\.customer\s*,\s*f\s*,\s*\{\s*force:\s*true\s*\}\s*\)/,
+    "the per-row file input must call `extractFor(s.customer, f, { force: true })` so identical bytes always open the preview to replace.",
   );
-  // Drop-on-row site: same intent, but the handler resolves `uploaded`
-  // from the statuses list because it doesn't have the row scope's
-  // local `uploaded` const in closure.
   assert.match(
     src,
-    /extractFor\s*\(\s*customer\s*,\s*file\s*,\s*\{\s*force:\s*alreadyUploaded\s*\}\s*\)/,
-    "the per-row drop handler must call `extractFor(customer, file, { force: alreadyUploaded })` so a Re-upload-by-drag of identical bytes still opens the preview (Task #358).",
+    /extractFor\s*\(\s*customer\s*,\s*file\s*,\s*\{\s*force:\s*true\s*\}\s*\)/,
+    "the per-row drop handler must call `extractFor(customer, file, { force: true })` so identical bytes always open the preview to replace.",
+  );
+  // And the bulk loop too — dispatchers re-drop a folder expecting
+  // it to replace whatever is there, and the prior skip-by-default
+  // behavior silently left stale rows in place.
+  assert.match(
+    src,
+    /doUpload\s*\([^)]*\{\s*[^}]*explicitCustomer:\s*true[^}]*force:\s*true[^}]*\}\s*\)/s,
+    "the bulk upload loop must pass `force: true` to `doUpload` so identical files in the folder still replace the existing rows.",
   );
 });
 

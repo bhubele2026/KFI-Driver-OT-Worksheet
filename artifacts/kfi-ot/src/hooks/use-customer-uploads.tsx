@@ -359,8 +359,12 @@ class CustomerUploadStore {
     );
     rec.rowPollStops.set(customer, stopPolling);
     try {
+      // Always force on user-initiated per-row uploads so identical
+      // bytes still produce a preview the dispatcher can confirm-to-
+      // replace, instead of the server short-circuiting with
+      // `{ skipped: true }` and a confusing "already imported" toast.
       const res = await fetch(
-        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file`,
+        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file?force=1`,
         {
           method: "POST",
           credentials: "include",
@@ -670,6 +674,11 @@ class CustomerUploadStore {
         item.file,
         overrideTz,
         {
+          // Always force in bulk too — dispatchers re-drop a whole
+          // folder expecting it to replace the week's data, and the
+          // server's same-bytes skip otherwise leaves stale rows in
+          // place, which looks like the upload was ignored.
+          force: true,
           explicitCustomer: true,
           signal: bulkAbort.signal,
         },
