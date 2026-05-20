@@ -735,6 +735,50 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ResetWeekLockedError" }
 
+  /weeks/{weekStart}/drivers/{kfiId}/reset-customer-punches:
+    post:
+      operationId: resetDriverCustomerPunches
+      tags: [ingest]
+      summary: Hard-delete one driver's Customer-source punches for a week (admin)
+      description: |
+        Admin-only surgical reset. Hard-deletes every row in `punches` for
+        `(weekStart, kfiId)` whose `source = 'Customer'` inside a single
+        transaction, snapshotting each deleted row into `punch_deletions`
+        first so the wipe remains attributable. Driver-source punches are
+        left untouched.
+
+        Blocks with 409 if this driver-week is locked — the admin must
+        unlock it first.
+
+        The `confirm` field must equal the `kfiId` path param exactly (the
+        UI is a type-to-confirm dialog); the server re-checks so a
+        malicious client can't bypass it.
+
+        Writes a `user_audit_log` row (`action = 'driver-customer-reset'`)
+        and publishes a `driver-customer-reset` realtime event after the
+        transaction commits.
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - $ref: "#/components/parameters/KfiId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetDriverCustomerPunchesBody" }
+      responses:
+        "200":
+          description: Reset result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResetDriverCustomerPunchesResult" }
+        "400": { description: Invalid input or confirm mismatch }
+        "403": { description: Admin only }
+        "409":
+          description: Driver-week is locked; unlock first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResetWeekLockedError" }
+
   /weeks/{weekStart}/extract-customer-file:
     post:
       operationId: extractCustomerFile
@@ -3072,6 +3116,25 @@ components:
             Must exactly equal the `weekStart` path parameter. The UI is a
             type-to-confirm dialog; the server re-checks so a malicious
             client can't bypass it.
+
+    ResetDriverCustomerPunchesBody:
+      type: object
+      required: [confirm]
+      properties:
+        confirm:
+          type: string
+          description: |
+            Must exactly equal the `kfiId` path parameter. The UI is a
+            type-to-confirm dialog; the server re-checks so a malicious
+            client can't bypass it.
+
+    ResetDriverCustomerPunchesResult:
+      type: object
+      required: [weekStart, kfiId, punchesDeleted]
+      properties:
+        weekStart: { type: string, format: date }
+        kfiId: { type: string }
+        punchesDeleted: { type: integer }
 
     ResetWeekResult:
       type: object

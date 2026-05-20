@@ -17,6 +17,7 @@ import {
   MarkCustomerInactiveBody,
   UpdateCustomerBody,
   ResetWeekBody,
+  ResetDriverCustomerPunchesBody,
   SetDriverCustomerOverrideBody,
   SetReviewedBody,
   UpdateCustomerNameAliasBody,
@@ -1439,6 +1440,116 @@ weeksRouter.post(
       snapshotsDeleted,
       weekRefreshCleared,
     });
+  },
+);
+
+// Surgical per-driver reset: hard-delete only the Customer-source punches
+// for one driver-week so the dispatcher can fix a mis-mapped customer
+// roster name and re-upload without nuking the whole week (or the
+// driver's Connecteam punches). Mirrors the week-reset transactional
+// pattern: snapshot every deleted row to punch_deletions, refuse if the
+// driver-week is locked, audit log + realtime publish AFTER commit.
+weeksRouter.post(
+  "/weeks/:weekStart/drivers/:kfiId/reset-customer-punches",
+  requireAdmin,
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    const kfiId = String(req.params.kfiId ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    if (!kfiId) {
+      res.status(400).json({ error: "Invalid driver id" });
+      return;
+    }
+    const parsed = ResetDriverCustomerPunchesBody.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: "Invalid body", details: parsed.error.flatten() });
+      return;
+    }
+    if (parsed.data.confirm !== kfiId) {
+      res
+        .status(400)
+        .json({ error: "Confirmation does not match the driver id." });
+      return;
+    }
+    const lockedKfiIds = await loadLockedKfiIds(weekStart);
+    if (lockedKfiIds.has(kfiId)) {
+      res.status(409).json({
+        error: `Cannot reset: driver ${kfiId} is locked for this week. Unlock first.`,
+        lockedKfiIds: [kfiId],
+      });
+      return;
+    }
+    const userId = req.session.userId ?? null;
+    const now = new Date();
+    let punchesDeleted = 0;
+    try {
+      await db.transaction(async (tx) => {
+        // Single DELETE...RETURNING -> INSERT so the snapshot rows are
+        // exactly the rows we deleted (no SELECT-then-DELETE race window
+        // where a concurrent insert could be deleted without being
+        // snapshotted).
+        const deleted = await tx
+          .delete(schema.punchesTable)
+          .where(
+            and(
+              eq(schema.punchesTable.weekStart, weekStart),
+              eq(schema.punchesTable.kfiId, kfiId),
+              eq(schema.punchesTable.source, "Customer"),
+            ),
+          )
+          .returning({
+            id: schema.punchesTable.id,
+            kfiId: schema.punchesTable.kfiId,
+            customer: schema.punchesTable.customer,
+            source: schema.punchesTable.source,
+          });
+        if (deleted.length > 0) {
+          await tx.insert(schema.punchDeletionsTable).values(
+            deleted.map((p) => ({
+              punchId: p.id,
+              weekStart,
+              kfiId: p.kfiId,
+              customer: p.customer,
+              source: p.source,
+              deletedBy: userId,
+              deletedAt: now,
+            })),
+          );
+        }
+        punchesDeleted = deleted.length;
+        await tx.insert(schema.userAuditLogTable).values({
+          actorUserId: userId,
+          targetUserId: null,
+          targetEmail: `driver-customer-reset:${weekStart}|kfi=${kfiId}|punches=${punchesDeleted}`,
+          action: "driver-customer-reset",
+        });
+      });
+    } catch (err) {
+      req.log.error(
+        { err, weekStart, kfiId },
+        "driver customer-punch reset failed",
+      );
+      res.status(500).json({
+        error:
+          err instanceof Error
+            ? err.message
+            : "Driver customer-punch reset failed",
+      });
+      return;
+    }
+    publishRealtime({
+      type: "driver-customer-reset",
+      weekStart,
+      kfiId,
+      punchesDeleted,
+      actor: actorRef(req),
+    });
+    res.json({ weekStart, kfiId, punchesDeleted });
   },
 );
 

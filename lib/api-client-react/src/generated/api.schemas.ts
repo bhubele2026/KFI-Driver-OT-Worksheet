@@ -984,6 +984,20 @@ client can't bypass it.
   confirm: string;
 }
 
+export interface ResetDriverCustomerPunchesBody {
+  /** Must exactly equal the `kfiId` path parameter. The UI is a
+type-to-confirm dialog; the server re-checks so a malicious
+client can't bypass it.
+ */
+  confirm: string;
+}
+
+export interface ResetDriverCustomerPunchesResult {
+  weekStart: string;
+  kfiId: string;
+  punchesDeleted: number;
+}
+
 export type ResetWeekResultScope =
   (typeof ResetWeekResultScope)[keyof typeof ResetWeekResultScope];
 

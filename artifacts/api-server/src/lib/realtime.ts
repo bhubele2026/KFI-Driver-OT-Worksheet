@@ -55,6 +55,13 @@ export type RealtimeEvent =
       actor: ActorRef | null;
     }
   | {
+      type: "driver-customer-reset";
+      weekStart: string;
+      kfiId: string;
+      punchesDeleted: number;
+      actor: ActorRef | null;
+    }
+  | {
       type: "customer-upload";
       weekStart: string;
       customer: string;

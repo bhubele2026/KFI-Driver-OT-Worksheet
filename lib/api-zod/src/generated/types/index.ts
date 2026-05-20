@@ -127,6 +127,8 @@ export * from "./refreshUnresolvedUser";
 export * from "./registrationStatus";
 export * from "./removeIpBlocklistBody";
 export * from "./requestPasswordResetBody";
+export * from "./resetDriverCustomerPunchesBody";
+export * from "./resetDriverCustomerPunchesResult";
 export * from "./resetPasswordBody";
 export * from "./resetWeekBody";
 export * from "./resetWeekBodyScope";

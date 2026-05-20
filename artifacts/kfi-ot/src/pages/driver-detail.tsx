@@ -26,6 +26,7 @@ import {
   useCreateDriverNote,
   useSoftDeleteDriverNote,
   useScaleDayHours,
+  useResetDriverCustomerPunches,
   getGetDriverWeekQueryKey,
   getGetWeekSummaryQueryKey,
   getGetDriverWeekAuditQueryKey,
@@ -190,6 +191,9 @@ export default function DriverDetail() {
   const canLock = !!me?.isAdmin || meRole === "supervisor";
   const lockMutation = useLockDriverWeek();
   const unlockMutation = useUnlockDriverWeek();
+  const resetDriverCustomerMut = useResetDriverCustomerPunches();
+  const [resetCustomerOpen, setResetCustomerOpen] = useState(false);
+  const [resetCustomerConfirmText, setResetCustomerConfirmText] = useState("");
   const driverLocked = !!(data as { locked?: boolean } | undefined)?.locked;
   const driverStatus =
     ((data as { reviewStatus?: string } | undefined)?.reviewStatus ?? null) as
@@ -1747,6 +1751,136 @@ export default function DriverDetail() {
           </div>
         </div>
 
+
+        {me?.isAdmin && !driverLocked && (
+          <div className="flex justify-end print:hidden">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => {
+                setResetCustomerConfirmText("");
+                setResetCustomerOpen(true);
+              }}
+              disabled={resetDriverCustomerMut.isPending}
+              data-testid="button-open-reset-driver-customer"
+            >
+              {resetDriverCustomerMut.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              {t("driverDetail.resetCustomerBtn")}
+            </Button>
+          </div>
+        )}
+
+        <Dialog open={resetCustomerOpen} onOpenChange={setResetCustomerOpen}>
+          <DialogContent data-testid="dialog-reset-driver-customer">
+            <DialogHeader>
+              <DialogTitle>{t("driverDetail.resetCustomerTitle")}</DialogTitle>
+              <DialogDescription>
+                {t("driverDetail.resetCustomerDesc")}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="reset-driver-customer-confirm"
+                className="text-xs uppercase tracking-wide text-muted-foreground"
+              >
+                {t("driverDetail.resetCustomerTypePrefix")}{" "}
+                <span className="font-mono">{kfiId}</span>{" "}
+                {t("driverDetail.resetCustomerTypeSuffix")}
+              </Label>
+              <Input
+                id="reset-driver-customer-confirm"
+                value={resetCustomerConfirmText}
+                onChange={(e) => setResetCustomerConfirmText(e.target.value)}
+                placeholder={kfiId}
+                className="font-mono"
+                data-testid="input-reset-driver-customer-confirm"
+                autoComplete="off"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setResetCustomerOpen(false)}
+                disabled={resetDriverCustomerMut.isPending}
+                data-testid="button-reset-driver-customer-cancel"
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  resetDriverCustomerMut.mutate(
+                    {
+                      weekStart,
+                      kfiId,
+                      data: { confirm: resetCustomerConfirmText },
+                    },
+                    {
+                      onSuccess: (resp) => {
+                        setResetCustomerOpen(false);
+                        setResetCustomerConfirmText("");
+                        queryClient.invalidateQueries({
+                          queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
+                        });
+                        queryClient.invalidateQueries({
+                          queryKey: getGetWeekSummaryQueryKey(weekStart),
+                        });
+                        toast({
+                          title: t("driverDetail.resetCustomerToastTitle"),
+                          description: t(
+                            "driverDetail.resetCustomerToastDesc",
+                            { count: resp.punchesDeleted, kfi: kfiId },
+                          ),
+                        });
+                      },
+                      onError: (err) => {
+                        const e = err as unknown as {
+                          status?: number;
+                          data?: { error?: string };
+                        };
+                        if (e.status === 409) {
+                          toast({
+                            title: t("driverDetail.resetCustomerLockedTitle"),
+                            description: t(
+                              "driverDetail.resetCustomerLockedDesc",
+                            ),
+                            variant: "destructive",
+                          });
+                        } else {
+                          toast({
+                            title: t("driverDetail.resetCustomerFailedTitle"),
+                            description: errMsg(
+                              err,
+                              t("driverDetail.resetCustomerFailed"),
+                            ),
+                            variant: "destructive",
+                          });
+                        }
+                      },
+                    },
+                  );
+                }}
+                disabled={
+                  resetCustomerConfirmText !== kfiId ||
+                  resetDriverCustomerMut.isPending
+                }
+                data-testid="button-reset-driver-customer-confirm"
+              >
+                {resetDriverCustomerMut.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="mr-2 h-4 w-4" />
+                )}
+                {t("driverDetail.resetCustomerConfirm")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {driverLocked && (
           <Card

@@ -97,6 +97,8 @@ import type {
   RegistrationStatus,
   RemoveIpBlocklistBody,
   RequestPasswordResetBody,
+  ResetDriverCustomerPunchesBody,
+  ResetDriverCustomerPunchesResult,
   ResetPasswordBody,
   ResetWeekBody,
   ResetWeekLockedError,
@@ -3586,6 +3588,139 @@ export const useResetWeek = <
   TContext
 > => {
   return useMutation(getResetWeekMutationOptions(options));
+};
+
+/**
+ * Admin-only surgical reset. Hard-deletes every row in `punches` for
+`(weekStart, kfiId)` whose `source = 'Customer'` inside a single
+transaction, snapshotting each deleted row into `punch_deletions`
+first so the wipe remains attributable. Driver-source punches are
+left untouched.
+
+Blocks with 409 if this driver-week is locked — the admin must
+unlock it first.
+
+The `confirm` field must equal the `kfiId` path param exactly (the
+UI is a type-to-confirm dialog); the server re-checks so a
+malicious client can't bypass it.
+
+Writes a `user_audit_log` row (`action = 'driver-customer-reset'`)
+and publishes a `driver-customer-reset` realtime event after the
+transaction commits.
+
+ * @summary Hard-delete one driver's Customer-source punches for a week (admin)
+ */
+export const getResetDriverCustomerPunchesUrl = (
+  weekStart: string,
+  kfiId: string,
+) => {
+  return `/api/weeks/${weekStart}/drivers/${kfiId}/reset-customer-punches`;
+};
+
+export const resetDriverCustomerPunches = async (
+  weekStart: string,
+  kfiId: string,
+  resetDriverCustomerPunchesBody: ResetDriverCustomerPunchesBody,
+  options?: RequestInit,
+): Promise<ResetDriverCustomerPunchesResult> => {
+  return customFetch<ResetDriverCustomerPunchesResult>(
+    getResetDriverCustomerPunchesUrl(weekStart, kfiId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(resetDriverCustomerPunchesBody),
+    },
+  );
+};
+
+export const getResetDriverCustomerPunchesMutationOptions = <
+  TError = ErrorType<void | ResetWeekLockedError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetDriverCustomerPunches>>,
+    TError,
+    {
+      weekStart: string;
+      kfiId: string;
+      data: BodyType<ResetDriverCustomerPunchesBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resetDriverCustomerPunches>>,
+  TError,
+  {
+    weekStart: string;
+    kfiId: string;
+    data: BodyType<ResetDriverCustomerPunchesBody>;
+  },
+  TContext
+> => {
+  const mutationKey = ["resetDriverCustomerPunches"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resetDriverCustomerPunches>>,
+    {
+      weekStart: string;
+      kfiId: string;
+      data: BodyType<ResetDriverCustomerPunchesBody>;
+    }
+  > = (props) => {
+    const { weekStart, kfiId, data } = props ?? {};
+
+    return resetDriverCustomerPunches(weekStart, kfiId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResetDriverCustomerPunchesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof resetDriverCustomerPunches>>
+>;
+export type ResetDriverCustomerPunchesMutationBody =
+  BodyType<ResetDriverCustomerPunchesBody>;
+export type ResetDriverCustomerPunchesMutationError =
+  ErrorType<void | ResetWeekLockedError>;
+
+/**
+ * @summary Hard-delete one driver's Customer-source punches for a week (admin)
+ */
+export const useResetDriverCustomerPunches = <
+  TError = ErrorType<void | ResetWeekLockedError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetDriverCustomerPunches>>,
+    TError,
+    {
+      weekStart: string;
+      kfiId: string;
+      data: BodyType<ResetDriverCustomerPunchesBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof resetDriverCustomerPunches>>,
+  TError,
+  {
+    weekStart: string;
+    kfiId: string;
+    data: BodyType<ResetDriverCustomerPunchesBody>;
+  },
+  TContext
+> => {
+  return useMutation(getResetDriverCustomerPunchesMutationOptions(options));
 };
 
 /**

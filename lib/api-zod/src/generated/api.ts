@@ -1351,6 +1351,52 @@ export const ResetWeekResponse = zod.object({
 });
 
 /**
+ * Admin-only surgical reset. Hard-deletes every row in `punches` for
+`(weekStart, kfiId)` whose `source = 'Customer'` inside a single
+transaction, snapshotting each deleted row into `punch_deletions`
+first so the wipe remains attributable. Driver-source punches are
+left untouched.
+
+Blocks with 409 if this driver-week is locked — the admin must
+unlock it first.
+
+The `confirm` field must equal the `kfiId` path param exactly (the
+UI is a type-to-confirm dialog); the server re-checks so a
+malicious client can't bypass it.
+
+Writes a `user_audit_log` row (`action = 'driver-customer-reset'`)
+and publishes a `driver-customer-reset` realtime event after the
+transaction commits.
+
+ * @summary Hard-delete one driver's Customer-source punches for a week (admin)
+ */
+export const resetDriverCustomerPunchesPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const ResetDriverCustomerPunchesParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(resetDriverCustomerPunchesPathWeekStartRegExp)
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
+  kfiId: zod.coerce.string(),
+});
+
+export const ResetDriverCustomerPunchesBody = zod.object({
+  confirm: zod
+    .string()
+    .describe(
+      "Must exactly equal the `kfiId` path parameter. The UI is a\ntype-to-confirm dialog; the server re-checks so a malicious\nclient can't bypass it.\n",
+    ),
+});
+
+export const ResetDriverCustomerPunchesResponse = zod.object({
+  weekStart: zod.coerce.date(),
+  kfiId: zod.string(),
+  punchesDeleted: zod.number(),
+});
+
+/**
  * @summary Parse a known-customer time export (xlsx/pdf, or a photo: jpg/png/heic/webp,
 max 15 MB; HEIC is transcoded to JPEG server-side) into preview rows WITHOUT
 writing anything. Image uploads route through Gemini AI extraction and persist

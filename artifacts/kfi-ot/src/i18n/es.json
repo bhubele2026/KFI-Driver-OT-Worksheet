@@ -216,6 +216,18 @@
     "loadWeekFailed": "Error al cargar el resumen de la semana"
   },
   "driverDetail": {
+    "resetCustomerTitle": "Restablecer registros del cliente",
+    "resetCustomerBtn": "Restablecer registros del cliente",
+    "resetCustomerDesc": "Elimina permanentemente todos los registros de origen Cliente para este conductor esta semana, para que pueda corregir un nombre de la lista mal asignado y volver a cargar el archivo del cliente. Los registros de Connecteam (origen Conductor) no se tocan.",
+    "resetCustomerTypePrefix": "Escriba el ID de KFI",
+    "resetCustomerTypeSuffix": "para confirmar.",
+    "resetCustomerConfirm": "Eliminar registros del cliente",
+    "resetCustomerToastTitle": "Registros del cliente restablecidos",
+    "resetCustomerToastDesc": "Se eliminaron {{count}} registros del cliente para KFI {{kfi}}. Ahora puede volver a cargar el archivo del cliente.",
+    "resetCustomerLockedTitle": "La semana del conductor está bloqueada",
+    "resetCustomerLockedDesc": "Desbloquee esta semana del conductor antes de restablecer los registros del cliente.",
+    "resetCustomerFailedTitle": "Falló el restablecimiento",
+    "resetCustomerFailed": "No se pudieron restablecer los registros del cliente.",
     "back": "Volver",
     "loadFailed": "Error al cargar los datos del conductor.",
     "needsRoster": "Requiere limpieza de plantilla",
