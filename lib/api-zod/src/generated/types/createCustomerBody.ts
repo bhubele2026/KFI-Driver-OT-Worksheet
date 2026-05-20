@@ -13,5 +13,6 @@ export interface CreateCustomerBody {
   filenameKeywords?: string[];
   extensions?: CreateCustomerBodyExtensionsItem[];
   active?: boolean;
+  allowGeminiFallback?: boolean;
   sortOrder?: number;
 }

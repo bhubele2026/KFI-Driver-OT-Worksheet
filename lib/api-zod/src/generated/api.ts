@@ -1487,6 +1487,12 @@ export const ExtractCustomerFileResponse = zod.object({
     .describe(
       "True only when `extractSource` is `ai` AND the column-roles\ncache row was successfully written for this file's header\nsignature. Tells the dispatcher the next upload of the same\nxlsx layout will skip AI entirely and take the fast\n`cache` → `readWithRoles` branch (sub-100ms). Always false\nfor cache hits, images, and PDFs (the schema cache is\nxlsx-only today).\n",
     ),
+  geminiFallbackUsed: zod
+    .boolean()
+    .optional()
+    .describe(
+      'True when at least one model call in this upload\'s AI\nextraction was served by the Gemini fallback after the\nprimary Claude call failed (Task #297). Opt-in per customer\nvia `customers.allowGeminiFallback`. Surfaced so the\ncustomer-files panel can render an amber \"Gemini fallback\nused\" badge — these rows should be reviewed more carefully\nthan a clean Claude extraction.\n',
+    ),
 });
 
 /**
@@ -1783,6 +1789,24 @@ export const ExtractNewCustomerFileResponse = zod.object({
     .number()
     .describe(
       "ID of the stashed copy of the uploaded file. Pass back to \/confirm-new-customer so the sample is marked confirmed and retained for engineer use.",
+    ),
+  extractionTruncated: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when chunked AI extraction hit max-chunks; some rows from large files may be missing.",
+    ),
+  failedChunks: zod
+    .number()
+    .optional()
+    .describe(
+      "Number of per-chunk model calls that never returned valid JSON; those rows are missing from the preview.",
+    ),
+  geminiFallbackUsed: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when at least one model call was served by the Gemini fallback after a primary Claude failure (Task",
     ),
 });
 
@@ -2343,6 +2367,11 @@ export const ListCustomersResponseItem = zod.object({
   filenameKeywords: zod.array(zod.string()),
   extensions: zod.array(zod.enum(["xlsx", "pdf"])),
   active: zod.boolean(),
+  allowGeminiFallback: zod
+    .boolean()
+    .describe(
+      "Per-customer opt-in for the Claude→Gemini cross-provider\nfallback in AI extraction (Task #297). OFF by default; the\ndispatcher can flip it on per row from \/admin\/customers when\na customer's format is stable enough that the fallback's\nextra spend is worth the resilience.\n",
+    ),
   sortOrder: zod.number(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
@@ -2360,6 +2389,7 @@ export const CreateCustomerBody = zod.object({
   filenameKeywords: zod.array(zod.string().min(1)).optional(),
   extensions: zod.array(zod.enum(["xlsx", "pdf"])).optional(),
   active: zod.boolean().optional(),
+  allowGeminiFallback: zod.boolean().optional(),
   sortOrder: zod.number().optional(),
 });
 
@@ -2369,6 +2399,11 @@ export const CreateCustomerResponse = zod.object({
   filenameKeywords: zod.array(zod.string()),
   extensions: zod.array(zod.enum(["xlsx", "pdf"])),
   active: zod.boolean(),
+  allowGeminiFallback: zod
+    .boolean()
+    .describe(
+      "Per-customer opt-in for the Claude→Gemini cross-provider\nfallback in AI extraction (Task #297). OFF by default; the\ndispatcher can flip it on per row from \/admin\/customers when\na customer's format is stable enough that the fallback's\nextra spend is worth the resilience.\n",
+    ),
   sortOrder: zod.number(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
@@ -2388,6 +2423,7 @@ export const UpdateCustomerBody = zod.object({
   filenameKeywords: zod.array(zod.string().min(1)).optional(),
   extensions: zod.array(zod.enum(["xlsx", "pdf"])).optional(),
   active: zod.boolean().optional(),
+  allowGeminiFallback: zod.boolean().optional(),
   sortOrder: zod.number().optional(),
 });
 
@@ -2397,6 +2433,11 @@ export const UpdateCustomerResponse = zod.object({
   filenameKeywords: zod.array(zod.string()),
   extensions: zod.array(zod.enum(["xlsx", "pdf"])),
   active: zod.boolean(),
+  allowGeminiFallback: zod
+    .boolean()
+    .describe(
+      "Per-customer opt-in for the Claude→Gemini cross-provider\nfallback in AI extraction (Task #297). OFF by default; the\ndispatcher can flip it on per row from \/admin\/customers when\na customer's format is stable enough that the fallback's\nextra spend is worth the resilience.\n",
+    ),
   sortOrder: zod.number(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
@@ -2524,6 +2565,52 @@ export const UpdateConnecteamUserAliasResponse = zod.object({
 export const DeleteConnecteamUserAliasParams = zod.object({
   ctUserId: zod.coerce.number(),
 });
+
+/**
+ * @summary List recent AI-extraction runs (admin-only). One row per upload, with
+the spend/token tallies, the outcome bucket (success / budget_exceeded
+/ extraction_failed), and a per-purpose breakdown. Powers the
+post-incident audit for Task #297's safety net.
+
+ */
+export const listIngestionRunsQueryLimitDefault = 50;
+export const listIngestionRunsQueryLimitMax = 500;
+
+export const ListIngestionRunsQueryParams = zod.object({
+  customer: zod.coerce
+    .string()
+    .optional()
+    .describe("Case-insensitive substring filter on the customer name."),
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listIngestionRunsQueryLimitMax)
+    .default(listIngestionRunsQueryLimitDefault),
+});
+
+export const ListIngestionRunsResponseItem = zod.object({
+  id: zod.number(),
+  createdAt: zod.coerce.date(),
+  customer: zod.string(),
+  fileName: zod.string(),
+  weekStart: zod.string().nullish(),
+  uploadedByEmail: zod.string().nullish(),
+  outcome: zod.enum(["success", "budget_exceeded", "extraction_failed"]),
+  rowCount: zod.number(),
+  wallTimeMs: zod.number(),
+  totalCalls: zod.number(),
+  totalInputTokens: zod.number(),
+  totalOutputTokens: zod.number(),
+  totalCostUsd: zod.number(),
+  geminiFallbackUsed: zod.boolean(),
+  warnedHot: zod.boolean(),
+  byPurpose: zod.record(zod.string(), zod.unknown()).optional(),
+  byProvider: zod.record(zod.string(), zod.unknown()).optional(),
+  errMsg: zod.string().nullish(),
+});
+export const ListIngestionRunsResponse = zod.array(
+  ListIngestionRunsResponseItem,
+);
 
 /**
  * @summary List every admin-managed Connecteam clock-id hour offset (admin-only).

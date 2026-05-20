@@ -105,3 +105,47 @@ an AI-imported customer to a real parser — see
 bytea-in-Postgres approach (vs Replit App Storage) was a deliberate choice:
 payroll exports are small (<25MB), retention is short, and it keeps the
 deployment infra unchanged.
+
+## Spend safety net (Task #297)
+
+Every AI-powered customer-file upload runs inside an `IngestionBudget`
+(`lib/parsers/ingestionBudget.ts`) that hard-caps spend per upload:
+
+| Constant | Value | Behavior on hit |
+| --- | --- | --- |
+| `MAX_CALLS_PER_UPLOAD` | 30 | Throw `IngestionBudgetExceeded`; route returns HTTP 400. |
+| `MAX_TOKENS_PER_UPLOAD` | 400_000 (input + output) | Same. |
+| `SOFT_WARN_CALLS` | 20 | Single `warn` log (`warnedHot=true`) then continue. |
+
+Each model invocation (chunk, chunk_retry, chunk_halved, gemini_fallback,
+single_call) calls `budget.recordCall(usage, purpose)` immediately after
+the response so the ceiling can trip mid-upload — the existing 763-row
+TriEnda incident burned ~1M tokens / ~$3 with no ceiling at all.
+
+The `ModelClient` interface now returns `{ text, usage }` where `usage`
+comes from `stream.finalMessage().usage` (Claude) or
+`response.usageMetadata` (Gemini). Cost is converted via
+`lib/parsers/pricing.ts` (Sonnet 4.5 + Gemini 2.5 Flash $/1M-token
+rates) into a per-call USD figure rolled up into the budget summary.
+
+A `ingest_done` info log is emitted at the end of every `aiExtractRows`
+run with `{ totalCalls, totalInputTokens, totalOutputTokens,
+totalCostUsd, byPurpose, byProvider, geminiFallbackUsed, warnedHot,
+wallTimeMs }`. The same summary is persisted to `ingestion_runs`
+(success / `budget_exceeded` / `extraction_failed`) and surfaced at
+`GET /admin/ingestion-runs` for retroactive cost auditing.
+
+**Gemini fallback is now opt-in per customer.** `customers.allowGeminiFallback`
+defaults to `false`; flipping it on (via `/admin/customers`) lets the
+cross-provider fallback fire when Claude is unreachable after retries.
+A one-shot `?allowGeminiFallback=1` query param on the extract route is
+the admin escape hatch for a single upload. When the fallback actually
+fires the response carries `geminiFallbackUsed: true` and both customer
+preview dialogs render an amber "Gemini fallback used" banner so the
+dispatcher knows the rows came from the secondary model and should be
+double-checked before confirming.
+
+A chunk-payload assertion guards against the prompt-bloat shape of the
+TriEnda incident: if a chunk's serialized prompt exceeds
+`assignedRowCount * 500` chars, we log + throw before the model call so
+the budget never gets a chance to drain on a single oversized request.

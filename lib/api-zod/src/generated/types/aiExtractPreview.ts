@@ -15,4 +15,10 @@ export interface AiExtractPreview {
   suggestions: DriverNameSuggestion[];
   /** ID of the stashed copy of the uploaded file. Pass back to /confirm-new-customer so the sample is marked confirmed and retained for engineer use. */
   sampleId: number;
+  /** True when chunked AI extraction hit max-chunks; some rows from large files may be missing. */
+  extractionTruncated?: boolean;
+  /** Number of per-chunk model calls that never returned valid JSON; those rows are missing from the preview. */
+  failedChunks?: number;
+  /** True when at least one model call was served by the Gemini fallback after a primary Claude failure (Task */
+  geminiFallbackUsed?: boolean;
 }

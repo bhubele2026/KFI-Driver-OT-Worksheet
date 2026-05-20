@@ -81,6 +81,13 @@ export interface CustomerPreviewData {
    */
   extractionTruncated?: boolean;
   failedChunks?: number;
+  /**
+   * Task #297. True when this extract fell back to Gemini (Claude
+   * unreachable + per-customer `allowGeminiFallback` was on). Amber
+   * banner gives the dispatcher a heads-up that the rows came from a
+   * different model than the usual Claude pipeline.
+   */
+  geminiFallbackUsed?: boolean;
 }
 
 function errMessage(err: unknown, fallback: string): string {
@@ -344,6 +351,19 @@ export function CustomerPreviewDialog({
                       count: preview.failedChunks,
                     })
                   : t("customerPreview.truncated")}
+              </span>
+            </div>
+          ) : null}
+          {preview.geminiFallbackUsed ? (
+            <div
+              className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200"
+              data-testid="text-gemini-fallback-warning"
+            >
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>
+                Gemini fallback used — Claude was unreachable, so these rows
+                were extracted by the secondary model. Double-check before
+                confirming.
               </span>
             </div>
           ) : null}

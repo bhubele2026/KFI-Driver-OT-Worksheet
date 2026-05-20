@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ContentPart, ModelClient } from "./modelClient.js";
+import type { ContentPart, ModelCallUsage, ModelClient } from "./modelClient.js";
 
 let _client: Anthropic | null = null;
 
@@ -75,7 +75,7 @@ export class ClaudeModelClient implements ModelClient {
     parts: ContentPart[];
     maxOutputTokens: number;
     timeoutMs: number;
-  }): Promise<{ text: string }> {
+  }): Promise<{ text: string; usage: ModelCallUsage }> {
     const client = getClaudeClient();
     const content = toClaudeContent(opts.parts);
     // Claude's per-request `max_tokens` ceiling for Sonnet 4.5 currently
@@ -109,6 +109,25 @@ export class ClaudeModelClient implements ModelClient {
       .filter((c): c is Anthropic.Messages.TextBlock => c.type === "text")
       .map((c) => c.text)
       .join("");
-    return { text };
+    // Claude's Usage object reports prompt + completion tokens separately.
+    // We fold cache-creation / cache-read tokens into the input bucket so
+    // the per-upload token ceiling counts the full real input volume
+    // regardless of how prompt caching (planned in Task #296) eventually
+    // splits them.
+    const u = response.usage;
+    const inputTokens =
+      (u?.input_tokens ?? 0) +
+      (u?.cache_creation_input_tokens ?? 0) +
+      (u?.cache_read_input_tokens ?? 0);
+    const outputTokens = u?.output_tokens ?? 0;
+    return {
+      text,
+      usage: {
+        inputTokens,
+        outputTokens,
+        model: this.model,
+        provider: this.name,
+      },
+    };
   }
 }

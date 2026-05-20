@@ -65,12 +65,14 @@ import type {
   HealthStatus,
   HiddenNotesUnseenCount,
   InactiveCustomer,
+  IngestionRun,
   Invite,
   InviteWithLink,
   IpBlocklistEntry,
   ListAiExtractSamplesParams,
   ListCustomerAliasAuditLogParams,
   ListDeletedDriverNotesParams,
+  ListIngestionRunsParams,
   ListRateLimitEventTimeseriesParams,
   ListRateLimitEventTopOffendersParams,
   ListUserAuditLogParams,
@@ -6729,6 +6731,111 @@ export const useDeleteConnecteamUserAlias = <
 > => {
   return useMutation(getDeleteConnecteamUserAliasMutationOptions(options));
 };
+
+/**
+ * @summary List recent AI-extraction runs (admin-only). One row per upload, with
+the spend/token tallies, the outcome bucket (success / budget_exceeded
+/ extraction_failed), and a per-purpose breakdown. Powers the
+post-incident audit for Task #297's safety net.
+
+ */
+export const getListIngestionRunsUrl = (params?: ListIngestionRunsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/ingestion-runs?${stringifiedParams}`
+    : `/api/admin/ingestion-runs`;
+};
+
+export const listIngestionRuns = async (
+  params?: ListIngestionRunsParams,
+  options?: RequestInit,
+): Promise<IngestionRun[]> => {
+  return customFetch<IngestionRun[]>(getListIngestionRunsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListIngestionRunsQueryKey = (
+  params?: ListIngestionRunsParams,
+) => {
+  return [`/api/admin/ingestion-runs`, ...(params ? [params] : [])] as const;
+};
+
+export const getListIngestionRunsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listIngestionRuns>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListIngestionRunsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listIngestionRuns>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListIngestionRunsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listIngestionRuns>>
+  > = ({ signal }) => listIngestionRuns(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listIngestionRuns>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListIngestionRunsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listIngestionRuns>>
+>;
+export type ListIngestionRunsQueryError = ErrorType<void>;
+
+/**
+ * @summary List recent AI-extraction runs (admin-only). One row per upload, with
+the spend/token tallies, the outcome bucket (success / budget_exceeded
+/ extraction_failed), and a per-purpose breakdown. Powers the
+post-incident audit for Task #297's safety net.
+
+ */
+
+export function useListIngestionRuns<
+  TData = Awaited<ReturnType<typeof listIngestionRuns>>,
+  TError = ErrorType<void>,
+>(
+  params?: ListIngestionRunsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listIngestionRuns>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListIngestionRunsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary List every admin-managed Connecteam clock-id hour offset (admin-only).

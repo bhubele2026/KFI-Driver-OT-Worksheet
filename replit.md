@@ -70,6 +70,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 - PDF parsers (`Adient`, `IWG`, `DeLallo`) throw a clear "scanned image" error if pdfjs extracts zero text. DeLallo has an OCR fallback (see [`docs/ai-extraction.md`](docs/ai-extraction.md)).
 - Customer-file parsers return `{ punches, unmappedIds }`. `unmappedIds` (id, count, sampleName) is surfaced in the upload response and rendered as an inline amber warning per row; rows referencing those ids were dropped — fix `EMBEDDED_MAPPING` (or add a driver-ID alias) and re-upload to clear it.
 - Don't `console.log` in server code — use `req.log` / `logger`.
+- AI customer-file extraction runs under a per-upload `IngestionBudget` (`lib/parsers/ingestionBudget.ts`) capped at 30 calls / 400k tokens with a soft warn at 20 calls. Cross-provider Gemini fallback is opt-in per customer (`customers.allowGeminiFallback`, defaults `false`); one-shot override is `?allowGeminiFallback=1` on the extract route. Every run logs `ingest_done` and writes a row to `ingestion_runs` (visible at `GET /admin/ingestion-runs`). Details: [`docs/ai-extraction.md`](docs/ai-extraction.md#spend-safety-net-task-297).
 
 ## Pointers
 

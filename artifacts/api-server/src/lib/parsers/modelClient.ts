@@ -35,7 +35,22 @@ export interface ModelClient {
     maxOutputTokens: number;
     timeoutMs: number;
     jsonSchema?: unknown;
-  }): Promise<{ text: string }>;
+  }): Promise<{ text: string; usage: ModelCallUsage }>;
+}
+
+/**
+ * Per-call token + model attribution surfaced by both providers. Wired
+ * into `IngestionBudget.recordCall` so the per-upload spend ceiling
+ * (Task #297) sees real provider-reported token counts instead of
+ * char-length guesses. `model` is the concrete provider model id (e.g.
+ * "claude-sonnet-4-5", "gemini-2.5-flash"); `provider` is the short
+ * label exposed by `ModelClient.name`.
+ */
+export interface ModelCallUsage {
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+  provider: string;
 }
 
 /** Minimal logger shape — accepts req.log (pino child) or the module logger. */

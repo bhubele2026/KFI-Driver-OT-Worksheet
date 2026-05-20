@@ -2,6 +2,7 @@ import { Type } from "@google/genai";
 import { logger } from "../logger.js";
 import { fmtDT } from "../time.js";
 import { getGeminiClient } from "./gemini.js";
+import type { IngestionBudget } from "./ingestionBudget.js";
 import type { ParsedPunch, UnmappedIdAccumulator } from "./types.js";
 
 interface OcrPunchRow {
@@ -65,12 +66,14 @@ export async function ocrDelalloPDF(
   year: number,
   unmappedIds: UnmappedIdAccumulator,
   idMap: Record<string, string> = {},
+  budget?: IngestionBudget,
 ): Promise<ParsedPunch[]> {
   const ai = getGeminiClient();
   const start = Date.now();
+  const model = "gemini-2.5-flash";
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+    model,
     contents: [
       {
         role: "user",
@@ -100,6 +103,21 @@ export async function ocrDelalloPDF(
       maxOutputTokens: 32768,
     },
   });
+
+  // Account this call against the per-upload budget (Task #297) so the
+  // DeLallo OCR fallback can't bypass the hard call/token ceilings.
+  if (budget) {
+    const usage = response.usageMetadata;
+    budget.recordCall(
+      {
+        inputTokens: usage?.promptTokenCount ?? 0,
+        outputTokens: usage?.candidatesTokenCount ?? 0,
+        model,
+        provider: "gemini",
+      },
+      "chunk",
+    );
+  }
 
   const raw = response.text ?? "";
   let parsed: { punches?: OcrPunchRow[] };

@@ -13,6 +13,13 @@ export interface Customer {
   filenameKeywords: string[];
   extensions: CustomerExtensionsItem[];
   active: boolean;
+  /** Per-customer opt-in for the Claude→Gemini cross-provider
+fallback in AI extraction (Task #297). OFF by default; the
+dispatcher can flip it on per row from /admin/customers when
+a customer's format is stable enough that the fallback's
+extra spend is worth the resilience.
+ */
+  allowGeminiFallback: boolean;
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;

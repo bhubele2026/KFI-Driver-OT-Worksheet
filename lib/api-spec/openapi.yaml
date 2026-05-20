@@ -1360,6 +1360,35 @@ paths:
         "204": { description: Deleted (or no alias existed) }
         "403": { description: Admin only }
 
+  /admin/ingestion-runs:
+    get:
+      operationId: listIngestionRuns
+      tags: [ingest]
+      summary: |
+        List recent AI-extraction runs (admin-only). One row per upload, with
+        the spend/token tallies, the outcome bucket (success / budget_exceeded
+        / extraction_failed), and a per-purpose breakdown. Powers the
+        post-incident audit for Task #297's safety net.
+      parameters:
+        - name: customer
+          in: query
+          required: false
+          schema: { type: string }
+          description: Case-insensitive substring filter on the customer name.
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        "200":
+          description: Recent ingestion runs, most-recent first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/IngestionRun" }
+        "403": { description: Admin only }
+
   /admin/clock-offsets:
     get:
       operationId: listClockOffsets
@@ -3338,6 +3367,16 @@ components:
             `cache` → `readWithRoles` branch (sub-100ms). Always false
             for cache hits, images, and PDFs (the schema cache is
             xlsx-only today).
+        geminiFallbackUsed:
+          type: boolean
+          description: |
+            True when at least one model call in this upload's AI
+            extraction was served by the Gemini fallback after the
+            primary Claude call failed (Task #297). Opt-in per customer
+            via `customers.allowGeminiFallback`. Surfaced so the
+            customer-files panel can render an amber "Gemini fallback
+            used" badge — these rows should be reviewed more carefully
+            than a clean Claude extraction.
 
     ConfirmCustomerFileInput:
       type: object
@@ -3442,6 +3481,15 @@ components:
         sampleId:
           type: integer
           description: ID of the stashed copy of the uploaded file. Pass back to /confirm-new-customer so the sample is marked confirmed and retained for engineer use.
+        extractionTruncated:
+          type: boolean
+          description: True when chunked AI extraction hit max-chunks; some rows from large files may be missing.
+        failedChunks:
+          type: integer
+          description: Number of per-chunk model calls that never returned valid JSON; those rows are missing from the preview.
+        geminiFallbackUsed:
+          type: boolean
+          description: True when at least one model call was served by the Gemini fallback after a primary Claude failure (Task #297).
 
     ConfirmNewCustomerRow:
       type: object
@@ -3655,7 +3703,7 @@ components:
 
     Customer:
       type: object
-      required: [id, displayName, filenameKeywords, extensions, active, sortOrder, createdAt, updatedAt]
+      required: [id, displayName, filenameKeywords, extensions, active, allowGeminiFallback, sortOrder, createdAt, updatedAt]
       properties:
         id: { type: integer }
         displayName: { type: string }
@@ -3666,6 +3714,14 @@ components:
           type: array
           items: { type: string, enum: [xlsx, pdf] }
         active: { type: boolean }
+        allowGeminiFallback:
+          type: boolean
+          description: |
+            Per-customer opt-in for the Claude→Gemini cross-provider
+            fallback in AI extraction (Task #297). OFF by default; the
+            dispatcher can flip it on per row from /admin/customers when
+            a customer's format is stable enough that the fallback's
+            extra spend is worth the resilience.
         sortOrder: { type: integer }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
@@ -3686,6 +3742,7 @@ components:
           type: array
           items: { type: string, enum: [xlsx, pdf] }
         active: { type: boolean }
+        allowGeminiFallback: { type: boolean }
         sortOrder: { type: integer }
 
     UpdateCustomerBody:
@@ -3699,7 +3756,55 @@ components:
           type: array
           items: { type: string, enum: [xlsx, pdf] }
         active: { type: boolean }
+        allowGeminiFallback: { type: boolean }
         sortOrder: { type: integer }
+
+    IngestionRun:
+      type: object
+      required:
+        [
+          id,
+          createdAt,
+          customer,
+          fileName,
+          outcome,
+          rowCount,
+          wallTimeMs,
+          totalCalls,
+          totalInputTokens,
+          totalOutputTokens,
+          totalCostUsd,
+          geminiFallbackUsed,
+          warnedHot,
+        ]
+      properties:
+        id: { type: integer }
+        createdAt: { type: string, format: date-time }
+        customer: { type: string }
+        fileName: { type: string }
+        weekStart:
+          type: ["string", "null"]
+        uploadedByEmail:
+          type: ["string", "null"]
+        outcome:
+          type: string
+          enum: [success, budget_exceeded, extraction_failed]
+        rowCount: { type: integer }
+        wallTimeMs: { type: integer }
+        totalCalls: { type: integer }
+        totalInputTokens: { type: integer }
+        totalOutputTokens: { type: integer }
+        totalCostUsd: { type: number }
+        geminiFallbackUsed: { type: boolean }
+        warnedHot: { type: boolean }
+        byPurpose:
+          type: object
+          additionalProperties: true
+        byProvider:
+          type: object
+          additionalProperties: true
+        errMsg:
+          type: ["string", "null"]
 
     ConnecteamUserAlias:
       type: object

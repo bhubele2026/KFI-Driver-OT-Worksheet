@@ -10,9 +10,11 @@ import { UnmappedIdAccumulator } from "./types.js";
 import {
   aiExtractRows,
   normalizeIsoDate,
+  type AiExtractOptions,
   type AiExtractedRow,
   type RosterContext,
 } from "./aiExtract.js";
+import type { IngestionBudgetSummary } from "./ingestionBudget.js";
 
 /**
  * Build the RosterContext the AI prompt uses to attempt resolvedKfiId
@@ -160,7 +162,14 @@ export async function extractImageForKnownCustomer(args: {
    */
   nameAliasMap?: Map<string, string>;
   log?: { warn: (obj: Record<string, unknown>, msg: string) => void };
-}): Promise<ParseResult> {
+  /**
+   * Per-upload AI options bag (Task #297). Routes that care about the
+   * spend ceiling / per-customer Gemini fallback opt-in build this from
+   * the customers row and pass it through; tests usually omit it and
+   * let `aiExtractRows` construct a throwaway budget.
+   */
+  aiOpts?: AiExtractOptions;
+}): Promise<ParseResult & { aiBudgetSummary?: IngestionBudgetSummary }> {
   const {
     fileName,
     buffer,
@@ -173,6 +182,7 @@ export async function extractImageForKnownCustomer(args: {
     kfiSet,
     nameAliasMap,
     log,
+    aiOpts,
   } = args;
   // Prefer drivers attached to this customer when building the roster
   // hints sent to the AI — narrows the prompt to plausible candidates
@@ -192,6 +202,7 @@ export async function extractImageForKnownCustomer(args: {
     rows: rawRows,
     truncated: extractionTruncated,
     failedChunks,
+    budgetSummary: aiBudgetSummary,
   } = await aiExtractRows(
     fileName,
     buffer,
@@ -201,6 +212,7 @@ export async function extractImageForKnownCustomer(args: {
     mimeType,
     log,
     roster,
+    aiOpts,
   );
 
   // Normalize Gemini's date shape before the string-compare window filter.
@@ -283,6 +295,7 @@ export async function extractImageForKnownCustomer(args: {
     unmappedIds: unmapped.toArray(),
     diagnostics,
     pendingNamedRows,
+    aiBudgetSummary,
   };
 }
 

@@ -58,6 +58,11 @@ import {
   loadCustomers,
 } from "../lib/customersStore.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
+import {
+  IngestionBudget,
+  IngestionBudgetExceeded,
+  type IngestionBudgetSummary,
+} from "../lib/parsers/ingestionBudget.js";
 import { lookupSchema } from "../lib/parsers/schemaLookup.js";
 import {
   readWithRoles,
@@ -1597,6 +1602,28 @@ weeksRouter.post(
     // Step 2: AI extraction. Triggered when the cache missed or when
     // the cached role reader threw / returned no rows.
     const needsAi = !result;
+    // Per-upload AI spend tracker (Task #297). Constructed even when
+    // the cache hit short-circuits AI, so an unused-but-present
+    // `aiBudgetSummary` keeps the post-extract success branch
+    // uniform. Only the AI branch actually records calls into it.
+    const aiBudget = new IngestionBudget({
+      fileName,
+      customer: detectedCustomer,
+      log: req.log,
+    });
+    // `?allowGeminiFallback=1` is an admin-only escape hatch for the
+    // dispatcher to flip on the cross-provider fallback for ONE upload
+    // without editing the customers row. Defaults to the per-customer
+    // setting. Enforced admin-only so a non-admin can't bypass cost
+    // controls by toggling a query param.
+    const reqUser = (req as Request & { user?: typeof schema.usersTable.$inferSelect }).user;
+    const allowGeminiFallbackOverride =
+      Boolean(reqUser?.isAdmin) &&
+      String(req.query.allowGeminiFallback ?? "") === "1";
+    const allowGeminiFallback =
+      allowGeminiFallbackOverride ||
+      (await loadAllowGeminiFallback(detectedCustomer));
+    const aiStartedAt = Date.now();
     if (needsAi) {
       try {
         let bufferForAi = req.file.buffer;
@@ -1626,6 +1653,7 @@ weeksRouter.post(
           kfiSet,
           nameAliasMap,
           log: req.log,
+          aiOpts: { budget: aiBudget, allowGeminiFallback },
         });
         result = aiResult;
         stashedImageRows = imagePunchesForStash(aiResult.punches);
@@ -1647,9 +1675,50 @@ weeksRouter.post(
         const msg =
           err instanceof Error ? err.message : "Could not extract rows";
         await recordAttempt(startDate, detectedCustomer, fileName, msg, "ai");
+        // Persist a per-upload audit row so the budget-exceeded /
+        // extraction-failed branches show up in /admin/ingestion-runs.
+        // Done even on the budget-tripped path — that's the exact case
+        // the operator most needs to see after the fact.
+        await insertIngestionRun({
+          customer: detectedCustomer,
+          fileName,
+          weekStart: startDate,
+          uploadedBy: req.session.userId ?? null,
+          outcome:
+            err instanceof IngestionBudgetExceeded
+              ? "budget_exceeded"
+              : "extraction_failed",
+          rowCount: 0,
+          wallTimeMs: Date.now() - aiStartedAt,
+          summary: aiBudget.summary(),
+          errMsg: msg,
+          log: req.log,
+        });
         res.status(400).json({ error: msg });
         return;
       }
+    }
+    // Persist the success-path audit row before we touch the response.
+    // Kept narrow: only fires on the AI branch (cache hits don't burn
+    // model calls, so there's nothing to audit there).
+    const geminiFallbackUsed =
+      (result && "aiBudgetSummary" in result
+        ? (result as { aiBudgetSummary?: IngestionBudgetSummary })
+            .aiBudgetSummary?.geminiFallbackUsed
+        : false) ?? false;
+    if (needsAi && result) {
+      await insertIngestionRun({
+        customer: result.customer,
+        fileName,
+        weekStart: startDate,
+        uploadedBy: req.session.userId ?? null,
+        outcome: "success",
+        rowCount: result.punches.length,
+        wallTimeMs: Date.now() - aiStartedAt,
+        summary: aiBudget.summary(),
+        errMsg: null,
+        log: req.log,
+      });
     }
     if (!result) {
       res.status(400).json({
@@ -1938,6 +2007,7 @@ weeksRouter.post(
       cacheWritten,
       extractionTruncated: result.diagnostics?.extractionTruncated ?? false,
       failedChunks: result.diagnostics?.failedChunks ?? 0,
+      geminiFallbackUsed,
     });
   },
 );
@@ -2892,6 +2962,7 @@ async function serializeCustomers() {
       filenameKeywords: schema.customersTable.filenameKeywords,
       extensions: schema.customersTable.extensions,
       active: schema.customersTable.active,
+      allowGeminiFallback: schema.customersTable.allowGeminiFallback,
       sortOrder: schema.customersTable.sortOrder,
       createdAt: schema.customersTable.createdAt,
       updatedAt: schema.customersTable.updatedAt,
@@ -2921,12 +2992,75 @@ async function serializeCustomers() {
       (e): e is "xlsx" | "pdf" => e === "xlsx" || e === "pdf",
     ),
     active: r.active,
+    allowGeminiFallback: r.allowGeminiFallback,
     sortOrder: r.sortOrder,
     createdAt: new Date(r.createdAt).toISOString(),
     updatedAt: new Date(r.updatedAt).toISOString(),
     createdByEmail: r.createdBy ? emailById.get(r.createdBy) ?? null : null,
     updatedByEmail: r.updatedBy ? emailById.get(r.updatedBy) ?? null : null,
   }));
+}
+
+/**
+ * Look up `customers.allowGeminiFallback` for a customer (case-insensitive
+ * by displayName). Used at every AI-extraction call site to gate the
+ * Claude → Gemini cross-provider fallback. Defaults to FALSE when the
+ * customer isn't in the table (e.g. /extract-new-customer with a brand
+ * new name) so a fresh upload never accidentally double-bills.
+ */
+async function loadAllowGeminiFallback(customer: string): Promise<boolean> {
+  const rows = await db
+    .select({ allow: schema.customersTable.allowGeminiFallback })
+    .from(schema.customersTable)
+    .where(sql`lower(${schema.customersTable.displayName}) = lower(${customer})`)
+    .limit(1);
+  return rows[0]?.allow ?? false;
+}
+
+/**
+ * Best-effort write of a single `ingestion_runs` row. Called from every
+ * AI-extraction outcome branch (success, budget_exceeded,
+ * extraction_failed) so the admin audit endpoint has a complete
+ * per-upload history. Wrapped in try/catch — a logging-table failure
+ * must never derail the actual upload response.
+ */
+async function insertIngestionRun(args: {
+  customer: string;
+  fileName: string;
+  weekStart: string | null;
+  uploadedBy: number | null;
+  outcome: "success" | "budget_exceeded" | "extraction_failed";
+  rowCount: number;
+  wallTimeMs: number;
+  summary: IngestionBudgetSummary;
+  errMsg: string | null;
+  log: { error: (obj: Record<string, unknown>, msg: string) => void };
+}): Promise<void> {
+  try {
+    await db.insert(schema.ingestionRunsTable).values({
+      customer: args.customer,
+      fileName: args.fileName,
+      weekStart: args.weekStart,
+      uploadedBy: args.uploadedBy,
+      outcome: args.outcome,
+      rowCount: args.rowCount,
+      wallTimeMs: args.wallTimeMs,
+      totalCalls: args.summary.totalCalls,
+      totalInputTokens: args.summary.totalInputTokens,
+      totalOutputTokens: args.summary.totalOutputTokens,
+      totalCostUsd: args.summary.totalCostUsd,
+      geminiFallbackUsed: args.summary.geminiFallbackUsed,
+      warnedHot: args.summary.warnedHot,
+      byPurpose: args.summary.byPurpose,
+      byProvider: args.summary.byProvider,
+      errMsg: args.errMsg,
+    });
+  } catch (err) {
+    args.log.error(
+      { err, customer: args.customer, fileName: args.fileName, outcome: args.outcome },
+      "Failed to insert ingestion_runs row",
+    );
+  }
 }
 
 weeksRouter.get("/admin/customers", requireAuth, async (_req, res) => {
@@ -2949,6 +3083,7 @@ weeksRouter.post("/admin/customers", requireAdmin, async (req, res) => {
     .filter((k) => k.length > 0);
   const extensions = parsed.data.extensions ?? ["xlsx", "pdf"];
   const active = parsed.data.active ?? true;
+  const allowGeminiFallback = parsed.data.allowGeminiFallback ?? false;
   const sortOrder = parsed.data.sortOrder ?? 1000;
   const userId = req.session.userId ?? null;
   try {
@@ -2960,6 +3095,7 @@ weeksRouter.post("/admin/customers", requireAdmin, async (req, res) => {
           filenameKeywords,
           extensions,
           active,
+          allowGeminiFallback,
           sortOrder,
           createdBy: userId,
           updatedBy: userId,
@@ -3013,6 +3149,9 @@ weeksRouter.patch("/admin/customers/:id", requireAdmin, async (req, res) => {
   }
   if (parsed.data.extensions !== undefined) patch.extensions = parsed.data.extensions;
   if (parsed.data.active !== undefined) patch.active = parsed.data.active;
+  if (parsed.data.allowGeminiFallback !== undefined) {
+    patch.allowGeminiFallback = parsed.data.allowGeminiFallback;
+  }
   if (parsed.data.sortOrder !== undefined) patch.sortOrder = parsed.data.sortOrder;
   try {
     const updated = await db.transaction(async (tx) => {
@@ -3426,6 +3565,23 @@ weeksRouter.post(
     let rows;
     let extractionTruncated = false;
     let failedChunks = 0;
+    let geminiFallbackUsedNew = false;
+    // Per-upload AI spend tracker (Task #297). Constructed before the
+    // try so the catch branch can still persist a budget_exceeded /
+    // extraction_failed audit row with whatever counts accrued before
+    // the throw.
+    const aiBudgetNew = new IngestionBudget({
+      fileName: req.file.originalname,
+      customer,
+      log: req.log,
+    });
+    const reqUserNew = (req as Request & { user?: typeof schema.usersTable.$inferSelect }).user;
+    const allowGeminiFallbackNewOverride =
+      Boolean(reqUserNew?.isAdmin) &&
+      String(req.query.allowGeminiFallback ?? "") === "1";
+    const allowGeminiFallbackNew =
+      allowGeminiFallbackNewOverride || (await loadAllowGeminiFallback(customer));
+    const aiStartedAtNew = Date.now();
     // Build a RosterContext so the AI prompt can attempt resolvedKfiId
     // on each row instead of returning bare names that we'd have to
     // fuzzy-match (Task #271). We restrict the pool to drivers attached
@@ -3476,17 +3632,49 @@ weeksRouter.post(
         extractMime,
         req.log,
         rosterContext,
+        { budget: aiBudgetNew, allowGeminiFallback: allowGeminiFallbackNew },
       );
       rows = extracted.rows;
       extractionTruncated = extracted.truncated;
       failedChunks = extracted.failedChunks;
+      geminiFallbackUsedNew = extracted.geminiFallbackUsed;
     } catch (err) {
       req.log.error({ err, fileName: req.file.originalname }, "AI extract error");
-      res.status(400).json({
-        error: err instanceof Error ? err.message : "Could not extract rows",
+      const msg =
+        err instanceof Error ? err.message : "Could not extract rows";
+      await insertIngestionRun({
+        customer,
+        fileName: req.file.originalname,
+        weekStart: startDate,
+        uploadedBy: req.session.userId ?? null,
+        outcome:
+          err instanceof IngestionBudgetExceeded
+            ? "budget_exceeded"
+            : "extraction_failed",
+        rowCount: 0,
+        wallTimeMs: Date.now() - aiStartedAtNew,
+        summary: aiBudgetNew.summary(),
+        errMsg: msg,
+        log: req.log,
       });
+      res.status(400).json({ error: msg });
       return;
     }
+    // Success-path audit row. Written before the response so the
+    // /admin/ingestion-runs view never lags reality (the user's first
+    // glance after a hot upload should already show it).
+    await insertIngestionRun({
+      customer,
+      fileName: req.file.originalname,
+      weekStart: startDate,
+      uploadedBy: req.session.userId ?? null,
+      outcome: "success",
+      rowCount: rows.length,
+      wallTimeMs: Date.now() - aiStartedAtNew,
+      summary: aiBudgetNew.summary(),
+      errMsg: null,
+      log: req.log,
+    });
     // Filter to the requested week window — the model is told but doesn't
     // always obey, so we hard-clamp here.
     rows = rows.filter((r) => r.date >= startDate && r.date <= endDate);
@@ -3602,6 +3790,7 @@ weeksRouter.post(
       sampleId: sample.id,
       extractionTruncated,
       failedChunks,
+      geminiFallbackUsed: geminiFallbackUsedNew,
     });
   },
 );
@@ -6205,6 +6394,84 @@ weeksRouter.post(
     res.json(result);
   },
 );
+
+// -------------------------------------------------------------------------
+// Per-upload AI ingestion audit feed (Task #297). Read-only, admin-gated.
+// Returns the most recent ingestion_runs rows so the operator can
+// retroactively see which uploads burned tokens / tripped the budget /
+// fell back to Gemini, plus rough $-cost. Optional ?customer filter and
+// ?limit (default 50, capped at 500).
+// -------------------------------------------------------------------------
+weeksRouter.get("/admin/ingestion-runs", requireAdmin, async (req, res) => {
+  const limitParam = Number(req.query.limit);
+  const limit =
+    Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 500
+      ? limitParam
+      : 50;
+  const customerFilter =
+    typeof req.query.customer === "string" && req.query.customer.trim().length > 0
+      ? String(req.query.customer).trim()
+      : null;
+  const conds: SQL[] = [];
+  if (customerFilter) {
+    // Case-insensitive substring match (matches the OpenAPI description).
+    conds.push(
+      sql`${schema.ingestionRunsTable.customer} ILIKE ${"%" + customerFilter + "%"}`,
+    );
+  }
+  const rows = await db
+    .select({
+      id: schema.ingestionRunsTable.id,
+      customer: schema.ingestionRunsTable.customer,
+      fileName: schema.ingestionRunsTable.fileName,
+      weekStart: schema.ingestionRunsTable.weekStart,
+      uploadedBy: schema.ingestionRunsTable.uploadedBy,
+      uploadedByEmail: schema.usersTable.email,
+      outcome: schema.ingestionRunsTable.outcome,
+      rowCount: schema.ingestionRunsTable.rowCount,
+      wallTimeMs: schema.ingestionRunsTable.wallTimeMs,
+      totalCalls: schema.ingestionRunsTable.totalCalls,
+      totalInputTokens: schema.ingestionRunsTable.totalInputTokens,
+      totalOutputTokens: schema.ingestionRunsTable.totalOutputTokens,
+      totalCostUsd: schema.ingestionRunsTable.totalCostUsd,
+      geminiFallbackUsed: schema.ingestionRunsTable.geminiFallbackUsed,
+      warnedHot: schema.ingestionRunsTable.warnedHot,
+      byPurpose: schema.ingestionRunsTable.byPurpose,
+      byProvider: schema.ingestionRunsTable.byProvider,
+      errMsg: schema.ingestionRunsTable.errMsg,
+      createdAt: schema.ingestionRunsTable.createdAt,
+    })
+    .from(schema.ingestionRunsTable)
+    .leftJoin(
+      schema.usersTable,
+      eq(schema.usersTable.id, schema.ingestionRunsTable.uploadedBy),
+    )
+    .where(conds.length > 0 ? and(...conds) : sql`true`)
+    .orderBy(desc(schema.ingestionRunsTable.createdAt))
+    .limit(limit);
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      customer: r.customer,
+      fileName: r.fileName,
+      weekStart: r.weekStart,
+      uploadedByEmail: r.uploadedByEmail,
+      outcome: r.outcome,
+      rowCount: r.rowCount,
+      wallTimeMs: r.wallTimeMs,
+      totalCalls: r.totalCalls,
+      totalInputTokens: r.totalInputTokens,
+      totalOutputTokens: r.totalOutputTokens,
+      totalCostUsd: r.totalCostUsd,
+      geminiFallbackUsed: r.geminiFallbackUsed,
+      warnedHot: r.warnedHot,
+      byPurpose: r.byPurpose,
+      byProvider: r.byProvider,
+      errMsg: r.errMsg,
+      createdAt: new Date(r.createdAt).toISOString(),
+    })),
+  );
+});
 
 weeksRouter.get("/admin/notes/deleted", requireAdmin, async (req, res) => {
   const limitParam = Number(req.query.limit);

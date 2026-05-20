@@ -11,8 +11,52 @@ import {
   runWithConcurrency,
   withModelRetry,
   type ContentPart,
+  type ModelCallUsage,
   type ModelClient,
 } from "./modelClient.js";
+import {
+  IngestionBudget,
+  IngestionBudgetExceeded,
+  type IngestionBudgetSummary,
+  type IngestionPurpose,
+} from "./ingestionBudget.js";
+
+/**
+ * Per-upload options bag for `aiExtractRows`. All fields optional; the
+ * upload route in `weeks.ts` builds this from the customers row + the
+ * dispatcher's request flags (Task #297).
+ */
+export interface AiExtractOptions {
+  /**
+   * Pre-built budget tracker. When omitted, `aiExtractRows` constructs
+   * a fresh one and discards it on return — fine for direct unit tests
+   * but loses the spend summary, so production code paths should always
+   * pass one in and inspect `budget.summary()` post-call.
+   */
+  budget?: IngestionBudget;
+  /**
+   * When true, a non-retryable primary-provider failure may fall back
+   * to the secondary provider (Claude → Gemini or vice versa). Defaults
+   * to FALSE — the auto-fallback that motivated Task #297 (a single
+   * upload spent ~$3 because Claude failures multiplied the spend on
+   * Gemini) is now opt-in per customer.
+   */
+  allowGeminiFallback?: boolean;
+}
+
+/** Result shape returned by `aiExtractRows`, extended with budget telemetry (Task #297). */
+export interface AiExtractResult {
+  rows: AiExtractedRow[];
+  truncated: boolean;
+  failedChunks: number;
+  /**
+   * Per-upload spend summary. Always present; counts may all be zero
+   * when a test stub short-circuited every model call.
+   */
+  budgetSummary: IngestionBudgetSummary;
+  /** True when at least one chunk's primary call failed and Gemini fallback served it. */
+  geminiFallbackUsed: boolean;
+}
 
 export interface AiExtractedRow {
   driverNameOnDoc: string;
@@ -670,6 +714,43 @@ export function __clearAiExtractStubs(): void {
 const XLSX_CHUNK_TIMEOUT_MS = 120_000;
 
 /**
+ * Per-call structured log entry. Emitted at info-level for every real
+ * provider round-trip so we can correlate spend on the `ingest_done`
+ * summary with individual chunks (Task #297). Keep the field shape
+ * stable — the admin debugging playbook greps for these.
+ */
+function logModelCall(opts: {
+  log: SalvageLogger | undefined;
+  chunkLabel: string;
+  purpose: IngestionPurpose;
+  usage: ModelCallUsage;
+  elapsedMs: number;
+  customer: string;
+  fileName: string;
+}): void {
+  const target = (opts.log ?? logger) as SalvageLogger & {
+    info?: (obj: Record<string, unknown>, msg: string) => void;
+  };
+  const fields = {
+    customer: opts.customer,
+    fileName: opts.fileName,
+    chunkLabel: opts.chunkLabel,
+    purpose: opts.purpose,
+    provider: opts.usage.provider,
+    model: opts.usage.model,
+    inputTokens: opts.usage.inputTokens,
+    outputTokens: opts.usage.outputTokens,
+    elapsedMs: opts.elapsedMs,
+  };
+  const msg = "AI model call complete";
+  if (typeof target.info === "function") {
+    target.info(fields, msg);
+  } else {
+    target.warn(fields, msg);
+  }
+}
+
+/**
  * Per-chunk model call with retry-on-transient-failure and quiet
  * fallback to the secondary provider. The retry policy (3 attempts,
  * jittered exp backoff 1.5s → 8s on 429 / 503 / 5xx / network) was
@@ -684,30 +765,67 @@ async function callModelForChunk(
   fileName: string,
   log: SalvageLogger | undefined,
   label: string,
+  budget: IngestionBudget,
+  allowGeminiFallback: boolean,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean }> {
   // `buildParts(c)` is called per-attempt so the prompt is re-tailored
   // to whichever provider actually handles the request — important on
   // the Claude→Gemini (or reverse) fallback path, where the two
   // providers want subtly different prompt shapes (see `buildPrompt`).
-  const callOnce = async (c: ModelClient): Promise<{ text: string }> =>
-    withModelRetry(
-      () =>
-        c.generate({
+  // The withModelRetry attempt counter is exposed so we can distinguish
+  // a chunk's first call (`purpose: 'chunk'`) from its automatic retries
+  // (`purpose: 'chunk_retry'`) in the per-upload spend breakdown.
+  const callOnce = async (
+    c: ModelClient,
+    isFallback: boolean,
+  ): Promise<{ text: string }> => {
+    let attempt = 0;
+    return withModelRetry(
+      async () => {
+        attempt++;
+        const startedAt = Date.now();
+        const result = await c.generate({
           parts: buildParts(c),
           maxOutputTokens: 32768,
           timeoutMs: XLSX_CHUNK_TIMEOUT_MS,
           jsonSchema: ROW_SCHEMA,
-        }),
+        });
+        const purpose: IngestionPurpose = isFallback
+          ? "gemini_fallback"
+          : attempt > 1
+          ? "chunk_retry"
+          : label.includes("halved")
+          ? "chunk_halved"
+          : "chunk";
+        logModelCall({
+          log,
+          chunkLabel: label,
+          purpose,
+          usage: result.usage,
+          elapsedMs: Date.now() - startedAt,
+          customer,
+          fileName,
+        });
+        budget.recordCall(result.usage, purpose);
+        return { text: result.text };
+      },
       { label: `${c.name}:${label}`, log },
     );
+  };
   let raw: string;
   try {
-    raw = (await callOnce(client)).text;
+    raw = (await callOnce(client, false)).text;
   } catch (err) {
-    // After all retries exhausted, try the other provider once as a
-    // safety net so a single bad minute on Anthropic doesn't sink the
-    // upload (Task #293). Only worth it for actually-network-y failures.
-    const fb = isRetryableModelError(err) ? await getFallbackModelClient(client) : null;
+    // After all retries exhausted, optionally try the other provider once as a
+    // safety net so a single bad minute on Anthropic doesn't sink the upload.
+    // OPT-IN per customer post-Task #297: the auto-fallback used to silently
+    // multiply spend by routing failures into a second provider; now the
+    // dispatcher (or the customers-table flag) explicitly authorizes it.
+    if (err instanceof IngestionBudgetExceeded) throw err;
+    const fb =
+      allowGeminiFallback && isRetryableModelError(err)
+        ? await getFallbackModelClient(client)
+        : null;
     if (!fb) throw err;
     (log ?? logger).warn(
       {
@@ -720,7 +838,7 @@ async function callModelForChunk(
       },
       "AI primary provider failed after retries — falling back to secondary",
     );
-    raw = (await callOnce(fb)).text;
+    raw = (await callOnce(fb, true)).text;
   }
   const parsed = parseOrSalvage(raw, customer, fileName, log);
   const rows = (parsed.rows ?? []).filter(
@@ -769,6 +887,8 @@ async function runChunkedXlsxExtract(
   fileName: string,
   startedAt: number,
   log: SalvageLogger | undefined,
+  budget: IngestionBudget,
+  allowGeminiFallback: boolean,
   roster?: RosterContext,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
   const runOne = async (
@@ -801,6 +921,35 @@ async function runChunkedXlsxExtract(
           `\n\n${label} of the same workbook. Return only the rows in this chunk.\n\n--- SPREADSHEET (CSV) ---\n${chunk}\n--- END SPREADSHEET ---`,
       },
     ];
+    // Defensive assertion: the chunker is supposed to cap each chunk at
+    // ~180k chars / 60 rows. If we're about to ship a payload wildly
+    // larger than the assigned row count would justify (>500 chars per
+    // row), bail BEFORE burning a model call. The bug that motivated
+    // this (Task #297) was a malformed chunk that ballooned to 10×
+    // its intended payload size and ate the entire token budget across
+    // retries before failing. Log the structured warning first so the
+    // dispatcher's error has a corresponding trace in the API log.
+    const assignedRowCount = Math.max(1, chunk.split("\n").length - 2);
+    const promptChars = buildParts(client).reduce(
+      (n, p) => n + (p.kind === "text" ? p.text.length : 0),
+      0,
+    );
+    if (promptChars > assignedRowCount * 500) {
+      (log ?? logger).warn(
+        {
+          customer,
+          fileName,
+          label,
+          promptChars,
+          assignedRowCount,
+          ratio: Math.round(promptChars / assignedRowCount),
+        },
+        "AI chunk payload exceeds safety ratio (chars-per-row > 500) — refusing to send",
+      );
+      throw new Error(
+        `AI extraction stopped: chunk "${label}" prompt is ${promptChars} chars for only ${assignedRowCount} rows. The chunker produced a malformed split — re-upload after splitting the spreadsheet by hand.`,
+      );
+    }
     const { rows, truncated } = await callModelForChunk(
       client,
       buildParts,
@@ -808,6 +957,8 @@ async function runChunkedXlsxExtract(
       fileName,
       log,
       label,
+      budget,
+      allowGeminiFallback,
     );
     return {
       rows: rows.map((r) => ({
@@ -926,6 +1077,52 @@ async function runChunkedXlsxExtract(
   return { rows: deduped, truncated: false, failedChunks: 0 };
 }
 
+/**
+ * Emit the per-upload `ingest_done` summary log. Centralized so both
+ * the success path and the catch path in `aiExtractRows` write a
+ * consistently-shaped line — the admin debugging playbook greps for
+ * `"ingest_done"` to pull every upload's spend across the API log.
+ */
+function logIngestDone(
+  log: SalvageLogger | undefined,
+  fields: {
+    customer: string;
+    fileName: string;
+    outcome: "success" | "budget_exceeded" | "extraction_failed";
+    wallTimeMs: number;
+    rowCount: number;
+    summary: IngestionBudgetSummary;
+    errMsg?: string;
+  },
+): void {
+  const target = (log ?? logger) as SalvageLogger & {
+    info?: (obj: Record<string, unknown>, msg: string) => void;
+  };
+  const payload = {
+    customer: fields.customer,
+    fileName: fields.fileName,
+    outcome: fields.outcome,
+    wallTimeMs: fields.wallTimeMs,
+    rowCount: fields.rowCount,
+    totalCalls: fields.summary.totalCalls,
+    totalInputTokens: fields.summary.totalInputTokens,
+    totalOutputTokens: fields.summary.totalOutputTokens,
+    totalTokens: fields.summary.totalTokens,
+    totalCostUsd: fields.summary.totalCostUsd,
+    byPurpose: fields.summary.byPurpose,
+    byProvider: fields.summary.byProvider,
+    geminiFallbackUsed: fields.summary.geminiFallbackUsed,
+    warnedHot: fields.summary.warnedHot,
+    ...(fields.errMsg ? { errMsg: fields.errMsg } : {}),
+  };
+  const msg = "ingest_done";
+  if (typeof target.info === "function") {
+    target.info(payload, msg);
+  } else {
+    target.warn(payload, msg);
+  }
+}
+
 export async function aiExtractRows(
   fileName: string,
   buffer: Buffer,
@@ -935,6 +1132,99 @@ export async function aiExtractRows(
   mimeType?: string,
   log?: SalvageLogger,
   roster?: RosterContext,
+  opts?: AiExtractOptions,
+): Promise<AiExtractResult> {
+  const budget =
+    opts?.budget ?? new IngestionBudget({ fileName, customer, log });
+  const allowGeminiFallback = opts?.allowGeminiFallback ?? false;
+  return aiExtractRowsImpl(
+    fileName,
+    buffer,
+    customer,
+    weekStart,
+    weekEnd,
+    mimeType,
+    log,
+    roster,
+    budget,
+    allowGeminiFallback,
+  );
+}
+
+async function aiExtractRowsImpl(
+  fileName: string,
+  buffer: Buffer,
+  customer: string,
+  weekStart: string,
+  weekEnd: string,
+  mimeType: string | undefined,
+  log: SalvageLogger | undefined,
+  roster: RosterContext | undefined,
+  budget: IngestionBudget,
+  allowGeminiFallback: boolean,
+): Promise<AiExtractResult> {
+  const overallStart = Date.now();
+  // Wrap the rest of the function in try/catch so a budget trip or any
+  // other thrown error still emits an `ingest_done` summary log before
+  // re-throwing. The route handler is responsible for persisting the
+  // matching `ingestion_runs` row.
+  try {
+    const result = await runExtraction(
+      fileName,
+      buffer,
+      customer,
+      weekStart,
+      weekEnd,
+      mimeType,
+      log,
+      roster,
+      budget,
+      allowGeminiFallback,
+    );
+    const summary = budget.summary();
+    logIngestDone(log, {
+      customer,
+      fileName,
+      outcome: "success",
+      wallTimeMs: Date.now() - overallStart,
+      rowCount: result.rows.length,
+      summary,
+    });
+    return {
+      ...result,
+      budgetSummary: summary,
+      geminiFallbackUsed: summary.geminiFallbackUsed,
+    };
+  } catch (err) {
+    const summary = budget.summary();
+    const outcome: "budget_exceeded" | "extraction_failed" =
+      err instanceof IngestionBudgetExceeded
+        ? "budget_exceeded"
+        : "extraction_failed";
+    logIngestDone(log, {
+      customer,
+      fileName,
+      outcome,
+      wallTimeMs: Date.now() - overallStart,
+      rowCount: 0,
+      summary,
+      errMsg: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
+async function runExtraction(
+  fileName: string,
+  buffer: Buffer,
+  customer: string,
+  weekStart: string,
+  weekEnd: string,
+  mimeType: string | undefined,
+  log: SalvageLogger | undefined,
+  roster: RosterContext | undefined,
+  budget: IngestionBudget,
+  allowGeminiFallback: boolean,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
   const lower = fileName.toLowerCase();
   const isPdf = lower.endsWith(".pdf");
@@ -1005,7 +1295,7 @@ export async function aiExtractRows(
       if (customer.toLowerCase() === "delallo") {
         const year = parseInt(weekStart.slice(0, 4), 10);
         const unmapped = new UnmappedIdAccumulator();
-        const punches = await ocrDelalloPDF(buffer, new Set<string>(), year, unmapped);
+        const punches = await ocrDelalloPDF(buffer, new Set<string>(), year, unmapped, {}, budget);
         // Pass the unresolved (badge-only) rows through the standard
         // downstream resolver — ocrDelalloPDF was called with an
         // empty kfiSet specifically so it returns nothing in
@@ -1027,6 +1317,8 @@ export async function aiExtractRows(
           sentinelKfiSet,
           year,
           new UnmappedIdAccumulator(),
+          {},
+          budget,
         );
         const rows: AiExtractedRow[] = allPunches.map((p) => ({
           driverNameOnDoc: toDisplayName(p.kfiId),
@@ -1067,6 +1359,8 @@ export async function aiExtractRows(
         fileName,
         start,
         log,
+        budget,
+        allowGeminiFallback,
         roster,
       );
     }
@@ -1115,25 +1409,51 @@ export async function aiExtractRows(
     // 8k output tokens (one row per driver per day with five string
     // fields each). Cap generously — providers bill by output tokens
     // used, not requested, so headroom is free.
-    const callOnce = (c: ModelClient) =>
-      withModelRetry(
-        () =>
-          c.generate({
+    const callOnce = (c: ModelClient, isFallback: boolean) => {
+      let attempt = 0;
+      return withModelRetry(
+        async () => {
+          attempt++;
+          const callStart = Date.now();
+          const result = await c.generate({
             parts: buildParts(c),
             maxOutputTokens: 32768,
             timeoutMs: AI_TIMEOUT_MS,
             jsonSchema: ROW_SCHEMA,
-          }),
+          });
+          const purpose: IngestionPurpose = isFallback
+            ? "gemini_fallback"
+            : attempt > 1
+            ? "chunk_retry"
+            : "chunk";
+          logModelCall({
+            log,
+            chunkLabel: "single-call",
+            purpose,
+            usage: result.usage,
+            elapsedMs: Date.now() - callStart,
+            customer,
+            fileName,
+          });
+          budget.recordCall(result.usage, purpose);
+          return { text: result.text };
+        },
         { label: `${c.name}:single-call`, log },
       );
+    };
     let raw: string;
     try {
-      raw = (await callOnce(client)).text;
+      raw = (await callOnce(client, false)).text;
     } catch (err) {
       // Quiet fallback to the secondary provider once retries exhaust on
-      // a clearly-transient failure (Task #293). Lets the dispatcher's
-      // demo upload still complete during a one-off Anthropic outage.
-      const fb = isRetryableModelError(err) ? await getFallbackModelClient(client) : null;
+      // a clearly-transient failure (Task #293). Opt-in per customer
+      // post-Task #297 so a primary-provider outage doesn't silently
+      // double the upload's spend.
+      if (err instanceof IngestionBudgetExceeded) throw err;
+      const fb =
+        allowGeminiFallback && isRetryableModelError(err)
+          ? await getFallbackModelClient(client)
+          : null;
       if (!fb) throw err;
       (log ?? logger).warn(
         {
@@ -1145,7 +1465,7 @@ export async function aiExtractRows(
         },
         "AI primary provider failed after retries — falling back to secondary",
       );
-      raw = (await callOnce(fb)).text;
+      raw = (await callOnce(fb, true)).text;
     }
     parsed = parseOrSalvage(raw, customer, fileName, log);
   }
@@ -1175,6 +1495,8 @@ export async function aiExtractRows(
       fileName,
       start,
       log,
+      budget,
+      allowGeminiFallback,
       roster,
     );
   }

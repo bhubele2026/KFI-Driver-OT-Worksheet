@@ -1202,6 +1202,15 @@ for cache hits, images, and PDFs (the schema cache is
 xlsx-only today).
  */
   cacheWritten?: boolean;
+  /** True when at least one model call in this upload's AI
+extraction was served by the Gemini fallback after the
+primary Claude call failed (Task #297). Opt-in per customer
+via `customers.allowGeminiFallback`. Surfaced so the
+customer-files panel can render an amber "Gemini fallback
+used" badge — these rows should be reviewed more carefully
+than a clean Claude extraction.
+ */
+  geminiFallbackUsed?: boolean;
 }
 
 export type ConfirmCustomerFileInputMapNewAliasesItem = {
@@ -1293,6 +1302,12 @@ export interface AiExtractPreview {
   suggestions: DriverNameSuggestion[];
   /** ID of the stashed copy of the uploaded file. Pass back to /confirm-new-customer so the sample is marked confirmed and retained for engineer use. */
   sampleId: number;
+  /** True when chunked AI extraction hit max-chunks; some rows from large files may be missing. */
+  extractionTruncated?: boolean;
+  /** Number of per-chunk model calls that never returned valid JSON; those rows are missing from the preview. */
+  failedChunks?: number;
+  /** True when at least one model call was served by the Gemini fallback after a primary Claude failure (Task */
+  geminiFallbackUsed?: boolean;
 }
 
 export interface ConfirmNewCustomerRow {
@@ -1491,6 +1506,13 @@ export interface Customer {
   filenameKeywords: string[];
   extensions: CustomerExtensionsItem[];
   active: boolean;
+  /** Per-customer opt-in for the Claude→Gemini cross-provider
+fallback in AI extraction (Task #297). OFF by default; the
+dispatcher can flip it on per row from /admin/customers when
+a customer's format is stable enough that the fallback's
+extra spend is worth the resilience.
+ */
+  allowGeminiFallback: boolean;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -1514,6 +1536,7 @@ export interface CreateCustomerBody {
   filenameKeywords?: string[];
   extensions?: CreateCustomerBodyExtensionsItem[];
   active?: boolean;
+  allowGeminiFallback?: boolean;
   sortOrder?: number;
 }
 
@@ -1531,7 +1554,45 @@ export interface UpdateCustomerBody {
   filenameKeywords?: string[];
   extensions?: UpdateCustomerBodyExtensionsItem[];
   active?: boolean;
+  allowGeminiFallback?: boolean;
   sortOrder?: number;
+}
+
+export type IngestionRunOutcome =
+  (typeof IngestionRunOutcome)[keyof typeof IngestionRunOutcome];
+
+export const IngestionRunOutcome = {
+  success: "success",
+  budget_exceeded: "budget_exceeded",
+  extraction_failed: "extraction_failed",
+} as const;
+
+export type IngestionRunByPurpose = { [key: string]: unknown };
+
+export type IngestionRunByProvider = { [key: string]: unknown };
+
+export interface IngestionRun {
+  id: number;
+  createdAt: string;
+  customer: string;
+  fileName: string;
+  /** @nullable */
+  weekStart?: string | null;
+  /** @nullable */
+  uploadedByEmail?: string | null;
+  outcome: IngestionRunOutcome;
+  rowCount: number;
+  wallTimeMs: number;
+  totalCalls: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  geminiFallbackUsed: boolean;
+  warnedHot: boolean;
+  byPurpose?: IngestionRunByPurpose;
+  byProvider?: IngestionRunByProvider;
+  /** @nullable */
+  errMsg?: string | null;
 }
 
 export interface ConnecteamUserAlias {
@@ -1900,6 +1961,18 @@ export type ReactivateCustomerParams = {
 
 export type ClearDriverCustomerOverrideParams = {
   kfiId: string;
+};
+
+export type ListIngestionRunsParams = {
+  /**
+   * Case-insensitive substring filter on the customer name.
+   */
+  customer?: string;
+  /**
+   * @minimum 1
+   * @maximum 500
+   */
+  limit?: number;
 };
 
 export type SetPunchReviewedBody = {

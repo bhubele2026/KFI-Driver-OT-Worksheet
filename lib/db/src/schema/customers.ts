@@ -29,6 +29,16 @@ export const customersTable = pgTable(
     filenameKeywords: text("filename_keywords").array().notNull(),
     extensions: text("extensions").array().notNull(),
     active: boolean("active").notNull().default(true),
+    // Per-customer opt-in for the Claude→Gemini cross-provider fallback in
+    // AI extraction. OFF by default after Task #297: a single bad upload
+    // was eating ~$3 of spend because a transient Claude failure
+    // automatically rerouted the entire load to Gemini, multiplying the
+    // tokens spent. Customers whose format is stable enough that the
+    // dispatcher would rather lean on the fallback can flip this on per
+    // row from /admin/customers.
+    allowGeminiFallback: boolean("allow_gemini_fallback")
+      .notNull()
+      .default(false),
     sortOrder: integer("sort_order").notNull().default(1000),
     createdBy: integer("created_by").references(() => usersTable.id, {
       onDelete: "set null",

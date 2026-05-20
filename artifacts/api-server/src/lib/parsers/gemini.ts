@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import type { ContentPart, ModelClient } from "./modelClient.js";
+import type { ContentPart, ModelCallUsage, ModelClient } from "./modelClient.js";
 
 let _ai: GoogleGenAI | null = null;
 
@@ -41,7 +41,7 @@ export class GeminiModelClient implements ModelClient {
     maxOutputTokens: number;
     timeoutMs: number;
     jsonSchema?: unknown;
-  }): Promise<{ text: string }> {
+  }): Promise<{ text: string; usage: ModelCallUsage }> {
     const ai = getGeminiClient();
     const geminiParts = opts.parts.map((p) =>
       p.kind === "text"
@@ -73,6 +73,27 @@ export class GeminiModelClient implements ModelClient {
     } finally {
       if (timer) clearTimeout(timer);
     }
-    return { text: response.text ?? "" };
+    // @google/genai surfaces token counts via `usageMetadata` — the
+    // candidates' content tokens are reported as `candidatesTokenCount`,
+    // and the prompt tokens as `promptTokenCount`. Older SDK versions
+    // occasionally omit one or the other; default to 0 in those cases
+    // so the budget bookkeeping degrades to "this call was free" rather
+    // than crashing the extraction.
+    const meta = (response as { usageMetadata?: {
+      promptTokenCount?: number;
+      candidatesTokenCount?: number;
+      totalTokenCount?: number;
+    } }).usageMetadata;
+    const inputTokens = meta?.promptTokenCount ?? 0;
+    const outputTokens = meta?.candidatesTokenCount ?? 0;
+    return {
+      text: response.text ?? "",
+      usage: {
+        inputTokens,
+        outputTokens,
+        model: this.model,
+        provider: this.name,
+      },
+    };
   }
 }

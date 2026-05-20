@@ -55,4 +55,13 @@ for cache hits, images, and PDFs (the schema cache is
 xlsx-only today).
  */
   cacheWritten?: boolean;
+  /** True when at least one model call in this upload's AI
+extraction was served by the Gemini fallback after the
+primary Claude call failed (Task #297). Opt-in per customer
+via `customers.allowGeminiFallback`. Surfaced so the
+customer-files panel can render an amber "Gemini fallback
+used" badge — these rows should be reviewed more carefully
+than a clean Claude extraction.
+ */
+  geminiFallbackUsed?: boolean;
 }
