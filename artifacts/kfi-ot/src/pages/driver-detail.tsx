@@ -54,6 +54,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { formatPersonName } from "@/lib/format-name";
+import { buildSummaryChecks, checksEq, sumPunchHours } from "@/lib/summaryChecks";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
 import { ReviewedPill } from "@/components/reviewed-pill";
 import {
@@ -2153,6 +2154,7 @@ export default function DriverDetail() {
             independent re-derivation, so any divergence is obvious. */}
         <SummaryAndChecks
           totals={data.totals}
+          rowHoursSum={sumPunchHours(sortedPunches)}
           connecteamParity={data.connecteamParity ?? null}
         />
 
@@ -2791,6 +2793,7 @@ export default function DriverDetail() {
  */
 function SummaryAndChecks({
   totals,
+  rowHoursSum,
   connecteamParity,
 }: {
   totals: {
@@ -2804,6 +2807,7 @@ function SummaryAndChecks({
     custRt: number;
     custOt: number;
   };
+  rowHoursSum: number;
   connecteamParity: {
     status: "match" | "differ" | "unknown" | string;
     diffCount: number;
@@ -2878,8 +2882,6 @@ function SummaryAndChecks({
   const totDriver = Number(totals.driverHours) || 0;
   const totCust = Number(totals.customerHours) || 0;
   const total = Number(totals.totalHours) || 0;
-  const rt = Number(totals.regularHours) || 0;
-  const ot = Number(totals.overtimeHours) || 0;
   const driverRt = Number(totals.driverRt) || 0;
   const driverOt = Number(totals.driverOt) || 0;
   const custRt = Number(totals.custRt) || 0;
@@ -2892,23 +2894,24 @@ function SummaryAndChecks({
   // checks now verify the per-source identity (custRt + driverRt = rt,
   // custOt + driverOt = ot) that the engine guarantees by construction, so a
   // future regression that breaks the four-bucket reconciliation is caught.
-  const checkTotal = totDriver + totCust;
-  const checkCustomer = total - totDriver;
-  const checkDriver = total - totCust;
-  const checkRt = custRt + driverRt;
-  const checkOt = custOt + driverOt;
-  const rtPlusOt = rt + ot;
-
-  const eq = (a: number, b: number) => Math.abs(a - b) < 0.015;
-
-  const checks = [
-    { key: "total-driver-customer", label: t("driverDetail.checks.totalEq"), expected: total, actual: checkTotal },
-    { key: "customer-total-driver", label: t("driverDetail.checks.customerEq"), expected: totCust, actual: checkCustomer },
-    { key: "driver-total-customer", label: t("driverDetail.checks.driverEq"), expected: totDriver, actual: checkDriver },
-    { key: "rt-min-total-40-", label: t("driverDetail.checks.rtEq"), expected: rt, actual: checkRt },
-    { key: "ot-max-0-total-40-", label: t("driverDetail.checks.otEq"), expected: ot, actual: checkOt },
-    { key: "rt-ot-total", label: t("driverDetail.checks.rtPlusOtEq"), expected: total, actual: rtPlusOt },
-  ];
+  // The final row-sum check verifies that Total Hours actually equals the
+  // sum of the per-row `hours` column rendered in the punch table below, so
+  // any drift between what the dispatcher sees on screen and the engine
+  // total is flagged immediately.
+  const checks = buildSummaryChecks({
+    totals,
+    rowHoursSum,
+    labels: {
+      totalEq: t("driverDetail.checks.totalEq"),
+      customerEq: t("driverDetail.checks.customerEq"),
+      driverEq: t("driverDetail.checks.driverEq"),
+      rtEq: t("driverDetail.checks.rtEq"),
+      otEq: t("driverDetail.checks.otEq"),
+      rtPlusOtEq: t("driverDetail.checks.rtPlusOtEq"),
+      rowSumEq: t("driverDetail.checks.rowSumEq"),
+    },
+  });
+  const eq = checksEq;
   const allOk = checks.every((c) => eq(c.expected, c.actual));
 
   return (

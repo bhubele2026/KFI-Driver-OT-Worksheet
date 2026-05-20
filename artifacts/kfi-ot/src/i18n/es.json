@@ -471,7 +471,8 @@
       "driverEq": "Conductor = Total − Cliente",
       "rtEq": "RT cliente + RT conductor = RT",
       "otEq": "HE cliente + HE conductor = HE",
-      "rtPlusOtEq": "RT + HE = Total"
+      "rtPlusOtEq": "RT + HE = Total",
+      "rowSumEq": "Total = suma de filas de marcaje"
     },
     "previewPanel": {
       "fillIn": "Complete fecha, entrada y salida para previsualizar el impacto en el día y la semana de este conductor.",

@@ -9,7 +9,8 @@
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p e2e/tsconfig.json --noEmit",
     "test:e2e": "playwright test",
-    "test": "playwright test"
+    "test:unit": "node --test 'src/**/__tests__/*.test.ts'",
+    "test": "pnpm run test:unit && playwright test"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
