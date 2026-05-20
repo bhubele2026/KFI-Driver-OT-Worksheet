@@ -122,6 +122,15 @@ const UNIVERSAL_ACCEPT =
 // "New customer file…" buttons in the customer-files panel header.
 const SHOW_BULK_UPLOAD_BUTTONS = false;
 
+// Failure-badge staleness thresholds. A failed upload-attempt's badge
+// renders loud-red for the first 10 minutes, mutes to a neutral
+// "Failed Xm ago" tag between 10 minutes and 24 hours, and is hidden
+// entirely past 24 hours (the row falls back to "Not uploaded"). Keeps
+// dispatchers from misreading hours-old failures as live regressions
+// when they refresh the panel after the underlying issue has been fixed.
+const FAILURE_FRESH_MS = 10 * 60 * 1000;
+const FAILURE_EXPIRE_MS = 24 * 60 * 60 * 1000;
+
 // Translate raw server errors into copy a payroll dispatcher can act
 // on. Most AI-extract failures bubble up the underlying Gemini message
 // (e.g. truncated JSON, "model did not return valid JSON", or a column
@@ -376,6 +385,28 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     const id = window.setInterval(() => setTick((t) => t + 1), 1000);
     return () => window.clearInterval(id);
   }, [anyUploading]);
+  // Once-per-minute tick so the "Failed Xm ago" relative timestamps on
+  // stale-failure badges stay current without forcing the whole panel to
+  // re-render every second. Only runs when at least one customer row has
+  // a recent enough failure to be worth refreshing (within the 24h
+  // expire window) — beyond that the badge is hidden anyway.
+  const hasRecentFailure = (statuses ?? []).some((s) => {
+    if (!s.lastError) return false;
+    if (!s.lastAttemptAt) return false;
+    return Date.now() - new Date(s.lastAttemptAt).getTime() < FAILURE_EXPIRE_MS;
+  });
+  useEffect(() => {
+    if (!hasRecentFailure) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, [hasRecentFailure]);
+
+  const formatFailedAgo = (ageMs: number): string => {
+    const mins = Math.max(1, Math.floor(ageMs / 60000));
+    if (mins < 60) return t("customerUpload.failedAgoMin", { count: mins });
+    const hours = Math.max(1, Math.floor(mins / 60));
+    return t("customerUpload.failedAgoHour", { count: hours });
+  };
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({
@@ -1217,7 +1248,28 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         {(statuses ?? []).map((s) => {
           const st = rowState[s.customer] ?? { uploading: false, error: null };
           const uploaded = s.punchCount > 0;
-          const lastError = st.error ?? s.lastError ?? null;
+          // Compute failure age from the persisted attempt timestamp so an
+          // hours-old failure renders as a muted "Failed Xm ago" tag (or
+          // disappears entirely past 24h) instead of a loud red badge that
+          // dispatchers misread as a live regression on page refresh. A
+          // freshly-thrown local error (`st.error`) is always treated as
+          // live regardless of the persisted timestamp.
+          const persistedFailureAge =
+            s.lastError && s.lastAttemptAt
+              ? Date.now() - new Date(s.lastAttemptAt).getTime()
+              : null;
+          const isExpiredFailure =
+            !st.error &&
+            persistedFailureAge !== null &&
+            persistedFailureAge >= FAILURE_EXPIRE_MS;
+          const isStaleFailure =
+            !st.error &&
+            persistedFailureAge !== null &&
+            persistedFailureAge >= FAILURE_FRESH_MS &&
+            persistedFailureAge < FAILURE_EXPIRE_MS;
+          const lastError = isExpiredFailure
+            ? null
+            : (st.error ?? s.lastError ?? null);
           const showError = !!lastError && (st.error || !uploaded);
           // `lastSkippedAt` is non-null only when the most recent attempt
           // for this (week, customer) short-circuited via the same-hash
@@ -1257,7 +1309,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
               )}
               <div className="shrink-0">
                 {showError ? (
-                  <AlertCircle className="h-4 w-4 text-destructive" />
+                  <AlertCircle
+                    className={`h-4 w-4 ${
+                      isStaleFailure
+                        ? "text-muted-foreground/60"
+                        : "text-destructive"
+                    }`}
+                  />
                 ) : uploaded ? (
                   <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 ) : (
@@ -1275,12 +1333,23 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       {t("customerUpload.punches", { count: s.punchCount })}
                     </Badge>
                   ) : showError ? (
-                    <Badge
-                      variant="destructive"
-                      className="text-[10px]"
-                    >
-                      {t("customerUpload.lastUploadFailed")}
-                    </Badge>
+                    isStaleFailure && persistedFailureAge !== null ? (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] text-muted-foreground border-muted-foreground/30"
+                        title={t("customerUpload.staleErrorTitle")}
+                        data-testid={`badge-stale-failed-${s.customer}`}
+                      >
+                        {formatFailedAgo(persistedFailureAge)}
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="destructive"
+                        className="text-[10px]"
+                      >
+                        {t("customerUpload.lastUploadFailed")}
+                      </Badge>
+                    )
                   ) : (
                     <Badge
                       variant="outline"
@@ -1345,7 +1414,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   )}
                 </div>
                 {showError && (
-                  <div className="mt-1 text-xs text-destructive flex items-start gap-1">
+                  <div
+                    className={`mt-1 text-xs flex items-start gap-1 ${
+                      isStaleFailure
+                        ? "text-muted-foreground"
+                        : "text-destructive"
+                    }`}
+                  >
                     <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
                     <span>{lastError}</span>
                   </div>
