@@ -2189,6 +2189,26 @@ weeksRouter.post(
         res.status(400).json({ error: msg });
         return;
       }
+      // Task #352 backstop: the extract route should always stash either
+      // extractedRows or pendingNamedRows. Landing here with bytes still
+      // present means an extract path failed to stash — most recently the
+      // cache-hit branch (fixed by stashing imagePunchesForStash(parsed.
+      // punches) on cache hit). Stable, greppable marker so a regression
+      // is visible in production logs instead of just slowing confirms
+      // down. Counted *after* the fileBytes check so legitimate
+      // expired-preview cases don't inflate the metric. Grep
+      // `confirm_fallback_reextract`; should be ~0 after the cache-hit
+      // stash fix.
+      req.log.warn(
+        {
+          marker: "confirm_fallback_reextract",
+          customer: sample.customer,
+          fileName: sample.fileName,
+          weekStart,
+          sampleId: sample.id,
+        },
+        "Confirm fell through to AI re-extract — extract path likely failed to stash rows",
+      );
       const reExtractStartedAt = Date.now();
       const reBudget = new IngestionBudget({
         fileName: sample.fileName,
