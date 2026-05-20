@@ -5,8 +5,8 @@
  *
  * Sibling spec to `per-row-reupload-skipped-toast.spec.ts` (#382), which
  * covered the per-row picker / drag-on-row code path. The bulk picker
- * runs through a different branch — `runBulk` (in both
- * `components/customer-upload-panel.tsx` and `hooks/use-customer-uploads.tsx`)
+ * runs through a different branch — `runBulk` (in
+ * `components/customer-upload-panel.tsx`)
  * calls `doUpload` / `doOneShot`, which interprets `{ skipped: true }` as
  * a `BulkItem` with `status: "skipped"` and increments the `skipped`
  * counter in the rollup toast description.

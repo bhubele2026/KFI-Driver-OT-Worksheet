@@ -136,7 +136,7 @@ The same-bytes short-circuit returns a very specific shape:
 
 All three frontend callers — bulk `doOneShot`, the panel-level
 `extractFor` in `components/customer-upload-panel.tsx`, and the
-hook-level `extractFor` in `hooks/use-customer-uploads.tsx` — MUST
+per-row `extractFor` wrapper in `customer-upload-panel.tsx` — MUST
 inspect `data.skipped` before doing anything else with the response.
 The bulk path renders it as a "skipped" badge in the result list; the
 per-row paths show a neutral `customerUpload.alreadyImported*` toast

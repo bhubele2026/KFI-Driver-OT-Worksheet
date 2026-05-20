@@ -10,7 +10,7 @@
  * when the dispatcher cancelled out of it.
  *
  * The fix branches on `data.skipped` in both per-row callers
- * (`customer-upload-panel.tsx` and `hooks/use-customer-uploads.tsx`) and
+ * (`customer-upload-panel.tsx`) and
  * surfaces a neutral `customerUpload.alreadyImported*` toast instead.
  * Task #381 pinned the contract at the source level
  * (`extract-skip-shape-contract.test.ts`); this spec pins the behavior

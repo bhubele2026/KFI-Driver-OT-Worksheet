@@ -4,12 +4,11 @@
 // short-circuits and returns a JSON body with a very specific shape.
 //
 // The frontend has two callers — the bulk `doOneShot` path (already
-// branches on `preview.skipped`) and two per-row `extractFor` wrappers
-// (one in components/customer-upload-panel.tsx, one in
-// hooks/use-customer-uploads.tsx). Before #381, the per-row wrappers
-// blindly fed this skip response into the preview dialog, which
-// rendered a 0-row preview for Burnett (xlsx) and DeLallo (pdf) and
-// then triggered `DELETE /…/extract-customer-file/null` (400) on
+// branches on `preview.skipped`) and the per-row `extractFor` wrapper
+// in components/customer-upload-panel.tsx. Before #381, the per-row
+// wrapper blindly fed this skip response into the preview dialog,
+// which rendered a 0-row preview for Burnett (xlsx) and DeLallo (pdf)
+// and then triggered `DELETE /…/extract-customer-file/null` (400) on
 // cancel.
 //
 // This source-level guard pins the skip-branch contract so any future
@@ -84,34 +83,24 @@ test("extract-customer-file skip branch only fires when `force` is unset — per
   );
 });
 
-test("per-row `extractFor` wrappers must branch on `data.skipped` and not enqueue an empty preview (Task #381)", () => {
+test("per-row `extractFor` wrapper must branch on `data.skipped` and not enqueue an empty preview (Task #381)", () => {
   // The third leg of the regression: the server contract is correct
-  // (it returns `skipped:true, sampleId:null, rows:[]`), but the two
-  // per-row callers used to ignore `skipped` and render a 0-row preview
-  // dialog. Pin both call sites so a refactor can't silently regress.
+  // (it returns `skipped:true, sampleId:null, rows:[]`), but the
+  // per-row caller used to ignore `skipped` and render a 0-row preview
+  // dialog. Pin the call site so a refactor can't silently regress.
   const panelPath = resolve(
     __dirname,
     "../../../../kfi-ot/src/components/customer-upload-panel.tsx",
   );
-  const hookPath = resolve(
-    __dirname,
-    "../../../../kfi-ot/src/hooks/use-customer-uploads.tsx",
-  );
   const panel = readFileSync(panelPath, "utf8");
-  const hook = readFileSync(hookPath, "utf8");
-  for (const [label, src] of [
-    ["customer-upload-panel.tsx", panel],
-    ["use-customer-uploads.tsx", hook],
-  ] as const) {
-    assert.match(
-      src,
-      /data\.skipped/,
-      `${label} per-row extract must branch on \`data.skipped\` — otherwise the same-bytes response would render as an empty preview dialog`,
-    );
-    assert.match(
-      src,
-      /alreadyImportedTitle/,
-      `${label} must surface the alreadyImported toast for the skip case`,
-    );
-  }
+  assert.match(
+    panel,
+    /data\.skipped/,
+    "customer-upload-panel.tsx per-row extract must branch on `data.skipped` — otherwise the same-bytes response would render as an empty preview dialog",
+  );
+  assert.match(
+    panel,
+    /alreadyImportedTitle/,
+    "customer-upload-panel.tsx must surface the alreadyImported toast for the skip case",
+  );
 });
