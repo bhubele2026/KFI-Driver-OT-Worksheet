@@ -63,6 +63,11 @@ export function buildSummaryChecks(args: {
     { key: "rt-min-total-40-", label: labels.rtEq, expected: rt, actual: checkRt },
     { key: "ot-max-0-total-40-", label: labels.otEq, expected: ot, actual: checkOt },
     { key: "rt-ot-total", label: labels.rtPlusOtEq, expected: total, actual: rtPlusOt },
+    // Compares the Summary's "Total Hours" against the last value shown in
+    // the punch table's "Running" column — i.e. the number a dispatcher
+    // sees at the bottom of the table. Caller passes that final running
+    // value directly so the check reflects what's on screen, not a
+    // re-derived sum.
     { key: "total-row-sum", label: labels.rowSumEq, expected: total, actual: rowHoursSum },
   ];
 }

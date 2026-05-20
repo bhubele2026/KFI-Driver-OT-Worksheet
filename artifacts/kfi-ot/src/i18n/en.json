@@ -472,7 +472,7 @@
       "rtEq": "Customer RT + Driver RT = RT",
       "otEq": "Customer OT + Driver OT = OT",
       "rtPlusOtEq": "RT + OT = Total",
-      "rowSumEq": "Total = sum of punch rows"
+      "rowSumEq": "Total Hours = Running total (last row)"
     },
     "previewPanel": {
       "fillIn": "Fill in date, clock in, and clock out to preview the impact on this driver's day and week.",

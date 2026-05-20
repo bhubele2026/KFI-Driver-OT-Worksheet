@@ -54,7 +54,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { formatPersonName } from "@/lib/format-name";
-import { buildSummaryChecks, checksEq, sumPunchHours } from "@/lib/summaryChecks";
+import { buildSummaryChecks, checksEq } from "@/lib/summaryChecks";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
 import { ReviewedPill } from "@/components/reviewed-pill";
 import {
@@ -2154,7 +2154,7 @@ export default function DriverDetail() {
             independent re-derivation, so any divergence is obvious. */}
         <SummaryAndChecks
           totals={data.totals}
-          rowHoursSum={sumPunchHours(sortedPunches)}
+          rowHoursSum={rows.length > 0 ? rows[rows.length - 1].after : 0}
           connecteamParity={data.connecteamParity ?? null}
         />
 
