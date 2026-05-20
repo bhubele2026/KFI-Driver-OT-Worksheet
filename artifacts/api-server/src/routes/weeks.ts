@@ -56,13 +56,8 @@ import {
   loadActiveCustomers,
   loadCustomers,
 } from "../lib/customersStore.js";
-import { aiExtractRows, logIngestDone } from "../lib/parsers/aiExtract.js";
+import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { releaseIngestion } from "../lib/parsers/modelClient.js";
-import {
-  dbChunkStageStore,
-  listStagedUploads,
-  makeUploadKey,
-} from "../lib/parsers/aiExtractStage.js";
 import {
   publishExtractProgress,
   readExtractProgress,
@@ -90,7 +85,6 @@ import {
   imageExtension,
   isImageMime,
   normalizeImageBuffer,
-  parseClockToMin,
 } from "../lib/parsers/imageSupport.js";
 import { topMatches } from "../lib/parsers/fuzzy.js";
 import { narrowDriverPool } from "../lib/parsers/candidatePool.js";
@@ -1615,7 +1609,6 @@ weeksRouter.post(
       // pdf — Task #257). Falls through to AI if the reader can't
       // parse (stale roles) — re-running AI on the same signature will
       // overwrite the cache row.
-      const cacheStartedAt = Date.now();
       try {
         const idMap = await loadMergedIdMap();
         const parsed =
@@ -1641,56 +1634,6 @@ weeksRouter.post(
         if (parsed && parsed.punches.length > 0) {
           result = parsed;
           extractSource = "cache";
-          // Stash resolved rows so /confirm-customer-file can commit
-          // the cache-reader output directly (same shape as the AI
-          // branch). Without this the sample lands with both
-          // extractedRows and pendingNamedRows null and confirm 400s
-          // with "older parser path" even though we have rows in hand.
-          stashedImageRows = imagePunchesForStash(parsed.punches);
-          // Task #310: persist a per-upload audit row + emit the
-          // standard `ingest_done` log line even when the cache
-          // short-circuited AI. Lets the operator measure the
-          // "pay once" promise straight off `ingestion_runs`
-          // (count rows with `recipe_cache_hit = true`) and grep
-          // the API log for `ingest_done` to see every upload's
-          // hit/miss decision side-by-side with its AI-spend siblings.
-          const cacheWallMs = Date.now() - cacheStartedAt;
-          const emptySummary: IngestionBudgetSummary = {
-            totalCalls: 0,
-            totalInputTokens: 0,
-            totalOutputTokens: 0,
-            totalTokens: 0,
-            totalCostUsd: 0,
-            byPurpose: {},
-            byProvider: {},
-            geminiFallbackUsed: false,
-            warnedHot: false,
-            blockStructured: null,
-            rowsPerChunk: null,
-            pacerWaitMs: 0,
-          };
-          logIngestDone(req.log, {
-            customer: detectedCustomer,
-            fileName,
-            outcome: "success",
-            wallTimeMs: cacheWallMs,
-            rowCount: parsed.punches.length,
-            summary: emptySummary,
-            recipeCacheHit: true,
-          });
-          await insertIngestionRun({
-            customer: detectedCustomer,
-            fileName,
-            weekStart: startDate,
-            uploadedBy: req.session.userId ?? null,
-            outcome: "success",
-            rowCount: parsed.punches.length,
-            wallTimeMs: cacheWallMs,
-            summary: emptySummary,
-            errMsg: null,
-            recipeCacheHit: true,
-            log: req.log,
-          });
         }
       } catch (err) {
         req.log.warn(
@@ -1765,16 +1708,6 @@ weeksRouter.post(
             ingestionId,
             onChunkProgress: (current, total) =>
               publishExtractProgress(progressKey, current, total),
-            // Task #309: identity for per-chunk resume staging. Same
-            // bytes + same (week, customer) → same key, so a failed
-            // earlier upload's staged chunks short-circuit Claude calls
-            // here.
-            uploadKey: makeUploadKey({
-              contentHash,
-              weekStart: startDate,
-              customer: detectedCustomer,
-            }),
-            stageStore: dbChunkStageStore,
           },
         });
         result = aiResult;
@@ -2132,8 +2065,8 @@ weeksRouter.post(
       existingPunchCount,
       extractSource,
       cacheWritten,
-      extractionTruncated: false,
-      failedChunks: 0,
+      extractionTruncated: result.diagnostics?.extractionTruncated ?? false,
+      failedChunks: result.diagnostics?.failedChunks ?? 0,
       geminiFallbackUsed,
     });
   },
@@ -2402,7 +2335,6 @@ weeksRouter.post(
           const baseRows = result.punches;
           const pending = sample.pendingNamedRows ?? [];
           const reResolved: schema.StashedExtractedPunch[] = [];
-          const pendingDropReasons: Record<string, number> = {};
           if (pending.length > 0) {
             // Re-load the per-customer name alias map INSIDE the tx so
             // it includes the rows we just wrote above.
@@ -2428,15 +2360,7 @@ weeksRouter.post(
               let kfiId: string | null = null;
               const badge = (p.badgeOrId ?? "").trim();
               if (badge) {
-                // Case-insensitive lookup mirrors the
-                // `lower(external_id)` unique index used by
-                // driver_id_aliases — Claude occasionally lowercases
-                // badges (e.g. `teld123` vs `TELD123`) and we want the
-                // dispatcher's just-written alias to match either way.
-                const mapped =
-                  mergedMap[badge] ??
-                  mergedMap[badge.toLowerCase()] ??
-                  mergedMap[badge.toUpperCase()];
+                const mapped = mergedMap[badge];
                 if (mapped && kfiSet.has(mapped)) kfiId = mapped;
                 else if (kfiSet.has(badge)) kfiId = badge;
               }
@@ -2446,11 +2370,7 @@ weeksRouter.post(
                 );
                 if (aliased && kfiSet.has(aliased)) kfiId = aliased;
               }
-              if (!kfiId) {
-                pendingDropReasons.unresolved =
-                  (pendingDropReasons.unresolved ?? 0) + 1;
-                continue;
-              }
+              if (!kfiId) continue;
               // Auto-learn badge → kfi mapping (Task #271). When a name
               // alias pick resolves a pending row that ALSO carried a
               // badge, persist that badge as a driver_id_alias so next
@@ -2476,75 +2396,19 @@ weeksRouter.post(
                   ON CONFLICT (lower(external_id)) DO NOTHING
                 `);
               }
-              let clockIn = (p.timeIn ?? "").trim();
-              let clockOut = (p.timeOut ?? "").trim();
-              // Tolerate AI-emitted hours as numeric strings ("8",
-              // "8.5") in addition to native numbers — pendingNamedRows
-              // jsonb round-trip preserves type, but Claude has shipped
-              // string hours in the past and we shouldn't silently drop
-              // the picker-mapped row over that.
-              let hours = 0;
-              if (typeof p.hours === "number" && p.hours > 0) {
-                hours = p.hours;
-              } else if (typeof p.hours === "string") {
-                const parsed = Number((p.hours as string).trim());
-                if (Number.isFinite(parsed) && parsed > 0) hours = parsed;
-              }
+              const clockIn = (p.timeIn ?? "").trim();
+              const clockOut = (p.timeOut ?? "").trim();
+              let hours =
+                typeof p.hours === "number" && p.hours > 0 ? p.hours : 0;
               if (!hours && clockIn && clockOut) {
-                // Use the same robust 12/24-hour regex parser the
-                // image-extract path uses (`parseClockToMin`) — Claude
-                // occasionally returns 24-hour `HH:MM` strings that
-                // V8's `new Date("YYYY-MM-DD HH:MM")` parses
-                // inconsistently across locales. Fall through to
-                // `new Date(...)` only if the regex doesn't recognize
-                // the shape (rare ISO datetime case).
-                const inMin = parseClockToMin(clockIn);
-                const outMin = parseClockToMin(clockOut);
-                if (inMin != null && outMin != null) {
-                  const delta =
-                    outMin >= inMin ? outMin - inMin : outMin - inMin + 1440;
-                  if (delta > 0) hours = Math.round((delta / 60) * 1000) / 1000;
-                } else {
-                  const ms =
-                    new Date(`${p.date} ${clockOut}`).getTime() -
-                    new Date(`${p.date} ${clockIn}`).getTime();
-                  if (!Number.isNaN(ms) && ms > 0) {
-                    hours = Math.round((ms / 3_600_000) * 1000) / 1000;
-                  }
+                const ms =
+                  new Date(`${p.date} ${clockOut}`).getTime() -
+                  new Date(`${p.date} ${clockIn}`).getTime();
+                if (!Number.isNaN(ms) && ms > 0) {
+                  hours = Math.round((ms / 3_600_000) * 1000) / 1000;
                 }
               }
-              if (!(hours > 0)) {
-                pendingDropReasons.noHours =
-                  (pendingDropReasons.noHours ?? 0) + 1;
-                continue;
-              }
-              if (!clockIn || !clockOut) {
-                // Hours-only AI row (no clock times). Common when the
-                // source sheet has an "Hours" column alongside but the
-                // AI emitted hours without re-parsing the raw clock
-                // cells. The picker's intent is "import this driver's
-                // time for the week"; the engine only needs hours, so
-                // synthesize a placeholder shift window (08:00 AM
-                // start, +hours, clamped at 23:59 same-day) so the row
-                // round-trips through the same writer path as a
-                // regular punch instead of being silently dropped.
-                const startMin = 8 * 60;
-                const durMin = Math.min(
-                  Math.max(Math.round(hours * 60), 1),
-                  24 * 60 - startMin - 1,
-                );
-                const fmt = (m: number): string => {
-                  const h24 = Math.floor(m / 60) % 24;
-                  const mm = m % 60;
-                  const ampm = h24 >= 12 ? "PM" : "AM";
-                  const h12 = h24 % 12 || 12;
-                  return `${h12}:${mm.toString().padStart(2, "0")} ${ampm}`;
-                };
-                clockIn = fmt(startMin);
-                clockOut = fmt(startMin + durMin);
-                pendingDropReasons.synthesizedClock =
-                  (pendingDropReasons.synthesizedClock ?? 0) + 1;
-              }
+              if (!(hours > 0) || !clockIn || !clockOut) continue;
               reResolved.push({
                 kfiId,
                 customer: sample.customer,
@@ -2557,17 +2421,6 @@ weeksRouter.post(
                 payType: "Reg",
               });
             }
-          }
-          if (pending.length > 0) {
-            req.log.info(
-              {
-                customer,
-                pendingCount: pending.length,
-                reResolvedCount: reResolved.length,
-                pendingDropReasons,
-              },
-              "confirm: re-resolved pendingNamedRows after picker writes",
-            );
           }
           reparsed = {
             customer: sample.customer,
@@ -3077,12 +2930,6 @@ async function insertIngestionRun(args: {
   wallTimeMs: number;
   summary: IngestionBudgetSummary;
   errMsg: string | null;
-  /**
-   * Task #310: true when the upload short-circuited via the recipe
-   * cache and made zero model calls. Defaults to false so the AI
-   * branch callers don't need to pass it explicitly.
-   */
-  recipeCacheHit?: boolean;
   log: { error: (obj: Record<string, unknown>, msg: string) => void };
 }): Promise<void> {
   try {
@@ -3106,7 +2953,6 @@ async function insertIngestionRun(args: {
       errMsg: args.errMsg,
       blockStructured: args.summary.blockStructured,
       rowsPerChunk: args.summary.rowsPerChunk,
-      recipeCacheHit: args.recipeCacheHit ?? false,
     });
   } catch (err) {
     args.log.error(
@@ -3623,6 +3469,8 @@ weeksRouter.post(
       }
     }
     let rows;
+    let extractionTruncated = false;
+    let failedChunks = 0;
     let geminiFallbackUsedNew = false;
     // Per-upload AI spend tracker (Task #297). Constructed before the
     // try so the catch branch can still persist a budget_exceeded /
@@ -3700,19 +3548,11 @@ weeksRouter.post(
           ingestionId: ingestionIdNew,
           onChunkProgress: (current, total) =>
             publishExtractProgress(progressKey, current, total),
-          // Task #309: identity for per-chunk resume staging. The
-          // new-customer path computes its hash off the extract
-          // buffer (post-image-normalize), matching the bytes the
-          // chunker actually sees so a retry hits the same key.
-          uploadKey: makeUploadKey({
-            contentHash: createHash("sha256").update(extractBuffer).digest("hex"),
-            weekStart: startDate,
-            customer,
-          }),
-          stageStore: dbChunkStageStore,
         },
       );
       rows = extracted.rows;
+      extractionTruncated = extracted.truncated;
+      failedChunks = extracted.failedChunks;
       geminiFallbackUsedNew = extracted.geminiFallbackUsed;
     } catch (err) {
       req.log.error({ err, fileName: req.file.originalname }, "AI extract error");
@@ -3869,8 +3709,8 @@ weeksRouter.post(
       rows,
       suggestions,
       sampleId: sample.id,
-      extractionTruncated: false,
-      failedChunks: 0,
+      extractionTruncated,
+      failedChunks,
       geminiFallbackUsed: geminiFallbackUsedNew,
     });
   },
@@ -6523,7 +6363,6 @@ weeksRouter.get("/admin/ingestion-runs", requireAdmin, async (req, res) => {
       errMsg: schema.ingestionRunsTable.errMsg,
       blockStructured: schema.ingestionRunsTable.blockStructured,
       rowsPerChunk: schema.ingestionRunsTable.rowsPerChunk,
-      recipeCacheHit: schema.ingestionRunsTable.recipeCacheHit,
       createdAt: schema.ingestionRunsTable.createdAt,
     })
     .from(schema.ingestionRunsTable)
@@ -6556,117 +6395,10 @@ weeksRouter.get("/admin/ingestion-runs", requireAdmin, async (req, res) => {
       errMsg: r.errMsg,
       blockStructured: r.blockStructured,
       rowsPerChunk: r.rowsPerChunk,
-      recipeCacheHit: r.recipeCacheHit,
       createdAt: new Date(r.createdAt).toISOString(),
     })),
   );
 });
-
-// -------------------------------------------------------------------------
-// Task #309: AI extract per-chunk resume staging. GET aggregates the
-// staging table by uploadKey (one row per file-in-flight), DELETE wipes
-// every staged chunk for a given key. Admin-only — these surfaces exist
-// strictly so an operator can see "is some hung upload silently squatting
-// on storage?" and "drop this resumable upload" without poking SQL.
-// -------------------------------------------------------------------------
-weeksRouter.get("/admin/extract-staging", requireAdmin, async (req, res) => {
-  const limitParam = Number(req.query.limit);
-  const limit =
-    Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 500
-      ? limitParam
-      : 50;
-  const rows = await listStagedUploads(limit);
-  res.json(rows);
-});
-
-weeksRouter.delete(
-  "/admin/extract-staging/:uploadKey",
-  requireAdmin,
-  async (req, res) => {
-    const uploadKey = String(req.params.uploadKey ?? "");
-    if (uploadKey.length === 0) {
-      res.status(400).json({ error: "uploadKey is required" });
-      return;
-    }
-    const deleted = await db
-      .delete(schema.aiExtractChunkStageTable)
-      .where(eq(schema.aiExtractChunkStageTable.uploadKey, uploadKey))
-      .returning({ id: schema.aiExtractChunkStageTable.id });
-    res.json({ deleted: deleted.length });
-  },
-);
-
-// -------------------------------------------------------------------------
-// Task #310: cached AI-discovered recipes (`customer_column_schemas` rows
-// with `source = 'ai'`). One row per `(customer, header_signature,
-// format)` triple — the same key the upload route looks up on every
-// per-row extract. GET surfaces every cached recipe for inspection;
-// DELETE forces a re-learn for one row (next upload pays AI cost again
-// and writes a fresh recipe). Admin-only — these endpoints exist purely
-// so an operator can answer "is the pay-once promise actually holding?"
-// and "force this stale recipe to re-learn" without poking SQL.
-// -------------------------------------------------------------------------
-weeksRouter.get("/admin/extract-recipes", requireAdmin, async (req, res) => {
-  const limitParam = Number(req.query.limit);
-  const limit =
-    Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 500
-      ? limitParam
-      : 200;
-  const customerFilter =
-    typeof req.query.customer === "string" && req.query.customer.trim().length > 0
-      ? String(req.query.customer).trim()
-      : null;
-  const conds: SQL[] = [
-    eq(schema.customerColumnSchemasTable.source, "ai"),
-  ];
-  if (customerFilter) {
-    conds.push(
-      sql`${schema.customerColumnSchemasTable.customer} ILIKE ${"%" + customerFilter + "%"}`,
-    );
-  }
-  const rows = await db
-    .select({
-      id: schema.customerColumnSchemasTable.id,
-      customer: schema.customerColumnSchemasTable.customer,
-      headerSignature: schema.customerColumnSchemasTable.headerSignature,
-      format: schema.customerColumnSchemasTable.format,
-      source: schema.customerColumnSchemasTable.source,
-      columnRoles: schema.customerColumnSchemasTable.columnRoles,
-      createdAt: schema.customerColumnSchemasTable.createdAt,
-    })
-    .from(schema.customerColumnSchemasTable)
-    .where(and(...conds))
-    .orderBy(desc(schema.customerColumnSchemasTable.createdAt))
-    .limit(limit);
-  res.json(
-    rows.map((r) => ({
-      id: r.id,
-      customer: r.customer,
-      headerSignature: r.headerSignature,
-      format: r.format,
-      source: r.source,
-      columnRoles: r.columnRoles,
-      createdAt: new Date(r.createdAt).toISOString(),
-    })),
-  );
-});
-
-weeksRouter.delete(
-  "/admin/extract-recipes/:id",
-  requireAdmin,
-  async (req, res) => {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id <= 0) {
-      res.status(400).json({ error: "id must be a positive integer" });
-      return;
-    }
-    const deleted = await db
-      .delete(schema.customerColumnSchemasTable)
-      .where(eq(schema.customerColumnSchemasTable.id, id))
-      .returning({ id: schema.customerColumnSchemasTable.id });
-    res.json({ deleted: deleted.length });
-  },
-);
 
 weeksRouter.get("/admin/notes/deleted", requireAdmin, async (req, res) => {
   const limitParam = Number(req.query.limit);

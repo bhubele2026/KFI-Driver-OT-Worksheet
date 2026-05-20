@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ToastAction } from "@/components/ui/toast";
 import { Link } from "wouter";
 import {
   useGetCustomerUploadStatus,
@@ -10,11 +11,6 @@ import {
   getGetWeekSummaryQueryKey,
   getListInactiveCustomersQueryKey,
 } from "@workspace/api-client-react";
-import {
-  useCustomerUploads,
-  useWeekUploadState,
-  useElapsedTicker,
-} from "@/hooks/use-customer-uploads";
 import {
   Select,
   SelectContent,
@@ -49,12 +45,68 @@ import {
   X,
 } from "lucide-react";
 import { NewCustomerDialog } from "@/components/new-customer-dialog";
-import { CustomerPreviewDialog } from "@/components/customer-preview-dialog";
+import {
+  CustomerPreviewDialog,
+  type CustomerPreviewData,
+} from "@/components/customer-preview-dialog";
 
-// Note: in-flight upload state (per-row + bulk), progress polling, AbortControllers,
-// and the extract→preview/confirm pipeline now live in `hooks/use-customer-uploads`.
-// Lifting them above the route means navigating away from the dashboard mid-upload
-// no longer aborts the fetch or drops the preview.
+// Task #296: mint a per-upload progress token the server can key the
+// in-process progress tracker by. Uses `crypto.randomUUID()` when
+// available (modern browsers), falls back to a Math.random + Date.now
+// composite for older webviews so the helper never throws — the
+// progress badge is observer-only so a weaker uniqueness guarantee is
+// acceptable.
+function mintProgressKey(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  return `pk-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// Task #296: poll `GET /weeks/:weekStart/extract-progress/:key` once
+// every 1 second while an upload is in flight. The endpoint returns
+// `{ current, total }` once the chunker has published its first tick
+// and 204 when the key is unknown (key not seen yet, single-call /
+// cache-hit path that never publishes, or already cleared). Returns a
+// stop function the caller invokes from `finally`. Polling errors are
+// swallowed — this is a UX nicety, not a correctness signal.
+function startProgressPolling(
+  weekStart: string,
+  progressKey: string,
+  onTick: (snap: { current: number; total: number }) => void,
+): () => void {
+  let stopped = false;
+  const url = `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-progress/${progressKey}`;
+  const tickOnce = async () => {
+    if (stopped) return;
+    try {
+      const res = await fetch(url, { credentials: "include" });
+      if (stopped) return;
+      if (res.status === 200) {
+        const body = (await res.json().catch(() => null)) as
+          | { current?: number; total?: number }
+          | null;
+        if (
+          body &&
+          typeof body.current === "number" &&
+          typeof body.total === "number"
+        ) {
+          onTick({ current: body.current, total: body.total });
+        }
+      }
+    } catch {
+      /* observer-only */
+    }
+  };
+  const id = window.setInterval(tickOnce, 1000);
+  return () => {
+    stopped = true;
+    window.clearInterval(id);
+  };
+}
 
 // Single source of truth for the file extensions any customer row will
 // accept in its `<input accept=...>` and in the bulk dropzone. Every
@@ -70,6 +122,44 @@ const UNIVERSAL_ACCEPT =
 // (e.g. truncated JSON, "model did not return valid JSON", or a column
 // position) which is noise to the operator. Keep the original around
 // in the server logs; surface this in the toast instead.
+function friendlyUploadError(
+  raw: string,
+  t: (key: string) => string,
+): string {
+  const lower = raw.toLowerCase();
+  if (lower.includes("upload canceled") || lower.includes("aborted")) {
+    return t("customerUpload.uploadCanceled");
+  }
+  if (
+    lower.includes("ai extraction timed out") ||
+    lower.includes("timed out after")
+  ) {
+    return t("customerUpload.errorAiTimeout");
+  }
+  // The new server-side "0 punches" message already explains exactly what
+  // happened (unrecognized drivers, out-of-window dates, etc.) and points
+  // the dispatcher at Admin → Driver ID aliases. Pass it through verbatim
+  // — rewriting it would lose the actionable diagnostics.
+  if (lower.includes("parsed 0 punches")) return raw;
+  if (
+    lower.includes("model did not return valid json") ||
+    lower.includes("truncated") ||
+    lower.includes("salvage")
+  ) {
+    return t("customerUpload.errorAiInvalidJson");
+  }
+  if (
+    lower.includes("did not return") ||
+    lower.includes("ai extract") ||
+    lower.includes("gemini") ||
+    lower.includes("column") ||
+    lower.includes("position")
+  ) {
+    return t("customerUpload.errorAiGeneric");
+  }
+  return raw;
+}
+
 function errMessage(err: unknown, fallback: string): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
@@ -134,6 +224,51 @@ async function collectFilesFromEntries(
   return out;
 }
 
+interface RowState {
+  uploading: boolean;
+  error: string | null;
+  /**
+   * When `uploading` is true, the wall-clock ms at which the upload
+   * started — used to render an elapsed-seconds counter so the dispatcher
+   * isn't staring at a frozen spinner during a 90s AI extract.
+   */
+  uploadStartedAt: number | null;
+  /**
+   * Task #296: live "chunk N of M" progress for chunked AI extracts.
+   * Populated by polling /extract-progress/:progressKey once a second
+   * while an upload is in flight; null when no chunked AI extract is
+   * running for this row (cache-hit fast path, single-chunk file,
+   * pre-extract, or in-flight bulk).
+   */
+  chunkProgress: { current: number; total: number } | null;
+}
+
+interface BulkItem {
+  file: File;
+  customer: string | null;
+  status:
+    | "pending"
+    | "uploading"
+    | "success"
+    | "warning"
+    | "skipped"
+    | "error"
+    | "unknown";
+  punchesUpserted?: number;
+  unmappedCount?: number;
+  error?: string;
+}
+
+interface UnmappedId {
+  id: string;
+  count: number;
+  sampleName: string | null;
+}
+
+type UploadResult =
+  | { ok: true; punches: number; unmapped: UnmappedId[]; skipped: boolean }
+  | { ok: false; error: string };
+
 export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const { t } = useTranslation();
   const { data: statuses } = useGetCustomerUploadStatus(weekStart);
@@ -144,8 +279,11 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const bulkInputRef = useRef<HTMLInputElement>(null);
   const bulkItemRefs = useRef<Record<number, HTMLLIElement | null>>({});
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const [rowState, setRowState] = useState<Record<string, RowState>>({});
   const [newOpen, setNewOpen] = useState(false);
   const [newInitialFile, setNewInitialFile] = useState<File | null>(null);
+  const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
+  const [bulkRunning, setBulkRunning] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragDepth = useRef(0);
   // When the user is dragging over a specific row, suppress the whole-panel
@@ -153,21 +291,10 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const [rowDragCustomer, setRowDragCustomer] = useState<string | null>(null);
   const rowDragDepth = useRef<Record<string, number>>({});
   const markInactiveMutation = useMarkCustomerInactive();
+  const [preview, setPreview] = useState<CustomerPreviewData | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [overrideTz, setOverrideTz] = useState<string>("__auto__");
   const { data: allowedTzs } = useGetAllowedTimezones();
-
-  // Task #316: in-flight upload state (per-row + bulk) lives in an
-  // app-level provider keyed by weekStart. The panel reads its slice
-  // here so that navigating to a driver page mid-upload and back
-  // re-renders the same spinner / preview without re-issuing requests.
-  const store = useCustomerUploads();
-  const { rowState, bulkItems, bulkRunning, pendingPreviews } =
-    useWeekUploadState(weekStart);
-  // Auto-pop the first stashed preview as the dialog payload. Closing
-  // the dialog removes it from the queue; the next pending preview (if
-  // any) takes its place on the following render.
-  const preview = pendingPreviews[0] ?? null;
-  const previewOpen = preview !== null;
 
   const markInactive = (customer: string) => {
     markInactiveMutation.mutate(
@@ -195,9 +322,55 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     );
   };
 
-  // 1Hz tick to drive the elapsed-seconds badge while any row is uploading.
-  // Cheap — the interval auto-clears when none are.
-  useElapsedTicker(Object.values(rowState).some((r) => r.uploading));
+  const setRow = (customer: string, patch: Partial<RowState>) => {
+    setRowState((prev) => ({
+      ...prev,
+      [customer]: {
+        ...{
+          uploading: false,
+          error: null,
+          uploadStartedAt: null,
+          chunkProgress: null,
+        },
+        ...prev[customer],
+        ...patch,
+      },
+    }));
+  };
+
+  // One AbortController per in-flight per-row upload. Used by the Cancel
+  // button next to the spinner so the dispatcher can bail out of a slow
+  // AI extract without waiting the full 90 second server-side timeout.
+  const rowAborts = useRef<Record<string, AbortController>>({});
+  const cancelRowUpload = (customer: string) => {
+    const c = rowAborts.current[customer];
+    if (c) {
+      c.abort();
+      delete rowAborts.current[customer];
+    }
+    // Reset the row's UI state immediately so the spinner, elapsed-seconds
+    // badge, and chunk-progress text disappear the moment the dispatcher
+    // clicks Cancel. The in-flight handler's catch/finally blocks won't do
+    // this for us — they bail out via the stale-controller guard above
+    // (rowAborts.current[customer] !== controller) once we delete the entry.
+    setRow(customer, {
+      uploading: false,
+      error: null,
+      uploadStartedAt: null,
+      chunkProgress: null,
+    });
+  };
+
+  // 1Hz tick to drive the elapsed-seconds badge while any row is
+  // uploading. Cheap — the badge only shows for rows whose
+  // `uploadStartedAt` is set, and the interval auto-clears when none are.
+  const [, setTick] = useState(0);
+  const anyUploading = Object.values(rowState).some((r) => r.uploading);
+  useEffect(() => {
+    if (!anyUploading) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [anyUploading]);
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({
@@ -208,13 +381,273 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     });
   };
 
-  // Per-row two-step preview flow (extract → confirm via dialog).
-  const extractFor = (customer: string, file: File) =>
-    void store.extractFor(weekStart, customer, file, overrideTz);
-  const cancelRowUpload = (customer: string) =>
-    store.cancelRowUpload(weekStart, customer);
+  // One-shot upload used by the bulk-upload flow (no per-file preview UX):
+  // POST /extract-customer-file then immediately POST /confirm-customer-file
+  // with no excludedIndices. The extract route short-circuits on a matching
+  // SHA-256 hash and returns `{ skipped: true }`, which bulk renders as
+  // "Already up to date" without calling confirm. Per-row single-file
+  // uploads go through `extractFor` instead so the dispatcher can review.
+  const doUpload = async (
+    customer: string,
+    file: File,
+    opts?: { force?: boolean; explicitCustomer?: boolean; signal?: AbortSignal },
+  ): Promise<UploadResult> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (overrideTz !== "__auto__") {
+      formData.append("dispTz", overrideTz);
+    }
+    // When the dispatcher explicitly aimed at this customer (per-row
+    // re-upload button), pass the customer so the server can route by
+    // content instead of filename — accepting any extension.
+    if (opts?.explicitCustomer) {
+      formData.append("customer", customer);
+    }
+    // Task #296: mint a per-upload progress token and start polling
+    // /extract-progress so the row badge reads "Chunk N of M" while
+    // the chunked AI extract runs. Cleaned up in `finally`.
+    const progressKey = mintProgressKey();
+    formData.append("progressKey", progressKey);
+    const stopPolling = startProgressPolling(weekStart, progressKey, (snap) =>
+      setRow(customer, { chunkProgress: snap }),
+    );
+    try {
+      const qs = opts?.force ? "?force=1" : "";
+      const extractRes = await fetch(
+        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file${qs}`,
+        {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+          signal: opts?.signal,
+        },
+      );
+      const extractBody = (await extractRes.json().catch(() => null)) as
+        | (CustomerPreviewData & { skipped?: boolean; error?: string })
+        | { error?: string }
+        | null;
+      if (!extractRes.ok) {
+        const msg =
+          (extractBody && "error" in extractBody && extractBody.error) ||
+          t("customerUpload.uploadFailedFallback");
+        return { ok: false, error: msg };
+      }
+      const preview = extractBody as CustomerPreviewData & {
+        skipped?: boolean;
+      };
+      if (preview.skipped) {
+        return { ok: true, punches: 0, unmapped: [], skipped: true };
+      }
+      const confirmRes = await fetch(
+        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/confirm-customer-file`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customer: preview.customer,
+            sampleId: preview.sampleId,
+            // Mirror the same dispTz override we sent to /extract — the
+            // /confirm route is what actually writes `disp_tz` onto every
+            // persisted row, so without this the picker would silently
+            // fall back to the per-driver default at commit time.
+            ...(overrideTz !== "__auto__" ? { dispTz: overrideTz } : {}),
+          }),
+          signal: opts?.signal,
+        },
+      );
+      const confirmBody = (await confirmRes.json().catch(() => null)) as
+        | {
+            punchesUpserted?: number;
+            unmappedIds?: UnmappedId[];
+            error?: string;
+          }
+        | null;
+      if (!confirmRes.ok) {
+        return {
+          ok: false,
+          error: confirmBody?.error ?? t("customerUpload.uploadFailedFallback"),
+        };
+      }
+      return {
+        ok: true,
+        punches: confirmBody?.punchesUpserted ?? 0,
+        unmapped: confirmBody?.unmappedIds ?? [],
+        skipped: false,
+      };
+    } catch (err) {
+      return { ok: false, error: errMessage(err, t("customerUpload.uploadFailedFallback")) };
+    } finally {
+      stopPolling();
+      setRow(customer, { chunkProgress: null });
+    }
+  };
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Two-step flow used by per-row single-file uploads: extract (preview only)
+  // → dispatcher confirms in dialog → /confirm-customer-file commits.
+  // Cancel = no DB writes.
+  const extractFor = async (customer: string, file: File) => {
+    cancelRowUpload(customer);
+    const controller = new AbortController();
+    rowAborts.current[customer] = controller;
+    setRow(customer, {
+      uploading: true,
+      error: null,
+      uploadStartedAt: Date.now(),
+    });
+    const formData = new FormData();
+    formData.append("file", file);
+    // Tell the server which customer the dispatcher aimed at. The server
+    // uses this to route by content rather than filename so xlsx, pdf,
+    // csv, and image uploads all work on any row regardless of extension.
+    formData.append("customer", customer);
+    // Task #296: see doUpload — same progress-polling wiring for the
+    // two-step preview flow.
+    const progressKey = mintProgressKey();
+    formData.append("progressKey", progressKey);
+    const stopPolling = startProgressPolling(weekStart, progressKey, (snap) =>
+      setRow(customer, { chunkProgress: snap }),
+    );
+    try {
+      const res = await fetch(
+        `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file`,
+        {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+          signal: controller.signal,
+        },
+      );
+      const body = (await res.json().catch(() => null)) as
+        | (CustomerPreviewData & { error?: string })
+        | { error?: string }
+        | null;
+      if (!res.ok) {
+        throw new Error(
+          (body && "error" in body && body.error) ||
+            t("customerUpload.uploadFailedFallback"),
+        );
+      }
+      const data = body as CustomerPreviewData;
+      // Guard against a stale response clobbering a newer upload on the
+      // same row: if the dispatcher canceled or kicked off another
+      // upload while this one was in flight, drop the result on the
+      // floor instead of opening the preview / clearing the spinner.
+      if (rowAborts.current[customer] !== controller) return;
+      setRow(customer, {
+        uploading: false,
+        error: null,
+        uploadStartedAt: null,
+      });
+      setPreview(data);
+      setPreviewOpen(true);
+    } catch (err) {
+      const aborted =
+        controller.signal.aborted ||
+        (err instanceof DOMException && err.name === "AbortError");
+      // Same stale-request guard for the error path — a newer upload
+      // already owns this row's state.
+      if (rowAborts.current[customer] !== controller && !aborted) return;
+      const raw = aborted
+        ? t("customerUpload.uploadCanceled")
+        : errMessage(err, t("customerUpload.uploadFailedFallback"));
+      const msg = friendlyUploadError(raw, t);
+      if (rowAborts.current[customer] === controller) {
+        setRow(customer, {
+          uploading: false,
+          error: aborted ? null : msg,
+          uploadStartedAt: null,
+        });
+      }
+      if (!aborted) {
+        toast({
+          title: t("customerUpload.extractFailedTitle", { customer }),
+          description: msg,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      if (rowAborts.current[customer] === controller) {
+        delete rowAborts.current[customer];
+      }
+      stopPolling();
+      setRow(customer, { chunkProgress: null });
+    }
+  };
+
+  const uploadFor = async (customer: string, file: File) => {
+    cancelRowUpload(customer);
+    const controller = new AbortController();
+    rowAborts.current[customer] = controller;
+    setRow(customer, {
+      uploading: true,
+      error: null,
+      uploadStartedAt: Date.now(),
+    });
+    // Per-row Re-upload always forces — the dispatcher explicitly chose this
+    // file, so skipping it as a duplicate would be confusing. Skip detection
+    // is for bulk re-runs only.
+    const r = await doUpload(customer, file, {
+      force: true,
+      explicitCustomer: true,
+      signal: controller.signal,
+    });
+    // Stale-request guard: if a newer upload kicked off on the same row
+    // (or the dispatcher canceled this one and started another), drop
+    // this result rather than clobber the live row state.
+    const isCurrent = rowAborts.current[customer] === controller;
+    if (isCurrent) delete rowAborts.current[customer];
+    const aborted = controller.signal.aborted;
+    if (!r.ok) {
+      if (aborted) {
+        if (isCurrent) {
+          setRow(customer, {
+            uploading: false,
+            error: null,
+            uploadStartedAt: null,
+          });
+        }
+        return;
+      }
+      if (!isCurrent) return;
+      const msg = friendlyUploadError(r.error, t);
+      setRow(customer, {
+        uploading: false,
+        error: msg,
+        uploadStartedAt: null,
+      });
+      toast({
+        title: t("customerUpload.uploadFailedTitle", { customer }),
+        description: msg,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!isCurrent) return;
+    setRow(customer, { uploading: false, error: null, uploadStartedAt: null });
+    if (r.unmapped.length > 0) {
+      const formatted = r.unmapped
+        .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
+        .join(", ");
+      toast({
+        title: t("customerUpload.uploadedWithUnknownTitle", {
+          count: r.unmapped.length,
+          customer,
+        }),
+        description: t("customerUpload.uploadedWithUnknownDesc", {
+          count: r.punches,
+          ids: formatted,
+        }),
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: t("customerUpload.uploadedTitle", { customer }),
+        description: t("customerUpload.uploadedDesc", { count: r.punches }),
+      });
+    }
+    invalidateAll();
+  };
 
   const isAcceptedUpload = (name: string): boolean => {
     const lower = name.toLowerCase();
@@ -262,21 +695,112 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     return null;
   };
 
-  // Task #316: delegate to the app-level store so an in-flight bulk
-  // survives navigating away from /weeks/:weekStart. The panel-owned
-  // `bulkItemRefs` are passed via the onFirstFailedIdx callback so
-  // the "Show first failure" toast action can still scroll to and
-  // highlight the row when the panel is mounted. If the user is
-  // off-route when the toast fires, the click no-ops safely.
-  const runBulk = (files: File[]) => {
-    void store.runBulk(weekStart, files, classifyFile, overrideTz, (idx) => {
-      const el = bulkItemRefs.current[idx];
-      if (!el) return;
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("ring-2", "ring-destructive");
-      window.setTimeout(() => {
-        el.classList.remove("ring-2", "ring-destructive");
-      }, 2000);
+  const runBulk = async (files: File[]) => {
+    if (files.length === 0) return;
+    const initial: BulkItem[] = files.map((file) => {
+      const customer = classifyFile(file);
+      return {
+        file,
+        customer,
+        status: customer ? "pending" : "unknown",
+      };
+    });
+    setBulkItems(initial);
+    setBulkRunning(true);
+    let uploaded = 0;
+    let skipped = 0;
+    let failed = 0;
+    let needsReview = 0;
+    let firstFailedIdx: number | null = null;
+    for (let i = 0; i < initial.length; i++) {
+      const item = initial[i];
+      if (!item.customer) {
+        needsReview++;
+        continue;
+      }
+      const customer = item.customer;
+      setBulkItems((prev) =>
+        prev.map((it, idx) =>
+          idx === i ? { ...it, status: "uploading" } : it,
+        ),
+      );
+      setRow(customer, { uploading: true, error: null });
+      // Bulk re-runs intentionally do NOT pass force — that's the whole
+      // point of this flow: identical files short-circuit on the server.
+      // Bulk classifier already routed by filename keyword; force the
+      // server to honor that decision so files whose extension doesn't
+      // match the deterministic parser (e.g. an IWG CSV, a DeLallo
+      // image) still land on the right customer and fall through to AI
+      // instead of getting mis-routed or rejected.
+      const r = await doUpload(customer, item.file, {
+        explicitCustomer: true,
+      });
+      if (r.ok) {
+        if (r.skipped) {
+          skipped++;
+        } else {
+          uploaded++;
+        }
+        const warning = !r.skipped && r.unmapped.length > 0;
+        setBulkItems((prev) =>
+          prev.map((it, idx) =>
+            idx === i
+              ? {
+                  ...it,
+                  status: r.skipped
+                    ? "skipped"
+                    : warning
+                      ? "warning"
+                      : "success",
+                  punchesUpserted: r.punches,
+                  unmappedCount: r.unmapped.length,
+                }
+              : it,
+          ),
+        );
+        setRow(customer, { uploading: false, error: null });
+      } else {
+        failed++;
+        if (firstFailedIdx === null) firstFailedIdx = i;
+        const msg = friendlyUploadError(r.error, t);
+        setBulkItems((prev) =>
+          prev.map((it, idx) =>
+            idx === i ? { ...it, status: "error", error: msg } : it,
+          ),
+        );
+        setRow(customer, { uploading: false, error: msg });
+      }
+    }
+    setBulkRunning(false);
+    invalidateAll();
+    const parts = [t("customerUpload.bulkUploaded", { count: uploaded })];
+    if (skipped > 0) parts.push(t("customerUpload.bulkSkipped", { count: skipped }));
+    if (needsReview > 0)
+      parts.push(t("customerUpload.bulkNeedReview", { count: needsReview }));
+    parts.push(t("customerUpload.bulkFailed", { count: failed }));
+    toast({
+      title: t("customerUpload.bulkCompleteTitle"),
+      description: parts.join(", ") + ".",
+      variant: failed > 0 ? "destructive" : "default",
+      action:
+        firstFailedIdx != null
+          ? (
+              <ToastAction
+                altText={t("customerUpload.showFirstFailureAlt")}
+                onClick={() => {
+                  const el = bulkItemRefs.current[firstFailedIdx];
+                  if (!el) return;
+                  el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  el.classList.add("ring-2", "ring-destructive");
+                  window.setTimeout(() => {
+                    el.classList.remove("ring-2", "ring-destructive");
+                  }, 2000);
+                }}
+              >
+                {t("customerUpload.showFirstFailure")}
+              </ToastAction>
+            )
+          : undefined,
     });
   };
 
@@ -285,7 +809,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     setNewOpen(true);
   };
 
-  const dismissBulk = () => store.dismissBulk(weekStart);
+  const dismissBulk = () => setBulkItems([]);
 
   // Per-row drop: bypasses the filename-based classifier entirely and forces
   // the dropped file through the per-row extract route for that customer.
@@ -704,7 +1228,6 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           return (
             <li
               key={s.customer}
-              data-testid={`customer-upload-row-${s.customer}`}
               className={`relative px-4 py-2.5 flex items-center gap-3 hover:bg-muted/20 transition-colors ${
                 isRowDragTarget
                   ? "bg-primary/10 ring-2 ring-primary ring-inset"
@@ -861,7 +1384,6 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 ref={(el) => {
                   inputs.current[s.customer] = el;
                 }}
-                data-testid={`customer-upload-input-${s.customer}`}
                 accept={accept}
                 className="hidden"
                 onChange={(e) => {
@@ -1000,13 +1522,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       <CustomerPreviewDialog
         preview={preview}
         open={previewOpen}
-        onOpenChange={(o) => {
-          // Closing the dialog (confirm OR cancel) pops the current
-          // preview off the per-week queue. The next pending preview
-          // — if extract finished off-screen and queued more than one
-          // — takes its place on the following render.
-          if (!o) store.popPendingPreview(weekStart);
-        }}
+        onOpenChange={setPreviewOpen}
         onConfirmed={invalidateAll}
       />
     </Card>

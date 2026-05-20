@@ -770,10 +770,12 @@
     "weekResetScopePunchesReviewed": "punches + reviewed",
     "weekResetScopePunchesOnly": "punches only",
     "unknownCustomer": "(unknown customer)",
-    "customerTzSetPrefix": "Set",
-    "customerTzSetMiddle": "timezone to",
-    "customerTzClearedPrefix": "Cleared",
-    "customerTzClearedSuffix": "timezone"
+    "parserSnoozeResumedPrefix": "Resumed",
+    "parserSnoozeResumedSuffix": "parser nudge",
+    "parserSnoozedPrefix": "Snoozed",
+    "parserSnoozedSuffix": "parser nudge {{until}}",
+    "parserSnoozeForever": "forever",
+    "parserSnoozeUntil": "until {{date}}"
   },
   "adminI18n": {
     "title": "Admin · Translation status",

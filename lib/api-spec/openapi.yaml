@@ -1345,56 +1345,6 @@ paths:
                 items: { $ref: "#/components/schemas/IngestionRun" }
         "403": { description: Admin only }
 
-  /admin/extract-staging:
-    get:
-      operationId: listExtractStaging
-      tags: [ingest]
-      summary: |
-        List in-flight AI-extract uploads (admin-only). One row per
-        uploadKey aggregating the staging table: how many chunks are
-        already extracted vs the total, plus customer/week/file context
-        so an operator can spot hung resumable uploads and discard them.
-        Backs the `/admin/extract-staging` admin page (Task #327).
-      parameters:
-        - name: limit
-          in: query
-          required: false
-          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
-      responses:
-        "200":
-          description: Staged uploads, most-recently-touched first.
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/ExtractStagingRow" }
-        "403": { description: Admin only }
-
-  /admin/extract-staging/{uploadKey}:
-    delete:
-      operationId: discardExtractStaging
-      tags: [ingest]
-      summary: |
-        Discard every staged chunk for a given uploadKey (admin-only).
-        Used to free a resumable upload that's been abandoned client-side.
-      parameters:
-        - name: uploadKey
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        "200":
-          description: Number of staged chunk rows that were deleted.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [deleted]
-                properties:
-                  deleted: { type: integer }
-        "400": { description: uploadKey is required }
-        "403": { description: Admin only }
-
   /admin/clock-offsets:
     get:
       operationId: listClockOffsets
@@ -3732,29 +3682,6 @@ components:
         active: { type: boolean }
         allowGeminiFallback: { type: boolean }
         sortOrder: { type: integer }
-
-    ExtractStagingRow:
-      type: object
-      required:
-        [
-          uploadKey,
-          customer,
-          weekStart,
-          fileName,
-          chunksStaged,
-          chunkCount,
-          createdAt,
-          lastTouchedAt,
-        ]
-      properties:
-        uploadKey: { type: string }
-        customer: { type: string }
-        weekStart: { type: string }
-        fileName: { type: string }
-        chunksStaged: { type: integer }
-        chunkCount: { type: integer }
-        createdAt: { type: string, format: date-time }
-        lastTouchedAt: { type: string, format: date-time }
 
     IngestionRun:
       type: object

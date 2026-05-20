@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
+import { Type } from "@google/genai";
 import { logger } from "../logger.js";
 import { toDisplayName } from "./displayName.js";
 import { ocrDelalloPDF } from "./ocr.js";
@@ -22,7 +23,6 @@ import {
   type IngestionBudgetSummary,
   type IngestionPurpose,
 } from "./ingestionBudget.js";
-import type { ChunkStageStore } from "./aiExtractStage.js";
 
 /**
  * Per-upload options bag for `aiExtractRows`. All fields optional; the
@@ -65,25 +65,13 @@ export interface AiExtractOptions {
    * cleanup is left to the 60s window).
    */
   ingestionId?: string;
-  /**
-   * Task #309: stable per-upload identity used by the chunked xlsx path
-   * to checkpoint successful chunks to a staging table. When `uploadKey`
-   * AND `stageStore` are both present, the runner:
-   *   - loads every previously-staged chunk at the start and skips the
-   *     model call for each `(uploadKey, chunkIndex)` hit;
-   *   - upserts each chunk's extracted rows after its targeted re-issue
-   *     cycle completes cleanly;
-   *   - clears every staged row for the key on full success.
-   * The single-call / image / pdf paths ignore both fields — there's
-   * nothing to checkpoint when there's only one Claude call.
-   */
-  uploadKey?: string;
-  stageStore?: ChunkStageStore;
 }
 
 /** Result shape returned by `aiExtractRows`, extended with budget telemetry (Task #297). */
 export interface AiExtractResult {
   rows: AiExtractedRow[];
+  truncated: boolean;
+  failedChunks: number;
   /**
    * Per-upload spend summary. Always present; counts may all be zero
    * when a test stub short-circuited every model call.
@@ -212,6 +200,29 @@ export function normalizeIsoDate(input: unknown): string | null {
   }
   return null;
 }
+
+const ROW_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    rows: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          driverNameOnDoc: { type: Type.STRING },
+          badgeOrId: { type: Type.STRING },
+          date: { type: Type.STRING },
+          timeIn: { type: Type.STRING },
+          timeOut: { type: Type.STRING },
+          hours: { type: Type.NUMBER },
+          resolvedKfiId: { type: Type.STRING },
+        },
+        required: ["driverNameOnDoc", "date"],
+      },
+    },
+  },
+  required: ["rows"],
+};
 
 // Threshold above which we stop sending the entire workbook in one
 // Gemini call and instead split into row-range chunks (Task #255).
@@ -354,25 +365,12 @@ export function xlsxToChunks(
     if (rows.length === 0) continue;
     const header = rows[0];
     const body = rows.slice(1);
-    // Distribute rows evenly across the chunks we'll need, rather than
-    // greedily packing each chunk to maxRowsPerChunk and leaving a tiny
-    // tail (e.g. 450 rows @60/chunk → 60×7 + 30 = ratio-safety trip on
-    // chunk 8). With a fixed prompt overhead (schema, customer, label),
-    // a 30-row chunk has the same prompt chars as a 60-row chunk, so its
-    // chars-per-row ratio doubles and trips the >500 guard. Even
-    // distribution keeps every chunk near the same row count, so the
-    // safety net only fires on genuinely malformed splits.
-    const numChunks = Math.max(1, Math.ceil(body.length / maxRowsPerChunk));
-    const evenRowsPerChunk = Math.max(
-      1,
-      Math.ceil(body.length / numChunks),
-    );
     let i = 0;
     let part = 1;
     while (i < body.length) {
       const sliceRows: string[] = [];
       let chars = header.length + 1;
-      while (i < body.length && sliceRows.length < evenRowsPerChunk) {
+      while (i < body.length && sliceRows.length < maxRowsPerChunk) {
         const r = body[i];
         if (chars + r.length + 1 > XLSX_CHUNK_MAX_CHARS && sliceRows.length > 0) {
           break;
@@ -409,14 +407,12 @@ export function buildPrompt(
   roster?: RosterContext,
   provider?: string,
 ) {
-  // Claude gets a tailored prompt: concrete domain role, an inline
-  // NDJSON example with a worked sample line, and an explicit
-  // "no markdown fences, no prose, no array wrapper" instruction placed
-  // right next to the example (Task #293 follow-up + Task #308 NDJSON
-  // cut-over). Gemini keeps its shorter prompt — both providers now
-  // emit NDJSON line-by-line; we no longer rely on Gemini's
-  // `responseSchema` (which requires a single top-level JSON value
-  // and is incompatible with newline-delimited output).
+  // Claude gets a tailored prompt: concrete domain role, an inline JSON
+  // schema example with a worked sample row, and an explicit
+  // "no markdown fences, no prose" instruction placed right next to the
+  // schema (Task #293 follow-up). Gemini keeps its original prompt
+  // unchanged because Gemini enforces `responseSchema` natively — adding
+  // an inline example actually hurts its JSON-only behaviour.
   if (provider === "claude") {
     return buildClaudePrompt(customer, weekStart, weekEnd, roster);
   }
@@ -433,14 +429,7 @@ export function buildPrompt(
     `CRITICAL: Return one output row for EVERY non-empty data row in the document. Do NOT merge, sum, or combine multiple rows for the same driver/date — even when pay-category columns (e.g. "Reg", "OT 1.5", "SHIFT PREM", "PREM-NIGHT") split one shift across several lines, emit each line as its own output row exactly as it appears. The caller deduplicates downstream; your job is faithful row-by-row transcription.`,
     `The ONLY lines to skip are: column headers, completely blank rows, page footers/signatures, and grand-total / subtotal rows that have no driver name. When in doubt, include the row.`,
     `Do not invent rows that aren't in the document.`,
-    ``,
-    `## Output format (NDJSON, Task #308)`,
-    `Return one JSON object per line — newline-delimited JSON. No surrounding array. No outer "{ rows: [...] }" wrapper. No prose. No \`\`\` fences. Each line is a complete JSON object on its own line.`,
-    `Each line MUST be a single JSON object with the per-row fields above (driverNameOnDoc, badgeOrId, date, timeIn, timeOut, hours, resolvedKfiId).`,
-    `If the document body marks rows with a leading row-id token of the form "[R<n>]" (chunked spreadsheet path), copy that number into a "_row" field on the output line. For a tagged input row you decide to skip (header / footer / subtotal / blank with no driver), emit \`{"_row":N,"_skip":true}\` so the caller can tell you saw it. Do NOT skip silently.`,
-    `Example (NDJSON, one JSON object per line):`,
-    `{"_row":1,"driverNameOnDoc":"JOHN SMITH","date":"${weekStart}","timeIn":"6:00 AM","timeOut":"2:30 PM","hours":8.5,"resolvedKfiId":"smithjo01"}`,
-    `{"_row":2,"_skip":true}`,
+    `Return strictly JSON matching the provided schema.`,
   ];
   if (roster && roster.drivers.length > 0) {
     lines.push("");
@@ -502,7 +491,7 @@ function buildClaudePrompt(
     `1. Emit ONE output row for EVERY non-empty data row in the document. Do not merge, sum, or combine rows for the same driver/date — even when pay-category columns (e.g. "Reg", "OT 1.5", "SHIFT PREM", "PREM-NIGHT", "VAC", "HOL") split one shift across several lines, copy each line as its own output row. We deduplicate downstream; your job is faithful row-by-row transcription.`,
     `2. The ONLY lines to skip are: column headers, completely blank rows, page footers / signature blocks, and grand-total / subtotal rows that have no driver name. When in doubt, include the row.`,
     `3. Do not invent rows, drivers, dates, or times that aren't in the document. A partial extract is fine; fabrication is not.`,
-    `4. Output NDJSON only — one JSON object per line. No surrounding array. No outer "{ rows: [...] }" wrapper. No \`\`\`json fences. No prose before or after. No "Here is the extracted data:" preamble. Start the first line with \`{\` and end the last line with \`}\`. A trailing newline is fine.`,
+    `4. Output raw JSON only. No \`\`\`json fences. No prose before or after. No "Here is the extracted data:" preamble. Start with \`{\` and end with \`}\`.`,
   ];
 
   if (roster && roster.drivers.length > 0) {
@@ -524,22 +513,25 @@ function buildClaudePrompt(
   }
 
   lines.push("");
-  lines.push("## Output format (NDJSON, Task #308)");
-  lines.push(
-    "Return ONE JSON object per line — newline-delimited JSON (NDJSON). No surrounding `[...]` array. No outer `{ \"rows\": [...] }` wrapper. No prose. No ```json fences. Each line is a complete JSON object on its own line; an extra trailing newline at the very end is fine.",
-  );
-  lines.push("Example (each line below is exactly one output line):");
+  lines.push("## Output format");
+  lines.push("Return a single JSON object exactly matching this shape:");
+  lines.push("```");
+  lines.push(`{`);
+  lines.push(`  "rows": [`);
+  lines.push(`    {`);
+  lines.push(`      "driverNameOnDoc": "JOHN SMITH",`);
+  lines.push(`      "badgeOrId": "10472",`);
+  lines.push(`      "date": "${weekStart}",`);
+  lines.push(`      "timeIn": "6:00 AM",`);
+  lines.push(`      "timeOut": "2:30 PM",`);
+  lines.push(`      "hours": 8.5,`);
+  lines.push(`      "resolvedKfiId": "smithjo01"`);
+  lines.push(`    }`);
+  lines.push(`  ]`);
+  lines.push(`}`);
   lines.push("```");
   lines.push(
-    `{"_row":1,"driverNameOnDoc":"JOHN SMITH","badgeOrId":"10472","date":"${weekStart}","timeIn":"6:00 AM","timeOut":"2:30 PM","hours":8.5,"resolvedKfiId":"smithjo01"}`,
-  );
-  lines.push(`{"_row":2,"_skip":true}`);
-  lines.push("```");
-  lines.push(
-    `Reminder: send the JSON lines directly, without the surrounding triple-backtick fence shown above (the fence is for illustration only). Required keys per data row are driverNameOnDoc and date; all other keys are optional and should be omitted (not set to null) when the document doesn't show them.`,
-  );
-  lines.push(
-    `If the document body tags rows with a leading "[R<n>]" identifier (chunked spreadsheet path), echo that number as the "_row" field on EVERY output line — data lines AND skip lines. For any tagged input row you decide to skip (header / footer / subtotal / blank with no driver), emit \`{"_row":N,"_skip":true}\` so we can tell the row was seen and intentionally dropped instead of silently lost.`,
+    `Reminder: send the JSON object directly, without the surrounding triple-backtick fence shown above (the fence here is for illustration only). Required keys per row are driverNameOnDoc and date; all other keys are optional and should be omitted (not set to null) when the document doesn't show them.`,
   );
   return lines.join("\n");
 }
@@ -606,83 +598,176 @@ export function dedupeAiRows(rows: AiExtractedRow[]): AiExtractedRow[] {
   return Array.from(byKey.values());
 }
 
+/**
+ * Parse the model's JSON response, with a salvage path for truncated output.
+ *
+ * Gemini occasionally hits maxOutputTokens mid-row on very large weekly
+ * exports, returning a JSON string that's missing its trailing brackets
+ * (e.g. `{"rows":[{...},{"driverNameOnDoc":"Jo`). Rather than fail the
+ * entire upload — which would force the dispatcher to manually enter ~150
+ * punches — we trim back to the last complete row object in the `rows`
+ * array and re-close the brackets. Any data after that point is lost, but
+ * the dispatcher sees a partial preview they can confirm or re-run.
+ */
 /** Minimal logger shape — accepts req.log (pino child) or the module logger. */
 type SalvageLogger = {
   warn: (obj: Record<string, unknown>, msg: string) => void;
 };
 
 /**
- * Parse the model's NDJSON response into rows + emitted `_row` IDs (Task #308).
- *
- * Each non-blank line is independently `JSON.parse`'d. Lines that fail
- * to parse are dropped silently — the chunked-path caller compares
- * emitted vs expected `_row` IDs to detect missing rows and re-issues
- * them in a targeted retry. A trailing partial line (the classic
- * maxOutputTokens cut-off) just shows up as one missing `_row` and is
- * handled by the same re-issue mechanism — there is no separate
- * "truncated" flag.
- *
- * Lines with `_skip: true` are intentional drops by the model (headers,
- * subtotals, etc.); their `_row` ID is still counted as "emitted" so we
- * don't re-issue them. Lines without the required `driverNameOnDoc` /
- * `date` keys are dropped (but their `_row` is recorded). Stray ```
- * fences from a misbehaving model are tolerated at the start/end.
+ * Strip markdown code fences ("```json … ```") that some providers
+ * wrap structured-output responses in despite an explicit
+ * "JSON only, no markdown fences" system instruction (Claude Sonnet
+ * does this intermittently on long extractions — Task #293 follow-up).
+ * Cheap, safe, and provider-agnostic; runs before every JSON.parse
+ * attempt so both the happy path and the salvage path benefit.
  */
-export interface ParsedNdjson {
-  rows: AiExtractedRow[];
-  /** `_row` IDs emitted by the model (data + skip lines), used to detect missing rows. */
-  emittedRowIds: Set<number>;
-  /** Count of non-blank input lines (for the lines-emitted-vs-expected telemetry). */
-  nonBlankLines: number;
-  /** Count of non-blank input lines that failed to JSON.parse. */
-  parseFailedLines: number;
-}
-
-function isLikelyFenceMarker(line: string): boolean {
-  const t = line.trim();
-  return t.startsWith("```") || t === "" || t === "[" || t === "]";
-}
-
-export function parseNdjson(raw: string): ParsedNdjson {
-  const rows: AiExtractedRow[] = [];
-  const emittedRowIds = new Set<number>();
-  let nonBlankLines = 0;
-  let parseFailedLines = 0;
-  for (const rawLine of raw.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    // Tolerate stray ``` fence markers / bare brackets a model might
-    // sneak in despite the prompt — they're not data, just noise.
-    if (isLikelyFenceMarker(line)) continue;
-    // A trailing comma or `,` between objects is occasionally observed
-    // when a model mentally renders an array — strip a single trailing
-    // comma before parsing.
-    const cleaned = line.endsWith(",") ? line.slice(0, -1) : line;
-    nonBlankLines++;
-    let obj: unknown;
-    try {
-      obj = JSON.parse(cleaned);
-    } catch {
-      parseFailedLines++;
-      continue;
-    }
-    if (!obj || typeof obj !== "object" || Array.isArray(obj)) continue;
-    const o = obj as Record<string, unknown>;
-    if (typeof o._row === "number" && Number.isFinite(o._row)) {
-      emittedRowIds.add(o._row);
-    }
-    if (o._skip === true) continue;
-    if (typeof o.driverNameOnDoc !== "string" || typeof o.date !== "string") {
-      continue;
-    }
-    // Drop the internal `_row` field before handing the row downstream;
-    // the rest of the pipeline doesn't know about it.
-    const { _row: _r, _skip: _s, ...rest } = o;
-    void _r;
-    void _s;
-    rows.push(rest as unknown as AiExtractedRow);
+function stripJsonFences(raw: string): string {
+  let s = raw.trim();
+  if (s.startsWith("```")) {
+    // Drop the opening fence plus an optional language tag on the same line.
+    const firstNl = s.indexOf("\n");
+    if (firstNl !== -1) s = s.slice(firstNl + 1);
+    if (s.endsWith("```")) s = s.slice(0, -3);
+    s = s.trim();
   }
-  return { rows, emittedRowIds, nonBlankLines, parseFailedLines };
+  return s;
+}
+
+export function parseOrSalvage(
+  raw: string,
+  customer: string,
+  fileName: string,
+  log?: SalvageLogger,
+): { rows?: AiExtractedRow[]; truncated: boolean } {
+  raw = stripJsonFences(raw);
+  try {
+    const parsed = JSON.parse(raw) as { rows?: AiExtractedRow[] };
+    return { ...parsed, truncated: false };
+  } catch {
+    // First, prefer the "valid JSON prefix" path. The model sometimes
+    // returns a complete `{"rows":[...]}` followed by trailing prose,
+    // a duplicate `{"rows":...}` block, or other non-whitespace garbage
+    // that defeats a plain `JSON.parse`. Find the outer object's
+    // matching `}` and try parsing just that prefix.
+    const prefix = findOuterObjectPrefix(raw);
+    if (prefix !== null) {
+      try {
+        const parsed = JSON.parse(prefix) as { rows?: AiExtractedRow[] };
+        (log ?? logger).warn(
+          {
+            customer,
+            fileName,
+            rawLen: raw.length,
+            prefixLen: prefix.length,
+            rows: parsed.rows?.length ?? 0,
+          },
+          "AI extraction: salvaged JSON prefix (trailing garbage after outer object)",
+        );
+        return { ...parsed, truncated: false };
+      } catch {
+        // fall through to row-by-row salvage
+      }
+    }
+    // Locate the `rows` array, walk it row-by-row with a brace counter,
+    // and stop at the last fully-balanced row object. Bracket depth is
+    // also tracked so the walker bails out at the matching `]` of the
+    // rows array — trailing content past it must not influence
+    // `lastGood`.
+    const rowsStart = raw.indexOf("[");
+    if (rowsStart === -1) {
+      throw new Error(
+        `AI extraction: model did not return valid JSON and could not be salvaged (no rows array).`,
+      );
+    }
+    let i = rowsStart + 1;
+    let lastGood = -1; // index just after the last balanced row obj
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    while (i < raw.length) {
+      const ch = raw[i];
+      if (inStr) {
+        if (esc) {
+          esc = false;
+        } else if (ch === "\\") {
+          esc = true;
+        } else if (ch === '"') {
+          inStr = false;
+        }
+      } else if (ch === '"') {
+        inStr = true;
+      } else if (ch === "{") {
+        depth++;
+      } else if (ch === "}") {
+        depth--;
+        if (depth === 0) lastGood = i + 1;
+      } else if (ch === "]" && depth === 0) {
+        // Matching close of the rows array — stop. Anything past this
+        // point is trailing garbage outside the array.
+        break;
+      }
+      i++;
+    }
+    if (lastGood === -1) {
+      throw new Error(
+        `AI extraction: model response was truncated before any complete row could be recovered.`,
+      );
+    }
+    const salvaged = `${raw.slice(0, lastGood)}]}`;
+    try {
+      const parsed = JSON.parse(salvaged) as { rows?: AiExtractedRow[] };
+      (log ?? logger).warn(
+        {
+          customer,
+          fileName,
+          rawLen: raw.length,
+          salvagedLen: salvaged.length,
+          rows: parsed.rows?.length ?? 0,
+        },
+        "AI extraction: salvaged truncated JSON response",
+      );
+      return { ...parsed, truncated: true };
+    } catch (err2) {
+      throw new Error(
+        `AI extraction: model response was truncated and salvage failed (${(err2 as Error).message}).`,
+      );
+    }
+  }
+}
+
+/**
+ * Find the smallest prefix of `raw` that ends at the matching `}` of
+ * the first outer `{ ... }` object, respecting string state so braces
+ * inside quoted strings don't count. Returns `null` if there is no
+ * outer object or its closing brace is not present.
+ */
+function findOuterObjectPrefix(raw: string): string | null {
+  const start = raw.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i];
+    if (inStr) {
+      if (esc) {
+        esc = false;
+      } else if (ch === "\\") {
+        esc = true;
+      } else if (ch === '"') {
+        inStr = false;
+      }
+    } else if (ch === '"') {
+      inStr = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) return raw.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
@@ -729,42 +814,27 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
 // external dependency. Production code never touches this — there's no
 // public push API except the test helper below, and it's gated on
 // `NODE_ENV !== "production"` in `aiExtractRows`.
-interface AiStub {
-  rows: AiExtractedRow[];
-  /**
-   * Task #308: when set, the chunked-path test seam pretends the model
-   * "forgot" these `_row` IDs so the targeted re-issue branch runs.
-   * Undefined = stub claims to have emitted every assigned row.
-   */
-  missingRowIds?: Set<number>;
-}
-const _aiStubQueue: AiStub[] = [];
+const _aiStubQueue: AiExtractedRow[][] = [];
+// Parallel queue of `truncated` flags consumed alongside `_aiStubQueue`.
+// Pushed via the optional second arg to `__pushAiExtractStub` so tests
+// can simulate Task #264's "Gemini hit maxOutputTokens" case and verify
+// the auto-rechunk / halving retry path.
+const _aiStubTruncatedQueue: boolean[] = [];
 // Parallel queue of per-stub errors. When the head is a non-null Error,
 // the next stub consumer throws it instead of returning rows — lets the
 // Task #267 partial-failure test simulate "one chunk's Gemini call blew
 // up" without actually invoking Gemini.
 const _aiStubErrorQueue: (Error | null)[] = [];
-/**
- * @internal test seam — push rows the next `aiExtractRows` call should return.
- *
- * `opts.missingRowIds` (Task #308) lets a chunked-path test simulate
- * "model dropped some assigned `_row` IDs" so the targeted re-issue
- * mechanism is exercised. When omitted (the common case), the stub
- * pretends every assigned row was emitted and no re-issue runs.
- */
+/** @internal test seam — push rows the next `aiExtractRows` call should return. */
 export function __pushAiExtractStub(
   rows: AiExtractedRow[],
-  opts?: { missingRowIds?: number[] },
+  opts?: { truncated?: boolean },
 ): void {
   if (process.env.NODE_ENV === "production") {
     throw new Error("__pushAiExtractStub is a test seam — not callable in production");
   }
-  _aiStubQueue.push({
-    rows,
-    missingRowIds: opts?.missingRowIds
-      ? new Set(opts.missingRowIds)
-      : undefined,
-  });
+  _aiStubQueue.push(rows);
+  _aiStubTruncatedQueue.push(opts?.truncated ?? false);
   _aiStubErrorQueue.push(null);
 }
 /** @internal test seam — push an error the next chunk consumer should throw. */
@@ -772,23 +842,15 @@ export function __pushAiExtractErrorStub(message: string): void {
   if (process.env.NODE_ENV === "production") {
     throw new Error("__pushAiExtractErrorStub is a test seam — not callable in production");
   }
-  _aiStubQueue.push({ rows: [] });
+  _aiStubQueue.push([]);
+  _aiStubTruncatedQueue.push(false);
   _aiStubErrorQueue.push(new Error(message));
 }
 /** @internal test seam — clear any unused stubs (e.g. teardown). */
 export function __clearAiExtractStubs(): void {
   _aiStubQueue.length = 0;
+  _aiStubTruncatedQueue.length = 0;
   _aiStubErrorQueue.length = 0;
-}
-/**
- * @internal test seam — current length of the unconsumed AI stub queue.
- * Tests use this to assert "AI extractor would have been invoked N times"
- * by checking the drained count before/after a run. Production code
- * never reads this — and the underlying queue is gated on
- * `NODE_ENV !== 'production'` anyway, so the count is always 0 in prod.
- */
-export function __aiExtractStubQueueLength(): number {
-  return _aiStubQueue.length;
 }
 
 // Per-chunk model-call ceiling for the chunked xlsx path. Shorter than
@@ -851,11 +913,7 @@ async function callModelForChunk(
   budget: IngestionBudget,
   allowGeminiFallback: boolean,
   ingestionId: string,
-): Promise<{
-  rows: AiExtractedRow[];
-  emittedRowIds: Set<number>;
-  nonBlankLines: number;
-}> {
+): Promise<{ rows: AiExtractedRow[]; truncated: boolean }> {
   // `buildParts(c)` is called per-attempt so the prompt is re-tailored
   // to whichever provider actually handles the request — important on
   // the Claude→Gemini (or reverse) fallback path, where the two
@@ -907,13 +965,14 @@ async function callModelForChunk(
           parts,
           maxOutputTokens: 32768,
           timeoutMs: XLSX_CHUNK_TIMEOUT_MS,
+          jsonSchema: ROW_SCHEMA,
         });
         const purpose: IngestionPurpose = isFallback
           ? "gemini_fallback"
           : attempt > 1
           ? "chunk_retry"
-          : label.includes("re-issue")
-          ? "chunk_reissue"
+          : label.includes("halved")
+          ? "chunk_halved"
           : "chunk";
         logModelCall({
           log,
@@ -958,12 +1017,33 @@ async function callModelForChunk(
     );
     raw = (await callOnce(fb, true)).text;
   }
-  const parsed = parseNdjson(raw);
-  return {
-    rows: parsed.rows,
-    emittedRowIds: parsed.emittedRowIds,
-    nonBlankLines: parsed.nonBlankLines,
-  };
+  const parsed = parseOrSalvage(raw, customer, fileName, log);
+  const rows = (parsed.rows ?? []).filter(
+    (r) =>
+      r && typeof r.driverNameOnDoc === "string" && typeof r.date === "string",
+  );
+  return { rows, truncated: parsed.truncated };
+}
+
+// Split a single CSV chunk's body roughly in half on truncation-retry,
+// keeping the sheet header / part marker on both halves so Gemini still
+// sees the column layout. Used by `runChunkedXlsxExtract` when a chunk
+// busts maxOutputTokens; one halving level is enough in practice because
+// our default chunk size already targets ~10k output tokens.
+function halveChunk(chunk: string): [string, string] | null {
+  const lines = chunk.split("\n");
+  if (lines.length < 4) return null; // marker + header + at least 2 body rows
+  const marker = lines[0];
+  const header = lines[1];
+  const body = lines.slice(2);
+  const mid = Math.ceil(body.length / 2);
+  const left = body.slice(0, mid);
+  const right = body.slice(mid);
+  if (left.length === 0 || right.length === 0) return null;
+  return [
+    [marker + " · half 1", header, ...left].join("\n"),
+    [marker + " · half 2", header, ...right].join("\n"),
+  ];
 }
 
 // How many chunks to run in parallel. Task #296 dropped from 6 -> 3
@@ -979,25 +1059,6 @@ async function callModelForChunk(
 // tail.
 const XLSX_CHUNK_CONCURRENCY = 3;
 
-/**
- * Build the chunk body text shown to the model, tagging each body row
- * with a `[R<n>] ` prefix (Task #308). The model is asked in the prompt
- * to echo that number as `_row` on every output line — data lines and
- * `_skip` lines alike — so we can diff emitted vs assigned IDs and
- * surgically re-issue any that got lost.
- */
-function buildTaggedChunkText(
-  marker: string,
-  header: string,
-  body: string[],
-  ids: number[],
-): string {
-  const taggedBody = ids
-    .map((id, i) => `[R${id}] ${body[i]}`)
-    .join("\n");
-  return [marker, header, taggedBody].join("\n");
-}
-
 async function runChunkedXlsxExtract(
   client: ModelClient,
   chunks: string[],
@@ -1012,9 +1073,7 @@ async function runChunkedXlsxExtract(
   ingestionId: string,
   roster?: RosterContext,
   onChunkProgress?: (current: number, total: number) => void,
-  uploadKey?: string,
-  stageStore?: ChunkStageStore,
-): Promise<{ rows: AiExtractedRow[] }> {
+): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
   // Task #296: emit (0, total) before the first chunk so the polling
   // client sees a definitive total as soon as work begins, then
   // (completed, total) after each chunk finishes. Never lets observer
@@ -1033,55 +1092,10 @@ async function runChunkedXlsxExtract(
   } catch {
     /* observer-only */
   }
-  // Task #309: resume support. Load every previously-staged chunk for
-  // this upload identity so the runner can short-circuit the model call
-  // on chunks that already completed cleanly on a prior attempt. A
-  // failure here only costs the resume optimization — we log and
-  // continue with an empty staged set (worst case: pay for chunks we
-  // already paid for once before).
-  const stagedByIndex = new Map<number, AiExtractedRow[]>();
-  if (uploadKey && stageStore) {
-    try {
-      const loaded = await stageStore.load(uploadKey);
-      for (const [idx, rows] of loaded) {
-        if (idx >= 0 && idx < chunks.length) stagedByIndex.set(idx, rows);
-      }
-    } catch (err) {
-      (log ?? logger).warn(
-        { err, uploadKey, customer, fileName },
-        "AI extract staging load failed — proceeding without resume",
-      );
-    }
-    if (stagedByIndex.size > 0) {
-      logger.info(
-        {
-          customer,
-          fileName,
-          uploadKey,
-          skipped: stagedByIndex.size,
-          total: chunks.length,
-        },
-        `Resuming AI extract — skipped ${stagedByIndex.size} of ${chunks.length} chunks from staging`,
-      );
-    }
-  }
-  /**
-   * Run one model call against a tagged sub-chunk (Task #308). Returns
-   * the rows the model produced PLUS the set of `_row` IDs it emitted
-   * (data + skip lines) so the caller can detect missing IDs and
-   * decide whether to re-issue. Honors the test stub queue.
-   */
   const runOne = async (
-    marker: string,
-    header: string,
-    body: string[],
-    ids: number[],
+    chunk: string,
     label: string,
-  ): Promise<{
-    rows: AiExtractedRow[];
-    emittedRowIds: Set<number>;
-    nonBlankLines: number;
-  }> => {
+  ): Promise<{ rows: AiExtractedRow[]; truncated: boolean }> => {
     // Test seam: if `__pushAiExtractStub` has been used, consume one stub
     // per request so unit tests can drive the chunked path deterministically.
     if (
@@ -1089,25 +1103,15 @@ async function runChunkedXlsxExtract(
       _aiStubQueue.length > 0
     ) {
       const stubbed = _aiStubQueue.shift()!;
+      const truncated = _aiStubTruncatedQueue.shift() ?? false;
       const err = _aiStubErrorQueue.shift() ?? null;
       if (err) throw err;
-      // Default: stub claims to have emitted every assigned `_row` ID
-      // (no re-issue triggered). When `missingRowIds` is set, omit
-      // those from `emittedRowIds` so the caller's diff identifies
-      // them as missing and the re-issue branch fires.
-      const emitted = new Set<number>();
-      for (const id of ids) {
-        if (!stubbed.missingRowIds || !stubbed.missingRowIds.has(id)) {
-          emitted.add(id);
-        }
-      }
       return {
-        rows: stubbed.rows.map((r) => ({
+        rows: stubbed.map((r) => ({
           ...r,
           driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
         })),
-        emittedRowIds: emitted,
-        nonBlankLines: emitted.size,
+        truncated,
       };
     }
     // Task #296: split the chunked-extract prompt into two text parts so
@@ -1117,7 +1121,6 @@ async function runChunkedXlsxExtract(
     // 1 pay `cache_creation` tokens once and chunks 2..N read from the
     // ephemeral cache at ~10% the price AND outside the per-minute
     // input-tokens window. Gemini ignores the flag.
-    const taggedChunk = buildTaggedChunkText(marker, header, body, ids);
     const buildParts = (c: ModelClient): ContentPart[] => [
       {
         kind: "text",
@@ -1126,7 +1129,7 @@ async function runChunkedXlsxExtract(
       },
       {
         kind: "text",
-        text: `\n\n${label} of the same workbook. Each body line is prefixed with a "[R<n>]" tag — copy that number into the "_row" field on every output NDJSON line (data and \`_skip\` lines alike). Return only the rows in this chunk.\n\n--- SPREADSHEET (CSV) ---\n${taggedChunk}\n--- END SPREADSHEET ---`,
+        text: `\n\n${label} of the same workbook. Return only the rows in this chunk.\n\n--- SPREADSHEET (CSV) ---\n${chunk}\n--- END SPREADSHEET ---`,
       },
     ];
     // Defensive assertion: the chunker is supposed to cap each chunk at
@@ -1135,18 +1138,14 @@ async function runChunkedXlsxExtract(
     // row), bail BEFORE burning a model call. The bug that motivated
     // this (Task #297) was a malformed chunk that ballooned to 10×
     // its intended payload size and ate the entire token budget across
-    // retries before failing.
-    const assignedRowCount = Math.max(1, ids.length);
+    // retries before failing. Log the structured warning first so the
+    // dispatcher's error has a corresponding trace in the API log.
+    const assignedRowCount = Math.max(1, chunk.split("\n").length - 2);
     const promptChars = buildParts(client).reduce(
       (n, p) => n + (p.kind === "text" ? p.text.length : 0),
       0,
     );
-    // The cacheable prefix (rules + roster + NDJSON example) is a flat
-    // ~4-5k chars regardless of body size, so a re-issue carrying only
-    // 1-2 rows looks "huge" by per-row ratio. Apply a floor that covers
-    // the prefix; the guard still trips on real prompt-bloat (e.g. a
-    // 200k chunk of body for 10 rows).
-    if (promptChars > Math.max(assignedRowCount * 500, 8000)) {
+    if (promptChars > assignedRowCount * 500) {
       (log ?? logger).warn(
         {
           customer,
@@ -1162,7 +1161,7 @@ async function runChunkedXlsxExtract(
         `AI extraction stopped: chunk "${label}" prompt is ${promptChars} chars for only ${assignedRowCount} rows. The chunker produced a malformed split — re-upload after splitting the spreadsheet by hand.`,
       );
     }
-    const out = await callModelForChunk(
+    const { rows, truncated } = await callModelForChunk(
       client,
       buildParts,
       customer,
@@ -1174,135 +1173,66 @@ async function runChunkedXlsxExtract(
       ingestionId,
     );
     return {
-      rows: out.rows.map((r) => ({
+      rows: rows.map((r) => ({
         ...r,
         driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
       })),
-      emittedRowIds: out.emittedRowIds,
-      nonBlankLines: out.nonBlankLines,
+      truncated,
     };
   };
 
   // Cooperative cancellation: the first chunk to throw flips this
   // flag so the worker pool stops dequeuing new indices AND in-flight
-  // chunks short-circuit their (expensive) re-issue retries instead of
-  // racing more model calls after the upload is already doomed.
+  // chunks short-circuit their (expensive) halving retries instead of
+  // racing more Gemini calls after the upload is already doomed.
+  // Without this an early failure on chunk 1 of 10 would still cause
+  // chunks 2-10 to complete their Gemini calls before Promise.all's
+  // rejection bubbled out — wasted minutes and tokens.
   let aborted = false;
-  // Task #309: persist a completed chunk to the staging table so a later
-  // failure (network, rate limit, parse error) on a SIBLING chunk doesn't
-  // force the dispatcher to re-pay for this one on the next upload. Done
-  // before tickProgress so the checkpoint always reflects a row count
-  // matching the observer signal. Failures are logged and swallowed —
-  // missing a staging write only costs the resume optimization, not the
-  // upload itself.
-  const persistChunk = async (
-    idx: number,
-    assignedIds: number[],
-    rows: AiExtractedRow[],
-  ): Promise<void> => {
-    if (!uploadKey || !stageStore) return;
-    try {
-      await stageStore.save({
-        uploadKey,
-        chunkIndex: idx,
-        chunkCount: chunks.length,
-        customer,
-        weekStart,
-        fileName,
-        assignedInputRowIds: assignedIds,
-        extractedRows: rows,
-      });
-    } catch (err) {
-      (log ?? logger).warn(
-        { err, uploadKey, chunk: idx + 1, chunkCount: chunks.length, customer, fileName },
-        "AI extract staging save failed — chunk completed but will be re-issued on resume",
-      );
-    }
-  };
-
   const handleChunkInner = async (
     idx: number,
   ): Promise<{ rows: AiExtractedRow[] }> => {
     if (aborted) return { rows: [] };
-    // Parse the chunk into marker / header / body once so the
-    // re-issue branch can address individual body rows by ID.
-    const allLines = chunks[idx].split("\n");
-    const marker = allLines[0] ?? "";
-    const header = allLines[1] ?? "";
-    const body = allLines.slice(2);
-    const assignedIds = body.map((_, i) => i + 1);
-    const expected = assignedIds.length;
-    const label = `This is chunk ${idx + 1} of ${chunks.length}`;
-    // Task #309: resume hit. Skip the model call entirely and return
-    // the previously-staged rows for this `(uploadKey, chunkIndex)`.
-    const staged = stagedByIndex.get(idx);
-    if (staged) {
-      logger.info(
-        {
-          customer,
-          fileName,
-          chunk: idx + 1,
-          chunkCount: chunks.length,
-          rows: staged.length,
-          uploadKey,
-        },
-        "AI chunk resumed from staging — no model call",
-      );
-      return { rows: staged };
-    }
-    const result = await runOne(marker, header, body, assignedIds, label);
-    if (aborted) return { rows: [] };
-    // Telemetry (Task #308): per-chunk lines-emitted vs lines-expected
-    // so we can see at a glance how often the model is dropping rows.
-    (log ?? logger).warn(
-      {
-        customer,
-        fileName,
-        chunk: idx + 1,
-        chunkCount: chunks.length,
-        expected,
-        emitted: result.emittedRowIds.size,
-        nonBlankLines: result.nonBlankLines,
-        rows: result.rows.length,
-      },
-      "AI chunk NDJSON lines emitted vs expected",
+    const result = await runOne(
+      chunks[idx],
+      `This is chunk ${idx + 1} of ${chunks.length}`,
     );
-    const missing = assignedIds.filter((id) => !result.emittedRowIds.has(id));
-    if (missing.length === 0) {
-      await persistChunk(idx, assignedIds, result.rows);
+    if (aborted) return { rows: [] };
+    if (!result.truncated) {
       return { rows: result.rows };
     }
-    // One targeted re-issue: re-send ONLY the body lines whose `_row`
-    // IDs never came back, preserving their original IDs in the
-    // [R<n>] tags so the dispatcher's downstream view still mirrors
-    // the source order. If the second call ALSO misses any IDs, we
-    // fail loud — silent partial extraction is exactly what Task #308
-    // is trying to eliminate.
-    (log ?? logger).warn(
-      {
-        customer,
-        fileName,
-        chunk: idx + 1,
-        chunkCount: chunks.length,
-        missingCount: missing.length,
-        missingSample: missing.slice(0, 10),
-      },
-      "AI chunk missing row IDs — re-issuing targeted retry",
-    );
-    const missingBody = missing.map((id) => body[id - 1]);
-    const reissueLabel = `This is chunk ${idx + 1} of ${chunks.length} (re-issue of ${missing.length} missing rows)`;
-    const reissue = await runOne(marker, header, missingBody, missing, reissueLabel);
-    if (aborted) return { rows: [] };
-    const stillMissing = missing.filter((id) => !reissue.emittedRowIds.has(id));
-    if (stillMissing.length > 0) {
+    // Truncation: chunk still exceeded the 32k output-token cap.
+    // Halve and retry the two halves in parallel exactly once.
+    const halves = halveChunk(chunks[idx]);
+    if (!halves) {
       aborted = true;
       throw new Error(
-        `AI could not extract the full file — chunk ${idx + 1} of ${chunks.length} is missing ${stillMissing.length} rows after one re-issue retry. Split the spreadsheet into two smaller files and re-upload.`,
+        `AI could not extract the full file — chunk ${idx + 1} of ${chunks.length} is too dense to split further. Split the spreadsheet into two smaller files and re-upload.`,
       );
     }
-    const mergedChunkRows = [...result.rows, ...reissue.rows];
-    await persistChunk(idx, assignedIds, mergedChunkRows);
-    return { rows: mergedChunkRows };
+    (log ?? logger).warn(
+      { customer, fileName, chunk: idx + 1 },
+      "AI chunk response truncated — halving and retrying",
+    );
+    const halfResults = await Promise.all(
+      halves.map((h, hIdx) =>
+        runOne(
+          h,
+          `This is chunk ${idx + 1}.${hIdx + 1} of ${chunks.length} (halved retry)`,
+        ),
+      ),
+    );
+    const collected: AiExtractedRow[] = [];
+    for (const hr of halfResults) {
+      if (hr.truncated) {
+        aborted = true;
+        throw new Error(
+          `AI could not extract the full file — chunk ${idx + 1} still hit the response-size cap after one retry. Split the spreadsheet into two smaller files and re-upload.`,
+        );
+      }
+      for (const r of hr.rows) collected.push(r);
+    }
+    return { rows: collected };
   };
 
   // Wrap so ANY throw from handleChunkInner (timeout, network error,
@@ -1353,29 +1283,12 @@ async function runChunkedXlsxExtract(
       aiDedupedRowCount: deduped.length,
       chunks: chunks.length,
       concurrency: workerCount,
-      resumedFromStaging: stagedByIndex.size,
       customer,
       fileName,
     },
     "AI extraction complete (chunked)",
   );
-  // Task #309: full success — every chunk's rows are in `merged`. Drop
-  // the entire staging block for this upload key in one statement so
-  // the next prune pass has less to do and a re-upload of the same
-  // file (e.g. dispatcher hits "upload" twice by accident) doesn't
-  // short-circuit to a stale checkpoint. Failure here only delays
-  // cleanup to the 7-day pruner — never affects the response.
-  if (uploadKey && stageStore) {
-    try {
-      await stageStore.clear(uploadKey);
-    } catch (err) {
-      (log ?? logger).warn(
-        { err, uploadKey, customer, fileName },
-        "AI extract staging clear failed — will age out via the 7-day pruner",
-      );
-    }
-  }
-  return { rows: deduped };
+  return { rows: deduped, truncated: false, failedChunks: 0 };
 }
 
 /**
@@ -1384,7 +1297,7 @@ async function runChunkedXlsxExtract(
  * consistently-shaped line — the admin debugging playbook greps for
  * `"ingest_done"` to pull every upload's spend across the API log.
  */
-export function logIngestDone(
+function logIngestDone(
   log: SalvageLogger | undefined,
   fields: {
     customer: string;
@@ -1394,14 +1307,6 @@ export function logIngestDone(
     rowCount: number;
     summary: IngestionBudgetSummary;
     errMsg?: string;
-    /**
-     * Task #310: true when the upload short-circuited via the
-     * `customer_column_schemas` recipe cache and made zero model
-     * calls. Cache-hit lines still get an `ingest_done` summary so
-     * `grep ingest_done | jq '.recipeCacheHit'` over the API log
-     * yields the full per-upload hit/miss series.
-     */
-    recipeCacheHit?: boolean;
   },
 ): void {
   const target = (log ?? logger) as SalvageLogger & {
@@ -1424,7 +1329,6 @@ export function logIngestDone(
     warnedHot: fields.summary.warnedHot,
     blockStructured: fields.summary.blockStructured,
     rowsPerChunk: fields.summary.rowsPerChunk,
-    recipeCacheHit: fields.recipeCacheHit ?? false,
     ...(fields.errMsg ? { errMsg: fields.errMsg } : {}),
   };
   const msg = "ingest_done";
@@ -1467,8 +1371,6 @@ export async function aiExtractRows(
     allowGeminiFallback,
     ingestionId,
     opts?.onChunkProgress,
-    opts?.uploadKey,
-    opts?.stageStore,
   );
 }
 
@@ -1485,8 +1387,6 @@ async function aiExtractRowsImpl(
   allowGeminiFallback: boolean,
   ingestionId: string,
   onChunkProgress?: (current: number, total: number) => void,
-  uploadKey?: string,
-  stageStore?: ChunkStageStore,
 ): Promise<AiExtractResult> {
   const overallStart = Date.now();
   // Wrap the rest of the function in try/catch so a budget trip or any
@@ -1507,8 +1407,6 @@ async function aiExtractRowsImpl(
       allowGeminiFallback,
       ingestionId,
       onChunkProgress,
-      uploadKey,
-      stageStore,
     );
     const summary = budget.summary();
     logIngestDone(log, {
@@ -1556,9 +1454,7 @@ async function runExtraction(
   allowGeminiFallback: boolean,
   ingestionId: string,
   onChunkProgress?: (current: number, total: number) => void,
-  uploadKey?: string,
-  stageStore?: ChunkStageStore,
-): Promise<{ rows: AiExtractedRow[] }> {
+): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
   // Task #296: never let an observer throw bubble out and tank the
   // extract. Single-call / image / PDF paths emit a single final
   // (1, 1) so the polling client always sees a completion event.
@@ -1576,19 +1472,24 @@ async function runExtraction(
     /\.(jpg|jpeg|png|webp)$/i.test(lower);
   // Test stub seam: image + pdf paths consume a single stub here so
   // `imageSupport.test.ts` can drive them deterministically without
-  // a real model call. The xlsx path defers stub consumption to the
-  // chunker (`runChunkedXlsxExtract`).
+  // Gemini. The xlsx path defers stub consumption to the chunker
+  // (`runChunkedXlsxExtract`) so the chunked-merge test in
+  // `aiExtractTimeout.test.ts` can push one stub per chunk and verify
+  // the merge order.
   if (
     process.env.NODE_ENV !== "production" &&
     _aiStubQueue.length > 0 &&
     (isImage || isPdf)
   ) {
     const stubbed = _aiStubQueue.shift()!;
+    const truncated = _aiStubTruncatedQueue.shift() ?? false;
     return {
-      rows: stubbed.rows.map((r) => ({
+      rows: stubbed.map((r) => ({
         ...r,
         driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
       })),
+      truncated,
+      failedChunks: 0,
     };
   }
   const client = await getModelClient();
@@ -1673,7 +1574,7 @@ async function runExtraction(
           { rows: rows.length, customer },
           "DeLallo scanned-PDF OCR fallback produced rows",
         );
-        return { rows };
+        return { rows, truncated: false, failedChunks: 0 };
       }
       // Generic scanned-PDF path: send the document directly for OCR.
       attachmentParts.push({
@@ -1714,8 +1615,6 @@ async function runExtraction(
         ingestionId,
         roster,
         onChunkProgress,
-        uploadKey,
-        stageStore,
       );
     }
     attachmentParts.push({
@@ -1740,9 +1639,9 @@ async function runExtraction(
   // via the cache → readWithRoles fast path (sub-100ms).
   const AI_TIMEOUT_MS = isImage ? 90_000 : 300_000;
   // Test seam (xlsx single-call): consume one stub so unit tests can
-  // drive the single-call path deterministically. Mirrors the image/pdf
-  // seam at the top of this function.
-  let parsed: ParsedNdjson;
+  // simulate single-call truncation + recovery without invoking a real
+  // model. Mirrors the image/pdf seam at the top of this function.
+  let parsed: { rows?: AiExtractedRow[]; truncated: boolean };
   if (
     process.env.NODE_ENV !== "production" &&
     _aiStubQueue.length > 0 &&
@@ -1750,14 +1649,13 @@ async function runExtraction(
     !isPdf
   ) {
     const stubbed = _aiStubQueue.shift()!;
+    const truncated = _aiStubTruncatedQueue.shift() ?? false;
     parsed = {
-      rows: stubbed.rows.map((r) => ({
+      rows: stubbed.map((r) => ({
         ...r,
         driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
       })),
-      emittedRowIds: new Set<number>(),
-      nonBlankLines: stubbed.rows.length,
-      parseFailedLines: 0,
+      truncated,
     };
   } else {
     // Weekly customer exports for a 21-driver fleet can easily exceed
@@ -1802,6 +1700,7 @@ async function runExtraction(
             parts,
             maxOutputTokens: 32768,
             timeoutMs: AI_TIMEOUT_MS,
+            jsonSchema: ROW_SCHEMA,
           });
           const purpose: IngestionPurpose = isFallback
             ? "gemini_fallback"
@@ -1849,14 +1748,46 @@ async function runExtraction(
       );
       raw = (await callOnce(fb, true)).text;
     }
-    parsed = parseNdjson(raw);
+    parsed = parseOrSalvage(raw, customer, fileName, log);
   }
 
-  // Single-call path completed — emit a final (1, 1) so the polling
-  // client sees a definitive completion event.
+  // Single-call truncation recovery (Task #264). Gemini hit the 32k
+  // output-token cap mid-row. For xlsx we can re-run via forced chunking
+  // — the row-count trigger we set above means this almost never happens
+  // anymore, but if a freshly-uploaded workbook slips under the 150-row
+  // trigger and still truncates (e.g. extremely verbose pay-category
+  // splits), the dispatcher shouldn't pay for our threshold miss with a
+  // silently-clipped preview. Re-extracts the SAME buffer with a
+  // forced-small chunk size and returns the merged rows. PDFs/images
+  // don't have a re-chunk path, so we accept partial rows and propagate
+  // `truncated: true` so the UI banner fires.
+  if (parsed.truncated && !isImage && !isPdf) {
+    (log ?? logger).warn(
+      { customer, fileName, salvagedRows: parsed.rows?.length ?? 0 },
+      "single-call AI response truncated — re-extracting with forced chunking",
+    );
+    const forcedChunks = xlsxToChunks(buffer, log, { forceChunkMaxRows: 100 });
+    return runChunkedXlsxExtract(
+      client,
+      forcedChunks,
+      customer,
+      weekStart,
+      weekEnd,
+      fileName,
+      start,
+      log,
+      budget,
+      allowGeminiFallback,
+      ingestionId,
+      roster,
+      onChunkProgress,
+    );
+  }
+  // Single-call path completed without re-chunking — emit a final
+  // (1, 1) so the polling client sees a definitive completion event.
   safeProgress(1, 1);
 
-  const rows = parsed.rows
+  const rows = (parsed.rows ?? [])
     .filter(
       (r) => r && typeof r.driverNameOnDoc === "string" && typeof r.date === "string",
     )
@@ -1873,12 +1804,11 @@ async function runExtraction(
       ms: Date.now() - start,
       aiRawRowCount: rows.length,
       aiDedupedRowCount: deduped.length,
-      nonBlankLines: parsed.nonBlankLines,
-      parseFailedLines: parsed.parseFailedLines,
+      truncated: parsed.truncated,
       customer,
       fileName,
     },
     "AI extraction complete",
   );
-  return { rows: deduped };
+  return { rows: deduped, truncated: parsed.truncated, failedChunks: 0 };
 }
