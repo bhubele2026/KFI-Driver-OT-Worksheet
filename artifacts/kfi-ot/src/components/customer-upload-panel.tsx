@@ -348,6 +348,17 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       c.abort();
       delete rowAborts.current[customer];
     }
+    // Reset the row's UI state immediately so the spinner, elapsed-seconds
+    // badge, and chunk-progress text disappear the moment the dispatcher
+    // clicks Cancel. The in-flight handler's catch/finally blocks won't do
+    // this for us — they bail out via the stale-controller guard above
+    // (rowAborts.current[customer] !== controller) once we delete the entry.
+    setRow(customer, {
+      uploading: false,
+      error: null,
+      uploadStartedAt: null,
+      chunkProgress: null,
+    });
   };
 
   // 1Hz tick to drive the elapsed-seconds badge while any row is
