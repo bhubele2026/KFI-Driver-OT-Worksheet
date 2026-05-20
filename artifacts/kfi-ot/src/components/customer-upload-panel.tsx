@@ -117,6 +117,11 @@ function startProgressPolling(
 const UNIVERSAL_ACCEPT =
   ".pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.heic,.heif,.webp";
 
+// Temporarily hidden until end-to-end verification is complete. Flip to `true`
+// to restore the "Upload all customer files", "Folder…", and
+// "New customer file…" buttons in the customer-files panel header.
+const SHOW_BULK_UPLOAD_BUTTONS = false;
+
 // Translate raw server errors into copy a payroll dispatcher can act
 // on. Most AI-extract failures bubble up the underlying Gemini message
 // (e.g. truncated JSON, "model did not return valid JSON", or a column
@@ -1038,37 +1043,41 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
               processCollectedFiles(files);
             }}
           />
-          <Button
-            size="sm"
-            disabled={bulkRunning}
-            onClick={() => bulkInputRef.current?.click()}
-          >
-            {bulkRunning ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <UploadCloud className="mr-2 h-4 w-4" />
-            )}
-            {t("customerUpload.uploadAll")}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={bulkRunning}
-            onClick={() => folderInputRef.current?.click()}
-            title={t("customerUpload.folderTitle")}
-            data-testid="button-upload-folder"
-          >
-            <FolderUp className="mr-2 h-4 w-4" />
-            {t("customerUpload.folder")}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => openNewWithFile(null)}
-          >
-            <Sparkles className="mr-2 h-4 w-4" />
-            {t("customerPanel.newCustomer")}
-          </Button>
+          {SHOW_BULK_UPLOAD_BUTTONS && (
+            <>
+              <Button
+                size="sm"
+                disabled={bulkRunning}
+                onClick={() => bulkInputRef.current?.click()}
+              >
+                {bulkRunning ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <UploadCloud className="mr-2 h-4 w-4" />
+                )}
+                {t("customerUpload.uploadAll")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={bulkRunning}
+                onClick={() => folderInputRef.current?.click()}
+                title={t("customerUpload.folderTitle")}
+                data-testid="button-upload-folder"
+              >
+                <FolderUp className="mr-2 h-4 w-4" />
+                {t("customerUpload.folder")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openNewWithFile(null)}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                {t("customerPanel.newCustomer")}
+              </Button>
+            </>
+          )}
         </div>
       </div>
       {bulkItems.length > 0 && (
