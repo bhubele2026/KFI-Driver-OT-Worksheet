@@ -781,7 +781,11 @@
     "parserSnoozedPrefix": "Silenció el aviso del lector de",
     "parserSnoozedSuffix": "{{until}}",
     "parserSnoozeForever": "indefinidamente",
-    "parserSnoozeUntil": "hasta el {{date}}"
+    "parserSnoozeUntil": "hasta el {{date}}",
+    "customerTzSetPrefix": "Estableció la zona horaria de",
+    "customerTzSetMiddle": "a",
+    "customerTzClearedPrefix": "Borró la zona horaria de",
+    "customerTzClearedSuffix": ""
   },
   "adminI18n": {
     "title": "Administración · Estado de traducción",

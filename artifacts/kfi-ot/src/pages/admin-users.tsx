@@ -2005,7 +2005,7 @@ export default function AdminUsers() {
                               )
                             </span>
                           </span>
-                        ) : renderWeekResetLabel(entry.action, entry.targetEmail, t) ?? renderParserSnoozeLabel(entry.action, entry.targetEmail, t) ?? (
+                        ) : renderWeekResetLabel(entry.action, entry.targetEmail, t) ?? renderParserSnoozeLabel(entry.action, entry.targetEmail, t) ?? renderCustomerTzLabel(entry.action, entry.targetEmail, t) ?? (
                           <span className="font-mono">{entry.targetEmail ?? "—"}</span>
                         )}
                       </TableCell>
@@ -2196,11 +2196,17 @@ function UserAuditHistory({
                     {entry.action}
                   </span>
                   {(() => {
-                    const label = renderParserSnoozeLabel(
-                      entry.action,
-                      entry.targetEmail,
-                      t,
-                    );
+                    const label =
+                      renderParserSnoozeLabel(
+                        entry.action,
+                        entry.targetEmail,
+                        t,
+                      ) ??
+                      renderCustomerTzLabel(
+                        entry.action,
+                        entry.targetEmail,
+                        t,
+                      );
                     return label ? (
                       <span className="text-xs text-muted-foreground">
                         {label}
@@ -2300,6 +2306,41 @@ function renderParserSnoozeLabel(
       {t("adminUsers.parserSnoozedPrefix")}{" "}
       <span className="font-mono">{customer}</span>{" "}
       {t("adminUsers.parserSnoozedSuffix", { until: untilLabel })}
+    </span>
+  );
+}
+
+function renderCustomerTzLabel(
+  action: string,
+  targetEmail: string | null | undefined,
+  t: TFunction,
+): ReactNode | null {
+  if (action !== "customer-tz-set" && action !== "customer-tz-clear") {
+    return null;
+  }
+  if (!targetEmail) return null;
+  const rest = targetEmail.startsWith("customer-tz:")
+    ? targetEmail.slice("customer-tz:".length)
+    : targetEmail;
+  const [customerRaw, ...metaParts] = rest.split("|");
+  const customer = customerRaw || t("adminUsers.unknownCustomer");
+  if (action === "customer-tz-clear") {
+    return (
+      <span>
+        {t("adminUsers.customerTzClearedPrefix")}{" "}
+        <span className="font-mono">{customer}</span>{" "}
+        {t("adminUsers.customerTzClearedSuffix")}
+      </span>
+    );
+  }
+  const tzPart = metaParts.find((m) => m.startsWith("tz="));
+  const tz = tzPart ? tzPart.slice("tz=".length) : "";
+  return (
+    <span>
+      {t("adminUsers.customerTzSetPrefix")}{" "}
+      <span className="font-mono">{customer}</span>{" "}
+      {t("adminUsers.customerTzSetMiddle")}{" "}
+      <span className="font-mono">{tz}</span>
     </span>
   );
 }

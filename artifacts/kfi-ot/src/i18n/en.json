@@ -781,7 +781,11 @@
     "parserSnoozedPrefix": "Snoozed",
     "parserSnoozedSuffix": "parser nudge {{until}}",
     "parserSnoozeForever": "forever",
-    "parserSnoozeUntil": "until {{date}}"
+    "parserSnoozeUntil": "until {{date}}",
+    "customerTzSetPrefix": "Set",
+    "customerTzSetMiddle": "timezone to",
+    "customerTzClearedPrefix": "Cleared",
+    "customerTzClearedSuffix": "timezone"
   },
   "adminI18n": {
     "title": "Admin · Translation status",
