@@ -24,6 +24,22 @@ display tz (`America/Chicago` by default, `America/New_York` for IWG drivers).
 Hours engine sorts all punches chronologically and splits the 40-hour boundary
 mid-shift into RT vs OT, crediting each portion to the correct source.
 
+`computeDriverTotals` returns both views of the same numbers:
+- **Combined 40h split** — `regularHours` / `overtimeHours`. This is what
+  payroll consumes (HTML/PDF timesheets in `lib/timesheets*.ts`, and the
+  `routes/payroll.ts` export). Don't change these field names without a
+  payroll-cutover plan.
+- **Per-source breakdown** — `driverRt` / `driverOt` / `custRt` / `custOt`,
+  the four buckets that satisfy `driverRt + driverOt = totalDriver`,
+  `custRt + custOt = totalCustomer`, `driverRt + custRt = regularHours`,
+  `driverOt + custOt = overtimeHours`. The on-screen driver-detail Summary
+  card renders the per-source breakdown (Customer RT / Customer OT /
+  Driver RT / Driver OT) so the two rolling-totals lines reconcile cleanly
+  on the page; the Reconciliation checks panel cross-checks
+  `custRt + driverRt = regularHours` and `custOt + driverOt = overtimeHours`
+  so a future engine regression that breaks the four-bucket identity is
+  caught.
+
 ## Connecteam
 
 All Connecteam API calls happen server-side (token never leaves the server);

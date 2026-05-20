@@ -2801,6 +2801,8 @@ function SummaryAndChecks({
     overtimeHours: number;
     driverRt: number;
     driverOt: number;
+    custRt: number;
+    custOt: number;
   };
   connecteamParity: {
     status: "match" | "differ" | "unknown" | string;
@@ -2880,16 +2882,21 @@ function SummaryAndChecks({
   const ot = Number(totals.overtimeHours) || 0;
   const driverRt = Number(totals.driverRt) || 0;
   const driverOt = Number(totals.driverOt) || 0;
+  const custRt = Number(totals.custRt) || 0;
+  const custOt = Number(totals.custOt) || 0;
 
   // Independently re-derived from totDriver/totCust only. These are deliberately
-  // *not* taken from the engine output — they cross-check it. RT/OT checks
-  // start from (totDriver + totCust) rather than the engine's totalHours so a
-  // bug in totalHours would surface here too.
+  // *not* taken from the engine output — they cross-check it. The total/driver/
+  // customer checks start from (totDriver + totCust) rather than the engine's
+  // totalHours so a bug in totalHours would surface here too. The RT and OT
+  // checks now verify the per-source identity (custRt + driverRt = rt,
+  // custOt + driverOt = ot) that the engine guarantees by construction, so a
+  // future regression that breaks the four-bucket reconciliation is caught.
   const checkTotal = totDriver + totCust;
   const checkCustomer = total - totDriver;
   const checkDriver = total - totCust;
-  const checkRt = Math.min(checkTotal, OT_THRESHOLD);
-  const checkOt = Math.max(0, checkTotal - OT_THRESHOLD);
+  const checkRt = custRt + driverRt;
+  const checkOt = custOt + driverOt;
   const rtPlusOt = rt + ot;
 
   const eq = (a: number, b: number) => Math.abs(a - b) < 0.015;
@@ -2953,12 +2960,12 @@ function SummaryAndChecks({
             <SummaryRow label={t("driverDetail.summary.totalDriver")} value={totDriver} testId="row-summary-total-driver" />
             <SummaryRow label={t("driverDetail.summary.totalCustomer")} value={totCust} testId="row-summary-total-customer" />
             <SummaryRow label={t("driverDetail.summary.totalHours")} value={total} testId="row-summary-total-hours" />
-            <SummaryRow label={t("driverDetail.summary.rt")} value={rt} testId="row-summary-rt" />
+            <SummaryRow label={t("driverDetail.summary.customerRt")} value={custRt} testId="row-summary-customer-rt" />
             <SummaryRow
-              label={t("driverDetail.summary.ot")}
-              value={ot}
-              valueClass={ot > 0.005 ? "text-warning" : undefined}
-              testId="row-summary-ot"
+              label={t("driverDetail.summary.customerOt")}
+              value={custOt}
+              valueClass={custOt > 0.005 ? "text-warning" : undefined}
+              testId="row-summary-customer-ot"
             />
             <SummaryRow label={t("driverDetail.summary.driverRt")} value={driverRt} testId="row-summary-driver-rt" />
             <SummaryRow

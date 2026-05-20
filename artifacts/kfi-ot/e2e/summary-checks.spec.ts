@@ -8,10 +8,10 @@
  * The Driver shift straddles the 40h boundary, so:
  *   Total Driver   6.54
  *   Total Customer 48.07
- *   RT             40.00
- *   OT             14.61
- *   Driver RT       4.61
- *   Driver OT       1.93
+ *   Customer RT   35.39
+ *   Customer OT   12.68
+ *   Driver RT      4.61
+ *   Driver OT      1.93
  * and the Checks panel must render its green "all reconcile" state.
  *
  * Seeds an isolated week via direct DB writes so the test doesn't depend on
@@ -142,10 +142,14 @@ test("Summary and Checks panels render the per-source split and reconcile", asyn
   };
   await expectValue("row-summary-total-driver", "6.54");
   await expectValue("row-summary-total-customer", "48.07");
-  await expectValue("row-summary-rt", "40.00");
-  await expectValue("row-summary-ot", "14.61");
+  await expectValue("row-summary-total-hours", "54.61");
+  await expectValue("row-summary-customer-rt", "35.39");
+  await expectValue("row-summary-customer-ot", "12.68");
   await expectValue("row-summary-driver-rt", "4.61");
   await expectValue("row-summary-driver-ot", "1.93");
+
+  // Sanity: the per-source buckets sum to combined RT/OT and to Total Driver
+  // / Total Customer. 35.39 + 4.61 = 40.00; 12.68 + 1.93 = 14.61; etc.
 
   // Checks panel shows the green "all reconcile" header.
   const checks = page.getByTestId("card-checks");
@@ -166,7 +170,7 @@ test("Summary and Checks panels render the per-source split and reconcile", asyn
   }
 });
 
-test("Printable timesheet mirrors the on-screen Summary + Checks panels", async ({
+test("Printable timesheet renders combined RT/OT (separate from the on-screen per-source split)", async ({
   page,
 }) => {
   // Trigger the dev auth bypass via the root before fetching the timesheet

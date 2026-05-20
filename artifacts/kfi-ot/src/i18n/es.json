@@ -458,6 +458,8 @@
       "totalHours": "Horas totales",
       "rt": "RT",
       "ot": "HE",
+      "customerRt": "RT cliente",
+      "customerOt": "HE cliente",
       "driverRt": "RT conductor",
       "driverOt": "HE conductor"
     },
@@ -467,8 +469,8 @@
       "totalEq": "Total = Conductor + Cliente",
       "customerEq": "Cliente = Total − Conductor",
       "driverEq": "Conductor = Total − Cliente",
-      "rtEq": "RT = min(Total, 40)",
-      "otEq": "HE = max(0, Total − 40)",
+      "rtEq": "RT cliente + RT conductor = RT",
+      "otEq": "HE cliente + HE conductor = HE",
       "rtPlusOtEq": "RT + HE = Total"
     },
     "previewPanel": {
