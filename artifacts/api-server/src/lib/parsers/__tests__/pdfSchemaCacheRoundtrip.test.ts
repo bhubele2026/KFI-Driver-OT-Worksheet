@@ -417,6 +417,123 @@ test("PDF self-heal: AI success + unrecoverable layout returns delete-stale", as
   assert.equal(decision.format, "pdf");
 });
 
+/**
+ * Task #341: PDF analog of Task #338. When the AI run that recorded
+ * the recipe could see a driver name on the employee-anchor line,
+ * `buildEmployeeAnchorRegex` captures it as a named group so cached
+ * re-uploads can surface the name in the unmapped panel instead of
+ * falling back to "(no name on doc)".
+ */
+test("buildEmployeeAnchorRegex captures driver name as a named group when provided", () => {
+  const re = buildEmployeeAnchorRegex(
+    ["BAILEY, R. (TELD9001)", "May 12, 2026 6:00 AM"],
+    "TELD9001",
+    "BAILEY, R.",
+  );
+  assert.ok(re);
+  const r = new RegExp(re!);
+  const m = r.exec("OTHER, P. (TELD7777)");
+  assert.ok(m, "matches a different employee in the same layout");
+  assert.equal(m!.groups?.badge, "TELD7777", "named badge capture");
+  assert.equal(m!.groups?.name?.trim(), "OTHER, P.", "named name capture");
+});
+
+test("PDF schema cache round-trip carries driver name through to unmapped rows (Task #341)", async () => {
+  const buffer = await buildAdientLikePdf([
+    {
+      name: "BAILEY, R.",
+      badge: "TELD9001",
+      punches: [
+        { date: "May 12, 2026", timeIn: "6:00 AM", timeOut: "2:30 PM", hours: "8.50" },
+      ],
+    },
+    {
+      name: "JONES, K.",
+      badge: "TELD9002",
+      punches: [
+        { date: "May 12, 2026", timeIn: "7:15 AM", timeOut: "3:45 PM", hours: "8.50" },
+      ],
+    },
+  ]);
+  // AI sees both badge and name on the anchor line — pass the name
+  // through so the recorder builds a regex with named captures.
+  const roles = await inferPdfColumnRoles(
+    buffer,
+    {
+      rawBadge: "TELD9001",
+      clockIn: "2026-05-12 6:00 AM",
+      clockOut: "2026-05-12 2:30 PM",
+      hours: 8.5,
+      name: "BAILEY, R.",
+    },
+    2026,
+  );
+  assert.ok(roles, "inferPdfColumnRoles derives templates with name");
+
+  // Roster only includes TELD9001 → TELD9002 should appear unmapped
+  // with its name from the anchor line carried through (the headline
+  // promise of Task #341).
+  const parsed = await readPdfWithRoles(
+    "Adient",
+    buffer,
+    roles,
+    new Set(["TELD9001"]),
+    { TELD9001: "TELD9001" },
+    "2026-05-10",
+    "2026-05-16",
+  );
+  assert.ok(parsed);
+  assert.equal(parsed.unmappedIds.length, 1);
+  assert.equal(parsed.unmappedIds[0].id, "TELD9002");
+  assert.equal(parsed.unmappedIds[0].sampleName, "JONES, K.");
+});
+
+test("readPdfWithRoles tolerates legacy badge-only recipes (no name capture)", async () => {
+  const buffer = await buildAdientLikePdf([
+    {
+      name: "BAILEY, R.",
+      badge: "TELD9001",
+      punches: [
+        { date: "May 12, 2026", timeIn: "6:00 AM", timeOut: "2:30 PM", hours: "8.50" },
+      ],
+    },
+    {
+      name: "JONES, K.",
+      badge: "TELD9002",
+      punches: [
+        { date: "May 12, 2026", timeIn: "7:15 AM", timeOut: "3:45 PM", hours: "8.50" },
+      ],
+    },
+  ]);
+  // No name passed → legacy badge-only employeeAnchor regex.
+  const roles = await inferPdfColumnRoles(
+    buffer,
+    {
+      rawBadge: "TELD9001",
+      clockIn: "2026-05-12 6:00 AM",
+      clockOut: "2026-05-12 2:30 PM",
+      hours: 8.5,
+    },
+    2026,
+  );
+  assert.ok(roles);
+  const parsed = await readPdfWithRoles(
+    "Adient",
+    buffer,
+    roles,
+    new Set(["TELD9001"]),
+    { TELD9001: "TELD9001" },
+    "2026-05-10",
+    "2026-05-16",
+  );
+  assert.ok(parsed);
+  // TELD9002 still unmapped, but sampleName is null because the
+  // legacy regex doesn't capture a name.
+  assert.equal(parsed.unmappedIds.length, 1);
+  assert.equal(parsed.unmappedIds[0].id, "TELD9002");
+  assert.equal(parsed.unmappedIds[0].sampleName, null);
+});
+
 test("buildDataRowRegex captures both times and tolerates other punches with different values", () => {
   const re = buildDataRowRegex(
     ["May 12, 2026   6:00 AM   2:30 PM   8.50"],

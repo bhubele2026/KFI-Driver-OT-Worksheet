@@ -216,20 +216,57 @@ function escapeRegex(s: string): string {
  *   "BAILEY, R. (TELD9001)" → /\(([A-Za-z0-9]+)\)/
  *   "Employee: Doe ID: TELD9001" → /ID:\s*([A-Za-z0-9]+)/
  *   "Name: Doe Badge #: TELD9001" → /Badge\s*#:\s*([A-Za-z0-9]+)/
+ *
+ * When `name` is provided (Task #341) and the same line also carries
+ * that driver name, the generated regex additionally captures the
+ * name as a named group `(?<name>...)` alongside the badge as
+ * `(?<badge>...)`. `readPdfWithRoles` surfaces that name in the
+ * unmapped panel on cached re-uploads (PDF analog of the Task #338
+ * xlsx fix). If the name can't be located on the badge's line, falls
+ * back to the badge-only regex with badge as group 1.
  */
 export function buildEmployeeAnchorRegex(
   lines: string[],
   badge: string,
+  name?: string | null,
 ): string | null {
   if (!badge) return null;
   const esc = escapeRegex(badge);
   // Word-boundary-ish: badge surrounded by start/end or non-alphanumeric.
   const badgeRe = new RegExp(`(^|[^A-Za-z0-9])(${esc})($|[^A-Za-z0-9])`);
+  const nameTrim = typeof name === "string" ? name.trim() : "";
   for (const line of lines) {
     const m = badgeRe.exec(line);
     if (!m) continue;
     const idx = m.index + m[1].length;
     const left = line.slice(0, idx);
+
+    // Preferred branch (Task #341): name on the same line as badge.
+    // Build a named-capture regex so the reader sees both, regardless
+    // of which appears first textually (e.g. "BAILEY, R. (TELD9001)"
+    // vs "Employee: Doe ID: TELD9001"). The name capture is a
+    // restrictive non-greedy class that stops at the first delimiter
+    // or paren — enough to grab "BAILEY, R." but not so loose that
+    // it eats across columns.
+    if (nameTrim) {
+      const idxName = left.toLowerCase().indexOf(nameTrim.toLowerCase());
+      if (idxName >= 0) {
+        const preName = left.slice(0, idxName);
+        const between = left.slice(idxName + nameTrim.length);
+        const right = line.slice(idx + badge.length);
+        const suffixMatch = right.match(/^\s*([)\].,;:])/);
+        const suffix = suffixMatch ? suffixMatch[1] : "";
+        let regex = "";
+        if (preName.trim()) regex += escapeFlex(preName);
+        // Non-greedy class avoiding parens/brackets so we stop at the
+        // "(" before the badge in the "BAILEY, R. (TELD9001)" shape.
+        regex += "(?<name>[^()\\[\\]{}|<>\\t\\n]+?)";
+        regex += escapeFlex(between || " ");
+        regex += "(?<badge>[A-Za-z0-9]+)";
+        if (suffix) regex += "\\s*" + escapeRegex(suffix);
+        return regex;
+      }
+    }
     // Walk back from the badge to find a stable delimiter anchor:
     // an optional label word (e.g. "ID", "Badge", "EmpID") followed
     // by a punctuation delimiter (`:`, `#`, `(`, `[`) that introduces
@@ -388,7 +425,21 @@ function escapeFlex(s: string): string {
  */
 export async function inferPdfColumnRoles(
   buffer: Buffer,
-  sample: { rawBadge: string; clockIn: string; clockOut: string; hours: number },
+  sample: {
+    rawBadge: string;
+    clockIn: string;
+    clockOut: string;
+    hours: number;
+    /**
+     * Driver name the AI saw alongside the badge on the source PDF
+     * (Task #341). When present and locatable on the same anchor line
+     * as the badge, the inferred employeeAnchor regex captures it as
+     * a named group so cached re-uploads can surface the name in the
+     * unmapped panel. Optional — when omitted or not found, the regex
+     * falls back to badge-only (legacy shape).
+     */
+    name?: string | null;
+  },
   fallbackYear: number,
 ): Promise<{
   format: "pdf";
@@ -399,7 +450,7 @@ export async function inferPdfColumnRoles(
   const pages = await extractPdfLinesByPage(buffer);
   if (!pages) return null;
   const flat = pages.flat();
-  const empRegex = buildEmployeeAnchorRegex(flat, sample.rawBadge);
+  const empRegex = buildEmployeeAnchorRegex(flat, sample.rawBadge, sample.name);
   if (!empRegex) return null;
   const dataRegex = buildDataRowRegex(
     flat,
@@ -500,6 +551,11 @@ export async function deriveSchemaCacheMutation(args: {
           clockIn: candidate.clockIn,
           clockOut: candidate.clockOut,
           hours: candidate.hours,
+          // Task #341: pass the AI's driver name so the recorder can
+          // also pin the name down on the employee-anchor line and
+          // cache it via a named capture group. Optional — falls back
+          // to badge-only when the AI didn't carry a name through.
+          name: candidate.nameOnDoc ?? null,
         },
         fallbackYear,
       );

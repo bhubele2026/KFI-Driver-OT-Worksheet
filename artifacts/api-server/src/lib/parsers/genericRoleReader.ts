@@ -348,12 +348,16 @@ export async function readPdfWithRoles(
       const line = lines[i];
       const eMatch = employeeRe.exec(line);
       employeeRe.lastIndex = 0;
-      if (eMatch && eMatch[1]) {
-        currentRawBadge = eMatch[1].trim();
-        // The employee anchor may also capture a name in group 2 (when
-        // the AI recorder could derive one). Used only for unmapped
-        // diagnostics so the admin sees "who".
-        currentSampleName = (eMatch[2] ?? "").trim() || null;
+      // Prefer named captures (Task #341) so the recipe's textual
+      // ordering of name vs badge doesn't matter; fall back to
+      // positional group 1 (legacy badge-only recipes) and group 2
+      // (rare positional name).
+      const badgeRaw =
+        (eMatch?.groups?.badge ?? eMatch?.[1] ?? "").trim();
+      if (eMatch && badgeRaw) {
+        currentRawBadge = badgeRaw;
+        currentSampleName =
+          (eMatch.groups?.name ?? eMatch[2] ?? "").trim() || null;
         const mapped = idMap[currentRawBadge];
         if (mapped && kfiSet.has(mapped)) {
           currentKfiId = mapped;
