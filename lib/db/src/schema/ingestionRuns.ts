@@ -68,6 +68,18 @@ export const ingestionRunsTable = pgTable(
     // / single-call paths don't chunk by rows).
     blockStructured: boolean("block_structured"),
     rowsPerChunk: integer("rows_per_chunk"),
+    /**
+     * Task #310: true when the upload short-circuited via the
+     * `customer_column_schemas` recipe cache and made zero model
+     * calls. Lets the operator compute the "pay once" hit rate
+     * straight off this table:
+     *   `SELECT recipe_cache_hit, COUNT(*) FROM ingestion_runs
+     *      WHERE created_at > now() - interval '7 days'
+     *      GROUP BY 1;`
+     * Cache-hit rows still get written so the audit trail covers
+     * every per-row upload, not just the AI-touched ones.
+     */
+    recipeCacheHit: boolean("recipe_cache_hit").notNull().default(false),
   },
   (t) => [
     index("ingestion_runs_created_at_idx").on(t.createdAt),

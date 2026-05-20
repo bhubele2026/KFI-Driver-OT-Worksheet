@@ -780,6 +780,16 @@ export function __clearAiExtractStubs(): void {
   _aiStubQueue.length = 0;
   _aiStubErrorQueue.length = 0;
 }
+/**
+ * @internal test seam — current length of the unconsumed AI stub queue.
+ * Tests use this to assert "AI extractor would have been invoked N times"
+ * by checking the drained count before/after a run. Production code
+ * never reads this — and the underlying queue is gated on
+ * `NODE_ENV !== 'production'` anyway, so the count is always 0 in prod.
+ */
+export function __aiExtractStubQueueLength(): number {
+  return _aiStubQueue.length;
+}
 
 // Per-chunk model-call ceiling for the chunked xlsx path. Shorter than
 // the single-call 5-minute budget because each chunk is small; we still
@@ -1374,7 +1384,7 @@ async function runChunkedXlsxExtract(
  * consistently-shaped line — the admin debugging playbook greps for
  * `"ingest_done"` to pull every upload's spend across the API log.
  */
-function logIngestDone(
+export function logIngestDone(
   log: SalvageLogger | undefined,
   fields: {
     customer: string;
@@ -1384,6 +1394,14 @@ function logIngestDone(
     rowCount: number;
     summary: IngestionBudgetSummary;
     errMsg?: string;
+    /**
+     * Task #310: true when the upload short-circuited via the
+     * `customer_column_schemas` recipe cache and made zero model
+     * calls. Cache-hit lines still get an `ingest_done` summary so
+     * `grep ingest_done | jq '.recipeCacheHit'` over the API log
+     * yields the full per-upload hit/miss series.
+     */
+    recipeCacheHit?: boolean;
   },
 ): void {
   const target = (log ?? logger) as SalvageLogger & {
@@ -1406,6 +1424,7 @@ function logIngestDone(
     warnedHot: fields.summary.warnedHot,
     blockStructured: fields.summary.blockStructured,
     rowsPerChunk: fields.summary.rowsPerChunk,
+    recipeCacheHit: fields.recipeCacheHit ?? false,
     ...(fields.errMsg ? { errMsg: fields.errMsg } : {}),
   };
   const msg = "ingest_done";

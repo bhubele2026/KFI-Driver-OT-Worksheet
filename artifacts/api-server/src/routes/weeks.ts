@@ -56,7 +56,7 @@ import {
   loadActiveCustomers,
   loadCustomers,
 } from "../lib/customersStore.js";
-import { aiExtractRows } from "../lib/parsers/aiExtract.js";
+import { aiExtractRows, logIngestDone } from "../lib/parsers/aiExtract.js";
 import { releaseIngestion } from "../lib/parsers/modelClient.js";
 import {
   dbChunkStageStore,
@@ -1615,6 +1615,7 @@ weeksRouter.post(
       // pdf — Task #257). Falls through to AI if the reader can't
       // parse (stale roles) — re-running AI on the same signature will
       // overwrite the cache row.
+      const cacheStartedAt = Date.now();
       try {
         const idMap = await loadMergedIdMap();
         const parsed =
@@ -1646,6 +1647,50 @@ weeksRouter.post(
           // extractedRows and pendingNamedRows null and confirm 400s
           // with "older parser path" even though we have rows in hand.
           stashedImageRows = imagePunchesForStash(parsed.punches);
+          // Task #310: persist a per-upload audit row + emit the
+          // standard `ingest_done` log line even when the cache
+          // short-circuited AI. Lets the operator measure the
+          // "pay once" promise straight off `ingestion_runs`
+          // (count rows with `recipe_cache_hit = true`) and grep
+          // the API log for `ingest_done` to see every upload's
+          // hit/miss decision side-by-side with its AI-spend siblings.
+          const cacheWallMs = Date.now() - cacheStartedAt;
+          const emptySummary: IngestionBudgetSummary = {
+            totalCalls: 0,
+            totalInputTokens: 0,
+            totalOutputTokens: 0,
+            totalTokens: 0,
+            totalCostUsd: 0,
+            byPurpose: {},
+            byProvider: {},
+            geminiFallbackUsed: false,
+            warnedHot: false,
+            blockStructured: null,
+            rowsPerChunk: null,
+            pacerWaitMs: 0,
+          };
+          logIngestDone(req.log, {
+            customer: detectedCustomer,
+            fileName,
+            outcome: "success",
+            wallTimeMs: cacheWallMs,
+            rowCount: parsed.punches.length,
+            summary: emptySummary,
+            recipeCacheHit: true,
+          });
+          await insertIngestionRun({
+            customer: detectedCustomer,
+            fileName,
+            weekStart: startDate,
+            uploadedBy: req.session.userId ?? null,
+            outcome: "success",
+            rowCount: parsed.punches.length,
+            wallTimeMs: cacheWallMs,
+            summary: emptySummary,
+            errMsg: null,
+            recipeCacheHit: true,
+            log: req.log,
+          });
         }
       } catch (err) {
         req.log.warn(
@@ -3032,6 +3077,12 @@ async function insertIngestionRun(args: {
   wallTimeMs: number;
   summary: IngestionBudgetSummary;
   errMsg: string | null;
+  /**
+   * Task #310: true when the upload short-circuited via the recipe
+   * cache and made zero model calls. Defaults to false so the AI
+   * branch callers don't need to pass it explicitly.
+   */
+  recipeCacheHit?: boolean;
   log: { error: (obj: Record<string, unknown>, msg: string) => void };
 }): Promise<void> {
   try {
@@ -3055,6 +3106,7 @@ async function insertIngestionRun(args: {
       errMsg: args.errMsg,
       blockStructured: args.summary.blockStructured,
       rowsPerChunk: args.summary.rowsPerChunk,
+      recipeCacheHit: args.recipeCacheHit ?? false,
     });
   } catch (err) {
     args.log.error(
@@ -6471,6 +6523,7 @@ weeksRouter.get("/admin/ingestion-runs", requireAdmin, async (req, res) => {
       errMsg: schema.ingestionRunsTable.errMsg,
       blockStructured: schema.ingestionRunsTable.blockStructured,
       rowsPerChunk: schema.ingestionRunsTable.rowsPerChunk,
+      recipeCacheHit: schema.ingestionRunsTable.recipeCacheHit,
       createdAt: schema.ingestionRunsTable.createdAt,
     })
     .from(schema.ingestionRunsTable)
@@ -6503,6 +6556,7 @@ weeksRouter.get("/admin/ingestion-runs", requireAdmin, async (req, res) => {
       errMsg: r.errMsg,
       blockStructured: r.blockStructured,
       rowsPerChunk: r.rowsPerChunk,
+      recipeCacheHit: r.recipeCacheHit,
       createdAt: new Date(r.createdAt).toISOString(),
     })),
   );
@@ -6538,6 +6592,78 @@ weeksRouter.delete(
       .delete(schema.aiExtractChunkStageTable)
       .where(eq(schema.aiExtractChunkStageTable.uploadKey, uploadKey))
       .returning({ id: schema.aiExtractChunkStageTable.id });
+    res.json({ deleted: deleted.length });
+  },
+);
+
+// -------------------------------------------------------------------------
+// Task #310: cached AI-discovered recipes (`customer_column_schemas` rows
+// with `source = 'ai'`). One row per `(customer, header_signature,
+// format)` triple — the same key the upload route looks up on every
+// per-row extract. GET surfaces every cached recipe for inspection;
+// DELETE forces a re-learn for one row (next upload pays AI cost again
+// and writes a fresh recipe). Admin-only — these endpoints exist purely
+// so an operator can answer "is the pay-once promise actually holding?"
+// and "force this stale recipe to re-learn" without poking SQL.
+// -------------------------------------------------------------------------
+weeksRouter.get("/admin/extract-recipes", requireAdmin, async (req, res) => {
+  const limitParam = Number(req.query.limit);
+  const limit =
+    Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 500
+      ? limitParam
+      : 200;
+  const customerFilter =
+    typeof req.query.customer === "string" && req.query.customer.trim().length > 0
+      ? String(req.query.customer).trim()
+      : null;
+  const conds: SQL[] = [
+    eq(schema.customerColumnSchemasTable.source, "ai"),
+  ];
+  if (customerFilter) {
+    conds.push(
+      sql`${schema.customerColumnSchemasTable.customer} ILIKE ${"%" + customerFilter + "%"}`,
+    );
+  }
+  const rows = await db
+    .select({
+      id: schema.customerColumnSchemasTable.id,
+      customer: schema.customerColumnSchemasTable.customer,
+      headerSignature: schema.customerColumnSchemasTable.headerSignature,
+      format: schema.customerColumnSchemasTable.format,
+      source: schema.customerColumnSchemasTable.source,
+      columnRoles: schema.customerColumnSchemasTable.columnRoles,
+      createdAt: schema.customerColumnSchemasTable.createdAt,
+    })
+    .from(schema.customerColumnSchemasTable)
+    .where(and(...conds))
+    .orderBy(desc(schema.customerColumnSchemasTable.createdAt))
+    .limit(limit);
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      customer: r.customer,
+      headerSignature: r.headerSignature,
+      format: r.format,
+      source: r.source,
+      columnRoles: r.columnRoles,
+      createdAt: new Date(r.createdAt).toISOString(),
+    })),
+  );
+});
+
+weeksRouter.delete(
+  "/admin/extract-recipes/:id",
+  requireAdmin,
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "id must be a positive integer" });
+      return;
+    }
+    const deleted = await db
+      .delete(schema.customerColumnSchemasTable)
+      .where(eq(schema.customerColumnSchemasTable.id, id))
+      .returning({ id: schema.customerColumnSchemasTable.id });
     res.json({ deleted: deleted.length });
   },
 );

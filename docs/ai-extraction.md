@@ -287,3 +287,122 @@ A chunk-payload assertion guards against the prompt-bloat shape of the
 TriEnda incident: if a chunk's serialized prompt exceeds
 `assignedRowCount * 500` chars, we log + throw before the model call so
 the budget never gets a chance to drain on a single oversized request.
+
+## Recipe cache contract (Task #310)
+
+The whole shape of the upload pipeline depends on a single promise: **the
+first contact with a new customer's file format pays the AI cost, and
+every subsequent same-format upload reuses a cached "recipe" (column
+roles) and finishes in seconds with zero Claude calls.** This section
+documents what's cached, what invalidates it, and how to inspect or
+forcibly re-learn it.
+
+### What's cached
+
+One row per `(lower(customer), header_signature, format)` triple in
+`customer_column_schemas`:
+
+- `headerSignature` — SHA-256 of the normalized first non-empty row
+  (xlsx) or normalized first-page line set (pdf), via
+  `computeHeaderSignature` in `lib/parsers/schemaSignature.ts`.
+- `format` — `'xlsx'` or `'pdf'`. Image uploads (`jpg`/`png`/`heic`)
+  never produce a recipe — they have no stable signature.
+- `source` — always `'ai'` for recipes written by this path. Legacy
+  parser sentinel rows have `source='legacy'` and are out of scope.
+- `columnRoles` — for xlsx, `{ badge, date, timeIn, timeOut, hours? }`
+  column indices. For pdf, `{ employeeAnchor, dataRow }` regex
+  templates with capture-group conventions documented in
+  `aiSchemaRecorder.ts`.
+
+### When it's written
+
+After a successful AI extraction, `recordAiSchemaIfPossible` runs
+`deriveSchemaCacheMutation` which inspects the first AI-emitted punch
+and tries to locate its badge / date / timeIn / timeOut inside the
+original buffer. Outcomes:
+
+- **`upsert`** — a row carrying all four matching values was found in
+  the workbook. Persist the column indices (xlsx) or derive a pair of
+  regex templates (pdf), then upsert keyed on
+  `(customer, header_signature, format)`.
+- **`delete-stale`** — AI succeeded but the inferrer couldn't locate
+  the sample. Any existing cache row under the same key is by
+  definition stale (it just produced 0 rows for this upload), so wipe
+  it. Next upload re-runs AI directly instead of paying the
+  "cache → 0 → AI" tax every week.
+- **`skip`** — image upload, empty AI result, unknown extension, or
+  missing signature. No-op.
+
+### What invalidates it
+
+- The header changes (new column added, renamed, reordered) — the
+  `header_signature` becomes a different key and a fresh AI run writes
+  a new row. The old row stays put until manually deleted.
+- The cached reader throws or returns 0 punches for a future upload
+  with the same signature — the route falls through to AI which then
+  re-derives roles and either overwrites the row (`upsert`) or wipes
+  it (`delete-stale`).
+- An admin deletes the row via `DELETE /admin/extract-recipes/:id`
+  (below) to force a re-learn.
+
+### Known limitation: block-structured xlsx
+
+`inferColumnRoles` assumes a **flat** layout — one header row plus
+per-punch data rows where each row carries badge + date + timeIn +
+timeOut in its own cells. Block-structured workbooks like Adient's
+(an "Employee Name" header row in one column band followed by date
+rows in a different column band) currently fail inference and fall
+into the `delete-stale` branch, so Adient pays the AI cost every
+week. Tracked as a follow-up: extend inference to recognize
+block-structured layouts and persist a structure descriptor alongside
+the column roles. The flat-layout fixtures (Greystone, Trienda,
+Penda, Burnett, LSI, Zenople) all cache successfully on first
+contact.
+
+### Telemetry
+
+Every successful upload — both AI and cache-hit — emits an
+`ingest_done` info log and persists one row to `ingestion_runs`. The
+boolean `recipeCacheHit` field is `true` only on cache-hit short-
+circuits (zero model calls, the deterministic `readWithRoles` /
+`readPdfWithRoles` reader produced the punches). The hit rate is the
+canonical "pay once" health metric:
+
+```
+SELECT
+  date_trunc('day', created_at) AS day,
+  SUM(CASE WHEN recipe_cache_hit THEN 1 ELSE 0 END) AS cache_hits,
+  SUM(CASE WHEN NOT recipe_cache_hit THEN 1 ELSE 0 END) AS ai_calls
+FROM ingestion_runs
+WHERE outcome = 'success'
+GROUP BY 1 ORDER BY 1 DESC;
+```
+
+### Admin surface
+
+- `GET /admin/extract-recipes?customer=<substr>&limit=<n>` — lists
+  AI-discovered recipes (id, customer, headerSignature, format,
+  columnRoles, createdAt), newest first. Read-only inspection for
+  "is the pay-once promise holding for customer X?".
+- `DELETE /admin/extract-recipes/:id` — wipes one recipe row. The
+  next upload of that customer/format pays the AI cost again and
+  writes a fresh recipe (or `delete-stale`s if the inferrer still
+  can't learn it).
+
+### Regression guard
+
+`lib/parsers/__tests__/recipeCachePayOnce.test.ts` pins both halves
+of the contract end-to-end against the `Greystone.xlsx` fixture:
+
+1. First upload — push one AI stub, run `aiExtractRows`, assert
+   `budgetSummary.totalCalls >= 1` AND
+   `deriveSchemaCacheMutation` returns `action: 'upsert'` with
+   roles.
+2. Second upload — same bytes, **no stubs pushed**. Call
+   `readWithRoles` with the recipe captured above. Assert the
+   punches reproduce the first-upload row deterministically (zero
+   model calls because the AI extractor isn't on the call path).
+
+If the inferrer ever stops returning roles for the first-contact
+sample, step 1 fails loudly with `action !== 'upsert'` and the team
+knows the pay-once promise is broken before it ships.
