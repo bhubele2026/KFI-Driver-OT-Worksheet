@@ -9,6 +9,16 @@ export interface ColumnRoles {
   timeIn: number;
   timeOut: number;
   hours?: number | null;
+  /**
+   * Index of the column carrying the driver name on the source row, when
+   * the AI run that recorded the recipe was able to locate one (Task #338).
+   * Optional: older cached recipes written before this field existed will
+   * be missing it, and the reader must tolerate that — in that case the
+   * unmapped panel falls back to "(no name on doc)" until the next
+   * successful AI re-run for the customer rewrites the recipe with the
+   * column included.
+   */
+  name?: number | null;
 }
 
 function isColumnRoles(v: unknown): v is ColumnRoles {
@@ -148,7 +158,17 @@ export function readWithRoles(
     if (aliased && kfiSet.has(aliased)) mapped = aliased;
     else if (kfiSet.has(rawBadge)) mapped = rawBadge;
     if (!mapped) {
-      unmapped.add(rawBadge, null);
+      // Carry the driver name through when the cached recipe knows
+      // which column held it (Task #338). Older recipes written before
+      // the name column was tracked simply fall back to null and the
+      // panel renders "(no name on doc)" until the next AI re-run
+      // rewrites the recipe with the column included.
+      let sampleName: string | null = null;
+      if (columnRoles.name != null) {
+        const raw = cellToString(row[columnRoles.name]).trim();
+        if (raw) sampleName = raw;
+      }
+      unmapped.add(rawBadge, sampleName);
       continue;
     }
     let hours: number | null = null;

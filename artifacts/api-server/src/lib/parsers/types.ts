@@ -18,6 +18,15 @@ export interface ParsedPunch {
    * the dispatcher; safe to leave undefined.
    */
   rawBadge?: string | null;
+  /**
+   * Driver name as it appeared on the source row, when the extractor saw one
+   * (AI's `driverNameOnDoc`). Optional and only consumed by post-extraction
+   * tooling — currently the xlsx schema-cache recorder, which uses it as a
+   * search needle to locate the name column in the workbook so the cached
+   * recipe can carry the name through on subsequent uploads (Task #338). Not
+   * persisted, not returned to the dispatcher; safe to leave undefined.
+   */
+  nameOnDoc?: string | null;
 }
 
 export interface UnmappedIdEntry {

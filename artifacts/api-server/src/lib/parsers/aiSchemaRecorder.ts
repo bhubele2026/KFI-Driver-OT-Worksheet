@@ -25,6 +25,15 @@ export function inferColumnRoles(
     dateIso: string;
     clockIn: string;
     clockOut: string;
+    /**
+     * Driver name as the AI saw it on the source row (Task #338). When
+     * present, the recorder also locates the column whose cell on the
+     * same row matches it (case-insensitive trimmed equality) and stores
+     * the index as `name`. When absent or no match is found, `name` is
+     * left `null` — older cached recipes don't carry it and the reader
+     * tolerates that.
+     */
+    name?: string | null;
   },
 ): {
   badge: number;
@@ -32,6 +41,7 @@ export function inferColumnRoles(
   timeIn: number;
   timeOut: number;
   hours?: number | null;
+  name?: number | null;
 } | null {
   let wb: XLSX.WorkBook;
   try {
@@ -51,6 +61,10 @@ export function inferColumnRoles(
   const dateNeedle = sample.dateIso;
   const timeInNeedle = sample.clockIn.split(" ").slice(1).join(" "); // "H:MM AM"
   const timeOutNeedle = sample.clockOut.split(" ").slice(1).join(" ");
+  const nameNeedle =
+    typeof sample.name === "string" && sample.name.trim().length > 0
+      ? sample.name.trim().toLowerCase()
+      : null;
 
   // xlsx (cellDates:true) hands us JS Date objects for cells that
   // Excel stores as dates/datetimes. These cells have a meaningful
@@ -73,6 +87,7 @@ export function inferColumnRoles(
     let dateCol = -1;
     let timeInCol = -1;
     let timeOutCol = -1;
+    let nameCol = -1;
     for (let i = 0; i < row.length; i++) {
       const v = row[i];
       if (v == null) continue;
@@ -95,6 +110,14 @@ export function inferColumnRoles(
         s.toLowerCase() === badgeNeedle
       ) {
         badgeCol = i;
+        continue;
+      }
+      if (
+        nameCol < 0 &&
+        nameNeedle &&
+        s.toLowerCase() === nameNeedle
+      ) {
+        nameCol = i;
         continue;
       }
       if (
@@ -138,6 +161,12 @@ export function inferColumnRoles(
         date: dateCol,
         timeIn: timeInCol,
         timeOut: timeOutCol,
+        // Record the name column whenever we found one on the same
+        // row — null when the file genuinely has no name column or
+        // the caller didn't pass a needle (Task #338). Older cached
+        // recipes simply won't carry this and `readWithRoles` will
+        // fall back to the "(no name on doc)" placeholder.
+        name: nameCol >= 0 ? nameCol : null,
       };
     }
   }
@@ -456,6 +485,11 @@ export async function deriveSchemaCacheMutation(args: {
         dateIso: candidate.date,
         clockIn: candidate.clockIn,
         clockOut: candidate.clockOut,
+        // Task #338: pass the AI's driver name so the recorder can
+        // also pin down the name column. Optional — when the AI run
+        // didn't carry one through, role inference still succeeds
+        // and `name` is recorded as null.
+        name: candidate.nameOnDoc ?? null,
       });
     } else {
       const fallbackYear = parseInt(weekStart.slice(0, 4));

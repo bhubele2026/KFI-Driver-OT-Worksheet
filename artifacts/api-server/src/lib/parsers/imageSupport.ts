@@ -424,5 +424,9 @@ function toParsedPunch(
     // Carry the raw badge through so the PDF schema-cache recorder can
     // locate the originating line in the document. Not persisted.
     rawBadge: (r.badgeOrId ?? "").trim() || null,
+    // Carry the driver name through so the xlsx schema-cache recorder
+    // can locate the name column in the workbook (Task #338). Not
+    // persisted.
+    nameOnDoc: r.driverNameOnDoc?.trim() || null,
   };
 }

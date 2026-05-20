@@ -138,3 +138,63 @@ test("readWithRoles tracks unmapped badges instead of dropping silently", () => 
   assert.equal(parsed.unmappedIds[0].id, "TELD9002");
   assert.equal(parsed.unmappedIds[0].count, 1);
 });
+
+/*
+ * Task #338: when the AI run that recorded the recipe could see a
+ * driver-name column, the cached fast-path reader must surface that
+ * name in `unmappedIds[].sampleName` so the dispatcher's unmapped
+ * panel doesn't fall back to "(no name on doc)" on re-uploads.
+ */
+test("schema cache round-trip: name column is inferred and carried through to unmapped rows", () => {
+  const buffer = buildTriendaLikeXlsx();
+  const aiFirst = {
+    rawBadge: "TELD9002",
+    dateIso: "2026-05-12",
+    clockIn: "2026-05-12 7:15 AM",
+    clockOut: "2026-05-12 3:45 PM",
+    name: "JONES, K.",
+  };
+  const roles = inferColumnRoles(buffer, aiFirst);
+  assert.ok(roles, "inferColumnRoles should locate the AI row in the xlsx");
+  assert.equal(roles.name, 0, "name column index (column 0 = Employee Name)");
+
+  // Roster only includes TELD9001 → TELD9002 should appear unmapped
+  // with its name from column 0 carried through.
+  const parsed = readWithRoles(
+    "Trienda",
+    buffer,
+    roles,
+    new Set(["TELD9001"]),
+    { TELD9001: "TELD9001" },
+    "2026-05-10",
+    "2026-05-16",
+  );
+  assert.ok(parsed);
+  assert.equal(parsed.unmappedIds.length, 1);
+  assert.equal(parsed.unmappedIds[0].id, "TELD9002");
+  assert.equal(parsed.unmappedIds[0].sampleName, "JONES, K.");
+});
+
+/*
+ * Task #338: cached recipes written before the name column was
+ * tracked must keep working — the reader treats `name` as optional
+ * and falls back to a null sampleName instead of throwing.
+ */
+test("readWithRoles tolerates legacy recipes with no name column", () => {
+  const buffer = buildTriendaLikeXlsx();
+  // Legacy shape: no `name` field at all.
+  const roles = { badge: 1, date: 2, timeIn: 3, timeOut: 4, hours: 5 };
+  const parsed = readWithRoles(
+    "Trienda",
+    buffer,
+    roles,
+    new Set(["TELD9001"]),
+    { TELD9001: "TELD9001" },
+    "2026-05-10",
+    "2026-05-16",
+  );
+  assert.ok(parsed);
+  assert.equal(parsed.unmappedIds.length, 1);
+  assert.equal(parsed.unmappedIds[0].id, "TELD9002");
+  assert.equal(parsed.unmappedIds[0].sampleName, null);
+});
