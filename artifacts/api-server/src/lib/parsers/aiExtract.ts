@@ -570,14 +570,28 @@ function buildClaudePrompt(
  * collapse those here.
  *
  * Key: `(lower(name)+'|'+lower(badge), date, timeIn||'', timeOut||'')`.
- * - When both clock times are present: first-wins (these are real
- *   duplicates — same shift, different pay buckets). Hours from
- *   subsequent matches are discarded; the hours engine recomputes
- *   from clock times anyway.
- * - When BOTH clock times are absent on every duplicate (pure
- *   hours-only export — rare): hours are summed across the bucket so a
- *   row like "Reg 32 / OT 8" still totals to 40 instead of 32.
+ *
+ * Collision policy (Task #376):
+ * - When BOTH rows in a collision carry their own `hours` value, treat
+ *   them as a pay-category split (e.g. Burnett: Reg 3.33 + OT 8.77 for
+ *   one 12.10h shift) and SUM the hours. The customer-import storage
+ *   path stores the AI's `hours` directly when present, so first-wins
+ *   here would silently truncate payroll by dropping the second bucket.
+ *   This also keeps the existing hours-only bucket behavior (Reg 32 /
+ *   OT 8 hours-only → 40) working — both branches fall through here.
+ * - Otherwise (at most one side carries hours — e.g. a label-only
+ *   header repeat or a chunk-overlap re-emission): first-wins. Hours
+ *   are kept if only one side has them.
+ *
+ * After dedupe we also run a sanity-check backstop: for each row with
+ * both clock times AND a stated `hours`, if the stated hours disagree
+ * with the clock-time span by more than `HOURS_SANITY_TOLERANCE`, we
+ * log a structured warning and prefer the LARGER value so payroll
+ * never silently under-reports. This is defense-in-depth for future
+ * format drift the dedupe rule doesn't catch.
  */
+const HOURS_SANITY_TOLERANCE = 0.5;
+
 function normalizeTimeForKey(t: string | null | undefined): string {
   // Collapse "06:00 am", " 6:00 AM ", "6:00AM" all to "6:00 AM" so
   // pay-category split rows that differ only in formatting still
@@ -592,7 +606,16 @@ function normalizeTimeForKey(t: string | null | undefined): string {
   return `${parseInt(m[1], 10)}:${m[2]} ${m[3]}`;
 }
 
-export function dedupeAiRows(rows: AiExtractedRow[]): AiExtractedRow[] {
+export interface DedupeOptions {
+  log?: SalvageLogger;
+  customer?: string;
+  fileName?: string;
+}
+
+export function dedupeAiRows(
+  rows: AiExtractedRow[],
+  opts: DedupeOptions = {},
+): AiExtractedRow[] {
   const byKey = new Map<string, AiExtractedRow>();
   for (const r of rows) {
     const name = (r.driverNameOnDoc ?? "").trim().toLowerCase();
@@ -610,17 +633,61 @@ export function dedupeAiRows(rows: AiExtractedRow[]): AiExtractedRow[] {
       byKey.set(key, { ...r });
       continue;
     }
-    // Duplicate with clock times → first wins, drop the rest.
-    if (tIn || tOut) continue;
-    // Hours-only duplicate → sum hours so split-by-pay-category exports
-    // still total correctly.
-    const prevHours = typeof prev.hours === "number" ? prev.hours : 0;
-    const addHours = typeof r.hours === "number" ? r.hours : 0;
-    if (prevHours || addHours) {
-      prev.hours = prevHours + addHours;
+    const prevHasHours = typeof prev.hours === "number" && prev.hours > 0;
+    const curHasHours = typeof r.hours === "number" && r.hours > 0;
+    if (prevHasHours && curHasHours) {
+      // Pay-category split (Task #376): both rows carry their own
+      // authoritative hours value. Sum so Burnett Reg 3.33 + OT 8.77
+      // totals 12.10 instead of dropping the second bucket.
+      prev.hours = (prev.hours as number) + (r.hours as number);
+      continue;
+    }
+    // Otherwise: same shift emitted twice (label-only header repeat,
+    // chunk-overlap re-emission, etc.). First wins, but adopt the
+    // current row's hours if prev had none.
+    if (curHasHours && !prevHasHours) {
+      prev.hours = r.hours;
     }
   }
-  return Array.from(byKey.values());
+
+  // Sanity-check backstop (Task #376). Defense-in-depth: if the AI's
+  // stated hours disagree with the clock-time span by more than the
+  // tolerance, prefer the larger value so payroll never silently
+  // under-reports, and log the divergence so future format drift the
+  // dedupe rule doesn't catch surfaces immediately.
+  const log = opts.log ?? logger;
+  const out = Array.from(byKey.values());
+  for (const r of out) {
+    if (typeof r.hours !== "number" || !(r.hours > 0)) continue;
+    const tIn = (r.timeIn ?? "").trim();
+    const tOut = (r.timeOut ?? "").trim();
+    if (!tIn || !tOut) continue;
+    const iso = normalizeIsoDate(r.date) ?? r.date;
+    const inMs = new Date(`${iso} ${tIn}`).getTime();
+    const outMs = new Date(`${iso} ${tOut}`).getTime();
+    if (Number.isNaN(inMs) || Number.isNaN(outMs) || outMs <= inMs) continue;
+    const spanHours = Math.round(((outMs - inMs) / 3_600_000) * 1000) / 1000;
+    const delta = r.hours - spanHours;
+    if (Math.abs(delta) > HOURS_SANITY_TOLERANCE) {
+      log.warn(
+        {
+          customer: opts.customer,
+          fileName: opts.fileName,
+          driver: r.driverNameOnDoc,
+          badge: r.badgeOrId ?? null,
+          date: iso,
+          timeIn: r.timeIn,
+          timeOut: r.timeOut,
+          statedHours: r.hours,
+          computedHours: spanHours,
+          delta: Math.round(delta * 1000) / 1000,
+        },
+        "AI extract hours disagree with clock-time span — preferring the larger value",
+      );
+      if (spanHours > r.hours) r.hours = spanHours;
+    }
+  }
+  return out;
 }
 
 /**
@@ -1356,7 +1423,7 @@ async function runChunkedXlsxExtract(
   for (const r of results) {
     for (const row of r.rows) merged.push(row);
   }
-  const deduped = dedupeAiRows(merged);
+  const deduped = dedupeAiRows(merged, { log, customer, fileName });
   // Task #309: every chunk landed cleanly, so the in-memory merged
   // result IS the promotion — drop the staging block. A failure to
   // clear is logged but not fatal; the 7-day pruner will collect it.
@@ -1874,7 +1941,7 @@ async function runExtraction(
       // form regardless of how the source document cased the name.
       driverNameOnDoc: toDisplayName(r.driverNameOnDoc),
     }));
-  const deduped = dedupeAiRows(rows);
+  const deduped = dedupeAiRows(rows, { log, customer, fileName });
   logger.info(
     {
       ms: Date.now() - start,
