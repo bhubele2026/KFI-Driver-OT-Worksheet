@@ -99,7 +99,7 @@ export class ClaudeModelClient implements ModelClient {
         // Claude follows this reliably on Sonnet+, and `parseOrSalvage`
         // catches the rare format slip the same way it did for Gemini.
         system:
-          "You are a structured-data extraction service. Reply with valid JSON only, no prose, no markdown fences. The JSON must match the schema described in the user message.",
+          "You are a payroll-data extractor for a logistics dispatcher. You read customer-supplied timecard documents (spreadsheets, PDFs, photos) and return a single raw JSON object matching the shape described in the user message. Never wrap the JSON in markdown fences. Never add prose, preamble, or commentary before or after the JSON. Start your reply with '{' and end it with '}'. Accuracy matters more than coverage — do not invent rows, drivers, dates, or times that are not in the document.",
         messages: [{ role: "user", content }],
       },
       { timeout: opts.timeoutMs },

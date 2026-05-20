@@ -275,12 +275,22 @@ export function xlsxToChunks(
   return chunks;
 }
 
-function buildPrompt(
+export function buildPrompt(
   customer: string,
   weekStart: string,
   weekEnd: string,
   roster?: RosterContext,
+  provider?: string,
 ) {
+  // Claude gets a tailored prompt: concrete domain role, an inline JSON
+  // schema example with a worked sample row, and an explicit
+  // "no markdown fences, no prose" instruction placed right next to the
+  // schema (Task #293 follow-up). Gemini keeps its original prompt
+  // unchanged because Gemini enforces `responseSchema` natively — adding
+  // an inline example actually hurts its JSON-only behaviour.
+  if (provider === "claude") {
+    return buildClaudePrompt(customer, weekStart, weekEnd, roster);
+  }
   const lines = [
     `You are extracting timecard punches from a payroll export uploaded for customer "${customer}".`,
     `The week being reconciled is ${weekStart} through ${weekEnd} (Sunday through Saturday). Only return rows whose date falls in that window.`,
@@ -316,6 +326,88 @@ function buildPrompt(
       lines.push(`- (${roster.drivers.length - cap} more drivers omitted)`);
     }
   }
+  return lines.join("\n");
+}
+
+/**
+ * Claude-tailored prompt. Anthropic's API doesn't enforce a response
+ * schema the way Gemini does — Claude follows the prompt — so we
+ * (a) state the role concretely in payroll-domain terms,
+ * (b) put the JSON schema example LAST so it's the freshest context
+ *     before the document, mirroring Anthropic's own prompt-engineering
+ *     recommendation, and
+ * (c) call out "raw JSON, no ```json fences, no prose" explicitly twice
+ *     — once in the rules block and once right next to the schema —
+ *     because Claude Sonnet's default chat habit is to fence structured
+ *     output and that's what produced the first live-fire failure.
+ */
+function buildClaudePrompt(
+  customer: string,
+  weekStart: string,
+  weekEnd: string,
+  roster?: RosterContext,
+): string {
+  const lines: string[] = [
+    `You are a payroll-data extractor for a logistics dispatcher reconciling driver hours against customer-supplied timecards. Accuracy matters more than coverage — misrouted or invented punches cause real payroll errors that a human has to chase down on Monday morning.`,
+    ``,
+    `## What you are doing`,
+    `Extract every timecard punch row from the document below for customer "${customer}".`,
+    `The payroll week being reconciled is ${weekStart} through ${weekEnd} (Sunday through Saturday, inclusive). Drop any row whose date falls outside that window.`,
+    ``,
+    `## Field definitions`,
+    `- driverNameOnDoc (required, string): the worker's name as written in the document. Preserve casing exactly — do not Title-Case "JOHN SMITH" to "John Smith".`,
+    `- badgeOrId (string, omit if absent): any employee number / badge / payroll id printed next to the name (digits, alphanumeric, or both). Strip leading zeros only if the document itself shows them stripped elsewhere.`,
+    `- date (required, "YYYY-MM-DD"): the punch date. If the document only prints MM/DD, fill in the year from the payroll-week window above. Never invent a date that isn't anchored in the document.`,
+    `- timeIn / timeOut (string "H:MM AM" or "H:MM PM", omit if absent): clock in and clock out. Omit BOTH (not just one) if the document only reports a daily total.`,
+    `- hours (number, omit if absent): daily worked hours as a decimal, e.g. 8.5 or 10.25. Omit if the document gives you clock times instead of a total.`,
+    `- resolvedKfiId (string, OMIT WHEN IN DOUBT): only set this when the row's worker is unambiguously one of the KNOWN DRIVERS listed below — exact badge match, exact alias match (case-insensitive), or names that are clearly the same person (e.g. "J. Smith" → "John Smith" when no other "Smith" is in the list). Setting the wrong id silently misroutes payroll. When unsure, leave it out and the dispatcher will pick the driver.`,
+    ``,
+    `## Rules`,
+    `1. Emit ONE output row for EVERY non-empty data row in the document. Do not merge, sum, or combine rows for the same driver/date — even when pay-category columns (e.g. "Reg", "OT 1.5", "SHIFT PREM", "PREM-NIGHT", "VAC", "HOL") split one shift across several lines, copy each line as its own output row. We deduplicate downstream; your job is faithful row-by-row transcription.`,
+    `2. The ONLY lines to skip are: column headers, completely blank rows, page footers / signature blocks, and grand-total / subtotal rows that have no driver name. When in doubt, include the row.`,
+    `3. Do not invent rows, drivers, dates, or times that aren't in the document. A partial extract is fine; fabrication is not.`,
+    `4. Output raw JSON only. No \`\`\`json fences. No prose before or after. No "Here is the extracted data:" preamble. Start with \`{\` and end with \`}\`.`,
+  ];
+
+  if (roster && roster.drivers.length > 0) {
+    lines.push("");
+    lines.push(`## KNOWN DRIVERS for customer "${roster.customer}"`);
+    lines.push(
+      `Use resolvedKfiId to point a row at one of these ONLY when you're confident. Format: "<kfiId>: <name>; badges=[…]; aliases=[…]".`,
+    );
+    const cap = 200;
+    for (const d of roster.drivers.slice(0, cap)) {
+      const parts: string[] = [`${d.kfiId}: ${d.name}`];
+      if (d.badges.length > 0) parts.push(`badges=[${d.badges.join(", ")}]`);
+      if (d.aliases.length > 0) parts.push(`aliases=[${d.aliases.join(", ")}]`);
+      lines.push(`- ${parts.join("; ")}`);
+    }
+    if (roster.drivers.length > cap) {
+      lines.push(`- (${roster.drivers.length - cap} more drivers omitted from this prompt)`);
+    }
+  }
+
+  lines.push("");
+  lines.push("## Output format");
+  lines.push("Return a single JSON object exactly matching this shape:");
+  lines.push("```");
+  lines.push(`{`);
+  lines.push(`  "rows": [`);
+  lines.push(`    {`);
+  lines.push(`      "driverNameOnDoc": "JOHN SMITH",`);
+  lines.push(`      "badgeOrId": "10472",`);
+  lines.push(`      "date": "${weekStart}",`);
+  lines.push(`      "timeIn": "6:00 AM",`);
+  lines.push(`      "timeOut": "2:30 PM",`);
+  lines.push(`      "hours": 8.5,`);
+  lines.push(`      "resolvedKfiId": "smithjo01"`);
+  lines.push(`    }`);
+  lines.push(`  ]`);
+  lines.push(`}`);
+  lines.push("```");
+  lines.push(
+    `Reminder: send the JSON object directly, without the surrounding triple-backtick fence shown above (the fence here is for illustration only). Required keys per row are driverNameOnDoc and date; all other keys are optional and should be omitted (not set to null) when the document doesn't show them.`,
+  );
   return lines.join("\n");
 }
 
@@ -587,17 +679,21 @@ const XLSX_CHUNK_TIMEOUT_MS = 120_000;
  */
 async function callModelForChunk(
   client: ModelClient,
-  parts: ContentPart[],
+  buildParts: (c: ModelClient) => ContentPart[],
   customer: string,
   fileName: string,
   log: SalvageLogger | undefined,
   label: string,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean }> {
+  // `buildParts(c)` is called per-attempt so the prompt is re-tailored
+  // to whichever provider actually handles the request — important on
+  // the Claude→Gemini (or reverse) fallback path, where the two
+  // providers want subtly different prompt shapes (see `buildPrompt`).
   const callOnce = async (c: ModelClient): Promise<{ text: string }> =>
     withModelRetry(
       () =>
         c.generate({
-          parts,
+          parts: buildParts(c),
           maxOutputTokens: 32768,
           timeoutMs: XLSX_CHUNK_TIMEOUT_MS,
           jsonSchema: ROW_SCHEMA,
@@ -697,12 +793,17 @@ async function runChunkedXlsxExtract(
         truncated,
       };
     }
-    const prompt =
-      buildPrompt(customer, weekStart, weekEnd, roster) +
-      `\n\n${label} of the same workbook. Return only the rows in this chunk.\n\n--- SPREADSHEET (CSV) ---\n${chunk}\n--- END SPREADSHEET ---`;
+    const buildParts = (c: ModelClient): ContentPart[] => [
+      {
+        kind: "text",
+        text:
+          buildPrompt(customer, weekStart, weekEnd, roster, c.name) +
+          `\n\n${label} of the same workbook. Return only the rows in this chunk.\n\n--- SPREADSHEET (CSV) ---\n${chunk}\n--- END SPREADSHEET ---`,
+      },
+    ];
     const { rows, truncated } = await callModelForChunk(
       client,
-      [{ kind: "text", text: prompt }],
+      buildParts,
       customer,
       fileName,
       log,
@@ -865,8 +966,13 @@ export async function aiExtractRows(
   const client = await getModelClient();
   const start = Date.now();
 
-  const parts: ContentPart[] = [
-    { kind: "text", text: buildPrompt(customer, weekStart, weekEnd, roster) },
+  // Provider-independent attachments (binary blobs, CSV-as-text, PDF text).
+  // The leading prompt text is rebuilt per-client at call time so the
+  // Claude→Gemini fallback path doesn't reuse the wrong-shaped prompt.
+  const attachmentParts: ContentPart[] = [];
+  const buildParts = (c: ModelClient): ContentPart[] => [
+    { kind: "text", text: buildPrompt(customer, weekStart, weekEnd, roster, c.name) },
+    ...attachmentParts,
   ];
 
   if (isImage) {
@@ -874,7 +980,7 @@ export async function aiExtractRows(
     // (see `normalizeImageBuffer`), and to pass an image/* mime here.
     const effectiveMime =
       mimeType && /^image\//i.test(mimeType) ? mimeType : "image/jpeg";
-    parts.push({
+    attachmentParts.push({
       kind: "inlineData",
       mimeType: effectiveMime,
       data: buffer.toString("base64"),
@@ -882,7 +988,7 @@ export async function aiExtractRows(
   } else if (isPdf) {
     const text = await extractTextFromPdf(buffer);
     if (text.trim().length > 50) {
-      parts.push({
+      attachmentParts.push({
         kind: "text",
         text: `\n\n--- PDF TEXT ---\n${text}\n--- END PDF TEXT ---`,
       });
@@ -940,7 +1046,7 @@ export async function aiExtractRows(
         return { rows, truncated: false, failedChunks: 0 };
       }
       // Generic scanned-PDF path: send the document directly for OCR.
-      parts.push({
+      attachmentParts.push({
         kind: "inlineData",
         mimeType: "application/pdf",
         data: buffer.toString("base64"),
@@ -964,7 +1070,7 @@ export async function aiExtractRows(
         roster,
       );
     }
-    parts.push({
+    attachmentParts.push({
       kind: "text",
       text: `\n\n--- SPREADSHEET (CSV) ---\n${chunks[0] ?? ""}\n--- END SPREADSHEET ---`,
     });
@@ -1013,7 +1119,7 @@ export async function aiExtractRows(
       withModelRetry(
         () =>
           c.generate({
-            parts,
+            parts: buildParts(c),
             maxOutputTokens: 32768,
             timeoutMs: AI_TIMEOUT_MS,
             jsonSchema: ROW_SCHEMA,
