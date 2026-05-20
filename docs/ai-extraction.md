@@ -29,6 +29,67 @@ NDJSON row-tag re-issue instead of the legacy chunk-halving — see
 [NDJSON output with `[R<n>]` row tags](#ndjson-output-with-rn-row-tags-task-308)
 below.
 
+### Per-chunk resume staging (Task #309)
+
+Big first-contact xlsx uploads (10k+ rows, 70+ chunks) can take 10+
+minutes. Before Task #309, a single failed chunk forced the dispatcher
+to re-upload the file from scratch and pay Anthropic again for every
+chunk that had already succeeded. The runner now checkpoints each
+successful chunk to a staging table so a re-upload of the same bytes
+skips Claude for every chunk already in hand.
+
+How it works:
+
+- `runChunkedXlsxExtract` accepts an optional `uploadKey` +
+  `stageStore` (`AiExtractOptions`). The upload route in `weeks.ts`
+  builds the key as `sha256(fileBytes):weekStart:lower(customer)` and
+  passes the live DB-backed `dbChunkStageStore`. Single-call / image
+  paths ignore both — there's nothing to checkpoint when there's only
+  one Claude call.
+- At the start of a chunked run, the runner loads every staged chunk
+  for the key into an in-memory `Map<chunkIndex, rows>`. If non-empty,
+  the api log shows `Resuming AI extract — skipped N of M chunks from
+  staging`.
+- For each chunk, the runner checks the map first. Hit → return the
+  staged rows and tick progress without calling Claude. Miss → run the
+  normal chunk pipeline (including the NDJSON re-issue retry); on
+  clean completion, upsert the chunk's rows into `ai_extract_chunk_stage`.
+- On full success of the whole upload, the runner deletes every staged
+  row for that `uploadKey` in one statement. Failures to save / clear
+  staging are logged and swallowed — they only cost the resume
+  optimization, never the upload itself.
+
+Schema (`lib/db/src/schema/aiExtractChunkStage.ts`):
+
+- `(uploadKey text, chunkIndex int, chunkCount int, customer text,
+  weekStart text, fileName text, assignedInputRowIds jsonb,
+  extractedRows jsonb, createdAt, lastTouchedAt)` with a unique
+  index on `(uploadKey, chunkIndex)`.
+
+Operations:
+
+- A boot-time cleanup interval (`startAiExtractChunkStageCleanup` in
+  `lib/parsers/aiExtractStage.ts`) prunes rows whose `lastTouchedAt`
+  is older than 7 days, every 6 hours.
+- Admin endpoints (`requireAdmin`):
+  - `GET /admin/extract-staging` — aggregated by `uploadKey`, one row
+    per file-in-flight: `{ uploadKey, customer, weekStart, fileName,
+    chunksStaged, chunkCount, createdAt, lastTouchedAt }`, ordered by
+    `lastTouchedAt desc`, `?limit=` capped at 500 (default 50).
+  - `DELETE /admin/extract-staging/:uploadKey` — discard every staged
+    chunk for a key. Useful when an upload is genuinely abandoned and
+    the operator doesn't want to wait for the 7-day pruner.
+
+Limits:
+
+- The key includes the full file hash, so two different files with
+  the same name targeting the same (week, customer) never share
+  staging. A second upload of the literal same bytes deliberately
+  resumes — that's the point.
+- The new-customer extract path (`/extract-new-customer-file`)
+  participates in staging too; its `uploadKey` is computed off the
+  post-image-normalize `extractBuffer` so a retry hits the same key.
+
 ### NDJSON output with `[R<n>]` row tags (Task #308)
 
 The chunked-extract pipeline asks both Claude and Gemini for

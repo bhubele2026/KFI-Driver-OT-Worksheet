@@ -59,6 +59,11 @@ import {
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { releaseIngestion } from "../lib/parsers/modelClient.js";
 import {
+  dbChunkStageStore,
+  listStagedUploads,
+  makeUploadKey,
+} from "../lib/parsers/aiExtractStage.js";
+import {
   publishExtractProgress,
   readExtractProgress,
 } from "../lib/parsers/extractProgress.js";
@@ -1708,6 +1713,16 @@ weeksRouter.post(
             ingestionId,
             onChunkProgress: (current, total) =>
               publishExtractProgress(progressKey, current, total),
+            // Task #309: identity for per-chunk resume staging. Same
+            // bytes + same (week, customer) → same key, so a failed
+            // earlier upload's staged chunks short-circuit Claude calls
+            // here.
+            uploadKey: makeUploadKey({
+              contentHash,
+              weekStart: startDate,
+              customer: detectedCustomer,
+            }),
+            stageStore: dbChunkStageStore,
           },
         });
         result = aiResult;
@@ -3546,6 +3561,16 @@ weeksRouter.post(
           ingestionId: ingestionIdNew,
           onChunkProgress: (current, total) =>
             publishExtractProgress(progressKey, current, total),
+          // Task #309: identity for per-chunk resume staging. The
+          // new-customer path computes its hash off the extract
+          // buffer (post-image-normalize), matching the bytes the
+          // chunker actually sees so a retry hits the same key.
+          uploadKey: makeUploadKey({
+            contentHash: createHash("sha256").update(extractBuffer).digest("hex"),
+            weekStart: startDate,
+            customer,
+          }),
+          stageStore: dbChunkStageStore,
         },
       );
       rows = extracted.rows;
@@ -6395,6 +6420,40 @@ weeksRouter.get("/admin/ingestion-runs", requireAdmin, async (req, res) => {
     })),
   );
 });
+
+// -------------------------------------------------------------------------
+// Task #309: AI extract per-chunk resume staging. GET aggregates the
+// staging table by uploadKey (one row per file-in-flight), DELETE wipes
+// every staged chunk for a given key. Admin-only — these surfaces exist
+// strictly so an operator can see "is some hung upload silently squatting
+// on storage?" and "drop this resumable upload" without poking SQL.
+// -------------------------------------------------------------------------
+weeksRouter.get("/admin/extract-staging", requireAdmin, async (req, res) => {
+  const limitParam = Number(req.query.limit);
+  const limit =
+    Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 500
+      ? limitParam
+      : 50;
+  const rows = await listStagedUploads(limit);
+  res.json(rows);
+});
+
+weeksRouter.delete(
+  "/admin/extract-staging/:uploadKey",
+  requireAdmin,
+  async (req, res) => {
+    const uploadKey = String(req.params.uploadKey ?? "");
+    if (uploadKey.length === 0) {
+      res.status(400).json({ error: "uploadKey is required" });
+      return;
+    }
+    const deleted = await db
+      .delete(schema.aiExtractChunkStageTable)
+      .where(eq(schema.aiExtractChunkStageTable.uploadKey, uploadKey))
+      .returning({ id: schema.aiExtractChunkStageTable.id });
+    res.json({ deleted: deleted.length });
+  },
+);
 
 weeksRouter.get("/admin/notes/deleted", requireAdmin, async (req, res) => {
   const limitParam = Number(req.query.limit);

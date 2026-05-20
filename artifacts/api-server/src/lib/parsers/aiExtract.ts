@@ -22,6 +22,7 @@ import {
   type IngestionBudgetSummary,
   type IngestionPurpose,
 } from "./ingestionBudget.js";
+import type { ChunkStageStore } from "./aiExtractStage.js";
 
 /**
  * Per-upload options bag for `aiExtractRows`. All fields optional; the
@@ -64,6 +65,20 @@ export interface AiExtractOptions {
    * cleanup is left to the 60s window).
    */
   ingestionId?: string;
+  /**
+   * Task #309: stable per-upload identity used by the chunked xlsx path
+   * to checkpoint successful chunks to a staging table. When `uploadKey`
+   * AND `stageStore` are both present, the runner:
+   *   - loads every previously-staged chunk at the start and skips the
+   *     model call for each `(uploadKey, chunkIndex)` hit;
+   *   - upserts each chunk's extracted rows after its targeted re-issue
+   *     cycle completes cleanly;
+   *   - clears every staged row for the key on full success.
+   * The single-call / image / pdf paths ignore both fields — there's
+   * nothing to checkpoint when there's only one Claude call.
+   */
+  uploadKey?: string;
+  stageStore?: ChunkStageStore;
 }
 
 /** Result shape returned by `aiExtractRows`, extended with budget telemetry (Task #297). */
@@ -974,6 +989,8 @@ async function runChunkedXlsxExtract(
   ingestionId: string,
   roster?: RosterContext,
   onChunkProgress?: (current: number, total: number) => void,
+  uploadKey?: string,
+  stageStore?: ChunkStageStore,
 ): Promise<{ rows: AiExtractedRow[] }> {
   // Task #296: emit (0, total) before the first chunk so the polling
   // client sees a definitive total as soon as work begins, then
@@ -992,6 +1009,38 @@ async function runChunkedXlsxExtract(
     onChunkProgress?.(0, chunks.length);
   } catch {
     /* observer-only */
+  }
+  // Task #309: resume support. Load every previously-staged chunk for
+  // this upload identity so the runner can short-circuit the model call
+  // on chunks that already completed cleanly on a prior attempt. A
+  // failure here only costs the resume optimization — we log and
+  // continue with an empty staged set (worst case: pay for chunks we
+  // already paid for once before).
+  const stagedByIndex = new Map<number, AiExtractedRow[]>();
+  if (uploadKey && stageStore) {
+    try {
+      const loaded = await stageStore.load(uploadKey);
+      for (const [idx, rows] of loaded) {
+        if (idx >= 0 && idx < chunks.length) stagedByIndex.set(idx, rows);
+      }
+    } catch (err) {
+      (log ?? logger).warn(
+        { err, uploadKey, customer, fileName },
+        "AI extract staging load failed — proceeding without resume",
+      );
+    }
+    if (stagedByIndex.size > 0) {
+      logger.info(
+        {
+          customer,
+          fileName,
+          uploadKey,
+          skipped: stagedByIndex.size,
+          total: chunks.length,
+        },
+        `Resuming AI extract — skipped ${stagedByIndex.size} of ${chunks.length} chunks from staging`,
+      );
+    }
   }
   /**
    * Run one model call against a tagged sub-chunk (Task #308). Returns
@@ -1116,6 +1165,38 @@ async function runChunkedXlsxExtract(
   // chunks short-circuit their (expensive) re-issue retries instead of
   // racing more model calls after the upload is already doomed.
   let aborted = false;
+  // Task #309: persist a completed chunk to the staging table so a later
+  // failure (network, rate limit, parse error) on a SIBLING chunk doesn't
+  // force the dispatcher to re-pay for this one on the next upload. Done
+  // before tickProgress so the checkpoint always reflects a row count
+  // matching the observer signal. Failures are logged and swallowed —
+  // missing a staging write only costs the resume optimization, not the
+  // upload itself.
+  const persistChunk = async (
+    idx: number,
+    assignedIds: number[],
+    rows: AiExtractedRow[],
+  ): Promise<void> => {
+    if (!uploadKey || !stageStore) return;
+    try {
+      await stageStore.save({
+        uploadKey,
+        chunkIndex: idx,
+        chunkCount: chunks.length,
+        customer,
+        weekStart,
+        fileName,
+        assignedInputRowIds: assignedIds,
+        extractedRows: rows,
+      });
+    } catch (err) {
+      (log ?? logger).warn(
+        { err, uploadKey, chunk: idx + 1, chunkCount: chunks.length, customer, fileName },
+        "AI extract staging save failed — chunk completed but will be re-issued on resume",
+      );
+    }
+  };
+
   const handleChunkInner = async (
     idx: number,
   ): Promise<{ rows: AiExtractedRow[] }> => {
@@ -1129,6 +1210,23 @@ async function runChunkedXlsxExtract(
     const assignedIds = body.map((_, i) => i + 1);
     const expected = assignedIds.length;
     const label = `This is chunk ${idx + 1} of ${chunks.length}`;
+    // Task #309: resume hit. Skip the model call entirely and return
+    // the previously-staged rows for this `(uploadKey, chunkIndex)`.
+    const staged = stagedByIndex.get(idx);
+    if (staged) {
+      logger.info(
+        {
+          customer,
+          fileName,
+          chunk: idx + 1,
+          chunkCount: chunks.length,
+          rows: staged.length,
+          uploadKey,
+        },
+        "AI chunk resumed from staging — no model call",
+      );
+      return { rows: staged };
+    }
     const result = await runOne(marker, header, body, assignedIds, label);
     if (aborted) return { rows: [] };
     // Telemetry (Task #308): per-chunk lines-emitted vs lines-expected
@@ -1148,6 +1246,7 @@ async function runChunkedXlsxExtract(
     );
     const missing = assignedIds.filter((id) => !result.emittedRowIds.has(id));
     if (missing.length === 0) {
+      await persistChunk(idx, assignedIds, result.rows);
       return { rows: result.rows };
     }
     // One targeted re-issue: re-send ONLY the body lines whose `_row`
@@ -1178,7 +1277,9 @@ async function runChunkedXlsxExtract(
         `AI could not extract the full file — chunk ${idx + 1} of ${chunks.length} is missing ${stillMissing.length} rows after one re-issue retry. Split the spreadsheet into two smaller files and re-upload.`,
       );
     }
-    return { rows: [...result.rows, ...reissue.rows] };
+    const mergedChunkRows = [...result.rows, ...reissue.rows];
+    await persistChunk(idx, assignedIds, mergedChunkRows);
+    return { rows: mergedChunkRows };
   };
 
   // Wrap so ANY throw from handleChunkInner (timeout, network error,
@@ -1229,11 +1330,28 @@ async function runChunkedXlsxExtract(
       aiDedupedRowCount: deduped.length,
       chunks: chunks.length,
       concurrency: workerCount,
+      resumedFromStaging: stagedByIndex.size,
       customer,
       fileName,
     },
     "AI extraction complete (chunked)",
   );
+  // Task #309: full success — every chunk's rows are in `merged`. Drop
+  // the entire staging block for this upload key in one statement so
+  // the next prune pass has less to do and a re-upload of the same
+  // file (e.g. dispatcher hits "upload" twice by accident) doesn't
+  // short-circuit to a stale checkpoint. Failure here only delays
+  // cleanup to the 7-day pruner — never affects the response.
+  if (uploadKey && stageStore) {
+    try {
+      await stageStore.clear(uploadKey);
+    } catch (err) {
+      (log ?? logger).warn(
+        { err, uploadKey, customer, fileName },
+        "AI extract staging clear failed — will age out via the 7-day pruner",
+      );
+    }
+  }
   return { rows: deduped };
 }
 
@@ -1317,6 +1435,8 @@ export async function aiExtractRows(
     allowGeminiFallback,
     ingestionId,
     opts?.onChunkProgress,
+    opts?.uploadKey,
+    opts?.stageStore,
   );
 }
 
@@ -1333,6 +1453,8 @@ async function aiExtractRowsImpl(
   allowGeminiFallback: boolean,
   ingestionId: string,
   onChunkProgress?: (current: number, total: number) => void,
+  uploadKey?: string,
+  stageStore?: ChunkStageStore,
 ): Promise<AiExtractResult> {
   const overallStart = Date.now();
   // Wrap the rest of the function in try/catch so a budget trip or any
@@ -1353,6 +1475,8 @@ async function aiExtractRowsImpl(
       allowGeminiFallback,
       ingestionId,
       onChunkProgress,
+      uploadKey,
+      stageStore,
     );
     const summary = budget.summary();
     logIngestDone(log, {
@@ -1400,6 +1524,8 @@ async function runExtraction(
   allowGeminiFallback: boolean,
   ingestionId: string,
   onChunkProgress?: (current: number, total: number) => void,
+  uploadKey?: string,
+  stageStore?: ChunkStageStore,
 ): Promise<{ rows: AiExtractedRow[] }> {
   // Task #296: never let an observer throw bubble out and tank the
   // extract. Single-call / image / PDF paths emit a single final
@@ -1556,6 +1682,8 @@ async function runExtraction(
         ingestionId,
         roster,
         onChunkProgress,
+        uploadKey,
+        stageStore,
       );
     }
     attachmentParts.push({
