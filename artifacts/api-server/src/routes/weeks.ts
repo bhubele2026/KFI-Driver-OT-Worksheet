@@ -1721,7 +1721,16 @@ weeksRouter.post(
     const detectedForSkip =
       explicitCustomer ??
       detectCustomerFromFileName(fileName, allCustomersForUpload);
-    if (!isImage && !force && detectedForSkip) {
+    // Detect the same-bytes condition once. When force is unset (bulk
+    // path or first-time per-row upload), a match short-circuits to a
+    // skipped preview. When force IS set (per-row Re-upload), we keep
+    // going through the full extract and just mark the preview so the
+    // dispatcher gets a neutral "matches the last import you confirmed"
+    // note in the dialog. Images are intentionally excluded from the
+    // skip check — the AI extractor is non-deterministic so identical
+    // bytes don't imply an identical previously-confirmed result.
+    let sameAsLastImport = false;
+    if (!isImage && detectedForSkip) {
       const prior = await db
         .select({
           lastContentHash: schema.customerUploadAttemptsTable.lastContentHash,
@@ -1741,17 +1750,20 @@ weeksRouter.post(
         p.lastSuccessAt &&
         p.lastContentHash === contentHash
       ) {
-        res.json({
-          customer: detectedForSkip,
-          fileName,
-          weekStart: startDate,
-          skipped: true,
-          sampleId: null,
-          rows: [],
-          unmappedIds: [],
-          existingPunchCount: 0,
-        });
-        return;
+        if (!force) {
+          res.json({
+            customer: detectedForSkip,
+            fileName,
+            weekStart: startDate,
+            skipped: true,
+            sampleId: null,
+            rows: [],
+            unmappedIds: [],
+            existingPunchCount: 0,
+          });
+          return;
+        }
+        sameAsLastImport = true;
       }
     }
     let result;
@@ -2297,6 +2309,7 @@ weeksRouter.post(
       extractionTruncated: result.diagnostics?.extractionTruncated ?? false,
       failedChunks: result.diagnostics?.failedChunks ?? 0,
       geminiFallbackUsed,
+      sameAsLastImport,
     });
   },
 );

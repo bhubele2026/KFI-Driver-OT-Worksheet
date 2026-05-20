@@ -1539,6 +1539,12 @@ export const ExtractCustomerFileResponse = zod.object({
     .describe(
       'True when at least one model call in this upload\'s AI\nextraction was served by the Gemini fallback after the\nprimary Claude call failed (Task #297). Opt-in per customer\nvia `customers.allowGeminiFallback`. Surfaced so the\ncustomer-files panel can render an amber \"Gemini fallback\nused\" badge — these rows should be reviewed more carefully\nthan a clean Claude extraction.\n',
     ),
+  sameAsLastImport: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when the uploaded file's SHA-256 matches the most\nrecent successful import for this (week, customer) AND\nthe caller passed `?force=1` so the server kept extracting\ninstead of short-circuiting with `skipped: true`. Set only\non the per-row Re-upload path (Task #358) — the bulk\nupload path still skips identical bytes without ever\nreaching this flag. The preview dialog uses it to render a\nneutral \"matches the last import you confirmed\" note so\nthe dispatcher knows the re-upload is intentional and\nisn't a regression.\n",
+    ),
 });
 
 /**

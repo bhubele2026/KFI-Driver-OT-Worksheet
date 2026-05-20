@@ -99,6 +99,29 @@ toward the panel-wide bulk zone). Browser-level dependency on
 `stopPropagation` in the row drag handlers keeps the bulk zone from also
 firing.
 
+### Per-row Re-upload bypasses the SHA dedupe (Task #358)
+
+Both per-row entry points (file picker + drag-on-row) pass `{ force: true }`
+to `extractFor` whenever the row already has imported punches — i.e. the
+button reads "Re-upload" instead of "Upload". `extractFor` translates that
+into `?force=1` on `POST /weeks/:weekStart/extract-customer-file`, which
+keeps extracting instead of short-circuiting with `{ skipped: true }` when
+the uploaded bytes' SHA-256 matches the prior successful import. Without
+this, clicking Re-upload on identical bytes looked broken: the server
+returned `skipped: true`, the panel had nothing to show, and the preview
+dialog never opened.
+
+The server still detects the same-bytes condition on the force path and
+adds `sameAsLastImport: true` to the preview response, which the dialog
+renders as a neutral "matches the last import you confirmed" note so the
+dispatcher knows the dedupe still works — it just isn't blocking them
+this time.
+
+Bulk upload behavior is intentionally unchanged: the bulk loop never sets
+`force`, so identical bytes still short-circuit cheaply and render
+"Already up to date" without walking the dispatcher through a no-op
+preview.
+
 ## Inactive customers
 
 Customers can be marked inactive without losing history. The customer-files

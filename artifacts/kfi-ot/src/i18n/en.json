@@ -1258,6 +1258,7 @@
     "aiReviewHint": "· Review every row before confirming.",
     "cacheWarmedTitle": "The column layout for this file was learned. Future uploads of the same format will skip AI entirely.",
     "cacheWarmedLabel": "Next upload of this format will be instant",
+    "sameAsLastImport": "These are the exact same bytes you already imported for this customer this week. Re-uploading anyway — review and confirm to replace the existing rows, or cancel to leave them as-is.",
     "truncatedChunks_one": "Heads up: this file was split into parts for the AI, and {{count}} part timed out and was skipped. The preview shows the rows that came through — review carefully, then either confirm what's here or re-upload the file split into smaller parts.",
     "truncatedChunks_other": "Heads up: this file was split into parts for the AI, and {{count}} parts timed out and were skipped. The preview shows the rows that came through — review carefully, then either confirm what's here or re-upload the file split into smaller parts.",
     "truncated": "Heads up: this file was too large for the AI to read in one pass, so even after auto-splitting, some rows may be missing from the preview below. Review carefully — if the row count looks low, re-upload the file split into smaller parts.",

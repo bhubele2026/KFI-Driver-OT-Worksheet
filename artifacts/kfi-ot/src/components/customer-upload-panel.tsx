@@ -544,10 +544,22 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   // Two-step flow used by per-row single-file uploads: extract (preview only)
   // → dispatcher confirms in dialog → /confirm-customer-file commits.
   // Cancel = no DB writes.
+  //
+  // `force` is set when the dispatcher is re-uploading onto a row that
+  // already has imported data (the button reads "Re-upload" rather than
+  // "Upload"). Without it the server short-circuits identical bytes with
+  // `{ skipped: true }` and the preview dialog never opens, which looks
+  // like the app is ignoring the upload. The first-time upload path
+  // leaves force unset — there's nothing to override yet. The bulk
+  // upload flow keeps the skip too (that's the whole point of the bulk
+  // de-dupe).
+  //
+  // `maxCalls` is the admin one-shot "Retry with higher limit" override
+  // from Task #356; the server validates + clamps it to BACKSTOP=200.
   const extractFor = async (
     customer: string,
     file: File,
-    opts?: { maxCalls?: number },
+    opts?: { force?: boolean; maxCalls?: number },
   ) => {
     cancelRowUpload(customer);
     const controller = new AbortController();
@@ -573,12 +585,14 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       setRow(customer, { chunkProgress: snap }),
     );
     try {
-      // Task #356: admin one-shot "Retry with higher limit" passes
-      // `?maxCalls=N` (server-validated + clamped to BACKSTOP=200).
-      const qs =
-        opts?.maxCalls != null
-          ? `?maxCalls=${encodeURIComponent(String(opts.maxCalls))}`
-          : "";
+      // `force` (Task #358) bypasses the server's same-bytes skip on a
+      // per-row Re-upload so identical bytes still produce a preview.
+      // `maxCalls` (Task #356) is the admin one-shot "Retry with higher
+      // limit" override; server-validated + clamped to BACKSTOP=200.
+      const params = new URLSearchParams();
+      if (opts?.force) params.set("force", "1");
+      if (opts?.maxCalls != null) params.set("maxCalls", String(opts.maxCalls));
+      const qs = params.toString() ? `?${params.toString()}` : "";
       const res = await fetch(
         `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-customer-file${qs}`,
         {
@@ -652,80 +666,6 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       stopPolling();
       setRow(customer, { chunkProgress: null });
     }
-  };
-
-  const uploadFor = async (customer: string, file: File) => {
-    cancelRowUpload(customer);
-    const controller = new AbortController();
-    rowAborts.current[customer] = controller;
-    setRow(customer, {
-      uploading: true,
-      error: null,
-      uploadStartedAt: Date.now(),
-    });
-    // Per-row Re-upload always forces — the dispatcher explicitly chose this
-    // file, so skipping it as a duplicate would be confusing. Skip detection
-    // is for bulk re-runs only.
-    const r = await doUpload(customer, file, {
-      force: true,
-      explicitCustomer: true,
-      signal: controller.signal,
-    });
-    // Stale-request guard: if a newer upload kicked off on the same row
-    // (or the dispatcher canceled this one and started another), drop
-    // this result rather than clobber the live row state.
-    const isCurrent = rowAborts.current[customer] === controller;
-    if (isCurrent) delete rowAborts.current[customer];
-    const aborted = controller.signal.aborted;
-    if (!r.ok) {
-      if (aborted) {
-        if (isCurrent) {
-          setRow(customer, {
-            uploading: false,
-            error: null,
-            uploadStartedAt: null,
-          });
-        }
-        return;
-      }
-      if (!isCurrent) return;
-      const msg = friendlyUploadError(r.error, t);
-      setRow(customer, {
-        uploading: false,
-        error: msg,
-        uploadStartedAt: null,
-      });
-      toast({
-        title: t("customerUpload.uploadFailedTitle", { customer }),
-        description: msg,
-        variant: "destructive",
-      });
-      return;
-    }
-    if (!isCurrent) return;
-    setRow(customer, { uploading: false, error: null, uploadStartedAt: null });
-    if (r.unmapped.length > 0) {
-      const formatted = r.unmapped
-        .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
-        .join(", ");
-      toast({
-        title: t("customerUpload.uploadedWithUnknownTitle", {
-          count: r.unmapped.length,
-          customer,
-        }),
-        description: t("customerUpload.uploadedWithUnknownDesc", {
-          count: r.punches,
-          ids: formatted,
-        }),
-        variant: "destructive",
-      });
-    } else {
-      toast({
-        title: t("customerUpload.uploadedTitle", { customer }),
-        description: t("customerUpload.uploadedDesc", { count: r.punches }),
-      });
-    }
-    invalidateAll();
   };
 
   const isAcceptedUpload = (name: string): boolean => {
@@ -967,7 +907,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     // Per-row drop intentionally bypasses filename-based routing — the
     // dispatcher picked the customer by aiming at this row, so we trust
     // that signal over the filename keyword.
-    void extractFor(customer, file);
+    //
+    // Force when the row already has imported punches so the dispatcher
+    // can re-upload the same bytes and still get a preview, instead of
+    // the server silently short-circuiting with `{ skipped: true }`.
+    const existing = (statuses ?? []).find((s) => s.customer === customer);
+    const alreadyUploaded = !!existing && existing.punchCount > 0;
+    void extractFor(customer, file, { force: alreadyUploaded });
   };
 
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
@@ -1541,7 +1487,11 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
-                  if (f) void extractFor(s.customer, f);
+                  // Force on re-upload so identical bytes still get a
+                  // preview instead of being silently skipped by the
+                  // SHA-256 dedupe on the server. First-time uploads
+                  // (no punches yet) leave force unset.
+                  if (f) void extractFor(s.customer, f, { force: uploaded });
                   e.target.value = "";
                 }}
               />

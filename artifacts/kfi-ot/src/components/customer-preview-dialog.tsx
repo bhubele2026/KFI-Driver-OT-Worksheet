@@ -88,6 +88,16 @@ export interface CustomerPreviewData {
    * different model than the usual Claude pipeline.
    */
   geminiFallbackUsed?: boolean;
+  /**
+   * Task #358. True on the per-row Re-upload path when the uploaded
+   * file's SHA-256 matches the most recent successful import for this
+   * (week, customer). The dialog shows a neutral note so the
+   * dispatcher knows the re-upload was intentional and the duplicate
+   * detection still works — it just isn't blocking them this time.
+   * The bulk upload path never reaches this flag; identical bytes are
+   * still short-circuited with `skipped: true`.
+   */
+  sameAsLastImport?: boolean;
 }
 
 function errMessage(err: unknown, fallback: string): string {
@@ -353,6 +363,15 @@ export function CustomerPreviewDialog({
                     })
                   : t("customerPreview.truncated")}
               </span>
+            </div>
+          ) : null}
+          {preview.sameAsLastImport ? (
+            <div
+              className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+              data-testid="text-same-as-last-import"
+            >
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{t("customerPreview.sameAsLastImport")}</span>
             </div>
           ) : null}
           {preview.geminiFallbackUsed ? (

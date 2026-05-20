@@ -64,4 +64,16 @@ used" badge — these rows should be reviewed more carefully
 than a clean Claude extraction.
  */
   geminiFallbackUsed?: boolean;
+  /** True when the uploaded file's SHA-256 matches the most
+recent successful import for this (week, customer) AND
+the caller passed `?force=1` so the server kept extracting
+instead of short-circuiting with `skipped: true`. Set only
+on the per-row Re-upload path (Task #358) — the bulk
+upload path still skips identical bytes without ever
+reaching this flag. The preview dialog uses it to render a
+neutral "matches the last import you confirmed" note so
+the dispatcher knows the re-upload is intentional and
+isn't a regression.
+ */
+  sameAsLastImport?: boolean;
 }

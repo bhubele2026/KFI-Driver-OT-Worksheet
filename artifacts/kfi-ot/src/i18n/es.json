@@ -1256,6 +1256,7 @@
     "aiReviewHint": "· Revise cada fila antes de confirmar.",
     "cacheWarmedTitle": "Se aprendió la disposición de columnas de este archivo. Las próximas subidas con el mismo formato omitirán la IA.",
     "cacheWarmedLabel": "La próxima subida con este formato será instantánea",
+    "sameAsLastImport": "Estos son exactamente los mismos bytes que ya importó para este cliente esta semana. Aun así se está volviendo a subir — revise y confirme para reemplazar las filas existentes, o cancele para dejarlas como están.",
     "truncatedChunks_one": "Atención: este archivo se dividió en partes para la IA y {{count}} parte agotó el tiempo y se omitió. La vista previa muestra las filas que llegaron — revise con cuidado y confirme lo que hay, o vuelva a subir el archivo dividido en partes más pequeñas.",
     "truncatedChunks_other": "Atención: este archivo se dividió en partes para la IA y {{count}} partes agotaron el tiempo y se omitieron. La vista previa muestra las filas que llegaron — revise con cuidado y confirme lo que hay, o vuelva a subir el archivo dividido en partes más pequeñas.",
     "truncated": "Atención: este archivo era demasiado grande para que la IA lo leyera de una sola vez, así que incluso tras dividirlo automáticamente, pueden faltar filas en la vista previa. Revise con cuidado — si el recuento parece bajo, vuelva a subir el archivo dividido en partes más pequeñas.",
