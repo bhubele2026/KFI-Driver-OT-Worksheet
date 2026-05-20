@@ -216,6 +216,9 @@ export function computeChecks(punches: Punch[]): PunchCheck[] {
     }
     if (ci !== null && co !== null) {
       // Same-source overlap >10 min = data error.
+      // Customer files routinely contain multiple overlapping rows per
+      // driver/day (multi-trip / multi-leg), so only flag Driver-source.
+      if (r.source === "Customer") continue;
       for (let j = 0; j < i; j++) {
         const prev = sorted[j];
         if (prev.source !== r.source) continue;
