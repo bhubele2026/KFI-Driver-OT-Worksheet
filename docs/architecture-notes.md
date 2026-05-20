@@ -40,6 +40,21 @@ mid-shift into RT vs OT, crediting each portion to the correct source.
   so a future engine regression that breaks the four-bucket identity is
   caught.
 
+## Zenople payroll export
+
+The per-week Zenople export (`lib/zenopleExport.ts`) is built from each
+driver's `driver_payroll_profiles` row plus their weekly punches.
+Readiness blocks only on the **five identity fields** (`ssn`, `jobId`,
+`personId`, `assignmentId`, `zenopleCustomer`) — those are the keys
+that route the payroll line to the correct Zenople record. The eight
+pay/bill rate fields are not checked: a missing rate is treated the
+same as `$0` and written as numeric `0` in the workbook (the `rateFor`
+helper coerces `null` → `0`). This avoids forcing admins to type
+`0.00` into rate cells for drivers who legitimately have no
+arrangement on a given bucket (no OT bill rate, salaried driver,
+etc.). To re-enable strict rate validation, add the rate-field checks
+back to `missingProfileFields`.
+
 ## Connecteam
 
 All Connecteam API calls happen server-side (token never leaves the server);

@@ -268,9 +268,9 @@ async function computeReadiness(weekStart: string) {
       ? profileFromRow(profiles.get(d.kfiId)!)
       : null;
     const missing = missingProfileFields(profile);
-    // Driver-only rows don't need RT/OT pair, vice versa — but the simpler,
-    // safer rule is "all fields must be present" so admins set up profiles
-    // deliberately. Strict-mode is what the task spec asks for.
+    // Only the five identity fields block readiness (ssn, jobId, personId,
+    // assignmentId, zenopleCustomer). Rate fields default to $0 in the
+    // export when null — see `missingProfileFields` for the rationale.
     if (missing.length > 0) {
       missingProfile.push({ kfiId: d.kfiId, name: d.name, missing });
     }

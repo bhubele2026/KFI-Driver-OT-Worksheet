@@ -566,7 +566,7 @@
     "notReady": "Not ready to export",
     "readinessDesc": "{{ready}} of {{total}} drivers are ready. Fix the items below and try again.",
     "notReviewed": "Not yet reviewed ({{count}}):",
-    "missingProfile": "Missing pay & bill profile fields ({{count}}):"
+    "missingProfile": "Missing identity profile fields ({{count}}):"
   },
   "presenceChip": {
     "otherViewers_one": "{{count}} other viewer",

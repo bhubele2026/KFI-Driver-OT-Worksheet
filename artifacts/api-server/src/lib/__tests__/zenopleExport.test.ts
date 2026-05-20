@@ -88,16 +88,113 @@ test("ZENOPLE_HEADER preserves the literal leading spaces on End Date / Status /
   assert.equal(ZENOPLE_HEADER.length, 17);
 });
 
-test("missingProfileFields: null profile lists every required field", () => {
+test("missingProfileFields: null profile lists only the 5 identity fields (rates default to $0)", () => {
   const m = missingProfileFields(null);
-  assert.ok(m.includes("ssn"));
-  assert.ok(m.includes("rtPayRate"));
-  assert.ok(m.includes("driverOtBillRate"));
-  assert.equal(m.length, 13);
+  assert.deepEqual(m, [
+    "ssn",
+    "jobId",
+    "personId",
+    "assignmentId",
+    "zenopleCustomer",
+  ]);
 });
 
 test("missingProfileFields: complete profile returns []", () => {
   assert.deepEqual(missingProfileFields(FULL_PROFILE), []);
+});
+
+test("missingProfileFields: all-null rates + full identity returns [] (rates don't block)", () => {
+  const ratesNull: ZenopleProfile = {
+    ...FULL_PROFILE,
+    rtPayRate: null,
+    rtBillRate: null,
+    otPayRate: null,
+    otBillRate: null,
+    driverRtPayRate: null,
+    driverRtBillRate: null,
+    driverOtPayRate: null,
+    driverOtBillRate: null,
+  };
+  assert.deepEqual(missingProfileFields(ratesNull), []);
+});
+
+test("missingProfileFields: all-zero rates + full identity returns []", () => {
+  const ratesZero: ZenopleProfile = {
+    ...FULL_PROFILE,
+    rtPayRate: 0,
+    rtBillRate: 0,
+    otPayRate: 0,
+    otBillRate: 0,
+    driverRtPayRate: 0,
+    driverRtBillRate: 0,
+    driverOtPayRate: 0,
+    driverOtBillRate: 0,
+  };
+  assert.deepEqual(missingProfileFields(ratesZero), []);
+});
+
+test("missingProfileFields: missing ssn (identity field) still blocks", () => {
+  const noSsn: ZenopleProfile = { ...FULL_PROFILE, ssn: null };
+  assert.deepEqual(missingProfileFields(noSsn), ["ssn"]);
+});
+
+test("missingProfileFields: missing identity + null rates still only reports identity", () => {
+  const partial: ZenopleProfile = {
+    ssn: null,
+    jobId: null,
+    personId: 2002909,
+    assignmentId: 2540,
+    zenopleCustomer: "Adient",
+    rtPayRate: null,
+    rtBillRate: null,
+    otPayRate: null,
+    otBillRate: null,
+    driverRtPayRate: null,
+    driverRtBillRate: null,
+    driverOtPayRate: null,
+    driverOtBillRate: null,
+  };
+  assert.deepEqual(missingProfileFields(partial), ["ssn", "jobId"]);
+});
+
+test("buildZenopleWorkbook: null rate fields are written as numeric 0 in the workbook", () => {
+  const ratesNull: ZenopleProfile = {
+    ...FULL_PROFILE,
+    rtPayRate: null,
+    rtBillRate: null,
+    otPayRate: null,
+    otBillRate: null,
+    driverRtPayRate: null,
+    driverRtBillRate: null,
+    driverOtPayRate: null,
+    driverOtBillRate: null,
+  };
+  const driver: ZenopleDriverInput = {
+    kfiId: "K1",
+    name: "Null Rates",
+    zenopleName: "RATES, NULL",
+    profile: ratesNull,
+    // Customer 35h + Driver 10h ⇒ custRt=35, driverRt=5, driverOt=5.
+    punches: [
+      p("Customer", "2026-05-10", "2026-05-10 6:00 AM", "2026-05-11 1:00 AM", 19),
+      p("Customer", "2026-05-11", "2026-05-11 6:00 AM", "2026-05-11 10:00 PM", 16),
+      p("Driver", "2026-05-12", "2026-05-12 6:00 AM", "2026-05-12 4:00 PM", 10),
+    ],
+  };
+  const buf = buildZenopleWorkbook([driver], "2026-05-16");
+  const wb = XLSX.read(buf, { type: "buffer" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true });
+  // header + 3 rows (RT, DriverRT, DriverOT)
+  assert.equal(aoa.length, 4);
+  for (let i = 1; i < aoa.length; i += 1) {
+    const row = aoa[i];
+    // Pay Rate (col 7) and Bill Rate (col 9) must be numeric 0, not blank
+    // and not a string. Item Pay (col 10) is also numeric 0.
+    assert.strictEqual(row[7], 0, `row ${i} Pay Rate should be numeric 0`);
+    assert.strictEqual(row[9], 0, `row ${i} Bill Rate should be numeric 0`);
+    assert.strictEqual(row[10], 0, `row ${i} Item Pay should be numeric 0`);
+  }
 });
 
 test("zenopleFileName: matches Driver_Pay_Units_…_PD_MM.DD.YYYY_<PPE>.xlsx", () => {

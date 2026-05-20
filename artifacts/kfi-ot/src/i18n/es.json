@@ -566,7 +566,7 @@
     "notReady": "No está listo para exportar",
     "readinessDesc": "{{ready}} de {{total}} conductores están listos. Corrija los elementos a continuación e inténtelo de nuevo.",
     "notReviewed": "Aún no revisados ({{count}}):",
-    "missingProfile": "Faltan campos de perfil de pago y facturación ({{count}}):"
+    "missingProfile": "Faltan campos de identidad del perfil ({{count}}):"
   },
   "presenceChip": {
     "otherViewers_one": "{{count}} otro espectador",

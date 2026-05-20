@@ -227,38 +227,36 @@ export function zenopleFileName(pdDate: Date, weekEndIso: string): string {
   return `Driver_Pay_Units_customer_and_Driver_time_PD_${mm}.${dd}.${yyyy}_${ppe}.xlsx`;
 }
 
-/** Profile fields required for a driver to be eligible for export. */
+/**
+ * Profile fields required for a driver to be eligible for export.
+ *
+ * Only the five **identity** fields block readiness — they're the keys
+ * that route the payroll line to the correct Zenople record, so
+ * missing them would silently send hours to the wrong assignment.
+ *
+ * Pay/bill rate fields are deliberately not checked: a missing rate
+ * is treated the same as `$0` and written as numeric `0` in the
+ * exported workbook (see `rateFor` which coerces `null` → `0`). This
+ * matches the dispatcher workflow where many drivers legitimately
+ * have $0 in some rate buckets (no OT bill arrangement, salaried,
+ * etc.) and shouldn't be forced to type "0.00" into eight cells just
+ * to clear the readiness warning.
+ */
+export const IDENTITY_PROFILE_FIELDS = [
+  "ssn",
+  "jobId",
+  "personId",
+  "assignmentId",
+  "zenopleCustomer",
+] as const;
+
 export function missingProfileFields(profile: ZenopleProfile | null): string[] {
-  if (!profile) {
-    return [
-      "ssn",
-      "jobId",
-      "personId",
-      "assignmentId",
-      "zenopleCustomer",
-      "rtPayRate",
-      "rtBillRate",
-      "otPayRate",
-      "otBillRate",
-      "driverRtPayRate",
-      "driverRtBillRate",
-      "driverOtPayRate",
-      "driverOtBillRate",
-    ];
-  }
+  if (!profile) return [...IDENTITY_PROFILE_FIELDS];
   const missing: string[] = [];
   if (!profile.ssn) missing.push("ssn");
   if (profile.jobId == null) missing.push("jobId");
   if (profile.personId == null) missing.push("personId");
   if (profile.assignmentId == null) missing.push("assignmentId");
   if (!profile.zenopleCustomer) missing.push("zenopleCustomer");
-  if (profile.rtPayRate == null) missing.push("rtPayRate");
-  if (profile.rtBillRate == null) missing.push("rtBillRate");
-  if (profile.otPayRate == null) missing.push("otPayRate");
-  if (profile.otBillRate == null) missing.push("otBillRate");
-  if (profile.driverRtPayRate == null) missing.push("driverRtPayRate");
-  if (profile.driverRtBillRate == null) missing.push("driverRtBillRate");
-  if (profile.driverOtPayRate == null) missing.push("driverOtPayRate");
-  if (profile.driverOtBillRate == null) missing.push("driverOtBillRate");
   return missing;
 }
