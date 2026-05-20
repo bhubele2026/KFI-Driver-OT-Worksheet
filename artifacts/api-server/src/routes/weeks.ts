@@ -75,9 +75,9 @@ import {
 } from "../lib/parsers/ingestionBudget.js";
 import { lookupSchema } from "../lib/parsers/schemaLookup.js";
 import {
-  readWithRoles,
-  readPdfWithRoles,
-} from "../lib/parsers/genericRoleReader.js";
+  runCachedRoleReader,
+  runCachedPdfRoleReader,
+} from "../lib/parsers/runCachedRoleReader.js";
 import { recordAiSchemaIfPossible } from "../lib/parsers/aiSchemaRecorder.js";
 import {
   makeUploadKey,
@@ -1998,64 +1998,48 @@ weeksRouter.post(
       // pdf — Task #257). Falls through to AI if the reader can't
       // parse (stale roles) — re-running AI on the same signature will
       // overwrite the cache row.
-      try {
-        const idMap = await loadMergedIdMap();
-        // Task #363 collision guard context. Without this a cached
-        // recipe that maps an unrelated customer's employee number
-        // straight to a real KFI badge (the Trienda × Felix Baez
-        // Caballero case) would silently misroute punches on every
-        // subsequent same-format upload.
-        const cacheNameAliasMap =
-          await loadCustomerNameAliasMap(detectedCustomer);
-        const cacheDriversByKfi = new Map(
-          drivers.map(
-            (d) =>
-              [d.kfiId, { name: d.name, customer: d.customer }] as const,
-          ),
-        );
-        const badgeGuard = {
-          uploadedCustomer: detectedCustomer,
-          driversByKfi: cacheDriversByKfi,
-          nameAliasMap: cacheNameAliasMap,
-        };
-        const parsed =
-          schemaHit.format === "pdf"
-            ? await readPdfWithRoles(
-                detectedCustomer,
-                req.file.buffer,
-                schemaHit.columnRoles,
-                kfiSet,
-                idMap,
-                startDate,
-                endDate,
-                badgeGuard,
-              )
-            : readWithRoles(
-                detectedCustomer,
-                req.file.buffer,
-                schemaHit.columnRoles,
-                kfiSet,
-                idMap,
-                startDate,
-                endDate,
-                badgeGuard,
-              );
-        if (parsed && parsed.punches.length > 0) {
-          result = parsed;
-          extractSource = "cache";
-          // Stash the cache-reader's resolved rows so /confirm-customer-file
-          // commits them directly. Without this the confirm route sees an
-          // empty `extractedRows`/`pendingNamedRows` stash and falls through
-          // to the Task #352 re-extract fallback — which runs the full
-          // chunked Claude path (minutes per confirm) even though the
-          // cache hit already produced the punches deterministically.
-          stashedImageRows = imagePunchesForStash(parsed.punches);
-        }
-      } catch (err) {
-        req.log.warn(
-          { err, fileName, customer: detectedCustomer, sig: schemaHit.headerSignature },
-          "Cached role reader threw — falling through to AI",
-        );
+      const idMap = await loadMergedIdMap();
+      // Task #363 collision guard context. Without this a cached
+      // recipe that maps an unrelated customer's employee number
+      // straight to a real KFI badge (the Trienda × Felix Baez
+      // Caballero case) would silently misroute punches on every
+      // subsequent same-format upload.
+      const cacheNameAliasMap =
+        await loadCustomerNameAliasMap(detectedCustomer);
+      const parsed =
+        schemaHit.format === "pdf"
+          ? await runCachedPdfRoleReader({
+              customer: detectedCustomer,
+              buffer: req.file.buffer,
+              schemaHit,
+              drivers,
+              idMap,
+              nameAliasMap: cacheNameAliasMap,
+              weekStart: startDate,
+              weekEnd: endDate,
+              log: req.log,
+            })
+          : runCachedRoleReader({
+              customer: detectedCustomer,
+              buffer: req.file.buffer,
+              schemaHit,
+              drivers,
+              idMap,
+              nameAliasMap: cacheNameAliasMap,
+              weekStart: startDate,
+              weekEnd: endDate,
+              log: req.log,
+            });
+      if (parsed && parsed.punches.length > 0) {
+        result = parsed;
+        extractSource = "cache";
+        // Stash the cache-reader's resolved rows so /confirm-customer-file
+        // commits them directly. Without this the confirm route sees an
+        // empty `extractedRows`/`pendingNamedRows` stash and falls through
+        // to the Task #352 re-extract fallback — which runs the full
+        // chunked Claude path (minutes per confirm) even though the
+        // cache hit already produced the punches deterministically.
+        stashedImageRows = imagePunchesForStash(parsed.punches);
       }
     }
 
