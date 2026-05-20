@@ -1,0 +1,22 @@
+What's likely actually timing out
+
+Chunk size is still big enough to be slow. 180k chars ≈ 45K input tokens per chunk. Even on Sonnet, that's 15-40s just to first token, plus output time. If chunks aren't streamed individually, each one blocks for its full duration.
+6 in flight will hit your tokens-per-minute limit. 6 × 45K = 270K input tokens dispatched in seconds. Depending on your tier, Sonnet TPM is 80K-400K. Requests over the limit queue or 429, and Replit's retry logic (if any) compounds latency.
+You're using Claude as a parser. That's the architectural smell. Extracting "Employee Name" from a CSV column called "Employee Name" doesn't need an LLM. Code does that in 2ms.
+
+The piece that matters for your handoff concern
+The reason new customer formats break things isn't that you don't have AI in the loop — it's that AI is doing the wrong job in the loop. Right now Claude looks at every chunk of every file. So every new format = N chunk-sized API calls = N opportunities for timeouts, drift, and inconsistent output.
+Flip it:
+
+AI's job (once per format): look at headers + 3 sample rows, return a column-mapping JSON. Cache it keyed by customer/format fingerprint. Costs pennies, runs in 2 seconds, done.
+Code's job (every upload): apply the cached mapping, parse deterministically, filter to target employees, hand Claude a slim payload only if you need interpretation/summary.
+Fallback: if parsing throws (mapping no longer fits), invalidate the cache, re-detect schema, retry. Customer never sees it.
+
+That gives you: handles unknown formats without dev work, no per-file timeout exposure, predictable cost, and the actual extraction is deterministic.
+Ask Replit these specific questions to confirm the real bottleneck:
+
+Is stream: true set on each chunk's messages.create call, and are we reading the SSE delta-by-delta, or awaiting full JSON per chunk?
+What's the workspace's tokens-per-minute limit for the Sonnet model we're using, and have we logged any 429s or retry-after headers from api.anthropic.com?
+Where exactly does the timeout fire — Replit's HTTP layer, the SDK's internal timeout, the browser fetch, or our own Promise.race? What's the timeout value at each layer?
+What's the average latency per chunk in our logs for a successful run, and what's the p95?
+Why are we asking Claude to parse known-shape CSV at all instead of using the schema once and parsing in TS?

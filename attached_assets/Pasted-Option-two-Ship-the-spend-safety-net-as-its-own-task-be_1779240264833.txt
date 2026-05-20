@@ -1,0 +1,12 @@
+Option two. Ship the spend safety net as its own task, before #296. The guardrails are what make any further testing of #296 safe, so they need to land first regardless. Mixing them in adds review surface for no benefit.
+Scope for the new task (let's call it "spend safety net"):
+
+The six guardrails from the prior instruction, with MAX_CALLS_PER_UPLOAD=30 (sized for Adient) and a soft warning logged at 20 calls.
+Per-call token logging with usage.input_tokens, usage.output_tokens, model identifier, chunk id, and a purpose tag (structure_probe / chunk / chunk_retry / chunk_halved / gemini_fallback / recipe_derivation). We need to be able to slice future cost overruns by cause.
+Change Gemini fallback from automatic to opt-in, off by default. Gate it behind a per-customer or per-upload flag. The dispatcher cutting paychecks off a silent Gemini misread is a worse failure mode than a clean Claude failure the user can retry. For this tool, fail-clean beats fall-back. If we keep it as an option, the upload response must surface "this row set was extracted by Gemini fallback" prominently so a human reviewer knows to double-check.
+Add a one-line per-upload cost summary at ingest_done: total calls broken down by purpose, total tokens broken down by Claude vs. Gemini, total wall time, estimated USD. Cheap to compute, invaluable for spotting drift.
+
+Land safety net, verify on a TriEnda upload with logs matching the healthy envelope (~10 calls, ~80-100K tokens, ~45s, ~$0.20), then proceed with #296 normally.
+One thing worth confirming as you build this: the chunk-halving-on-truncation path — is it still useful now that we're moving to NDJSON streaming in #296? With NDJSON the truncation case becomes "resume from last completed row," not "halve and re-issue both halves." If #296 lands NDJSON, the halving path can be retired and the worst-case call count drops further. Don't change it in safety net (keep the change set small), but flag it as something #296 can simplify.
+
+That last paragraph is worth saying because it connects the two tasks — safety net bounds the bleeding now, and #296 fixes the underlying mechanism so the bleeding can't happen the same way again. Replit will appreciate the heads-up that one of the things they're currently guarding (the halving retry) can probably be deleted in the next task.

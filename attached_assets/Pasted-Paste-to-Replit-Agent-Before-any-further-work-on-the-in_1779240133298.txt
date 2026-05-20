@@ -1,0 +1,36 @@
+Paste to Replit Agent
+Before any further work on the ingestion pipeline, the previous test run consumed ~1M tokens and 500 seconds on a 763-row TriEnda file that should cost ~$0.20 and take ~45s. That cost overrun is almost certainly caused by one of: (a) full-file payload included in every chunk's prompt, (b) pipeline-level retry on timeout, or (c) an unbounded re-detection or validation-failure loop. Diagnose which of these happened before re-running anything, then put the following guardrails in place. They are mandatory and must exist before the next test upload.
+Required guardrails
+
+Per-upload API call counter. Track total client.messages.create calls per single ingestion. If the count exceeds MAX_CALLS_PER_UPLOAD=15, throw IngestionBudgetExceeded and stop the pipeline. Do not retry the pipeline from the top.
+Per-upload token budget. Track input + output tokens (from response.usage) across all calls for a single ingestion. If cumulative tokens exceed MAX_TOKENS_PER_UPLOAD=400000, throw IngestionBudgetExceeded. Surface the count to logs.
+No outer pipeline retry. If extraction fails, log the failure and return an error to the upload route. Do not re-run the ingest function. Chunk-level retry is allowed (max 2 retries per chunk, exponential backoff), but not pipeline-level.
+Chunk payload audit. Add an assertion that the prompt for each chunk extraction contains only the rows assigned to that chunk, not the full file. Log prompt_chars and assigned_row_count per chunk. If prompt_chars exceeds assigned_row_count × 500, throw — that means the full file is being passed in.
+Validation-failure recovery cap. If a cached recipe fails validation, allow exactly 1 re-detection attempt for that upload. If the fresh recipe also fails, surface failure — do not loop.
+Token logging per call. Every messages.create response logs usage.input_tokens, usage.output_tokens, the model, and the chunk identifier. Needed to diagnose any future cost overrun retroactively.
+
+Healthy-run log spec
+After the guardrails are in, a successful TriEnda day-one upload (763 rows, clean structured xlsx) should produce a log shape approximately like this:
+ingest_start  customer=trienda rows=763
+claude_call   purpose=structure_probe input_tokens=2100 output_tokens=400 elapsed=3.2s
+claude_call   purpose=chunk chunk=1/8 rows=100 input_tokens=4800 output_tokens=2900 elapsed=8.1s
+claude_call   purpose=chunk chunk=2/8 rows=100 input_tokens=4700 output_tokens=2850 elapsed=7.9s
+... (continues for chunks 3-7) ...
+claude_call   purpose=chunk chunk=8/8 rows=63  input_tokens=3200 output_tokens=1800 elapsed=6.4s
+claude_call   purpose=recipe_derivation input_tokens=8000 output_tokens=1200 elapsed=5.0s   [async, non-blocking]
+ingest_done   customer=trienda rows=763 total_calls=10 total_tokens=82000 elapsed=42s
+Expected envelope for a healthy run:
+
+Total API calls per upload: ~10 (1 structure probe + ~8 chunks + 1 recipe derivation)
+Total tokens per upload: ~80-100K
+Total wall time: ~45 seconds
+Total cost: ~$0.20
+
+If the next test run does not roughly match this shape, the leak is not fully fixed.
+Diagnostic ask before fixing anything
+Confirm in writing which of (a), (b), (c) above caused the previous 500-second / $3 incident. Look at the previous run's logs (or instrument briefly to reproduce safely with MAX_TOKENS_PER_UPLOAD=50000 so it self-aborts before another $3 bill) and tell me which of the three patterns was happening. Then implement the guardrails. Then re-test on the TriEnda file with verbose logging on and report the actual numbers against the envelope above.
+
+That's the full message. Two things to keep in mind as you watch the response:
+
+If Replit Agent comes back saying "all three caused it," push back and ask which one accounts for the bulk of the tokens. Usually it's one dominant cause.
+The MAX_TOKENS_PER_UPLOAD=50000 in the diagnostic step is intentionally small — it'll self-abort fast if the leak is still there, so your next test costs cents, not dollars. Once Agent confirms the fix, raise it back to 400K.

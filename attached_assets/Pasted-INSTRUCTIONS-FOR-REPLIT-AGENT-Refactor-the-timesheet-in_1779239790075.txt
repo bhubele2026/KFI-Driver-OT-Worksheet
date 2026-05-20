@@ -1,0 +1,534 @@
+INSTRUCTIONS FOR REPLIT AGENT
+Refactor the timesheet ingestion pipeline so it can handle multiple file types from multiple customers, recognize formats automatically, remember them per customer, and stop sending huge payloads to the Claude API. The current pipeline that sends CSV chunks of the whole file to Claude on every upload is the source of the timeouts and the cost. Replace that approach with the design below.
+Stack: Node/TypeScript, Postgres, Drizzle ORM, Anthropic SDK. Customer identity is already resolved at upload time via customers.filenameKeywords matching — that gives us a stable customerId before any AI runs.
+
+1. Install dependencies
+bashnpm install xlsx sharp pdf-to-img pdfjs-dist @anthropic-ai/sdk
+
+xlsx (SheetJS) — parse spreadsheets in pure JS
+sharp — resize/grayscale images server-side
+pdf-to-img — rasterize scanned PDF pages to PNG buffers
+pdfjs-dist — extract text from text-based PDFs
+@anthropic-ai/sdk — official client
+
+
+2. New Drizzle table
+Add to the schema file (adjust import path to wherever customers lives):
+typescriptimport { pgTable, serial, integer, text, jsonb, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { customers } from './customers';
+
+export const customerSchemas = pgTable('customer_schemas', {
+  id: serial('id').primaryKey(),
+  customerId: integer('customer_id').notNull().references(() => customers.id, { onDelete: 'cascade' }),
+  lane: text('lane').notNull(), // 'structured' | 'text_layout' | 'visual'
+  fileType: text('file_type').notNull(), // 'xlsx' | 'csv' | 'pdf_text' | 'pdf_scanned' | 'image'
+  fingerprint: text('fingerprint').notNull(),
+  extractionSpec: jsonb('extraction_spec').notNull(),
+  sampleHeaders: jsonb('sample_headers'), // null for visual lane
+  detectionModel: text('detection_model').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => ({
+  uniqByCustomerLaneFp: uniqueIndex('customer_schemas_unique_idx')
+    .on(t.customerId, t.lane, t.fileType, t.fingerprint),
+}));
+Then run:
+bashnpx drizzle-kit generate
+npx drizzle-kit migrate
+
+3. Canonical fields
+The fields every parsed file produces, regardless of lane:
+typescript// lib/canonical.ts
+export const CANONICAL_FIELDS = [
+  'employee_id', 'employee_name', 'date',
+  'time_in', 'time_out',
+  'hours', 'regular_hours', 'overtime_hours',
+  'pay_category', 'job_title', 'department', 'location', 'shift',
+] as const;
+
+export type CanonicalField = typeof CANONICAL_FIELDS[number];
+
+export type CanonicalRow = Partial<Record<CanonicalField, string | number | null>>;
+
+export type ExtractionSpec =
+  | { lane: 'structured'; columnMapping: Record<CanonicalField, string | null> }
+  | { lane: 'text_layout'; anchors: Array<{ field: CanonicalField; pattern: string; flags?: string }> }
+  | { lane: 'visual'; templateDescription: string; fieldLocations: Record<CanonicalField, string> };
+
+4. File router
+lib/fileRouter.ts — decides the lane for an incoming file:
+typescriptimport { extname } from 'path';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import * as XLSX from 'xlsx';
+import { pdf } from 'pdf-to-img';
+
+export type Lane = 'structured' | 'text_layout' | 'visual';
+export type FileType = 'xlsx' | 'csv' | 'pdf_text' | 'pdf_scanned' | 'image';
+
+export interface RoutedFile {
+  lane: Lane;
+  fileType: FileType;
+  // for structured:
+  headers?: string[];
+  rows?: Record<string, unknown>[];
+  // for text_layout:
+  text?: string;
+  // for visual:
+  imageBuffers?: Buffer[]; // one per page
+}
+
+const IMAGE_EXTS = new Set(['.png','.jpg','.jpeg','.webp','.heic','.gif','.bmp']);
+const MAX_SCANNED_PAGES = 50;
+
+export async function routeFile(buf: Buffer, filename: string): Promise<RoutedFile> {
+  const ext = extname(filename).toLowerCase();
+
+  if (ext === '.xlsx' || ext === '.xlsm') {
+    const wb = XLSX.read(buf, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
+    const headers = rows.length ? Object.keys(rows[0]) : [];
+    return { lane: 'structured', fileType: 'xlsx', headers, rows };
+  }
+
+  if (ext === '.csv') {
+    const wb = XLSX.read(buf, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
+    const headers = rows.length ? Object.keys(rows[0]) : [];
+    return { lane: 'structured', fileType: 'csv', headers, rows };
+  }
+
+  if (ext === '.pdf') {
+    // try text extraction first
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+    let combined = '';
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const tc = await page.getTextContent();
+      combined += tc.items.map((it: any) => it.str).join(' ') + '\n';
+    }
+    const charsPerPage = combined.length / doc.numPages;
+
+    if (charsPerPage > 100) {
+      // text PDF — decide structured vs text_layout by tabular-hint heuristic
+      const tabularLines = combined.split('\n').filter(l =>
+        (l.match(/\t/g)?.length ?? 0) >= 3 ||
+        (l.match(/\s{3,}/g)?.length ?? 0) >= 3 ||
+        (l.match(/,/g)?.length ?? 0) >= 3
+      ).length;
+      if (tabularLines >= 5) {
+        // promote to structured — re-parse as CSV-like
+        // For simplicity, route to text_layout and let the extraction spec handle it.
+        return { lane: 'text_layout', fileType: 'pdf_text', text: combined };
+      }
+      return { lane: 'text_layout', fileType: 'pdf_text', text: combined };
+    }
+
+    // scanned PDF — rasterize pages
+    if (doc.numPages > MAX_SCANNED_PAGES) {
+      throw new Error(`Scanned PDF exceeds ${MAX_SCANNED_PAGES} pages — please split before upload.`);
+    }
+    const imageBuffers: Buffer[] = [];
+    for await (const page of await pdf(buf, { scale: 2 })) {
+      imageBuffers.push(page);
+    }
+    return { lane: 'visual', fileType: 'pdf_scanned', imageBuffers };
+  }
+
+  if (IMAGE_EXTS.has(ext)) {
+    return { lane: 'visual', fileType: 'image', imageBuffers: [buf] };
+  }
+
+  throw new Error(`Unsupported file type: ${ext}`);
+}
+
+5. Image preprocessing
+lib/imagePrep.ts — keeps Lane C cheap by resizing before sending:
+typescriptimport sharp from 'sharp';
+import { createHash } from 'crypto';
+
+const MAX_LONG_EDGE = 1500;
+
+export async function prepareImage(buf: Buffer): Promise<{ base64: string; mediaType: 'image/png' }> {
+  const out = await sharp(buf)
+    .rotate() // auto-orient via EXIF
+    .resize({ width: MAX_LONG_EDGE, height: MAX_LONG_EDGE, fit: 'inside', withoutEnlargement: true })
+    .png({ quality: 85 })
+    .toBuffer();
+  return { base64: out.toString('base64'), mediaType: 'image/png' };
+}
+
+export async function visualFingerprint(buf: Buffer): Promise<string> {
+  // perceptual-ish hash: tiny grayscale thumbnail, hash the bytes
+  const thumb = await sharp(buf).resize(16, 16, { fit: 'fill' }).grayscale().raw().toBuffer();
+  return createHash('sha256').update(thumb).digest('hex');
+}
+
+6. Fingerprinting helpers
+lib/fingerprint.ts:
+typescriptimport { createHash } from 'crypto';
+
+export function structuredFingerprint(headers: string[]): string {
+  const normalized = headers
+    .map(h => String(h ?? '').trim().toLowerCase().replace(/\s+/g, ' '))
+    .filter(Boolean)
+    .sort();
+  return createHash('sha256').update(normalized.join('|')).digest('hex');
+}
+
+export function textLayoutFingerprint(text: string): string {
+  const sample = text
+    .slice(0, 1000)
+    .replace(/\d/g, '#')           // collapse digits
+    .replace(/\s+/g, ' ')          // collapse whitespace
+    .trim()
+    .toLowerCase();
+  return createHash('sha256').update(sample).digest('hex');
+}
+(Visual fingerprint is computed inside imagePrep.ts above.)
+
+7. Schema cache + Claude detection
+lib/schemaCache.ts:
+typescriptimport Anthropic from '@anthropic-ai/sdk';
+import { db } from '../db';
+import { customerSchemas } from '../db/schema';
+import { and, eq } from 'drizzle-orm';
+import type { ExtractionSpec, CanonicalRow } from './canonical';
+import { CANONICAL_FIELDS } from './canonical';
+import { prepareImage } from './imagePrep';
+
+const client = new Anthropic();
+const MODEL = 'claude-sonnet-4-5'; // confirm exact id in your account; update as new versions ship
+
+function parseJsonFromText(s: string): any {
+  const cleaned = s.trim().replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+  return JSON.parse(cleaned);
+}
+
+// ----- STRUCTURED -----
+
+export async function detectStructured(headers: string[], sampleRows: any[]): Promise<ExtractionSpec> {
+  const resp = await client.messages.create({
+    model: MODEL,
+    max_tokens: 1024,
+    messages: [{
+      role: 'user',
+      content: `Map these timesheet columns to canonical field names. Return ONLY a JSON object, no prose, no markdown fences.
+
+Canonical fields: ${CANONICAL_FIELDS.join(', ')}
+
+Headers: ${JSON.stringify(headers)}
+Sample rows: ${JSON.stringify(sampleRows.slice(0, 3))}
+
+For each canonical field return the exact header string from the file or null if none. Example: {"employee_name":"Worker Name","hours":"Total Hrs","department":null}`,
+    }],
+  });
+  const text = resp.content.filter(b => b.type === 'text').map((b: any) => b.text).join('');
+  return { lane: 'structured', columnMapping: parseJsonFromText(text) };
+}
+
+// ----- TEXT LAYOUT -----
+
+export async function detectTextLayout(textSample: string): Promise<ExtractionSpec> {
+  const resp = await client.messages.create({
+    model: MODEL,
+    max_tokens: 2048,
+    messages: [{
+      role: 'user',
+      content: `This timesheet is free-form text, not a table. Identify regex patterns that locate each canonical field. Return ONLY a JSON object, no prose, no markdown fences.
+
+Canonical fields: ${CANONICAL_FIELDS.join(', ')}
+
+Text sample (first 2000 chars):
+${textSample.slice(0, 2000)}
+
+Format: {"anchors":[{"field":"employee_name","pattern":"Employee:\\\\s+([A-Z][a-z]+,\\\\s+[A-Z][a-z]+)","flags":"g"}, ...]}
+Use a single capture group per pattern. Omit fields you can't pattern-match.`,
+    }],
+  });
+  const text = resp.content.filter(b => b.type === 'text').map((b: any) => b.text).join('');
+  const parsed = parseJsonFromText(text);
+  return { lane: 'text_layout', anchors: parsed.anchors };
+}
+
+// ----- VISUAL -----
+
+export interface VisualExtractionResult {
+  spec: ExtractionSpec; // for caching
+  rows: CanonicalRow[]; // immediate extraction result
+}
+
+export async function detectAndExtractVisual(
+  imageBuffers: Buffer[],
+  cachedHint?: { templateDescription: string; fieldLocations: Record<string, string> }
+): Promise<VisualExtractionResult> {
+  const allRows: CanonicalRow[] = [];
+  let firstSpec: ExtractionSpec | null = null;
+
+  for (const buf of imageBuffers) {
+    const { base64, mediaType } = await prepareImage(buf);
+
+    const hintText = cachedHint
+      ? `\n\nHINT — we have seen this template before. Layout: ${cachedHint.templateDescription}\nField locations: ${JSON.stringify(cachedHint.fieldLocations)}\nUse this hint to extract faster and more reliably.`
+      : '';
+
+    const resp = await client.messages.create({
+      model: MODEL,
+      max_tokens: 4096,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          {
+            type: 'text',
+            text: `This is a timesheet image. Extract every row of punch data into canonical JSON.${hintText}
+
+Canonical fields: ${CANONICAL_FIELDS.join(', ')}
+
+Return ONLY a JSON object, no prose, no markdown fences:
+{
+  "rows": [{...canonical fields, use null for missing...}, ...],
+  "templateDescription": "Short description of the layout (e.g. 'Two-column layout with company header at top, punch table in middle, signature at bottom')",
+  "fieldLocations": {"employee_name":"top-left under logo","date":"header right side", ...}
+}`,
+          },
+        ],
+      }],
+    });
+
+    const text = resp.content.filter(b => b.type === 'text').map((b: any) => b.text).join('');
+    const parsed = parseJsonFromText(text);
+
+    if (Array.isArray(parsed.rows)) allRows.push(...parsed.rows);
+    if (!firstSpec && parsed.templateDescription) {
+      firstSpec = {
+        lane: 'visual',
+        templateDescription: parsed.templateDescription,
+        fieldLocations: parsed.fieldLocations || {},
+      };
+    }
+  }
+
+  if (!firstSpec) {
+    firstSpec = { lane: 'visual', templateDescription: 'unknown', fieldLocations: {} };
+  }
+  return { spec: firstSpec, rows: allRows };
+}
+
+// ----- CACHE OPS -----
+
+export async function getCachedSpec(
+  customerId: number, lane: string, fileType: string, fingerprint: string
+): Promise<ExtractionSpec | null> {
+  const rows = await db.select().from(customerSchemas).where(and(
+    eq(customerSchemas.customerId, customerId),
+    eq(customerSchemas.lane, lane),
+    eq(customerSchemas.fileType, fileType),
+    eq(customerSchemas.fingerprint, fingerprint),
+  )).limit(1);
+  return rows[0]?.extractionSpec as ExtractionSpec ?? null;
+}
+
+export async function saveSpec(args: {
+  customerId: number; lane: string; fileType: string; fingerprint: string;
+  spec: ExtractionSpec; sampleHeaders?: string[] | null;
+}) {
+  await db.insert(customerSchemas).values({
+    customerId: args.customerId,
+    lane: args.lane,
+    fileType: args.fileType,
+    fingerprint: args.fingerprint,
+    extractionSpec: args.spec,
+    sampleHeaders: args.sampleHeaders ?? null,
+    detectionModel: MODEL,
+  }).onConflictDoNothing();
+}
+
+export async function invalidateSpec(
+  customerId: number, lane: string, fileType: string, fingerprint: string
+) {
+  await db.delete(customerSchemas).where(and(
+    eq(customerSchemas.customerId, customerId),
+    eq(customerSchemas.lane, lane),
+    eq(customerSchemas.fileType, fileType),
+    eq(customerSchemas.fingerprint, fingerprint),
+  ));
+}
+
+8. Applying the cached spec to actual rows
+lib/applySpec.ts:
+typescriptimport type { CanonicalRow, ExtractionSpec } from './canonical';
+import { CANONICAL_FIELDS } from './canonical';
+
+export function applyStructured(rows: Record<string, unknown>[], spec: Extract<ExtractionSpec, { lane: 'structured' }>): CanonicalRow[] {
+  return rows.map(row => {
+    const out: CanonicalRow = {};
+    for (const field of CANONICAL_FIELDS) {
+      const sourceCol = spec.columnMapping[field];
+      out[field] = sourceCol ? (row[sourceCol] as any) ?? null : null;
+    }
+    return out;
+  });
+}
+
+export function applyTextLayout(text: string, spec: Extract<ExtractionSpec, { lane: 'text_layout' }>): CanonicalRow[] {
+  // naive multi-match: produce one row per index across captured groups
+  const fieldArrays: Record<string, string[]> = {};
+  for (const a of spec.anchors) {
+    const re = new RegExp(a.pattern, a.flags ?? 'g');
+    const matches = [...text.matchAll(re)].map(m => m[1]);
+    fieldArrays[a.field] = matches;
+  }
+  const length = Math.max(0, ...Object.values(fieldArrays).map(v => v.length));
+  const out: CanonicalRow[] = [];
+  for (let i = 0; i < length; i++) {
+    const row: CanonicalRow = {};
+    for (const field of CANONICAL_FIELDS) {
+      row[field] = fieldArrays[field]?.[i] ?? null;
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+export function validateCanonical(rows: CanonicalRow[]): void {
+  if (rows.length === 0) throw new Error('No rows extracted');
+  const nameNull = rows.filter(r => !r.employee_name).length;
+  const dateNull = rows.filter(r => !r.date).length;
+  const total = rows.length;
+  if (nameNull / total > 0.1) throw new Error(`employee_name null on ${nameNull}/${total} rows`);
+  if (dateNull / total > 0.1) throw new Error(`date null on ${dateNull}/${total} rows`);
+}
+
+9. The main ingestion handler
+lib/ingest.ts — this is the function the upload route calls after resolving customerId:
+typescriptimport { routeFile } from './fileRouter';
+import { structuredFingerprint, textLayoutFingerprint } from './fingerprint';
+import { visualFingerprint } from './imagePrep';
+import {
+  getCachedSpec, saveSpec, invalidateSpec,
+  detectStructured, detectTextLayout, detectAndExtractVisual
+} from './schemaCache';
+import { applyStructured, applyTextLayout, validateCanonical } from './applySpec';
+import type { CanonicalRow } from './canonical';
+import { logger } from './logger'; // your existing logger
+
+export async function ingestTimesheet(buf: Buffer, filename: string, customerId: number): Promise<{
+  rows: CanonicalRow[];
+  meta: { lane: string; fileType: string; fingerprint: string; cacheHit: boolean; cacheInvalidated: boolean };
+}> {
+  const routed = await routeFile(buf, filename);
+  let cacheInvalidated = false;
+
+  // ---------- STRUCTURED ----------
+  if (routed.lane === 'structured') {
+    const fp = structuredFingerprint(routed.headers!);
+    let spec = await getCachedSpec(customerId, 'structured', routed.fileType, fp);
+    let cacheHit = !!spec;
+
+    if (!spec) {
+      spec = await detectStructured(routed.headers!, routed.rows!);
+      await saveSpec({ customerId, lane: 'structured', fileType: routed.fileType, fingerprint: fp, spec, sampleHeaders: routed.headers });
+    }
+
+    let rows: CanonicalRow[];
+    try {
+      rows = applyStructured(routed.rows!, spec as any);
+      validateCanonical(rows);
+    } catch (err) {
+      logger.warn({ customerId, fp, err: String(err) }, 'structured spec failed, re-detecting');
+      await invalidateSpec(customerId, 'structured', routed.fileType, fp);
+      cacheInvalidated = true;
+      cacheHit = false;
+      const fresh = await detectStructured(routed.headers!, routed.rows!);
+      await saveSpec({ customerId, lane: 'structured', fileType: routed.fileType, fingerprint: fp, spec: fresh, sampleHeaders: routed.headers });
+      rows = applyStructured(routed.rows!, fresh as any);
+      validateCanonical(rows);
+    }
+
+    logger.info({ customerId, lane: 'structured', fileType: routed.fileType, fingerprint: fp, cacheHit, cacheInvalidated, rowCount: rows.length }, 'ingest');
+    return { rows, meta: { lane: 'structured', fileType: routed.fileType, fingerprint: fp, cacheHit, cacheInvalidated } };
+  }
+
+  // ---------- TEXT LAYOUT ----------
+  if (routed.lane === 'text_layout') {
+    const fp = textLayoutFingerprint(routed.text!);
+    let spec = await getCachedSpec(customerId, 'text_layout', routed.fileType, fp);
+    let cacheHit = !!spec;
+
+    if (!spec) {
+      spec = await detectTextLayout(routed.text!);
+      await saveSpec({ customerId, lane: 'text_layout', fileType: routed.fileType, fingerprint: fp, spec });
+    }
+
+    let rows: CanonicalRow[];
+    try {
+      rows = applyTextLayout(routed.text!, spec as any);
+      validateCanonical(rows);
+    } catch (err) {
+      logger.warn({ customerId, fp, err: String(err) }, 'text_layout spec failed, re-detecting');
+      await invalidateSpec(customerId, 'text_layout', routed.fileType, fp);
+      cacheInvalidated = true;
+      cacheHit = false;
+      const fresh = await detectTextLayout(routed.text!);
+      await saveSpec({ customerId, lane: 'text_layout', fileType: routed.fileType, fingerprint: fp, spec: fresh });
+      rows = applyTextLayout(routed.text!, fresh as any);
+      validateCanonical(rows);
+    }
+
+    logger.info({ customerId, lane: 'text_layout', fileType: routed.fileType, fingerprint: fp, cacheHit, cacheInvalidated, rowCount: rows.length }, 'ingest');
+    return { rows, meta: { lane: 'text_layout', fileType: routed.fileType, fingerprint: fp, cacheHit, cacheInvalidated } };
+  }
+
+  // ---------- VISUAL ----------
+  // Fingerprint is computed from page 1 of the file.
+  const fp = await visualFingerprint(routed.imageBuffers![0]);
+  let cachedSpec = await getCachedSpec(customerId, 'visual', routed.fileType, fp);
+  const cacheHit = !!cachedSpec;
+
+  const hint = cachedSpec && 'templateDescription' in (cachedSpec as any)
+    ? { templateDescription: (cachedSpec as any).templateDescription, fieldLocations: (cachedSpec as any).fieldLocations ?? {} }
+    : undefined;
+
+  const { spec, rows } = await detectAndExtractVisual(routed.imageBuffers!, hint);
+  if (!cacheHit) {
+    await saveSpec({ customerId, lane: 'visual', fileType: routed.fileType, fingerprint: fp, spec });
+  }
+
+  // visual lane doesn't strictly require validation, but we still flag empty results
+  if (rows.length === 0) {
+    logger.warn({ customerId, fp }, 'visual extraction returned zero rows');
+  }
+
+  logger.info({ customerId, lane: 'visual', fileType: routed.fileType, fingerprint: fp, cacheHit, cacheInvalidated: false, rowCount: rows.length, pages: routed.imageBuffers!.length }, 'ingest');
+  return { rows, meta: { lane: 'visual', fileType: routed.fileType, fingerprint: fp, cacheHit, cacheInvalidated: false } };
+}
+
+10. Wire it into the upload route
+In the existing upload endpoint, after the filename-keyword match resolves customerId:
+typescriptconst { rows, meta } = await ingestTimesheet(fileBuffer, originalFilename, customerId);
+// rows is now CanonicalRow[] — the rest of the app can consume this uniformly
+// meta tells you whether it was a cache hit, miss, or invalidation
+Remove the old xlsxToChunks + parallel-Claude-dispatch path entirely. It no longer runs for parsing. If you still want Claude to produce summaries, anomaly detection, or per-driver punch reports, do that as a separate messages.create call on the already-filtered rows — with stream: true and a 300s HTTP timeout.
+
+11. HTTP client settings
+When constructing the Anthropic client, set a generous request timeout:
+typescriptconst client = new Anthropic({ timeout: 300_000 }); // 5 minutes
+
+12. Admin endpoints (optional but useful)
+typescript// GET /admin/schemas/:customerId — list all cached specs for a customer
+// DELETE /admin/schemas/:id — force re-detection on next matching upload
+These give Brad a way to inspect what got cached and nuke a bad mapping without going into the database.
+
+13. Logging
+Every ingest call should log structured JSON with these fields: customerId, lane, fileType, fingerprint, cacheHit, cacheInvalidated, rowCount. Add a weekly aggregate query so we can see how often new formats appear per customer — that signals whether the system is stabilizing.
+
+14. Don't break the existing app
+
+Keep the response shape the rest of the app expects. If the current pipeline returns { employees: [...] } or similar, wrap rows accordingly.
+Migrate one customer at a time if helpful — gate the new pipeline behind a feature flag like INGEST_V2=1 per customer until it's proven.
+The previous Claude-chunking code can stay in the repo (commented or behind the flag) until the new pipeline is verified on every active customer's last 3 uploads.
+
+
+End of instructions. Tell me what Replit pushes back on and I'll help you respond.
