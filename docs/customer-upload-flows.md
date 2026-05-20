@@ -122,6 +122,34 @@ Bulk upload behavior is intentionally unchanged: the bulk loop never sets
 "Already up to date" without walking the dispatcher through a no-op
 preview.
 
+### Per-row uploads must branch on `skipped` (Task #381)
+
+The same-bytes short-circuit returns a very specific shape:
+
+```json
+{
+  "customer": "...", "fileName": "...", "weekStart": "...",
+  "skipped": true, "sampleId": null, "rows": [],
+  "unmappedIds": [], "existingPunchCount": 0
+}
+```
+
+All three frontend callers — bulk `doOneShot`, the panel-level
+`extractFor` in `components/customer-upload-panel.tsx`, and the
+hook-level `extractFor` in `hooks/use-customer-uploads.tsx` — MUST
+inspect `data.skipped` before doing anything else with the response.
+The bulk path renders it as a "skipped" badge in the result list; the
+per-row paths show a neutral `customerUpload.alreadyImported*` toast
+and leave the row's prior import untouched.
+
+Before #381 the two per-row wrappers blindly fed the response into the
+preview dialog, which rendered a 0-row preview for Burnett (xlsx) and
+DeLallo (pdf) on identical re-uploads and then fired
+`DELETE /weeks/:ws/extract-customer-file/null` (400) on cancel because
+`sampleId` was `null`. The contract is now pinned by
+`artifacts/api-server/src/lib/__tests__/extract-skip-shape-contract.test.ts`,
+which also locks the per-row callers to read `data.skipped`.
+
 ## Re-upload preserves other drivers (Task #377)
 
 The `/confirm-customer-file` wipe-and-reinsert scopes its DELETE to only

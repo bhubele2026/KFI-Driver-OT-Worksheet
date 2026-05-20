@@ -369,7 +369,7 @@ class CustomerUploadStore {
         },
       );
       const body = (await res.json().catch(() => null)) as
-        | (CustomerPreviewData & { error?: string })
+        | (CustomerPreviewData & { skipped?: boolean; error?: string })
         | { error?: string }
         | null;
       if (!res.ok) {
@@ -378,7 +378,7 @@ class CustomerUploadStore {
             tr("customerUpload.uploadFailedFallback"),
         );
       }
-      const data = body as CustomerPreviewData;
+      const data = body as CustomerPreviewData & { skipped?: boolean };
       const isCurrent = rec.rowAborts.get(customer) === controller;
       if (!isCurrent) return;
       this.setRow(weekStart, customer, {
@@ -386,6 +386,17 @@ class CustomerUploadStore {
         error: null,
         uploadStartedAt: null,
       });
+      // Task #381: never enqueue a `skipped:true` response as a preview —
+      // it has `sampleId:null` and `rows:[]`, which would render an empty
+      // preview dialog and trigger a DELETE /…/null on cancel. Surface a
+      // neutral toast so the dispatcher knows the prior import is intact.
+      if (data.skipped) {
+        this.deps.toast?.({
+          title: tr("customerUpload.alreadyImportedTitle", { customer }),
+          description: tr("customerUpload.alreadyImportedDesc"),
+        });
+        return;
+      }
       // Stash the preview so it survives the panel unmount/remount. Panel
       // pops these one at a time.
       this.mutate(weekStart, (s) => ({

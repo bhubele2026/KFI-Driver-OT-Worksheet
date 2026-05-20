@@ -803,7 +803,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
             t("customerUpload.uploadFailedFallback"),
         );
       }
-      const data = body as CustomerPreviewData;
+      const data = body as CustomerPreviewData & { skipped?: boolean };
       // Guard against a stale response clobbering a newer upload on the
       // same row: if the dispatcher canceled or kicked off another
       // upload while this one was in flight, drop the result on the
@@ -814,6 +814,19 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         error: null,
         uploadStartedAt: null,
       });
+      // Task #381: the server short-circuits identical re-uploads with
+      // `{ skipped: true, sampleId: null, rows: [] }`. The bulk path
+      // already handles this, but per-row uploads used to open a 0-row
+      // preview dialog (and fire a follow-up DELETE /…/null) when the
+      // dispatcher dropped the same file twice. Surface a neutral toast
+      // and leave the prior import in place instead.
+      if (data.skipped) {
+        toast({
+          title: t("customerUpload.alreadyImportedTitle", { customer }),
+          description: t("customerUpload.alreadyImportedDesc"),
+        });
+        return;
+      }
       setPreview(data);
       setPreviewOpen(true);
     } catch (err) {

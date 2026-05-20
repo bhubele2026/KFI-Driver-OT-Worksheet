@@ -1189,6 +1189,8 @@
     "errorAiInvalidJson": "AI couldn't read this file end-to-end. Try uploading the original spreadsheet or a clearer scan, then re-try.",
     "errorAiGeneric": "AI couldn't read this file. Try a clearer scan or the original export, then re-try.",
     "extractFailedTitle": "{{customer}} extract failed",
+    "alreadyImportedTitle": "{{customer}} already imported",
+    "alreadyImportedDesc": "These bytes match the file you already confirmed for this week, so the existing rows were kept. Edit the file and re-upload, or use Re-upload to force a fresh preview.",
     "uploadFailedTitle": "{{customer}} upload failed",
     "uploadedTitle": "{{customer}} uploaded",
     "uploadedDesc": "Imported {{count}} punches.",

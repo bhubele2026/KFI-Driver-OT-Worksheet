@@ -1187,6 +1187,8 @@
     "errorAiInvalidJson": "La IA no pudo leer el archivo de principio a fin. Suba la hoja de cálculo original o un escaneo más claro y vuelva a intentarlo.",
     "errorAiGeneric": "La IA no pudo leer este archivo. Pruebe un escaneo más claro o el archivo original y vuelva a intentarlo.",
     "extractFailedTitle": "Falló la extracción de {{customer}}",
+    "alreadyImportedTitle": "{{customer}} ya importado",
+    "alreadyImportedDesc": "Estos bytes coinciden con el archivo que ya confirmó para esta semana, por lo que se conservaron las filas existentes. Edite el archivo y vuelva a subirlo, o use Volver a subir para forzar una nueva vista previa.",
     "uploadFailedTitle": "Falló la subida de {{customer}}",
     "uploadedTitle": "Se subió {{customer}}",
     "uploadedDesc": "Se importaron {{count}} registros.",
