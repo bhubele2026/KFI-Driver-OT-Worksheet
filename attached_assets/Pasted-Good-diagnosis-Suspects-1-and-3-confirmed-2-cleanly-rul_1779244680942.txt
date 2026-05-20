@@ -1,0 +1,18 @@
+Good diagnosis. Suspects 1 and 3 confirmed, 2 cleanly ruled out. The 245s of pacer sleep on a 7.5K-token call is unambiguous evidence the pacer is over-counting.
+One concern on the proposed direction: per-ingestion pacers would fix cross-upload pollution but break the global TPM enforcement the pacer exists for. Your workspace has ONE Anthropic TPM budget per API key — if two uploads run in parallel with independent pacers, they'll both think they have the full budget and collectively blow past it, triggering 429s on both.
+Suggested architecture: keep the pacer a process-level singleton (correct — one TPM budget for the whole process), but fix its event-eviction so the bucket state stays accurate:
+
+Events evict on upload completion (success or failure) — when an ingestion finishes, all its in-flight events are immediately removed from the bucket. Today they survive until the 60s window naturally evicts them.
+Events evict on the natural 60s rolling window — this stays as a backstop for events that somehow weren't claimed by an ingestion (or where the ingestion crashed without cleanup).
+Optional: a per-ingestion AbortSignal on each event so the singleton pacer can know which ingestion owns which event. When the upload completes/fails, abort the signal and the pacer drops all its events. This is the cleanest API.
+
+Concretely: today _pacersByProvider.get('claude').events is an append-only array. After fix: each event in that array is tagged with an ingestionId. On ingest_done, call pacer.releaseIngestion(ingestionId) which removes all matching events. On the next upload, the bucket reflects only currently-active load — not the ghost of Adient's 36 chunks from 3 minutes ago.
+Two extra asks while we're touching this:
+
+Add a test: simulate one ingestion completing, then a second starting immediately. Assert the second ingestion's first call dispatches without waiting on the first ingestion's events.
+Log pacer state on every chunk dispatch: pacer_state: { currentBucket, capacity, eventsInBucket, oldestEventAge }. So next time anyone wonders "is the pacer throttling me?" the log answers it in one line.
+
+This sits in front of #307 as you suggested. Once it lands, re-test Burnett and Schuette in isolation (should be 15-25s as originally estimated). Then re-test with two uploads running concurrently (should each complete in roughly the same time, plus modest pacer-driven slowdown if they truly exceed TPM).
+
+That's the technically correct architectural answer. Per-ingestion isolation is the right symptom, but per-ingestion pacers is the wrong implementation — singleton-with-cleanup gives you both correct global rate limiting AND no cross-upload pollution.
+If Replit pushes back and says "actually we want per-ingestion pacers and we'll accept the TPM overrun risk because uploads rarely run concurrently in practice" — that's also a defensible call for a small dispatcher tool. Just make sure that's a conscious choice and not an accident.
