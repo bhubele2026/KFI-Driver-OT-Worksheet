@@ -150,12 +150,14 @@ test.fixme("dispatcher can override and reset a daily total; punches scale propo
   expect(Math.abs(sum - 8.5)).toBeLessThan(0.005);
   for (const r of after.rows) expect(r.edited).toBe(true);
 
-  // Reset puts it back to the engine-derived 8.45 (clock-in/out diff). The
-  // reset button (Undo2) renders next to every overridden day's Hours
-  // number, so target the first row's reset.
+  // Re-opening the editor on an overridden day pre-fills with the
+  // currently-displayed (overridden) value, so a one-digit tweak stays a
+  // one-digit edit rather than restoring the engine-derived total.
   await page
-    .getByTestId(`button-reset-day-total-${PUNCH_DATE}`)
+    .getByTestId(`button-edit-day-total-${PUNCH_DATE}`)
     .first()
     .click();
-  await expect(totalDriverRow).toContainText("8.45");
+  await expect(page.getByTestId(`input-day-total-${PUNCH_DATE}`)).toHaveValue(
+    "8.50",
+  );
 });

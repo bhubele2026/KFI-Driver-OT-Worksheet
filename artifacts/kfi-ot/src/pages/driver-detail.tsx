@@ -26,7 +26,6 @@ import {
   useCreateDriverNote,
   useSoftDeleteDriverNote,
   useScaleDayHours,
-  useResetDayHours,
   getGetDriverWeekQueryKey,
   getGetWeekSummaryQueryKey,
   getGetDriverWeekAuditQueryKey,
@@ -442,7 +441,6 @@ export default function DriverDetail() {
   // editor only appears once even if a day has multiple punches.
   const [editingDayRowId, setEditingDayRowId] = useState<number | null>(null);
   const scaleDayHours = useScaleDayHours();
-  const resetDayHours = useResetDayHours();
 
   // Notes ------------------------------------------------------------------
   const { data: notes } = useListDriverNotes(weekStart, kfiId);
@@ -917,27 +915,6 @@ export default function DriverDetail() {
           toast({ title: t("driverDetail.toasts.dailyTotalSet", { hours: target.toFixed(2) }) });
         },
         onError: (err) => handleLockedError(err, t("driverDetail.couldntUpdateDailyTotal")),
-      },
-    );
-  };
-
-  const handleResetDay = (date: string) => {
-    if (!confirm(t("driverDetail.resetDayConfirm", { date }))) {
-      return;
-    }
-    resetDayHours.mutate(
-      { weekStart, kfiId, date },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({
-            queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
-          });
-          queryClient.invalidateQueries({
-            queryKey: getGetWeekSummaryQueryKey(weekStart),
-          });
-          toast({ title: t("driverDetail.toasts.dailyTotalReset", { date }) });
-        },
-        onError: (err) => handleLockedError(err, t("driverDetail.couldntResetDailyTotal")),
       },
     );
   };
@@ -1978,8 +1955,7 @@ export default function DriverDetail() {
                           const isEditorOnThisRow =
                             editingDay === p.date && editingDayRowId === p.id;
                           const isSavingThisDay =
-                            (scaleDayHours.isPending || resetDayHours.isPending) &&
-                            editingDay === p.date;
+                            scaleDayHours.isPending && editingDay === p.date;
                           if (isEditorOnThisRow) {
                             const dayTotal = dailyTotalByDate.get(p.date) ?? 0;
                             return (
@@ -2039,33 +2015,17 @@ export default function DriverDetail() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  const dayTotal = dailyTotalByDate.get(p.date) ?? 0;
-                                  startEditDay(p.date, dayTotal, p.id);
+                                  const prefill = isOverridden
+                                    ? p.hours
+                                    : dailyTotalByDate.get(p.date) ?? 0;
+                                  startEditDay(p.date, prefill, p.id);
                                 }}
-                                className={cn(
-                                  "font-mono tabular-nums px-1 py-0 rounded hover:underline decoration-dotted underline-offset-2 cursor-pointer",
-                                  isOverridden
-                                    ? "border border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300 font-medium"
-                                    : "hover:text-foreground",
-                                )}
+                                className="font-mono tabular-nums px-1 py-0 rounded hover:underline decoration-dotted underline-offset-2 cursor-pointer hover:text-foreground"
                                 title={overrideTitle}
                                 data-testid={`button-edit-day-total-${p.date}`}
                               >
                                 {p.hours.toFixed(2)}
                               </button>
-                              {isOverridden && (
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-5 w-5 text-amber-700 dark:text-amber-300 hover:text-foreground print:hidden"
-                                  onClick={() => handleResetDay(p.date)}
-                                  disabled={resetDayHours.isPending}
-                                  title={t("driverDetail.punchTable.resetDayTitle")}
-                                  data-testid={`button-reset-day-total-${p.date}`}
-                                >
-                                  <Undo2 className="h-3 w-3" />
-                                </Button>
-                              )}
                             </span>
                           );
                         })()}
