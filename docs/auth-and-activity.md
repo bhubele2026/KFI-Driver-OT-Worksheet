@@ -47,6 +47,29 @@ action. When the lock fires, the user is emailed (subject "Your KFI Dispatch
 account was locked") with a fresh 1-hour password-reset link; silent no-op
 when SendGrid isn't connected.
 
+## Temporary public access (no login)
+
+Auth is currently bypassed in the published build so the link can be shared
+without sign-in. The published frontend auto-calls `POST /auth/dev-bypass` on
+load, which finds-or-creates the shared `dev@kfi.local` admin user and signs
+the visitor in as that user. Role checks (`requireAuth`, `requireAdmin`,
+`requireSupervisorOrAdmin`) keep working — everyone is just the same admin.
+
+Gated by two env vars, both set in the **production** environment:
+
+- `PUBLIC_BYPASS_AUTH=1` — server-side, lets `/auth/dev-bypass` run when
+  `NODE_ENV=production`. Without it the route 404s in prod (unchanged).
+- `VITE_PUBLIC_BYPASS_AUTH=1` — frontend build-time flag that tells
+  `AuthGate` in `artifacts/kfi-ot/src/App.tsx` to auto-call dev-bypass on load
+  instead of redirecting to `/login`.
+
+To restore the normal login flow, delete both env vars from the production
+environment and redeploy. All login / invite / password-reset code is intact
+and inert — nothing else needs to change.
+
+Local dev is unaffected — `import.meta.env.DEV` already drives the same
+auto-bypass behavior.
+
 ## Activity attribution
 
 - `users.lastLoginAt` is stamped on every successful `/auth/login` and surfaced

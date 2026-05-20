@@ -31,7 +31,13 @@ import DriverDetail from "@/pages/driver-detail";
 
 const queryClient = new QueryClient();
 
-const DEV_BYPASS_AUTH = import.meta.env.DEV;
+// Auto-call /api/auth/dev-bypass on load when:
+//  - running in Vite dev mode, OR
+//  - the build was made with VITE_PUBLIC_BYPASS_AUTH=1 (used to share the
+//    published app publicly without login). Unset that env var (and rebuild)
+//  to restore the normal login flow.
+const DEV_BYPASS_AUTH =
+  import.meta.env.DEV || import.meta.env.VITE_PUBLIC_BYPASS_AUTH === "1";
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { data: user, isLoading } = useGetMe();

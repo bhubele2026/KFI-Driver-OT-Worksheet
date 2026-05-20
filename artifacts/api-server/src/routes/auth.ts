@@ -313,7 +313,11 @@ authRouter.post("/auth/logout", (req, res) => {
 });
 
 authRouter.post("/auth/dev-bypass", async (req, res) => {
-  if (process.env.NODE_ENV === "production") {
+  // Available in dev by default. Also available in production when
+  // PUBLIC_BYPASS_AUTH=1 is set — used to share the app publicly without
+  // login. Unset PUBLIC_BYPASS_AUTH to restore the normal login flow.
+  const publicBypass = process.env.PUBLIC_BYPASS_AUTH === "1";
+  if (process.env.NODE_ENV === "production" && !publicBypass) {
     res.status(404).json({ error: "Not found" });
     return;
   }

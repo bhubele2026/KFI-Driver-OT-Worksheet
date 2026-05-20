@@ -61,6 +61,19 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 
 - Visual feel: serious payroll-reconciliation tool. Deep navy + teal palette. Syne for headings, DM Mono for tabular numerics. No emojis in UI.
 
+## Temporary public access (no login)
+
+Auth is currently bypassed in the published build so the link can be shared
+without sign-in. It works via the existing dev-bypass mechanism gated on
+`PUBLIC_BYPASS_AUTH=1` (server) and `VITE_PUBLIC_BYPASS_AUTH=1` (frontend
+build-time), both set in the **production** environment. When on, the
+frontend auto-calls `/api/auth/dev-bypass` on load and signs everyone in as
+the shared `dev@kfi.local` admin user. Login/invite/reset code is untouched
+and re-enables the moment these env vars are removed (delete both from the
+production environment and redeploy). Local dev is unaffected — it already
+auto-bypasses via `import.meta.env.DEV`. See
+[`docs/auth-and-activity.md`](docs/auth-and-activity.md#temporary-public-access-no-login).
+
 ## Gotchas
 
 - Payroll week is **Sunday → Saturday** (`weeks.start_date` is always a Sunday). `sundayOf(iso)` in `lib/time.ts` snaps any date to the Sunday of its payroll week; `weekEndOf(start)` returns the Saturday. Cutover docs + the one-shot DB fixup that wipes legacy Mon-anchored weeks live in [`docs/sun-sat-week-cutover.md`](docs/sun-sat-week-cutover.md) (do **not** run the fixup against prod — execute the SQL there manually).
