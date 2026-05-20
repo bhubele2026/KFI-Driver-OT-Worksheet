@@ -2565,6 +2565,52 @@ export const ListIngestionRunsResponse = zod.array(
 );
 
 /**
+ * @summary List in-flight AI-extract uploads (admin-only). One row per
+uploadKey aggregating the staging table: how many chunks are
+already extracted vs the total, plus customer/week/file context
+so an operator can spot hung resumable uploads and discard them.
+Backs the `/admin/extract-staging` admin page (Task #327).
+
+ */
+export const listExtractStagingQueryLimitDefault = 50;
+export const listExtractStagingQueryLimitMax = 500;
+
+export const ListExtractStagingQueryParams = zod.object({
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listExtractStagingQueryLimitMax)
+    .default(listExtractStagingQueryLimitDefault),
+});
+
+export const ListExtractStagingResponseItem = zod.object({
+  uploadKey: zod.string(),
+  customer: zod.string(),
+  weekStart: zod.string(),
+  fileName: zod.string(),
+  chunksStaged: zod.number(),
+  chunkCount: zod.number(),
+  createdAt: zod.coerce.date(),
+  lastTouchedAt: zod.coerce.date(),
+});
+export const ListExtractStagingResponse = zod.array(
+  ListExtractStagingResponseItem,
+);
+
+/**
+ * @summary Discard every staged chunk for a given uploadKey (admin-only).
+Used to free a resumable upload that's been abandoned client-side.
+
+ */
+export const DiscardExtractStagingParams = zod.object({
+  uploadKey: zod.coerce.string(),
+});
+
+export const DiscardExtractStagingResponse = zod.object({
+  deleted: zod.number(),
+});
+
+/**
  * @summary List every admin-managed Connecteam clock-id hour offset (admin-only).
  */
 export const ListClockOffsetsResponseItem = zod.object({

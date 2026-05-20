@@ -1525,6 +1525,17 @@ export interface UpdateCustomerBody {
   sortOrder?: number;
 }
 
+export interface ExtractStagingRow {
+  uploadKey: string;
+  customer: string;
+  weekStart: string;
+  fileName: string;
+  chunksStaged: number;
+  chunkCount: number;
+  createdAt: string;
+  lastTouchedAt: string;
+}
+
 export type IngestionRunOutcome =
   (typeof IngestionRunOutcome)[keyof typeof IngestionRunOutcome];
 
@@ -1949,6 +1960,18 @@ export type ListIngestionRunsParams = {
    * @maximum 500
    */
   limit?: number;
+};
+
+export type ListExtractStagingParams = {
+  /**
+   * @minimum 1
+   * @maximum 500
+   */
+  limit?: number;
+};
+
+export type DiscardExtractStaging200 = {
+  deleted: number;
 };
 
 export type SetPunchReviewedBody = {

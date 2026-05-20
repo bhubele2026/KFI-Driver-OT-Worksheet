@@ -826,6 +826,16 @@ export default function AdminUsers() {
               Clock offsets
             </Button>
           </Link>
+          <Link href="/admin/extract-staging">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
+              data-testid="link-admin-extract-staging"
+            >
+              Resumable uploads
+            </Button>
+          </Link>
           <HiddenNotesBadge />
           <Link href="/admin/i18n">
             <Button
