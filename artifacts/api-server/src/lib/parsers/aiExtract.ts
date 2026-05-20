@@ -452,6 +452,7 @@ export function buildPrompt(
     `CRITICAL: Return one output row for EVERY non-empty data row in the document. Do NOT merge, sum, or combine multiple rows for the same driver/date — even when pay-category columns (e.g. "Reg", "OT 1.5", "SHIFT PREM", "PREM-NIGHT") split one shift across several lines, emit each line as its own output row exactly as it appears. The caller deduplicates downstream; your job is faithful row-by-row transcription.`,
     `The ONLY lines to skip are: column headers, completely blank rows, page footers/signatures, and grand-total / subtotal rows that have no driver name. When in doubt, include the row.`,
     `Do not invent rows that aren't in the document.`,
+    `LAYOUT NOTE: some payroll PDFs (e.g. daily-punch grids) lay out each table cell with the DATE on the top line and the CLOCK TIME on the line directly below it, inside the same visual box. When you see that two-line cell pattern — a date row stacked above a time row in the same column — pair them: emit one output row whose "date" is the top value and whose "timeIn" (or "timeOut", whichever the column represents) is the value directly beneath it in the same column. Do NOT pair a date with a time from a neighboring column, and do NOT emit the date and the time as two separate rows.`,
     `Return strictly JSON matching the provided schema.`,
   ];
   if (roster && roster.drivers.length > 0) {
@@ -515,6 +516,7 @@ function buildClaudePrompt(
     `2. The ONLY lines to skip are: column headers, completely blank rows, page footers / signature blocks, and grand-total / subtotal rows that have no driver name. When in doubt, include the row.`,
     `3. Do not invent rows, drivers, dates, or times that aren't in the document. A partial extract is fine; fabrication is not.`,
     `4. Output raw JSON only. No \`\`\`json fences. No prose before or after. No "Here is the extracted data:" preamble. Start with \`{\` and end with \`}\`.`,
+    `5. LAYOUT NOTE for stacked-cell tables. Some payroll PDFs (notably daily-punch grids) lay out each table cell with the DATE on the top line and the CLOCK TIME on the line directly below it, inside the same visual box — so a row of seven daily cells looks like seven dates over seven times, column-aligned. When you see that pattern, pair them: emit one output row whose "date" is the top value and whose "timeIn" (or "timeOut", whichever the column represents) is the value directly beneath it in the same column. Do NOT pair a date with a time from a neighboring column, and do NOT emit the date and the time as two separate output rows.`,
   ];
 
   if (roster && roster.drivers.length > 0) {
@@ -648,6 +650,147 @@ export function parseOrSalvage(
   return { ...parsed, truncated };
 }
 
+/**
+ * Pure serializer that turns one page's pdfjs `getTextContent` items
+ * into a single string. Exported for unit testing (no pdfjs needed in
+ * the test — feed it synthetic items).
+ *
+ * Behaviour: items are bucketed by rounded `y`, then sorted top-to-
+ * bottom. For most layouts (Adient, IWG, the rest of the
+ * text-extractable PDF customers) each y-band becomes one space-
+ * joined line, byte-for-byte identical to the pre-#375 output.
+ *
+ * Stacked-cell pairing (Task #375): when two adjacent y-bands are
+ * close together vertically AND the lower band's x positions are a
+ * near-subset of the upper band's, they're treated as one visual
+ * row of stacked cells (date on top, time on the line directly
+ * below, inside the same box). Each upper item is then joined with
+ * the closest lower item that falls within `STACKED_X_TOL` of it on
+ * x, so the model sees `05/10 6:05AM` next to `05/11 5:54AM` instead
+ * of two unrelated lines of all-dates then all-times — fixes the
+ * DeLallo daily-punches PDF whose layout was scrambling date/time
+ * pairs through the generic AI extractor.
+ */
+const DATE_LIKE_RE =
+  /^\s*\d{1,4}[/-]\d{1,2}([/-]\d{1,4})?\s*$/;
+const TIME_LIKE_RE =
+  /^\s*\d{1,2}:\d{2}(:\d{2})?(\s*[AaPp][Mm])?\s*$/;
+
+function isDateLike(s: string): boolean {
+  return DATE_LIKE_RE.test(s);
+}
+function isTimeLike(s: string): boolean {
+  return TIME_LIKE_RE.test(s);
+}
+
+export function serializePdfTextItems(
+  items: Array<{ str: string; transform: number[] }>,
+): string {
+  // Conservative merge tolerances. STACK_MAX_GAP is "how vertically
+  // close two y-bands must be to even be considered as one cell" —
+  // tuned to roughly one line-height at 10-12pt. STACKED_X_TOL is
+  // the half-width of a column for the alignment check.
+  const STACK_MAX_GAP = 14;
+  const STACKED_X_TOL = 12;
+  // The lower band's x positions are considered a "near-subset" when
+  // at least this fraction of its items column-align with the upper.
+  const SUBSET_MIN_FRACTION = 0.75;
+  // Semantic gate (critical — geometry alone false-positives on
+  // ordinary form-field layouts like IWG's "Status: Active /
+  // Status Date: 4/20/26" stacks, which column-align by
+  // coincidence). Only merge when the upper band looks like a row
+  // of dates and the lower band looks like a row of clock times.
+  const SEMANTIC_MIN_FRACTION = 0.75;
+
+  const lines = new Map<number, Array<{ x: number; t: string }>>();
+  for (const item of items) {
+    if (typeof item.str !== "string") continue;
+    const y = Math.round(item.transform[5]);
+    const arr = lines.get(y) ?? [];
+    arr.push({ x: item.transform[4], t: item.str });
+    lines.set(y, arr);
+  }
+  const ordered = [...lines.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([y, its]) => ({
+      y,
+      items: [...its].sort((a, b) => a.x - b.x),
+    }));
+
+  // First pass: decide which adjacent (upper, lower) pairs qualify as
+  // stacked cells. We greedily consume the lower band so each band
+  // participates in at most one merge.
+  const consumed = new Set<number>(); // indexes already merged into the row above
+  for (let i = 0; i < ordered.length - 1; i++) {
+    if (consumed.has(i)) continue;
+    const upper = ordered[i];
+    const lower = ordered[i + 1];
+    if (upper.y - lower.y > STACK_MAX_GAP) continue;
+    if (lower.items.length < 2) continue;
+    if (lower.items.length > upper.items.length) continue;
+    let aligned = 0;
+    for (const li of lower.items) {
+      if (upper.items.some((ui) => Math.abs(ui.x - li.x) <= STACKED_X_TOL)) {
+        aligned++;
+      }
+    }
+    if (aligned / lower.items.length < SUBSET_MIN_FRACTION) continue;
+    // Semantic gate. Whitespace-only items (pdfjs emits " " spacer
+    // glyphs between real tokens on most real PDFs) are excluded
+    // from the denominator — they're layout artifacts, not content.
+    const upperContent = upper.items.filter((it) => it.t.trim() !== "");
+    const lowerContent = lower.items.filter((it) => it.t.trim() !== "");
+    if (upperContent.length === 0 || lowerContent.length === 0) continue;
+    const upperDates = upperContent.filter((it) => isDateLike(it.t)).length;
+    const lowerTimes = lowerContent.filter((it) => isTimeLike(it.t)).length;
+    if (upperDates / upperContent.length < SEMANTIC_MIN_FRACTION) continue;
+    if (lowerTimes / lowerContent.length < SEMANTIC_MIN_FRACTION) continue;
+    consumed.add(i + 1);
+  }
+
+  // Second pass: emit. Non-stacked bands keep the original
+  // `items.map(t).join(" ")` shape so other customers are unaffected.
+  const emitted: string[] = [];
+  for (let i = 0; i < ordered.length; i++) {
+    if (consumed.has(i)) continue;
+    const upper = ordered[i];
+    const lower = i + 1 < ordered.length && consumed.has(i + 1) ? ordered[i + 1] : null;
+    if (!lower) {
+      emitted.push(upper.items.map((it) => it.t).join(" "));
+      continue;
+    }
+    // For each upper item, find the nearest still-unclaimed lower
+    // item within tolerance and pair them as "upper lower". Lower
+    // items left unpaired (shouldn't happen if the subset check
+    // passed, but defend against it) trail at the end of the line.
+    const claimed = new Set<number>();
+    const cells: string[] = [];
+    for (const ui of upper.items) {
+      let bestIdx = -1;
+      let bestDx = STACKED_X_TOL + 1;
+      for (let li = 0; li < lower.items.length; li++) {
+        if (claimed.has(li)) continue;
+        const dx = Math.abs(lower.items[li].x - ui.x);
+        if (dx <= STACKED_X_TOL && dx < bestDx) {
+          bestDx = dx;
+          bestIdx = li;
+        }
+      }
+      if (bestIdx === -1) {
+        cells.push(ui.t);
+      } else {
+        claimed.add(bestIdx);
+        cells.push(`${ui.t} ${lower.items[bestIdx].t}`);
+      }
+    }
+    const orphans = lower.items
+      .filter((_, li) => !claimed.has(li))
+      .map((it) => it.t);
+    emitted.push([...cells, ...orphans].join(" "));
+  }
+  return emitted.join("\n");
+}
+
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   const mod = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const data = new Uint8Array(buffer);
@@ -659,26 +802,13 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
     for (let p = 1; p <= doc.numPages; p++) {
       const page = await doc.getPage(p);
       const content = await page.getTextContent();
-      const lines = new Map<number, Array<{ x: number; t: string }>>();
-      for (const item of content.items) {
-        if (typeof (item as { str?: unknown }).str !== "string") continue;
-        const it = item as { str: string; transform: number[] };
-        const y = Math.round(it.transform[5]);
-        const arr = lines.get(y) ?? [];
-        arr.push({ x: it.transform[4], t: it.str });
-        lines.set(y, arr);
+      const items: Array<{ str: string; transform: number[] }> = [];
+      for (const it of content.items) {
+        if (typeof (it as { str?: unknown }).str !== "string") continue;
+        const ti = it as { str: string; transform: number[] };
+        items.push({ str: ti.str, transform: ti.transform });
       }
-      pages.push(
-        [...lines.entries()]
-          .sort((a, b) => b[0] - a[0])
-          .map(([, items]) =>
-            items
-              .sort((a, b) => a.x - b.x)
-              .map((i) => i.t)
-              .join(" "),
-          )
-          .join("\n"),
-      );
+      pages.push(serializePdfTextItems(items));
     }
   } finally {
     await doc.destroy();

@@ -241,6 +241,38 @@ DeLallo is now "just another customer" and inherits every improvement
 to the main pipeline; scanned weeks still produce rows via the generic
 Lane C path.
 
+### Stacked date/time cells (Task #375)
+
+DeLallo's daily-punches PDF lays out each cell with the **date on the
+top line and the clock time on the line directly below**, inside the
+same visual box. Two complementary fixes keep that layout from
+scrambling pairs through the AI extractor:
+
+- **Lane B serializer.** `serializePdfTextItems` in
+  `lib/parsers/aiExtract.ts` (exported for testing) detects when two
+  adjacent y-bands are within `STACK_MAX_GAP` vertically AND ≥ 75% of
+  the lower band's x positions column-align with the upper band's
+  (within `STACKED_X_TOL`). When that holds, each upper item is paired
+  with the nearest lower item by x and emitted as one logical line
+  (`05/10 6:05AM 05/11 5:54AM …`) instead of two unrelated lines
+  (`05/10 05/11 …` then `6:05AM 5:54AM …`). Flat single-baseline
+  layouts (Adient/IWG/etc.) keep today's output byte-for-byte —
+  the merge only fires when both checks pass.
+- **Prompt hint.** The Claude and Gemini prompts both carry an
+  explicit "stacked-cell" paragraph telling the model that some
+  payroll PDFs stack date over time inside a single cell and to pair
+  them column-wise instead of treating them as separate rows. Belt-
+  and-suspenders for the Lane C / image paths where the serializer
+  doesn't run (scanned PDFs and JPEG/HEIC photos go straight to the
+  multimodal model with no text pre-pass).
+
+Heuristic guard: the lower band needs ≥ 2 items (a single lower item
+isn't enough column evidence) AND must be no wider than the upper
+band, so a real header row above an independent data row never
+accidentally absorbs the row below it.
+
+Regression guard: `lib/parsers/__tests__/pdfSerializerStackedCells.test.ts`.
+
 ## AI sample retention
 
 Every AI extract stashes the original file in `ai_extract_samples` (bytea +

@@ -29,6 +29,29 @@ test("buildPrompt('claude') frames the role concretely", () => {
   assert.match(p, /Accuracy matters more than coverage/);
 });
 
+test("buildPrompt('claude') ships the Task #375 stacked-cell layout note", () => {
+  const p = buildPrompt("Adient", "2026-05-10", "2026-05-16", roster, "claude");
+  // The exact wording can be reworded, but these key cues must
+  // survive so the Lane C / multimodal scanned-PDF mitigation
+  // can't regress silently.
+  assert.match(p, /DATE on the top line/);
+  assert.match(p, /CLOCK TIME on the line directly below/);
+  assert.match(
+    p,
+    /Do NOT pair a date with a time from a neighboring column/,
+  );
+});
+
+test("buildPrompt() default (Gemini) also ships the stacked-cell layout note", () => {
+  const p = buildPrompt("Adient", "2026-05-10", "2026-05-16", roster);
+  assert.match(p, /DATE on the top line/);
+  assert.match(p, /CLOCK TIME on the line directly below/);
+  assert.match(
+    p,
+    /Do NOT pair a date with a time from a neighboring column/,
+  );
+});
+
 test("buildPrompt('claude') includes an inline JSON example with a worked row", () => {
   const p = buildPrompt("Adient", "2026-05-10", "2026-05-16", roster, "claude");
   assert.ok(p.includes('"driverNameOnDoc"'), "must show driverNameOnDoc key");
