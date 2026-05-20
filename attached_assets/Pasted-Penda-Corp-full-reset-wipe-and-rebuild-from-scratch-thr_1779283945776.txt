@@ -1,0 +1,45 @@
+Penda Corp full reset — wipe and rebuild from scratch through the AI pipeline only.
+Penda's current state is contaminated from earlier today (e2e test stubs in driver roster, broken cached schema producing "no name on doc," empty extractedRows triggering the stale-preview confirm loop). Rather than chase each symptom, do a clean wipe of all Penda-specific state and let it re-learn from zero through Claude.
+Scope is strictly Penda. Do not touch other customers' data, schemas, or roster entries.
+Step 1 — Inventory what's there. Before deleting anything, dump (to a log or a quarantine table) the current Penda state so we can verify the cleanup and confirm we didn't kill real data:
+
+All rows in the schema/recipe cache (e.g. customer_schemas, readWithRoles cache, or wherever Penda's learned format lives) keyed to Penda Corp
+All rows in ai_extract_samples for Penda
+All rows in customer_upload_attempts for Penda
+All driver roster entries currently associated with Penda Corp — flag any with names matching E2E Penda Stub*, e2e-onb-pen-*, or other obvious test-fixture patterns
+All punch records currently attributed to those flagged test-stub drivers
+All entries in driver-id-aliases (or equivalent) keyed to Penda Corp — including the 16 "not a driver — never import for Penda Corp" mappings I set today
+
+Save this inventory to a file. We may need it for forensics.
+Step 2 — Delete the contaminated state. In one transaction:
+
+Delete all Penda Corp entries from the schema/recipe cache → forces re-derivation on next upload
+Delete all Penda rows from ai_extract_samples → clears any stale preview state
+Delete all Penda rows from customer_upload_attempts → clears the badge state in the UI
+Delete the test-stub driver rows that match the e2e fixture patterns (and any punches assigned to those stubs)
+Delete the 16 "not a driver" alias entries I created today — they were created against a broken extraction, so the badge IDs may not match what a clean extract produces
+Do NOT delete legitimate Penda driver roster entries from real prior work
+
+Step 3 — Force the AI path on next Penda upload. Confirm in code that for Penda Corp specifically:
+
+There is no native xlsx parser registered (the old deterministic parsers should already be removed per #277, but verify Penda isn't somehow still bound to one)
+The extract route will see no cached schema and run a fresh structure probe + chunked extraction through Claude
+The "Reading… Chunk X of Y" progress indicator should fire visibly (proves Claude is actually being called)
+
+Step 4 — Verify the clean state. Run these checks before reporting back:
+
+SELECT count(*) FROM customer_schemas WHERE customer = 'Penda Corp' → expect 0
+SELECT count(*) FROM ai_extract_samples WHERE customer = 'Penda Corp' → expect 0
+SELECT count(*) FROM customer_upload_attempts WHERE customer = 'Penda Corp' → expect 0
+Driver roster for Penda Corp shows no e2e stubs
+The customer-files panel shows Penda Corp as "Not uploaded" with no red badge
+
+Step 5 — Stop e2e tests touching prod data. Separately and immediately: gate the self-onboarding-penda e2e spec (and any other onboarding e2e specs) so they cannot run against production database. They should only run against an isolated test database that gets torn down. This is the root cause of the stub contamination and must be fixed before any demo work continues.
+Step 6 — Report back with:
+
+The pre-deletion inventory counts from Step 1
+Confirmation Step 4 checks all returned expected results
+Confirmation Step 5 e2e gating is in place
+A clear "Penda is reset, please re-upload the file and it will run fresh through Claude"
+
+Then I'll do one clean Penda upload and we can verify the whole pipeline works end-to-end against a real customer with no contamination.

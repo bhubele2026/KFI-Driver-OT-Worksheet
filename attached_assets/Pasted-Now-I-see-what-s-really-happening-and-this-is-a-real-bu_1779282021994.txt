@@ -1,0 +1,48 @@
+Now I see what's really happening — and this is a real bug, not a UX issue. Replit's diagnosis is clean. Let me give you the honest read.
+What's actually broken
+The "stale parser path" error message is a lie. There's no actual parser-version mismatch. What's happening:
+
+You upload Penda → AI extracts 199 punches preview → looks good
+You click Confirm
+The server tries to commit but finds the sample's extractedRows and pendingNamedRows arrays are empty (the in-memory sample object got cleared somehow)
+The fileBytes are still on disk
+Code hits an old fallback branch that says "this must be from before #277 — tell user to re-upload"
+The error message is wrong — it's not actually old parser data, it's just empty extracted rows with valid bytes
+You re-upload → same thing happens → infinite loop
+
+The fix is exactly what Replit proposed: when bytes are present but rows are empty, re-extract from the bytes in the confirm path. Recovery without the user doing anything. The "older parser path" copy gets deleted because it was always misleading.
+Replit's plan is solid
+The plan as written is correct:
+
+Factor the AI extract block into a shared helper — both extract route and confirm route can call it
+Add a confirm-time fallback — if rows empty but bytes present, re-extract from bytes and continue
+Replace the bad error message — only fire a real error if fileBytes is genuinely gone
+Add a test — empty rows + valid bytes → confirm succeeds
+
+Scope is right. Out-of-scope items are correctly fenced (not touching IngestionBudget, not touching the extract route, not changing schema).
+One small thing to push on
+The plan handles the "rows empty, bytes present" case correctly. But there's an adjacent question worth flagging:
+Why are the rows empty in the first place? If the preview showed "Will import 199 punches" and you reviewed them, those rows existed at some point. Something cleared them between preview-display and confirm-click. That root cause isn't being investigated.
+Possible causes:
+
+The sample row is being garbage-collected/expired between extraction and confirm
+Two tabs/windows are competing for the same sample ID
+The pendingNamedRows get moved during the unmapped-badge triage and the array isn't being restored before commit
+A background cleanup job is running between extraction and confirm
+
+The proposed fix is good defensive engineering — re-extract is cheap and always works — but if rows keep emptying and re-extraction has to keep running on every Penda confirm, that's a hidden 2× cost for every Penda upload. Worth understanding why they're empty in the first place.
+What to send Replit
+
+Plan approved — ship it. The diagnosis is correct, the fix is right, and the misleading error message has burned enough dispatcher time today to justify the priority.
+One adjacent question to investigate separately (not in this task):
+Why are extractedRows/pendingNamedRows empty at confirm time when the preview clearly showed 199 punches? Something is clearing them between extract → preview-display → confirm-click. The re-extract fallback is good defensive engineering, but if rows keep emptying in normal operation, every Penda confirm pays a 2× cost (extract once for preview, extract again for confirm because the first set vanished).
+Possible root causes worth checking:
+
+Sample row TTL/expiration firing between extract and confirm (how long does the dispatcher have to review before fileBytes-only state kicks in?)
+The unmapped-badge triage UI mutating pendingNamedRows in a way that doesn't persist back to the sample
+A race between the extract response and the sample-write that occasionally leaves rows empty
+Background purgeExpiredAiExtractSamples job clearing rows but leaving fileBytes
+
+Open as a follow-up task after this fix lands and the dispatcher is unblocked. The fix in front of us is correct regardless of root cause.
+
+That's the right framing. The fix lands now (unblocks you, kills the misleading error, costs ~30 minutes of code). The root cause investigation happens after. If the root cause turns out to be benign (e.g., sample expired naturally because the dispatcher took 10 minutes to review), then re-extract is the right answer permanently. If it's a bug clearing rows when it shouldn't, that's a separate fix that reduces the re-extract cost back to zero.

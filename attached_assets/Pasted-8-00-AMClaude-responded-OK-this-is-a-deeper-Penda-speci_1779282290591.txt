@@ -1,0 +1,34 @@
+8:00 AMClaude responded: OK — this is a deeper Penda-specific problem.OK — this is a deeper Penda-specific problem. Let me think about what "doesn't jump to Claude, and no names" actually means before responding.
+What "doesn't jump to Claude" tells us
+If the Penda upload isn't even reaching Claude — no "Reading… Xs Chunk Y of Z" progress, no AI extraction happening — then it's being routed somewhere else entirely. Probably one of:
+
+There's a custom Penda parser that's intercepting before AI extract. The pipeline has a "native parser registered for this customer?" check, and if yes, it uses the parser instead of AI. The parser might be returning empty rows (or rows with no names) and never falling through to AI.
+Cache is returning a stale broken result. The "Learned schema" badge you saw earlier means Penda's recipe is cached. If that recipe is broken (extracts rows but doesn't capture names), every upload reuses the broken recipe and never re-derives.
+The extract route is short-circuiting somewhere before the AI call — returning the empty-rows preview directly, which then hits the empty-rows-confirm bug Replit just diagnosed.
+
+What "no names" tells us
+This is the louder signal. "(no name on doc)" on 16 badges earlier today wasn't dispatcher inconvenience — it was a symptom of name extraction failing. Look at what the screenshot showed: every unmapped badge had an ID number (2000395, 2003294, etc.) but no name. That's not "we couldn't match this name to a driver" — that's "we got an ID but no name from the file at all."
+Penda's file presumably has names in it. If the extractor is grabbing badge IDs but dropping names, the cached recipe is wrong.
+The two bugs are probably linked
+Theory:
+
+A cached Penda recipe exists from earlier
+That recipe captures badge IDs but not names
+Every Penda upload uses the broken recipe
+The result is 199 rows with badges and no names
+The "no name" rows somehow get filtered/dropped, leaving extractedRows empty at confirm time
+Confirm hits the bug Replit's fixing → loop
+
+If this is right, Replit's confirm-fix won't solve Penda. The re-extract on confirm will use the same broken cached recipe and produce the same empty result. You'll just hit the loop differently.
+What to tell Replit
+
+Stop on the confirm fix for a minute — Penda has a deeper problem. Two specific symptoms:
+
+"Doesn't jump to Claude" — When I upload Penda, I don't see the "Reading... Chunk X of Y" progress indicator at all. Either there's a custom Penda parser intercepting, or the cached "Learned schema" recipe is being applied without an AI call, or something is short-circuiting.
+"No names" — The 16 unmapped badges all show "(no name on doc)" with just numeric IDs. That's not a roster-matching failure. That's the extractor capturing badge IDs but losing names entirely. Penda's source file presumably has names.
+
+Hypothesis: Penda's cached schema/recipe is broken — captures badges but not names — and every upload reuses the broken recipe instead of re-deriving. The confirm-time re-extract you're about to ship will use the same broken recipe and produce the same empty result. The loop will continue, just routed differently.
+Two asks before shipping the confirm fix:
+a) Inspect Penda's cached schema. What does customer_schemas (or wherever readWithRoles caches) contain for Penda right now? Specifically: does the column mapping include a name field, or is it null/missing?
+b) Force re-derivation for Penda. Delete Penda's cached schema row. Re-upload. Confirm Claude actually fires (you should see Reading... progress) and that the resulting rows include names. If names appear after re-derivation, the cache was poisoned — this happened during one of the earlier broken runs today and got persisted.
+If a fresh Penda re-derivation does include names, the confirm fix is still valuable but Penda specifically needs cache invalidation. If even a fresh re-derivation produces no names, there's a deeper Penda format issue worth understanding before shipping anything.

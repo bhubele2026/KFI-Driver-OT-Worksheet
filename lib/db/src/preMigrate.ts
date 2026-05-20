@@ -343,6 +343,155 @@ const FIXUPS: Fixup[] = [
         ADD COLUMN IF NOT EXISTS max_calls integer;
     `,
   },
+  // ---------------------------------------------------------------------
+  // Task #354 — reconcile the two customer roster rows whose display_name
+  // never matched what Connecteam / Zenople / the AI extractor's learned
+  // recipe (`customer_column_schemas`) actually use:
+  //
+  //   roster "Penda"    → canonical "Penda Corp"     (id=5)
+  //   roster "Trienda"  → canonical "Trienda Holdings" (id=4)
+  //
+  // The mismatch silently routed every Penda upload into a bucket that
+  // no driver belonged to, leaving the dispatcher's Penda card empty
+  // and forcing Claude to re-learn the recipe on every upload. After
+  // the rename, `customers.display_name = drivers.customer =
+  // customer_column_schemas.customer`, the cached recipe is reused,
+  // and the dashboard groups imported punches under the correct card.
+  //
+  // Keep both legacy and canonical names in `filename_keywords` so the
+  // dispatcher's existing filename conventions still match. Only renames
+  // when the legacy name is still present, so re-runs and a future admin
+  // edit are both safe. Marker-gated; idempotent.
+  {
+    name: "rename Penda/Trienda roster to canonical names (Task #354)",
+    describe:
+      "Rename customers id=5 Penda → Penda Corp and id=4 Trienda → Trienda Holdings; extend filename_keywords to cover both names so existing uploads still match.",
+    detect: `SELECT 1`,
+    apply: `
+      CREATE TABLE IF NOT EXISTS schema_fixup_markers (
+        name text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      );
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM schema_fixup_markers
+          WHERE name = 'rename_penda_trienda_canonical_2026'
+        ) THEN
+          RETURN;
+        END IF;
+
+        -- Set-union the existing filename_keywords with the canonical
+        -- name so any admin-added routing keywords survive the rename.
+        UPDATE customers
+           SET display_name = 'Penda Corp',
+               filename_keywords = (
+                 SELECT ARRAY(
+                   SELECT DISTINCT k
+                     FROM unnest(
+                       coalesce(filename_keywords, ARRAY[]::text[])
+                       || ARRAY['penda','penda corp']::text[]
+                     ) AS k
+                 )
+               ),
+               updated_at = now()
+         WHERE display_name = 'Penda';
+
+        UPDATE customers
+           SET display_name = 'Trienda Holdings',
+               filename_keywords = (
+                 SELECT ARRAY(
+                   SELECT DISTINCT k
+                     FROM unnest(
+                       coalesce(filename_keywords, ARRAY[]::text[])
+                       || ARRAY['trienda','trienda holdings']::text[]
+                     ) AS k
+                 )
+               ),
+               updated_at = now()
+         WHERE display_name = 'Trienda';
+
+        INSERT INTO schema_fixup_markers (name)
+          VALUES ('rename_penda_trienda_canonical_2026')
+          ON CONFLICT (name) DO NOTHING;
+      END$$;
+    `,
+  },
+  // ---------------------------------------------------------------------
+  // Task #354 (companion) — quarantine the e2e onboarding test data
+  // that leaked into production today. Two synthetic customers
+  // ("E2E Penda e2e-onb-pen-…", "E2E DeLallo e2e-onb-del-…") and ~78
+  // stub drivers got written into prod when the self-onboarding-*.spec
+  // suites pointed at the live DB.
+  //
+  // We do NOT delete: the dispatcher may want forensic visibility, and
+  // the drivers table has no FK we'd be cleaning up. Instead:
+  //   • flip e2e customer rows to active=false so they fall off the
+  //     dispatcher's dashboard immediately
+  //   • flip e2e stub driver rows to is_archived=true so they stop
+  //     appearing in week views and roster pickers
+  //
+  // Pattern-matched (not id-pinned) so future leaks of the same shape
+  // are also quarantined. Marker-gated; re-runs are no-ops because the
+  // marker is inserted regardless of how many rows matched.
+  //
+  // Root cause (the test specs writing to prod) is filed as a separate
+  // follow-up — this fixup only contains the bleed.
+  {
+    name: "quarantine e2e onboarding leakage (Task #354 companion)",
+    describe:
+      "Deactivate any customers/drivers rows whose names match the e2e onboarding fixture pattern (E2E …, e2e-onb-…, … Stub …).",
+    detect: `SELECT 1`,
+    apply: `
+      CREATE TABLE IF NOT EXISTS schema_fixup_markers (
+        name text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      );
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM schema_fixup_markers
+          WHERE name = 'quarantine_e2e_onboarding_leak_2026'
+        ) THEN
+          RETURN;
+        END IF;
+
+        UPDATE customers
+           SET active = false,
+               updated_at = now()
+         WHERE active = true
+           AND (
+             display_name ILIKE 'E2E %'
+             OR display_name ILIKE '%e2e-onb-%'
+           );
+
+        -- Only quarantine drivers whose row carries an unambiguous
+        -- e2e token. The "Stub" branch is AND-gated against an e2e
+        -- marker on either name or customer to avoid catching a
+        -- legitimate driver whose surname happens to contain "Stub".
+        BEGIN
+          UPDATE drivers
+             SET is_archived = true,
+                 updated_at = now()
+           WHERE is_archived = false
+             AND (
+               name ILIKE '%E2E %'
+               OR name ILIKE '%e2e-onb-%'
+               OR customer ILIKE 'E2E %'
+               OR customer ILIKE '%e2e-onb-%'
+               OR (
+                 name ILIKE '%Stub%'
+                 AND (name ILIKE '%e2e%' OR customer ILIKE '%e2e%')
+               )
+             );
+        EXCEPTION WHEN undefined_column THEN NULL; END;
+
+        INSERT INTO schema_fixup_markers (name)
+          VALUES ('quarantine_e2e_onboarding_leak_2026')
+          ON CONFLICT (name) DO NOTHING;
+      END$$;
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------
