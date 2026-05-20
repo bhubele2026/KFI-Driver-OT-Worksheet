@@ -1,7 +1,31 @@
 # AI extraction & per-row upload pipeline
 
 This doc covers how customer-file uploads route between the deterministic parsers,
-the learned-schema cache, and Gemini AI extraction.
+the learned-schema cache, and AI extraction.
+
+## AI provider abstraction (Task #293)
+
+The AI extractor talks to providers through a tiny `ModelClient` interface in
+`lib/parsers/modelClient.ts`. The primary provider is **Claude Sonnet** (via
+the user's own Anthropic API key) controlled by `AI_EXTRACT_PROVIDER`
+(default `claude`) and `CLAUDE_EXTRACT_MODEL` (default `claude-sonnet-4-5`).
+Gemini stays wired up as a quiet fallback: when the primary fails after
+retries on a transient error (429 / 503 / 5xx / network) and the other
+provider's credentials are configured, one secondary attempt runs before
+the error bubbles to the dispatcher.
+
+Every model call goes through `withModelRetry` — up to 3 attempts with
+jittered exponential backoff starting at 1.5s and capped at 8s on transient
+failures only; 4xx and schema errors fail fast. This is the guardrail that
+turned the demo-night Adient 429 RATELIMIT_EXCEEDED from a hard
+"upload failed" into a quiet ~3s pause and success.
+
+Chunked spreadsheet extraction uses a bounded worker pool
+(`XLSX_CHUNK_CONCURRENCY`, currently 6) plus the shared
+`runWithConcurrency` helper. The chunking math, the truncation +
+halving-retry path, the schema cache, the OCR fallback for scanned
+DeLallo PDFs, and AI-sample retention are all unchanged from before the
+Claude swap.
 
 ## Uniform per-row upload pipeline (Task #250)
 

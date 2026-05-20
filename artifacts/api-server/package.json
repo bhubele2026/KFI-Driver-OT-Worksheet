@@ -12,6 +12,7 @@
     "test": "node --import tsx --test 'src/lib/**/__tests__/*.test.ts' 'src/routes/__tests__/*.test.ts'"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
     "@google/genai": "^1.52.0",
     "@sendgrid/mail": "^8.1.6",
     "@swc/helpers": "^0.5.21",

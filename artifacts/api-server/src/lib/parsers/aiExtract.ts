@@ -1,10 +1,18 @@
 import * as XLSX from "xlsx";
 import { Type } from "@google/genai";
 import { logger } from "../logger.js";
-import { getGeminiClient } from "./gemini.js";
 import { toDisplayName } from "./displayName.js";
 import { ocrDelalloPDF } from "./ocr.js";
 import { UnmappedIdAccumulator } from "./types.js";
+import {
+  getModelClient,
+  getFallbackModelClient,
+  isRetryableModelError,
+  runWithConcurrency,
+  withModelRetry,
+  type ContentPart,
+  type ModelClient,
+} from "./modelClient.js";
 
 export interface AiExtractedRow {
   driverNameOnDoc: string;
@@ -543,44 +551,60 @@ export function __clearAiExtractStubs(): void {
   _aiStubErrorQueue.length = 0;
 }
 
-// Per-chunk Gemini ceiling for the chunked xlsx path. Shorter than the
-// single-call 5-minute budget because each chunk is small; we still cap
-// total wall-clock by stopping early if any chunk exceeds this.
+// Per-chunk model-call ceiling for the chunked xlsx path. Shorter than
+// the single-call 5-minute budget because each chunk is small; we still
+// cap total wall-clock by stopping early if any chunk exceeds this.
 const XLSX_CHUNK_TIMEOUT_MS = 120_000;
 
-async function callGeminiForChunk(
-  ai: ReturnType<typeof getGeminiClient>,
-  promptText: string,
+/**
+ * Per-chunk model call with retry-on-transient-failure and quiet
+ * fallback to the secondary provider. The retry policy (3 attempts,
+ * jittered exp backoff 1.5s → 8s on 429 / 503 / 5xx / network) was
+ * added in Task #293 alongside the Claude swap; with Gemini still
+ * wired as a quiet fallback the dispatcher's first-of-its-kind
+ * upload reliably completes even during provider hiccups.
+ */
+async function callModelForChunk(
+  client: ModelClient,
+  parts: ContentPart[],
   customer: string,
   fileName: string,
   log: SalvageLogger | undefined,
+  label: string,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean }> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      reject(
-        new Error(
-          `AI extraction timed out after ${Math.round(XLSX_CHUNK_TIMEOUT_MS / 1000)}s on one chunk — retry in a moment.`,
-        ),
-      );
-    }, XLSX_CHUNK_TIMEOUT_MS);
-  });
-  const generate = ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: promptText }] }],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: ROW_SCHEMA,
-      maxOutputTokens: 32768,
-    },
-  });
-  let response;
+  const callOnce = async (c: ModelClient): Promise<{ text: string }> =>
+    withModelRetry(
+      () =>
+        c.generate({
+          parts,
+          maxOutputTokens: 32768,
+          timeoutMs: XLSX_CHUNK_TIMEOUT_MS,
+          jsonSchema: ROW_SCHEMA,
+        }),
+      { label: `${c.name}:${label}`, log },
+    );
+  let raw: string;
   try {
-    response = await Promise.race([generate, timeout]);
-  } finally {
-    if (timer) clearTimeout(timer);
+    raw = (await callOnce(client)).text;
+  } catch (err) {
+    // After all retries exhausted, try the other provider once as a
+    // safety net so a single bad minute on Anthropic doesn't sink the
+    // upload (Task #293). Only worth it for actually-network-y failures.
+    const fb = isRetryableModelError(err) ? await getFallbackModelClient(client) : null;
+    if (!fb) throw err;
+    (log ?? logger).warn(
+      {
+        primary: client.name,
+        fallback: fb.name,
+        chunk: label,
+        customer,
+        fileName,
+        errMsg: err instanceof Error ? err.message : String(err),
+      },
+      "AI primary provider failed after retries — falling back to secondary",
+    );
+    raw = (await callOnce(fb)).text;
   }
-  const raw = response.text ?? "";
   const parsed = parseOrSalvage(raw, customer, fileName, log);
   const rows = (parsed.rows ?? []).filter(
     (r) =>
@@ -614,11 +638,13 @@ function halveChunk(chunk: string): [string, string] | null {
 // alongside the chunk-rows drop (100 -> 60) to keep Penda's 522-row
 // workbook under a 60s wall-clock budget: 9 chunks @ concurrency 6 =
 // 2 waves of ~30s, vs the prior 6 chunks @ 4 = 2 waves of ~60-90s.
-// Still conservative against the Gemini proxy's rate limits.
+// Still conservative against either provider's per-minute rate limits;
+// the Task #293 retry/backoff at the model-client layer is the
+// defense-in-depth against transient 429s.
 const XLSX_CHUNK_CONCURRENCY = 6;
 
 async function runChunkedXlsxExtract(
-  ai: ReturnType<typeof getGeminiClient>,
+  client: ModelClient,
   chunks: string[],
   customer: string,
   weekStart: string,
@@ -653,12 +679,13 @@ async function runChunkedXlsxExtract(
     const prompt =
       buildPrompt(customer, weekStart, weekEnd, roster) +
       `\n\n${label} of the same workbook. Return only the rows in this chunk.\n\n--- SPREADSHEET (CSV) ---\n${chunk}\n--- END SPREADSHEET ---`;
-    const { rows, truncated } = await callGeminiForChunk(
-      ai,
-      prompt,
+    const { rows, truncated } = await callModelForChunk(
+      client,
+      [{ kind: "text", text: prompt }],
       customer,
       fileName,
       log,
+      label,
     );
     return {
       rows: rows.map((r) => ({
@@ -814,13 +841,12 @@ export async function aiExtractRows(
       failedChunks: 0,
     };
   }
-  const ai = getGeminiClient();
+  const client = await getModelClient();
   const start = Date.now();
 
-  const parts: Array<
-    | { text: string }
-    | { inlineData: { mimeType: string; data: string } }
-  > = [{ text: buildPrompt(customer, weekStart, weekEnd, roster) }];
+  const parts: ContentPart[] = [
+    { kind: "text", text: buildPrompt(customer, weekStart, weekEnd, roster) },
+  ];
 
   if (isImage) {
     // Caller is expected to have transcoded any HEIC bytes to JPEG already
@@ -828,15 +854,15 @@ export async function aiExtractRows(
     const effectiveMime =
       mimeType && /^image\//i.test(mimeType) ? mimeType : "image/jpeg";
     parts.push({
-      inlineData: {
-        mimeType: effectiveMime,
-        data: buffer.toString("base64"),
-      },
+      kind: "inlineData",
+      mimeType: effectiveMime,
+      data: buffer.toString("base64"),
     });
   } else if (isPdf) {
     const text = await extractTextFromPdf(buffer);
     if (text.trim().length > 50) {
       parts.push({
+        kind: "text",
         text: `\n\n--- PDF TEXT ---\n${text}\n--- END PDF TEXT ---`,
       });
     } else {
@@ -894,20 +920,19 @@ export async function aiExtractRows(
       }
       // Generic scanned-PDF path: send the document directly for OCR.
       parts.push({
-        inlineData: {
-          mimeType: "application/pdf",
-          data: buffer.toString("base64"),
-        },
+        kind: "inlineData",
+        mimeType: "application/pdf",
+        data: buffer.toString("base64"),
       });
     }
   } else {
     // Spreadsheet path: split into one-or-more CSV chunks. Small files
     // produce a single chunk and behave exactly like before; large files
-    // get split + each chunk is sent in its own Gemini call below.
+    // get split + each chunk is sent in its own model call below.
     const chunks = xlsxToChunks(buffer, log);
     if (chunks.length > 1) {
       return await runChunkedXlsxExtract(
-        ai,
+        client,
         chunks,
         customer,
         weekStart,
@@ -919,6 +944,7 @@ export async function aiExtractRows(
       );
     }
     parts.push({
+      kind: "text",
       text: `\n\n--- SPREADSHEET (CSV) ---\n${chunks[0] ?? ""}\n--- END SPREADSHEET ---`,
     });
   }
@@ -938,19 +964,9 @@ export async function aiExtractRows(
   // column roles and future uploads of the same layout skip AI entirely
   // via the cache → readWithRoles fast path (sub-100ms).
   const AI_TIMEOUT_MS = isImage ? 90_000 : 300_000;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      reject(
-        new Error(
-          `AI extraction timed out after ${Math.round(AI_TIMEOUT_MS / 1000)}s — try uploading the original spreadsheet, a smaller/cropped image, or retry in a moment.`,
-        ),
-      );
-    }, AI_TIMEOUT_MS);
-  });
   // Test seam (xlsx single-call): consume one stub so unit tests can
-  // simulate single-call truncation + recovery without invoking Gemini.
-  // Mirrors the image/pdf seam at the top of this function.
+  // simulate single-call truncation + recovery without invoking a real
+  // model. Mirrors the image/pdf seam at the top of this function.
   let parsed: { rows?: AiExtractedRow[]; truncated: boolean };
   if (
     process.env.NODE_ENV !== "production" &&
@@ -960,7 +976,6 @@ export async function aiExtractRows(
   ) {
     const stubbed = _aiStubQueue.shift()!;
     const truncated = _aiStubTruncatedQueue.shift() ?? false;
-    if (timer) clearTimeout(timer);
     parsed = {
       rows: stubbed.map((r) => ({
         ...r,
@@ -969,26 +984,42 @@ export async function aiExtractRows(
       truncated,
     };
   } else {
-    const generate = ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [{ role: "user", parts }],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: ROW_SCHEMA,
-        // Weekly customer exports for a 21-driver fleet can easily exceed
-        // 8k output tokens (one row per driver per day with five string
-        // fields each). Cap generously — the proxy still bills by output
-        // tokens used, not requested, so headroom is free.
-        maxOutputTokens: 32768,
-      },
-    });
-    let response;
+    // Weekly customer exports for a 21-driver fleet can easily exceed
+    // 8k output tokens (one row per driver per day with five string
+    // fields each). Cap generously — providers bill by output tokens
+    // used, not requested, so headroom is free.
+    const callOnce = (c: ModelClient) =>
+      withModelRetry(
+        () =>
+          c.generate({
+            parts,
+            maxOutputTokens: 32768,
+            timeoutMs: AI_TIMEOUT_MS,
+            jsonSchema: ROW_SCHEMA,
+          }),
+        { label: `${c.name}:single-call`, log },
+      );
+    let raw: string;
     try {
-      response = await Promise.race([generate, timeout]);
-    } finally {
-      if (timer) clearTimeout(timer);
+      raw = (await callOnce(client)).text;
+    } catch (err) {
+      // Quiet fallback to the secondary provider once retries exhaust on
+      // a clearly-transient failure (Task #293). Lets the dispatcher's
+      // demo upload still complete during a one-off Anthropic outage.
+      const fb = isRetryableModelError(err) ? await getFallbackModelClient(client) : null;
+      if (!fb) throw err;
+      (log ?? logger).warn(
+        {
+          primary: client.name,
+          fallback: fb.name,
+          customer,
+          fileName,
+          errMsg: err instanceof Error ? err.message : String(err),
+        },
+        "AI primary provider failed after retries — falling back to secondary",
+      );
+      raw = (await callOnce(fb)).text;
     }
-    const raw = response.text ?? "";
     parsed = parseOrSalvage(raw, customer, fileName, log);
   }
 
@@ -1009,7 +1040,7 @@ export async function aiExtractRows(
     );
     const forcedChunks = xlsxToChunks(buffer, log, { forceChunkMaxRows: 100 });
     return runChunkedXlsxExtract(
-      ai,
+      client,
       forcedChunks,
       customer,
       weekStart,
