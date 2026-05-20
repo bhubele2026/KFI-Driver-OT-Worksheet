@@ -2,6 +2,7 @@ import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wo
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { CustomerUploadProvider } from "@/hooks/use-customer-uploads";
 import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
 import { Loader2 } from "lucide-react";
 import { useEffect, useRef } from "react";
@@ -142,10 +143,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
-        </WouterRouter>
-        <Toaster />
+        <CustomerUploadProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Router />
+          </WouterRouter>
+          <Toaster />
+        </CustomerUploadProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );
