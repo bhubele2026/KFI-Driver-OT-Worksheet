@@ -186,6 +186,51 @@ async function loadCustomerNameAliasMap(
   return out;
 }
 
+// Build a diagnostics-rich error message for the "0 punches" outcome.
+// The dispatcher's actual complaint is "the upload says it succeeded
+// but I got nothing and don't know why" — so we explain exactly which
+// bucket swallowed the rows (out-of-window dates, unmapped driver
+// badges, no clock times) and include a sample of unmapped ids /
+// names they can act on (add as a driver-id alias, or fix the file).
+// Hoisted to module scope so both /extract-customer-file and the
+// confirm-route re-extract fallback can return the same message.
+function explainZeroPunches(
+  customerName: string,
+  unmapped: UnmappedIdEntry[],
+  diagnostics?: ExtractDiagnostics,
+  origin?: "parser" | "ai",
+): string {
+  const lead = `Detected customer "${customerName}" but parsed 0 punches`;
+  const tail =
+    origin === "ai"
+      ? " Use the preview dialog's per-row picker to map names to drivers (your picks are saved for next week), or upload a file whose name contains the right customer keyword if the wrong customer was detected."
+      : " Open Admin → Driver ID aliases to add the missing IDs, or upload a file whose name contains the right customer keyword if the wrong customer was detected.";
+  const parts: string[] = [];
+  if (diagnostics && diagnostics.rawRowCount > 0) {
+    parts.push(`${origin === "ai" ? "AI" : "Parser"} read ${diagnostics.rawRowCount} row(s)`);
+    const drops: string[] = [];
+    if (diagnostics.unmappedDriverCount > 0)
+      drops.push(`${diagnostics.unmappedDriverCount} unrecognized driver(s)`);
+    if (diagnostics.outOfWindowCount > 0)
+      drops.push(`${diagnostics.outOfWindowCount} outside this week`);
+    if (diagnostics.invalidDateCount > 0)
+      drops.push(`${diagnostics.invalidDateCount} with unreadable dates`);
+    if (diagnostics.invalidTimeCount > 0)
+      drops.push(`${diagnostics.invalidTimeCount} missing clock in / out`);
+    if (drops.length > 0) parts.push(`dropped ${drops.join(", ")}`);
+  }
+  if (unmapped.length > 0) {
+    const sample = unmapped
+      .slice(0, 5)
+      .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
+      .join("; ");
+    const more = unmapped.length > 5 ? ` and ${unmapped.length - 5} more` : "";
+    parts.push(`unrecognized: ${sample}${more}`);
+  }
+  const body = parts.length > 0 ? ` — ${parts.join("; ")}.` : ".";
+  return `${lead}${body}${tail}`;
+}
+
 async function loadMergedIdMap(): Promise<Record<string, string>> {
   const rows = await db
     .select({
@@ -1817,48 +1862,8 @@ weeksRouter.post(
         return;
       }
     }
-    // Build a diagnostics-rich error message for the "0 punches" outcome.
-    // The dispatcher's actual complaint is "the upload says it succeeded
-    // but I got nothing and don't know why" — so we explain exactly which
-    // bucket swallowed the rows (out-of-window dates, unmapped driver
-    // badges, no clock times) and include a sample of unmapped ids /
-    // names they can act on (add as a driver-id alias, or fix the file).
-    const explainZeroPunches = (
-      customerName: string,
-      unmapped: UnmappedIdEntry[],
-      diagnostics?: ExtractDiagnostics,
-      origin?: "parser" | "ai",
-    ): string => {
-      const lead = `Detected customer "${customerName}" but parsed 0 punches`;
-      const tail =
-        origin === "ai"
-          ? " Use the preview dialog's per-row picker to map names to drivers (your picks are saved for next week), or upload a file whose name contains the right customer keyword if the wrong customer was detected."
-          : " Open Admin → Driver ID aliases to add the missing IDs, or upload a file whose name contains the right customer keyword if the wrong customer was detected.";
-      const parts: string[] = [];
-      if (diagnostics && diagnostics.rawRowCount > 0) {
-        parts.push(`${origin === "ai" ? "AI" : "Parser"} read ${diagnostics.rawRowCount} row(s)`);
-        const drops: string[] = [];
-        if (diagnostics.unmappedDriverCount > 0)
-          drops.push(`${diagnostics.unmappedDriverCount} unrecognized driver(s)`);
-        if (diagnostics.outOfWindowCount > 0)
-          drops.push(`${diagnostics.outOfWindowCount} outside this week`);
-        if (diagnostics.invalidDateCount > 0)
-          drops.push(`${diagnostics.invalidDateCount} with unreadable dates`);
-        if (diagnostics.invalidTimeCount > 0)
-          drops.push(`${diagnostics.invalidTimeCount} missing clock in / out`);
-        if (drops.length > 0) parts.push(`dropped ${drops.join(", ")}`);
-      }
-      if (unmapped.length > 0) {
-        const sample = unmapped
-          .slice(0, 5)
-          .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
-          .join("; ");
-        const more = unmapped.length > 5 ? ` and ${unmapped.length - 5} more` : "";
-        parts.push(`unrecognized: ${sample}${more}`);
-      }
-      const body = parts.length > 0 ? ` — ${parts.join("; ")}.` : ".";
-      return `${lead}${body}${tail}`;
-    };
+    // Hoisted to module scope so the confirm route can reuse it for the
+    // re-extract fallback below — see `explainZeroPunches`.
     // Origin label drives the dispatcher-facing copy + the recordAttempt
     // audit row. `'parser'` covers cache-reader successes; `'ai'` is the
     // AI extraction path. (Task #277 removed legacy hand-written parsers.)
@@ -2149,30 +2154,163 @@ weeksRouter.post(
       return;
     }
 
-    // Task #277: every per-row upload now stashes AI-extracted rows
-    // (extractedRows and/or pendingNamedRows). Legacy deterministic
-    // parsers were removed, so we no longer re-parse the stashed bytes
-    // — we trust the AI's stashed rows and re-resolve pendingNamedRows
-    // against the picker aliases inside the commit tx below.
-    //
-    // Old in-flight stashes from before the cutover may have neither
-    // field populated; those are unrecoverable now and we return a
-    // clear "re-upload" error rather than silently dropping to a parser
-    // that no longer exists.
-    const hasAiRows =
+    // Task #277: every per-row upload stashes AI-extracted rows
+    // (extractedRows and/or pendingNamedRows). When the stashed AI
+    // extract returned zero usable rows we used to bail with a
+    // "re-upload the file" error — but the same bytes are already on
+    // disk (`sample.fileBytes`), so re-uploading just produced another
+    // zero-row sample and the dispatcher was stuck in a loop. Re-run
+    // the AI extractor on the stashed bytes here instead and continue
+    // down the existing commit path. Only fall back to a hard "re-upload"
+    // when the stashed bytes themselves are truly missing.
+    const sampleSource = "ai" as const;
+    const drivers = await db.select().from(schema.driversTable);
+    const kfiSet = new Set(drivers.map((d) => d.kfiId));
+
+    let hasAiRows =
       (sample.extractedRows && sample.extractedRows.length > 0) ||
       (sample.pendingNamedRows && sample.pendingNamedRows.length > 0);
     if (!hasAiRows) {
-      const msg =
-        "This upload preview was created by an older parser path that has been removed. Re-upload the customer file to extract it through the AI pipeline.";
-      await recordAttempt(startDate, customer, sample.fileName, msg, "ai");
-      res.status(400).json({ error: msg });
-      return;
+      const fileBytesBuf =
+        sample.fileBytes && (sample.fileBytes as Buffer).length > 0
+          ? Buffer.from(sample.fileBytes as Buffer)
+          : null;
+      if (!fileBytesBuf) {
+        const msg =
+          "Upload preview stashed file is gone — re-upload the customer file to start over.";
+        await recordAttempt(startDate, customer, sample.fileName, msg, "ai");
+        res.status(400).json({ error: msg });
+        return;
+      }
+      const reExtractStartedAt = Date.now();
+      const reBudget = new IngestionBudget({
+        fileName: sample.fileName,
+        customer: sample.customer,
+        log: req.log,
+      });
+      const reIngestionId = randomUUID();
+      try {
+        const reqUserC = (req as Request & {
+          user?: typeof schema.usersTable.$inferSelect;
+        }).user;
+        const reAllowGeminiOverride =
+          Boolean(reqUserC?.isAdmin) &&
+          String(req.query.allowGeminiFallback ?? "") === "1";
+        const reAllowGemini =
+          reAllowGeminiOverride ||
+          (await loadAllowGeminiFallback(sample.customer));
+        const reIdMap = await loadMergedIdMap();
+        const reNameAliasMap = await loadCustomerNameAliasMap(sample.customer);
+        const { endDate: reEndDate } = await ensureWeek(startDate);
+        const reAiResult = await extractImageForKnownCustomer({
+          fileName: sample.fileName,
+          buffer: fileBytesBuf,
+          mimeType: sample.mimeType || "application/octet-stream",
+          customer: sample.customer,
+          weekStart: startDate,
+          weekEnd: reEndDate,
+          idMap: reIdMap,
+          drivers,
+          kfiSet,
+          nameAliasMap: reNameAliasMap,
+          log: req.log,
+          aiOpts: {
+            budget: reBudget,
+            allowGeminiFallback: reAllowGemini,
+            ingestionId: reIngestionId,
+            // No SSE progress key on the confirm path — the dispatcher
+            // is already past the preview dialog and not subscribed.
+            uploadKey: makeUploadKey({
+              contentHash: createHash("sha256")
+                .update(fileBytesBuf)
+                .digest("hex"),
+              weekStart: startDate,
+              customer: sample.customer,
+            }),
+            stageStore: dbChunkStageStore,
+          },
+        });
+        const reStashedRows = imagePunchesForStash(reAiResult.punches);
+        const rePending = reAiResult.pendingNamedRows ?? [];
+        await insertIngestionRun({
+          customer: sample.customer,
+          fileName: sample.fileName,
+          weekStart: startDate,
+          uploadedBy: req.session.userId ?? null,
+          outcome: "success",
+          rowCount: reAiResult.punches.length,
+          wallTimeMs: Date.now() - reExtractStartedAt,
+          summary: reBudget.summary(),
+          errMsg: null,
+          log: req.log,
+        });
+        if (reStashedRows.length === 0 && rePending.length === 0) {
+          req.log.warn(
+            {
+              fileName: sample.fileName,
+              customer: sample.customer,
+              diagnostics: reAiResult.diagnostics,
+            },
+            "Confirm re-extract returned zero punches",
+          );
+          const msg = explainZeroPunches(
+            reAiResult.customer,
+            reAiResult.unmappedIds,
+            reAiResult.diagnostics,
+            "ai",
+          );
+          await recordAttempt(
+            startDate,
+            reAiResult.customer,
+            sample.fileName,
+            msg,
+            "ai",
+          );
+          res.status(400).json({ error: msg });
+          return;
+        }
+        // Mutate the in-memory sample so the existing commit path
+        // (result.punches + sample.pendingNamedRows) picks up the
+        // freshly-extracted rows unchanged.
+        (sample as { extractedRows: schema.StashedExtractedPunch[] | null }).extractedRows =
+          reStashedRows;
+        (sample as { pendingNamedRows: schema.PendingNamedRow[] | null }).pendingNamedRows =
+          rePending;
+        hasAiRows = true;
+      } catch (err) {
+        req.log.error(
+          { err, fileName: sample.fileName, customer: sample.customer },
+          "Confirm re-extract failed",
+        );
+        const msg = err instanceof Error ? err.message : "Could not extract rows";
+        await insertIngestionRun({
+          customer: sample.customer,
+          fileName: sample.fileName,
+          weekStart: startDate,
+          uploadedBy: req.session.userId ?? null,
+          outcome:
+            err instanceof IngestionBudgetExceeded
+              ? "budget_exceeded"
+              : "extraction_failed",
+          rowCount: 0,
+          wallTimeMs: Date.now() - reExtractStartedAt,
+          summary: reBudget.summary(),
+          errMsg: msg,
+          log: req.log,
+        });
+        await recordAttempt(
+          startDate,
+          sample.customer,
+          sample.fileName,
+          msg,
+          "ai",
+        );
+        res.status(400).json({ error: msg });
+        return;
+      } finally {
+        releaseIngestion(reIngestionId);
+      }
     }
-    const sampleSource = "ai" as const;
-
-    const drivers = await db.select().from(schema.driversTable);
-    const kfiSet = new Set(drivers.map((d) => d.kfiId));
     const driverTzByKfi = new Map<string, string | null>(
       drivers.map((d) => [d.kfiId, d.displayTz ?? null]),
     );
