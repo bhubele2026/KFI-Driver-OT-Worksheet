@@ -993,6 +993,19 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     return null;
   };
 
+  // Per-week single-flight AbortController for the bulk loop. Used by the
+  // Stop button rendered in the bulk-results header while `bulkRunning`
+  // is true. Wiring the signal into `doUpload` aborts the in-flight
+  // /extract or /confirm fetch; the post-await check below the loop breaks
+  // out of the queue so any remaining pending items stay in `"pending"`
+  // status instead of marching on. Covered by
+  // `e2e/bulk-upload-cancel.spec.ts` (#385).
+  const bulkAbortRef = useRef<AbortController | null>(null);
+  const cancelBulk = () => {
+    const c = bulkAbortRef.current;
+    if (c) c.abort();
+  };
+
   const runBulk = async (files: File[]) => {
     if (files.length === 0) return;
     const initial: BulkItem[] = files.map((file) => {
@@ -1005,12 +1018,15 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     });
     setBulkItems(initial);
     setBulkRunning(true);
+    const bulkAbort = new AbortController();
+    bulkAbortRef.current = bulkAbort;
     let uploaded = 0;
     let skipped = 0;
     let failed = 0;
     let needsReview = 0;
     let firstFailedIdx: number | null = null;
     for (let i = 0; i < initial.length; i++) {
+      if (bulkAbort.signal.aborted) break;
       const item = initial[i];
       if (!item.customer) {
         needsReview++;
@@ -1034,7 +1050,22 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       const r = await doUpload(customer, item.file, {
         explicitCustomer: true,
         force: true,
+        signal: bulkAbort.signal,
       });
+      if (bulkAbort.signal.aborted) {
+        // Roll the current row back to pending so the dispatcher sees a
+        // clean "didn't run" state for it and every item after it (the
+        // post-await abort window happens after `setRow(uploading)` and
+        // after the awaited `doUpload` resolves with an error from the
+        // aborted fetch).
+        setBulkItems((prev) =>
+          prev.map((it, idx) =>
+            idx === i ? { ...it, status: "pending" } : it,
+          ),
+        );
+        setRow(customer, { uploading: false, error: null });
+        break;
+      }
       if (r.ok) {
         if (r.skipped) {
           skipped++;
@@ -1071,8 +1102,20 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         setRow(customer, { uploading: false, error: msg });
       }
     }
+    const aborted = bulkAbort.signal.aborted;
+    bulkAbortRef.current = null;
     setBulkRunning(false);
     invalidateAll();
+    if (aborted) {
+      toast({
+        title: t("customerUpload.bulkCanceledTitle"),
+        description: t("customerUpload.bulkCanceledDesc", {
+          uploaded,
+          remaining: initial.length - uploaded - skipped - failed - needsReview,
+        }),
+      });
+      return;
+    }
     const parts = [t("customerUpload.bulkUploaded", { count: uploaded })];
     if (skipped > 0) parts.push(t("customerUpload.bulkSkipped", { count: skipped }));
     if (needsReview > 0)
@@ -1388,7 +1431,18 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 ? t("customerUpload.uploadingHeader")
                 : t("customerUpload.bulkResultsHeader")}
             </h4>
-            {!bulkRunning && (
+            {bulkRunning ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={cancelBulk}
+                data-testid="button-cancel-bulk"
+              >
+                <X className="h-3 w-3 mr-1" />
+                {t("customerUpload.cancelBulk")}
+              </Button>
+            ) : (
               <Button
                 variant="ghost"
                 size="sm"
