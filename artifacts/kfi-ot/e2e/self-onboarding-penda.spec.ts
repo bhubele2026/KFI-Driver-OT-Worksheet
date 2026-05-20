@@ -43,18 +43,12 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Pool } from "pg";
+import { createE2EPool } from "./_helpers/db";
 import * as XLSX from "xlsx";
 import { signInAsDispatcher } from "./_helpers/auth";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set to run the self-onboarding e2e tests.",
-  );
-}
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = createE2EPool();
 
 const SUFFIX = `e2e-onb-pen-${Date.now().toString(36)}`;
 // Must match the fixture's actual week — Gemini reads the dates straight
@@ -72,8 +66,11 @@ const KEYWORD = `penda${SUFFIX.replace(/-/g, "")}`.toLowerCase();
 
 // Seeded driver that the picker pick targets. They get a Driver-source
 // punch in seedDb so the candidate-pool filter keeps them selectable.
+// kfi_id uses a synthetic id space (`E2E-…`) that real Connecteam
+// badge numbers (always numeric) cannot collide with. See `STUB_KFI`
+// below — same rule applies to every driver seeded by this spec.
 const PICK_TARGET_DRIVER = {
-  kfiId: `8${Date.now().toString().slice(-9)}`.slice(0, 10),
+  kfiId: `E2E-${SUFFIX}-PICK`,
   name: `E2E Pick Target ${SUFFIX}`,
 };
 
@@ -121,13 +118,23 @@ const MAPPED_EMPS = ALL_EMPS.slice(1);
 // the row (real existing drivers with the same kfi_id are untouched).
 const STUB_NAME_PREFIX = `E2E Penda Stub ${SUFFIX}`;
 
+// Map a real fixture badge id to the synthetic stub kfi_id it resolves
+// to. Connecteam badge ids are numeric, so the `E2E-…` prefix
+// guarantees no collision with any real driver — even if an alias or
+// driver row ever leaks past the cleanup it can't be looked up as a
+// real badge again. Resolution is wired via `driver_id_aliases`
+// (real_badge → synthetic stub kfi).
+const STUB_KFI = (emp: string): string => `E2E-${SUFFIX}-${emp}`;
+
 async function seedDb(): Promise<void> {
   await pool.query(
     `INSERT INTO weeks (start_date, end_date) VALUES ($1, $2)
      ON CONFLICT (start_date) DO NOTHING`,
     [WEEK_START, WEEK_END],
   );
-  // Pick target driver — used by the UI picker dropdown.
+  // Pick target driver — used by the UI picker dropdown. Uses a
+  // synthetic kfi_id (see PICK_TARGET_DRIVER) so it can never collide
+  // with a real Connecteam badge.
   await pool.query(
     `INSERT INTO drivers (kfi_id, name, customer) VALUES ($1, $2, $3)
      ON CONFLICT (kfi_id) DO UPDATE
@@ -136,16 +143,25 @@ async function seedDb(): Promise<void> {
     [PICK_TARGET_DRIVER.kfiId, PICK_TARGET_DRIVER.name, CUSTOMER_NAME],
   );
   // Stub-seed every fixture employee number EXCEPT the chosen unmapped
-  // one. ON CONFLICT DO NOTHING means real drivers with overlapping
-  // kfi_ids are left alone — they continue to resolve through kfiSet at
-  // extract time exactly as they did before. The stubs we did insert
-  // also resolve through kfiSet and never get touched again.
+  // one — but using SYNTHETIC kfi_ids in the `E2E-…` namespace, not
+  // the real badge numbers. We then wire a `driver_id_aliases` row
+  // mapping the real badge → synthetic stub kfi so the extractor
+  // resolves the fixture row exactly as before. This way even if a
+  // future leak slips past the gate, the rows we drop in the DB can't
+  // accidentally shadow a real Connecteam driver.
   for (const emp of MAPPED_EMPS) {
     await pool.query(
       `INSERT INTO drivers (kfi_id, name, customer)
          VALUES ($1, $2, $3)
        ON CONFLICT (kfi_id) DO NOTHING`,
-      [emp, `${STUB_NAME_PREFIX} ${emp}`, CUSTOMER_NAME],
+      [STUB_KFI(emp), `${STUB_NAME_PREFIX} ${emp}`, CUSTOMER_NAME],
+    );
+    await pool.query(
+      `INSERT INTO driver_id_aliases (customer, external_id, kfi_id)
+         VALUES ($1, $2, $3)
+       ON CONFLICT (external_id) DO UPDATE
+         SET kfi_id = EXCLUDED.kfi_id, customer = EXCLUDED.customer`,
+      [CUSTOMER_NAME, emp, STUB_KFI(emp)],
     );
   }
   // Driver-source punch so the candidate-pool filter keeps the pick

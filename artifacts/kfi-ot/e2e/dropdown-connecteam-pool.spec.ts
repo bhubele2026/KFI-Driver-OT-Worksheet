@@ -25,19 +25,13 @@
  * Adient specs need out of scope.
  */
 import { test, expect } from "@playwright/test";
-import { Pool } from "pg";
+import { createE2EPool } from "./_helpers/db";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs/promises";
 import { signInAsDispatcher } from "./_helpers/auth";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set to run the dropdown-connecteam-pool e2e test.",
-  );
-}
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = createE2EPool();
 
 const SUFFIX = Date.now().toString(36);
 // Match the 2026-04-26 Adient fixture's pay period (the parser maps

@@ -16,17 +16,11 @@
  *     the active rate-limit buckets table above the chart.
  */
 import { test, expect } from "@playwright/test";
-import { Pool } from "pg";
+import { createE2EPool } from "./_helpers/db";
 import { signInAsDispatcher } from "./_helpers/auth";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set to run the security-spike e2e test.",
-  );
-}
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = createE2EPool();
 
 const SUFFIX = Date.now().toString(36);
 const LIMITER = `e2e-spike-${SUFFIX}`;

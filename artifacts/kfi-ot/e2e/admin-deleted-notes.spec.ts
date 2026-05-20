@@ -17,17 +17,11 @@
  * driver + week afterwards.
  */
 import { test, expect } from "@playwright/test";
-import { Pool } from "pg";
+import { createE2EPool } from "./_helpers/db";
 import { signInAsDispatcher } from "./_helpers/auth";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set to run the admin-deleted-notes e2e test.",
-  );
-}
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = createE2EPool();
 
 const WEEK_START = "2031-04-20";
 const WEEK_END = "2031-04-26";

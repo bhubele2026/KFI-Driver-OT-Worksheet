@@ -14,18 +14,12 @@
  * the bare-string render that surfaced `13:28:00` to dispatchers.
  */
 import { test, expect } from "@playwright/test";
-import { Pool } from "pg";
+import { createE2EPool } from "./_helpers/db";
 import * as XLSX from "xlsx";
 import { signInAsDispatcher } from "./_helpers/auth";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set to run the punch-12-hour-display e2e test.",
-  );
-}
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = createE2EPool();
 
 const WEEK_START = "2031-05-11";
 const WEEK_END = "2031-05-17";

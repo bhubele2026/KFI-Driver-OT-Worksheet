@@ -22,15 +22,9 @@
  *   - After unblock, the same IP can hit the API again with 200.
  */
 import { test, expect } from "@playwright/test";
-import { Pool } from "pg";
+import { createE2EPool } from "./_helpers/db";
 import { signInAsDispatcher } from "./_helpers/auth";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set to run the ip-blocklist e2e test.",
-  );
-}
 
 // The reverse proxy at $KFI_E2E_BASE_URL strips/replaces client-IP
 // headers, so we hit the API server directly to forge a request from
@@ -39,7 +33,7 @@ if (!DATABASE_URL) {
 const API_DIRECT_URL =
   process.env.KFI_E2E_API_DIRECT_URL ?? "http://localhost:8080";
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = createE2EPool();
 
 const TEST_IP = "203.0.113.42"; // RFC 5737 TEST-NET-3, never a real client
 const BUCKET_NAME = `e2e-blocklist-${Date.now().toString(36)}`;

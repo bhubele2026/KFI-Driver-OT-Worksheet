@@ -21,16 +21,10 @@
  * not depend on existing data, and cleans up afterwards.
  */
 import { test, expect } from "@playwright/test";
-import { Pool } from "pg";
+import { createE2EPool } from "./_helpers/db";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set to run the driver-customer-overrides e2e test.",
-  );
-}
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = createE2EPool();
 
 const SUFFIX = `e2e-${Date.now().toString(36)}`;
 const DRIVER_KFI = `zzz-e2e-dco-${SUFFIX}`;

@@ -20,17 +20,11 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Pool } from "pg";
+import { createE2EPool } from "./_helpers/db";
 import { signInAsDispatcher } from "./_helpers/auth";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set to run the self-onboarding e2e tests.",
-  );
-}
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = createE2EPool();
 
 const SUFFIX = `e2e-onb-del-${Date.now().toString(36)}`;
 const WEEK_START = "2031-09-14"; // Sunday
@@ -38,8 +32,14 @@ const WEEK_END = "2031-09-20"; // Saturday
 const CUSTOMER_NAME = `E2E DeLallo ${SUFFIX}`;
 const KEYWORD = `delallo${SUFFIX.replace(/-/g, "")}`.toLowerCase();
 
+// Synthetic kfi_id (`E2E-…`) lives in a namespace real Connecteam
+// badge numbers (always numeric) cannot collide with — so if this stub
+// driver ever leaks past cleanup, a real customer-file badge cannot
+// resolve onto it. This is the only driver this spec seeds; the
+// dispatcher picker maps every unmapped fixture row onto it via
+// `customer_name_aliases` (DeLallo PDFs carry names, not badges).
 const PICK_TARGET_DRIVER = {
-  kfiId: `8${Date.now().toString().slice(-9)}`.slice(0, 10),
+  kfiId: `E2E-${SUFFIX}-PICK`,
   name: `E2E DeLallo Pick Target ${SUFFIX}`,
 };
 

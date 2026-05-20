@@ -19,17 +19,11 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Pool } from "pg";
+import { createE2EPool } from "./_helpers/db";
 import { signInAsDispatcher } from "./_helpers/auth";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set to run the customer-preview e2e test.",
-  );
-}
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = createE2EPool();
 
 // The dashboard route accepts any in-week date; the server snaps to the
 // Sunday-aligned week start via `ensureWeek` (Sun→Sat payroll week). Use the

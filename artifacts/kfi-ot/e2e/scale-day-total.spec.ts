@@ -10,17 +10,11 @@
  *     so the daily total returns to the engine-derived value.
  */
 import { test, expect } from "@playwright/test";
-import { Pool } from "pg";
+import { createE2EPool } from "./_helpers/db";
 import { signInAsDispatcher } from "./_helpers/auth";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set to run the scale-day-total e2e test.",
-  );
-}
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = createE2EPool();
 
 // Payroll weeks are Sunday-anchored (see lib/time.ts sundayOf). The day's
 // scale-hours route snaps the URL weekStart to a Sunday before loading

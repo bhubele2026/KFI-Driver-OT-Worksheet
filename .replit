@@ -29,7 +29,7 @@ isValidation = true
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "CI=1 pnpm run e2e:setup && CI=1 pnpm --filter @workspace/db run check-drift && CI=1 pnpm --filter @workspace/api-server run build && CI=1 pnpm test"
+args = "CI=1 KFI_E2E_ALLOW_DB=1 pnpm run e2e:setup && CI=1 pnpm --filter @workspace/db run check-drift && CI=1 pnpm --filter @workspace/api-server run build && CI=1 KFI_E2E_ALLOW_DB=1 pnpm test"
 
 [agent]
 stack = "PNPM_WORKSPACE"
