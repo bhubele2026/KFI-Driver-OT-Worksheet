@@ -2015,7 +2015,7 @@ export default function AdminUsers() {
                               )
                             </span>
                           </span>
-                        ) : renderWeekResetLabel(entry.action, entry.targetEmail, t) ?? renderParserSnoozeLabel(entry.action, entry.targetEmail, t) ?? renderCustomerTzLabel(entry.action, entry.targetEmail, t) ?? (
+                        ) : renderWeekResetLabel(entry.action, entry.targetEmail, t) ?? renderCustomerTzLabel(entry.action, entry.targetEmail, t) ?? (
                           <span className="font-mono">{entry.targetEmail ?? "—"}</span>
                         )}
                       </TableCell>
@@ -2206,17 +2206,11 @@ function UserAuditHistory({
                     {entry.action}
                   </span>
                   {(() => {
-                    const label =
-                      renderParserSnoozeLabel(
-                        entry.action,
-                        entry.targetEmail,
-                        t,
-                      ) ??
-                      renderCustomerTzLabel(
-                        entry.action,
-                        entry.targetEmail,
-                        t,
-                      );
+                    const label = renderCustomerTzLabel(
+                      entry.action,
+                      entry.targetEmail,
+                      t,
+                    );
                     return label ? (
                       <span className="text-xs text-muted-foreground">
                         {label}
@@ -2272,50 +2266,6 @@ function renderWeekResetLabel(
           notes,
         })}
       </span>
-    </span>
-  );
-}
-
-function renderParserSnoozeLabel(
-  action: string,
-  targetEmail: string | null | undefined,
-  t: TFunction,
-): ReactNode | null {
-  if (action !== "parser-snooze" && action !== "parser-snooze-lift") {
-    return null;
-  }
-  if (!targetEmail) return null;
-  const rest = targetEmail.startsWith("parser-snooze:")
-    ? targetEmail.slice("parser-snooze:".length)
-    : targetEmail;
-  const [customerRaw, ...metaParts] = rest.split("|");
-  const customer = customerRaw || t("adminUsers.unknownCustomer");
-  if (action === "parser-snooze-lift") {
-    return (
-      <span>
-        {t("adminUsers.parserSnoozeResumedPrefix")}{" "}
-        <span className="font-mono">{customer}</span>{" "}
-        {t("adminUsers.parserSnoozeResumedSuffix")}
-      </span>
-    );
-  }
-  const untilPart = metaParts.find((m) => m.startsWith("until="));
-  const untilValue = untilPart ? untilPart.slice("until=".length) : "";
-  let untilLabel = t("adminUsers.parserSnoozeForever");
-  if (untilValue && untilValue !== "forever") {
-    try {
-      untilLabel = t("adminUsers.parserSnoozeUntil", {
-        date: format(parseISO(untilValue), "MMM d, yyyy"),
-      });
-    } catch {
-      untilLabel = t("adminUsers.parserSnoozeUntil", { date: untilValue });
-    }
-  }
-  return (
-    <span>
-      {t("adminUsers.parserSnoozedPrefix")}{" "}
-      <span className="font-mono">{customer}</span>{" "}
-      {t("adminUsers.parserSnoozedSuffix", { until: untilLabel })}
     </span>
   );
 }
