@@ -2920,16 +2920,7 @@ function SummaryAndChecks({
         <CardHeader className="pb-2 pt-4 px-4">
           <CardTitle className="text-sm font-display tracking-tight flex items-center justify-between gap-2">
             <span>{t("driverDetail.summaryHeading")}</span>
-            {parityStatus === "match" && baselineStale && ageLabel ? (
-              <span
-                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/40"
-                data-testid="badge-ct-parity-stale"
-                title={t("driverDetail.ct.parityStaleTitle", { age: ageLabel, refreshedNote })}
-              >
-                <AlertTriangle className="h-3 w-3" />
-                {t("driverDetail.ct.parityStaleLabel", { age: ageLabel })}
-              </span>
-            ) : parityStatus === "match" ? (
+            {parityStatus === "match" ? (
               <span
                 className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
                 data-testid="badge-ct-parity-match"
