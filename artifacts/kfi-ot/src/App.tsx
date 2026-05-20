@@ -17,7 +17,6 @@ import ResetPassword from "@/pages/reset-password";
 import AdminUsers from "@/pages/admin-users";
 import AdminAiSamples from "@/pages/admin-ai-samples";
 import AdminCustomerAliases from "@/pages/admin-customer-aliases";
-import AdminParserSnoozes from "@/pages/admin-parser-snoozes";
 import AdminCustomers from "@/pages/admin-customers";
 import AdminInactiveCustomers from "@/pages/admin-inactive-customers";
 import AdminDriverIdAliases from "@/pages/admin-driver-id-aliases";
@@ -108,7 +107,6 @@ function Router() {
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/admin/ai-samples" component={AdminAiSamples} />
         <Route path="/admin/customer-aliases" component={AdminCustomerAliases} />
-        <Route path="/admin/parser-snoozes" component={AdminParserSnoozes} />
         <Route path="/admin/customers" component={AdminCustomers} />
         <Route path="/admin/inactive-customers" component={AdminInactiveCustomers} />
         <Route path="/admin/driver-id-aliases" component={AdminDriverIdAliases} />

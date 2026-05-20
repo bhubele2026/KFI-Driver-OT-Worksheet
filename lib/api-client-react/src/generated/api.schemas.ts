@@ -1070,8 +1070,6 @@ export interface CustomerUploadStatus {
   aiImportWeekCount: number;
   /** Number of saved driver-name aliases for this customer in `customer_name_aliases`. A growing count is a strong signal that the customer is a recurring weekly run rather than a one-off, and is a good prompt to promote the AI flow to a deterministic parser. */
   aliasCount: number;
-  /** True when this customer crosses the heuristic threshold for being promoted to a deterministic parser — currently `aiImportWeekCount >= 3` or `aliasCount >= 5`. Surfaced as a banner on the dashboard with a link to `docs/promote-ai-customer-to-parser.md`. */
-  promotionCandidate: boolean;
   /** @nullable */
   lastUploadAt?: string | null;
   /** @nullable */
@@ -1398,37 +1396,6 @@ export interface CustomerNameAliasList {
 export interface UpdateCustomerNameAliasBody {
   /** @minLength 1 */
   kfiId: string;
-}
-
-export interface ParserPromotionSnooze {
-  customer: string;
-  snoozedAt: string;
-  /**
-   * When the snooze auto-expires. Null means snoozed indefinitely.
-   * @nullable
-   */
-  snoozedUntil?: string | null;
-  /** @nullable */
-  snoozedByEmail?: string | null;
-  /** @nullable */
-  reason?: string | null;
-}
-
-export interface CreateParserPromotionSnoozeBody {
-  /** @minLength 1 */
-  customer: string;
-  /**
-   * Number of weeks to snooze the suggestion for. Null or omitted = snooze indefinitely (until manually un-snoozed).
-   * @minimum 1
-   * @maximum 520
-   * @nullable
-   */
-  snoozeWeeks?: number | null;
-  /**
-   * @maxLength 500
-   * @nullable
-   */
-  reason?: string | null;
 }
 
 export interface DriverIdAlias {
@@ -1949,10 +1916,6 @@ export type ListCustomerAliasAuditLogParams = {
   limit?: number;
   customer?: string;
   nameOnDoc?: string;
-};
-
-export type RemoveParserPromotionSnoozeParams = {
-  customer: string;
 };
 
 export type ReactivateCustomerParams = {

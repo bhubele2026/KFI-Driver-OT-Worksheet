@@ -798,7 +798,6 @@
   "adminNav": {
     "aiSamples": "AI samples",
     "customerAliases": "Customer-driver mappings",
-    "parserSnoozes": "Parser snoozes",
     "driverIds": "Driver-ID mappings",
     "hiddenNotes": "Hidden notes",
     "translations": "Translations",
@@ -809,9 +808,6 @@
   },
   "adminAliases": {
     "title": "Admin · Customer-driver mappings"
-  },
-  "adminSnoozes": {
-    "title": "Admin · Parser-promotion snoozes"
   },
   "adminDriverIds": {
     "title": "Admin · Driver ID aliases"
@@ -943,24 +939,6 @@
     "reactivatedTitle": "Reactivated \"{{customer}}\"",
     "reactivatedDesc": "The row is back on the per-week customer files panel and uploads are accepted again.",
     "reactivateFailed": "Couldn't reactivate"
-  },
-  "adminSnoozesExtra": {
-    "cardTitle": "Snoozed customers",
-    "description": "The week dashboard hides the \"Parser candidate\" suggestion for every customer listed below. Lift a snooze to let the suggestion come back the next time the customer crosses the heuristic threshold (3+ AI-imported weeks or 5+ saved aliases).",
-    "activeCount": "{{count}} active",
-    "expiredCount": "{{count}} expired",
-    "empty": "No snoozes yet. Use the \"Don't suggest\" button on the week dashboard's parser-candidate banner to add one.",
-    "headerCustomer": "Customer",
-    "headerSnoozed": "Snoozed",
-    "headerUntil": "Until",
-    "headerBy": "By",
-    "resumeButton": "Resume suggestions",
-    "snoozeLifted": "Snooze lifted",
-    "snoozeLiftedDesc": "\"{{customer}}\" can be suggested again.",
-    "liftFailed": "Couldn't lift snooze",
-    "foreverLabel": "Forever (until lifted)",
-    "expiredLabel": "Expired {{when}}",
-    "untilLabel": "Until {{when}}"
   },
   "adminTimezones": {
     "title": "Timezones",
@@ -1180,12 +1158,6 @@
     "liftFailed": "Couldn't lift the ignore rule"
   },
   "customerUpload": {
-    "snoozedTitle": "Snoozed \"{{customer}}\"",
-    "snoozedForeverDesc": "The promotion suggestion is hidden until you lift the snooze in Admin.",
-    "snoozedWeeksDesc_one": "The promotion suggestion is hidden for {{count}} week.",
-    "snoozedWeeksDesc_other": "The promotion suggestion is hidden for {{count}} weeks.",
-    "snoozeFailedTitle": "Couldn't snooze suggestion",
-    "snoozeFailedFallback": "Snooze failed",
     "hidTitle": "Hid \"{{customer}}\"",
     "hidDesc": "Existing punches and uploads are kept. Reactivate from Admin · Inactive customers to bring it back.",
     "markInactiveFailedTitle": "Couldn't mark inactive",
@@ -1233,22 +1205,6 @@
     "alreadyUpToDate": "Already up to date",
     "formatDriftHint": "Probably a format change — open the file directly and compare it against the last working upload before retrying.",
     "notKnownCustomer": "Not a known customer — use the new-customer flow to map it.",
-    "parserCandidateOne": "Parser candidate:",
-    "parserCandidateOther": "Parser candidates:",
-    "parserCandidatesBody": "These customers have come through the AI flow enough to justify a real parser. See",
-    "parserCandidatesBodyAfter": "for the promotion checklist.",
-    "manageHidden": "Manage hidden suggestions on",
-    "adminParserSnoozesLink": "Admin · Parser snoozes",
-    "aiWeeks_one": "{{count}} week AI",
-    "aiWeeks_other": "{{count}} weeks AI",
-    "aliases_one": "{{count}} alias",
-    "aliases_other": "{{count}} aliases",
-    "dontSuggest": "Don't suggest",
-    "snoozeFor": "Snooze \"{{customer}}\" for…",
-    "snoozeWeeks4": "4 weeks",
-    "snoozeWeeks12": "12 weeks",
-    "snoozeWeeks26": "26 weeks",
-    "snoozeForever": "Forever (until lifted)",
     "dropToUploadAs": "Drop to upload as {{customer}}",
     "punches_one": "{{count}} punch",
     "punches_other": "{{count}} punches",
@@ -1258,10 +1214,8 @@
     "latestFileImportedTitle": "Your most recent upload for this customer was identical to the file already imported, so it was skipped. Use Re-upload to force a fresh import anyway.",
     "aiBadge_one": "AI · {{count}} week",
     "aiBadge_other": "AI · {{count}} weeks",
-    "aiBadgeTitlePromo": "This customer has accumulated {{weeks}} AI-imported week(s) and {{aliases}} saved driver alias(es). Click to view stashed samples — and consider writing a deterministic parser.",
-    "aiBadgeTitle": "AI-imported (no deterministic parser yet). {{aliases}} saved driver alias(es). Click to view stashed samples.",
-    "aiBadgeTitlePromoNoAdmin": "This customer has accumulated {{weeks}} AI-imported week(s) and {{aliases}} saved driver alias(es). Consider writing a deterministic parser — see docs/promote-ai-customer-to-parser.md.",
-    "aiBadgeTitleNoAdmin": "AI-imported (no deterministic parser yet). {{aliases}} saved driver alias(es).",
+    "aiBadgeTitle": "AI-imported. {{aliases}} saved driver alias(es). Click to view stashed samples.",
+    "aiBadgeTitleNoAdmin": "AI-imported. {{aliases}} saved driver alias(es).",
     "anyFile": "Any file",
     "noUploadYet": "No upload yet for this week",
     "unknownBadges_one": "Unknown badge",

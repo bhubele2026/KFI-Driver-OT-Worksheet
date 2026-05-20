@@ -1660,11 +1660,6 @@ export const GetCustomerUploadStatusResponseItem = zod.object({
     .describe(
       "Number of saved driver-name aliases for this customer in `customer_name_aliases`. A growing count is a strong signal that the customer is a recurring weekly run rather than a one-off, and is a good prompt to promote the AI flow to a deterministic parser.",
     ),
-  promotionCandidate: zod
-    .boolean()
-    .describe(
-      "True when this customer crosses the heuristic threshold for being promoted to a deterministic parser — currently `aiImportWeekCount >= 3` or `aliasCount >= 5`. Surfaced as a banner on the dashboard with a link to `docs\/promote-ai-customer-to-parser.md`.",
-    ),
   lastUploadAt: zod.coerce.date().nullish(),
   lastFileName: zod.string().nullish(),
   lastAttemptAt: zod.coerce
@@ -2070,62 +2065,6 @@ export const ListCustomerAliasAuditLogResponseItem = zod.object({
 export const ListCustomerAliasAuditLogResponse = zod.array(
   ListCustomerAliasAuditLogResponseItem,
 );
-
-/**
- * @summary List every active or expired parser-promotion snooze (admin-only).
- */
-export const ListParserPromotionSnoozesResponseItem = zod.object({
-  customer: zod.string(),
-  snoozedAt: zod.coerce.date(),
-  snoozedUntil: zod.coerce
-    .date()
-    .nullish()
-    .describe("When the snooze auto-expires. Null means snoozed indefinitely."),
-  snoozedByEmail: zod.string().nullish(),
-  reason: zod.string().nullish(),
-});
-export const ListParserPromotionSnoozesResponse = zod.array(
-  ListParserPromotionSnoozesResponseItem,
-);
-
-/**
- * @summary Snooze the "promote to parser" suggestion for a customer (admin-only). Upserts the existing row when one is present.
- */
-
-export const createParserPromotionSnoozeBodySnoozeWeeksMax = 520;
-
-export const createParserPromotionSnoozeBodyReasonMax = 500;
-
-export const CreateParserPromotionSnoozeBody = zod.object({
-  customer: zod.string().min(1),
-  snoozeWeeks: zod
-    .number()
-    .min(1)
-    .max(createParserPromotionSnoozeBodySnoozeWeeksMax)
-    .nullish()
-    .describe(
-      "Number of weeks to snooze the suggestion for. Null or omitted = snooze indefinitely (until manually un-snoozed).",
-    ),
-  reason: zod.string().max(createParserPromotionSnoozeBodyReasonMax).nullish(),
-});
-
-export const CreateParserPromotionSnoozeResponse = zod.object({
-  customer: zod.string(),
-  snoozedAt: zod.coerce.date(),
-  snoozedUntil: zod.coerce
-    .date()
-    .nullish()
-    .describe("When the snooze auto-expires. Null means snoozed indefinitely."),
-  snoozedByEmail: zod.string().nullish(),
-  reason: zod.string().nullish(),
-});
-
-/**
- * @summary Lift a snooze so the "promote to parser" suggestion can surface again (admin-only).
- */
-export const RemoveParserPromotionSnoozeQueryParams = zod.object({
-  customer: zod.coerce.string(),
-});
 
 /**
  * @summary List every customer currently marked inactive (admin-only).

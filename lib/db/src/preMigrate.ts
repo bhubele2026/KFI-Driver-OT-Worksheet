@@ -296,6 +296,37 @@ const FIXUPS: Fixup[] = [
       END$$;
     `,
   },
+  // ---------------------------------------------------------------------
+  // Task #301 — drop the orphaned parser_promotion_snoozes table. The
+  // promotion-banner scaffolding it backed was removed once the legacy
+  // hardcoded parsers were deleted (there's nothing left to "promote
+  // an AI customer to"), so the table is dead weight. One-shot,
+  // marker-gated; idempotent.
+  {
+    name: "drop parser_promotion_snoozes (Task #301)",
+    describe:
+      "Drop the parser_promotion_snoozes table after the promotion-banner scaffolding was removed.",
+    detect: `SELECT 1`,
+    apply: `
+      CREATE TABLE IF NOT EXISTS schema_fixup_markers (
+        name text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      );
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM schema_fixup_markers
+          WHERE name = 'drop_parser_promotion_snoozes_2026'
+        ) THEN
+          RETURN;
+        END IF;
+        DROP TABLE IF EXISTS parser_promotion_snoozes;
+        INSERT INTO schema_fixup_markers (name)
+          VALUES ('drop_parser_promotion_snoozes_2026')
+          ON CONFLICT (name) DO NOTHING;
+      END$$;
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------

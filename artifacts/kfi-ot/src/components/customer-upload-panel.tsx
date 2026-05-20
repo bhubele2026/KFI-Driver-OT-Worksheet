@@ -5,12 +5,10 @@ import { Link } from "wouter";
 import {
   useGetCustomerUploadStatus,
   useGetMe,
-  useCreateParserPromotionSnooze,
   useGetAllowedTimezones,
   useMarkCustomerInactive,
   getGetCustomerUploadStatusQueryKey,
   getGetWeekSummaryQueryKey,
-  getListParserPromotionSnoozesQueryKey,
   getListInactiveCustomersQueryKey,
 } from "@workspace/api-client-react";
 import {
@@ -42,7 +40,6 @@ import {
   AlertCircle,
   Wand2,
   Lightbulb,
-  BellOff,
   FileQuestion,
   FolderUp,
   X,
@@ -232,36 +229,6 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [overrideTz, setOverrideTz] = useState<string>("__auto__");
   const { data: allowedTzs } = useGetAllowedTimezones();
-  const snoozeMutation = useCreateParserPromotionSnooze();
-
-  const snooze = (customer: string, snoozeWeeks: number | null) => {
-    snoozeMutation.mutate(
-      { data: { customer, snoozeWeeks } },
-      {
-        onSuccess: () => {
-          toast({
-            title: t("customerUpload.snoozedTitle", { customer }),
-            description:
-              snoozeWeeks == null
-                ? t("customerUpload.snoozedForeverDesc")
-                : t("customerUpload.snoozedWeeksDesc", { count: snoozeWeeks }),
-          });
-          queryClient.invalidateQueries({
-            queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
-          });
-          queryClient.invalidateQueries({
-            queryKey: getListParserPromotionSnoozesQueryKey(),
-          });
-        },
-        onError: (err) =>
-          toast({
-            title: t("customerUpload.snoozeFailedTitle"),
-            description: errMessage(err, t("customerUpload.snoozeFailedFallback")),
-            variant: "destructive",
-          }),
-      },
-    );
-  };
 
   const markInactive = (customer: string) => {
     markInactiveMutation.mutate(
@@ -877,10 +844,6 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     })();
   };
 
-  const promotionCandidates = (statuses ?? []).filter(
-    (s) => s.promotionCandidate,
-  );
-
   return (
     <Card
       className={`relative overflow-hidden border-border/60 transition-colors ${
@@ -1139,95 +1102,6 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           </ul>
         </div>
       )}
-      {promotionCandidates.length > 0 && (
-        <div className="border-b border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-4 py-3 space-y-2">
-          <div className="flex items-start gap-2">
-            <Lightbulb className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
-            <div className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
-              <span className="font-semibold">
-                {promotionCandidates.length === 1
-                  ? t("customerUpload.parserCandidateOne")
-                  : t("customerUpload.parserCandidateOther")}
-              </span>{" "}
-              {t("customerUpload.parserCandidatesBody")}{" "}
-              <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-amber-500/10">
-                docs/promote-ai-customer-to-parser.md
-              </code>{" "}
-              {t("customerUpload.parserCandidatesBodyAfter")}
-              {me?.isAdmin && (
-                <>
-                  {" "}
-                  {t("customerUpload.manageHidden")}{" "}
-                  <Link
-                    href="/admin/parser-snoozes"
-                    className="underline underline-offset-2"
-                  >
-                    {t("customerUpload.adminParserSnoozesLink")}
-                  </Link>
-                  .
-                </>
-              )}
-            </div>
-          </div>
-          <ul className="ml-6 space-y-1">
-            {promotionCandidates.map((s) => (
-              <li
-                key={s.customer}
-                className="flex items-center gap-2 text-xs text-amber-900 dark:text-amber-200"
-              >
-                <span className="font-medium">{s.customer}</span>
-                <span className="font-mono text-[10px] text-amber-800/80 dark:text-amber-300/80">
-                  {t("customerUpload.aiWeeks", { count: s.aiImportWeekCount })}{" "}
-                  · {t("customerUpload.aliases", { count: s.aliasCount })}
-                </span>
-                {me?.isAdmin && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-[11px] text-amber-900 dark:text-amber-200 hover:bg-amber-500/10"
-                        disabled={snoozeMutation.isPending}
-                      >
-                        {snoozeMutation.isPending &&
-                        snoozeMutation.variables?.data.customer ===
-                          s.customer ? (
-                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                        ) : (
-                          <BellOff className="h-3 w-3 mr-1" />
-                        )}
-                        {t("customerUpload.dontSuggest")}
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      <DropdownMenuLabel className="text-xs">
-                        {t("customerUpload.snoozeFor", { customer: s.customer })}
-                      </DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => snooze(s.customer, 4)}>
-                        {t("customerUpload.snoozeWeeks4")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => snooze(s.customer, 12)}>
-                        {t("customerUpload.snoozeWeeks12")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => snooze(s.customer, 26)}>
-                        {t("customerUpload.snoozeWeeks26")}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onClick={() => snooze(s.customer, null)}
-                      >
-                        {t("customerUpload.snoozeForever")}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       <ul className="divide-y divide-border">
         {(statuses ?? []).map((s) => {
           const st = rowState[s.customer] ?? { uploading: false, error: null };
@@ -1323,16 +1197,9 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                         <Badge
                           variant="outline"
                           className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1 cursor-pointer hover:bg-amber-500/10"
-                          title={
-                            s.promotionCandidate
-                              ? t("customerUpload.aiBadgeTitlePromo", {
-                                  weeks: s.aiImportWeekCount,
-                                  aliases: s.aliasCount,
-                                })
-                              : t("customerUpload.aiBadgeTitle", {
-                                  aliases: s.aliasCount,
-                                })
-                          }
+                          title={t("customerUpload.aiBadgeTitle", {
+                            aliases: s.aliasCount,
+                          })}
                         >
                           <Wand2 className="h-3 w-3" />
                           {t("customerUpload.aiBadge", { count: s.aiImportWeekCount })}
@@ -1342,16 +1209,9 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       <Badge
                         variant="outline"
                         className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1"
-                        title={
-                          s.promotionCandidate
-                            ? t("customerUpload.aiBadgeTitlePromoNoAdmin", {
-                                weeks: s.aiImportWeekCount,
-                                aliases: s.aliasCount,
-                              })
-                            : t("customerUpload.aiBadgeTitleNoAdmin", {
-                                aliases: s.aliasCount,
-                              })
-                        }
+                        title={t("customerUpload.aiBadgeTitleNoAdmin", {
+                          aliases: s.aliasCount,
+                        })}
                       >
                         <Wand2 className="h-3 w-3" />
                         {t("customerUpload.aiBadge", { count: s.aiImportWeekCount })}

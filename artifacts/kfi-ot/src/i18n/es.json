@@ -798,7 +798,6 @@
   "adminNav": {
     "aiSamples": "Muestras de IA",
     "customerAliases": "Asignaciones cliente-conductor",
-    "parserSnoozes": "Pausas de parser",
     "driverIds": "Asignaciones de ID de conductor",
     "hiddenNotes": "Notas ocultas",
     "translations": "Traducciones",
@@ -809,9 +808,6 @@
   },
   "adminAliases": {
     "title": "Administración · Asignaciones cliente-conductor"
-  },
-  "adminSnoozes": {
-    "title": "Administración · Pausas de promoción de parser"
   },
   "adminDriverIds": {
     "title": "Administración · Alias de ID de conductor"
@@ -943,24 +939,6 @@
     "reactivatedTitle": "Se reactivó \"{{customer}}\"",
     "reactivatedDesc": "La fila vuelve al panel de archivos por semana y las subidas vuelven a aceptarse.",
     "reactivateFailed": "No se pudo reactivar"
-  },
-  "adminSnoozesExtra": {
-    "cardTitle": "Clientes silenciados",
-    "description": "El panel semanal oculta la sugerencia \"Candidato a analizador\" para todos los clientes listados a continuación. Levante un silencio para permitir que la sugerencia vuelva la próxima vez que el cliente cruce el umbral heurístico (3+ semanas importadas por IA o 5+ alias guardados).",
-    "activeCount": "{{count}} activos",
-    "expiredCount": "{{count}} expirados",
-    "empty": "No hay silencios todavía. Use el botón \"No sugerir\" del aviso de candidato a analizador en el panel semanal para añadir uno.",
-    "headerCustomer": "Cliente",
-    "headerSnoozed": "Silenciado",
-    "headerUntil": "Hasta",
-    "headerBy": "Por",
-    "resumeButton": "Reanudar sugerencias",
-    "snoozeLifted": "Silencio levantado",
-    "snoozeLiftedDesc": "Se puede volver a sugerir \"{{customer}}\".",
-    "liftFailed": "No se pudo levantar el silencio",
-    "foreverLabel": "Para siempre (hasta levantarse)",
-    "expiredLabel": "Expiró {{when}}",
-    "untilLabel": "Hasta {{when}}"
   },
   "adminTimezones": {
     "title": "Zonas horarias",
@@ -1180,12 +1158,6 @@
     "liftFailed": "No se pudo levantar la regla de ignorados"
   },
   "customerUpload": {
-    "snoozedTitle": "Se silenció \"{{customer}}\"",
-    "snoozedForeverDesc": "La sugerencia de promoción permanece oculta hasta que se levante el silencio en Administración.",
-    "snoozedWeeksDesc_one": "La sugerencia de promoción permanece oculta durante {{count}} semana.",
-    "snoozedWeeksDesc_other": "La sugerencia de promoción permanece oculta durante {{count}} semanas.",
-    "snoozeFailedTitle": "No se pudo silenciar la sugerencia",
-    "snoozeFailedFallback": "Falló el silenciamiento",
     "hidTitle": "Se ocultó \"{{customer}}\"",
     "hidDesc": "Se conservan los registros y subidas existentes. Reactive desde Administración · Clientes inactivos para volver a mostrarlo.",
     "markInactiveFailedTitle": "No se pudo marcar como inactivo",
@@ -1233,22 +1205,6 @@
     "alreadyUpToDate": "Ya está al día",
     "formatDriftHint": "Probablemente cambió el formato — abra el archivo directamente y compárelo con la última subida válida antes de reintentar.",
     "notKnownCustomer": "No es un cliente conocido — use el flujo de nuevo cliente para asignarlo.",
-    "parserCandidateOne": "Candidato a analizador:",
-    "parserCandidateOther": "Candidatos a analizador:",
-    "parserCandidatesBody": "Estos clientes han pasado por el flujo de IA lo suficiente como para justificar un analizador real. Vea",
-    "parserCandidatesBodyAfter": "para la lista de promoción.",
-    "manageHidden": "Gestione las sugerencias ocultas en",
-    "adminParserSnoozesLink": "Administración · Silencios de analizador",
-    "aiWeeks_one": "{{count}} semana con IA",
-    "aiWeeks_other": "{{count}} semanas con IA",
-    "aliases_one": "{{count}} alias",
-    "aliases_other": "{{count}} alias",
-    "dontSuggest": "No sugerir",
-    "snoozeFor": "Silenciar \"{{customer}}\" durante…",
-    "snoozeWeeks4": "4 semanas",
-    "snoozeWeeks12": "12 semanas",
-    "snoozeWeeks26": "26 semanas",
-    "snoozeForever": "Para siempre (hasta levantar)",
     "dropToUploadAs": "Soltar para subir como {{customer}}",
     "punches_one": "{{count}} registro",
     "punches_other": "{{count}} registros",
@@ -1258,10 +1214,8 @@
     "latestFileImportedTitle": "Su subida más reciente para este cliente fue idéntica al archivo ya importado, por eso se omitió. Use Volver a subir para forzar una importación nueva.",
     "aiBadge_one": "IA · {{count}} semana",
     "aiBadge_other": "IA · {{count}} semanas",
-    "aiBadgeTitlePromo": "Este cliente ha acumulado {{weeks}} semana(s) importada(s) por IA y {{aliases}} alias de conductor guardado(s). Haga clic para ver las muestras almacenadas — y considere escribir un analizador determinista.",
-    "aiBadgeTitle": "Importado por IA (sin analizador determinista todavía). {{aliases}} alias de conductor guardado(s). Haga clic para ver las muestras almacenadas.",
-    "aiBadgeTitlePromoNoAdmin": "Este cliente ha acumulado {{weeks}} semana(s) importada(s) por IA y {{aliases}} alias de conductor guardado(s). Considere escribir un analizador determinista — vea docs/promote-ai-customer-to-parser.md.",
-    "aiBadgeTitleNoAdmin": "Importado por IA (sin analizador determinista todavía). {{aliases}} alias de conductor guardado(s).",
+    "aiBadgeTitle": "Importado por IA. {{aliases}} alias de conductor guardado(s). Haga clic para ver las muestras almacenadas.",
+    "aiBadgeTitleNoAdmin": "Importado por IA. {{aliases}} alias de conductor guardado(s).",
     "anyFile": "Cualquier archivo",
     "noUploadYet": "Sin subida para esta semana",
     "unknownBadges_one": "Credencial desconocida",

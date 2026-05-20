@@ -29,7 +29,7 @@ Multi-user dispatcher tool that reconciles Connecteam driver punches against upl
 ## Where things live
 
 - API contract: `lib/api-spec/openapi.yaml` (source of truth for hooks + Zod).
-- DB schema: `lib/db/src/schema/{users,sessions,drivers,weeks,punches,reviewed,customerUploadAttempts,customerNameAliases,rateLimitBuckets,parserPromotionSnoozes}.ts`.
+- DB schema: `lib/db/src/schema/{users,sessions,drivers,weeks,punches,reviewed,customerUploadAttempts,customerNameAliases,rateLimitBuckets}.ts`.
 - Server modules: `artifacts/api-server/src/lib/{time,mappings,db,auth,connecteam,hoursEngine,timesheets,timesheetsPdf}.ts` and `lib/parsers/{xlsx,pdf,index,types,customers,gemini,ocr,aiExtract,fuzzy}.ts`.
 - Routes: `artifacts/api-server/src/routes/{auth,weeks,punches,index}.ts`.
 - Frontend: `artifacts/kfi-ot/src/{App.tsx,pages/,components/}`. Theme + fonts in `src/index.css`.

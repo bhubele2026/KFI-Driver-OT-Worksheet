@@ -29,18 +29,8 @@ The panel also surfaces AI-only customers (those without a deterministic
 parser) with an amber `AI · N weeks` badge driven by `aiImportWeekCount`
 (count distinct weeks where `customer_upload_attempts.last_source = 'ai'`).
 The same response also returns `aliasCount` (rows in `customer_name_aliases`
-for that customer) and `promotionCandidate` (true when
-`aiImportWeekCount >= 3` or `aliasCount >= 5` AND no active row in
-`parser_promotion_snoozes`); the panel renders an amber banner listing
-candidates and pointing at
+for that customer). Promotion guidance lives in
 [`promote-ai-customer-to-parser.md`](./promote-ai-customer-to-parser.md).
-
-Each candidate has a per-customer admin "Don't suggest" dropdown
-(`POST /parser-promotion-snoozes` with
-`{ customer, snoozeWeeks: 4|12|26|null }`; null = forever). Snoozes are
-listed/lifted from `/admin/parser-snoozes` via
-`GET` / `DELETE /parser-promotion-snoozes`. A snooze with `snoozedUntil` in
-the past is treated as inactive and the suggestion re-surfaces.
 
 ## Driver-ID aliases
 

@@ -145,9 +145,7 @@ type AuditAction =
   | "create-reset-link"
   | "create-invite"
   | "revoke-invite"
-  | "accept-invite"
-  | "parser-snooze"
-  | "parser-snooze-lift";
+  | "accept-invite";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 

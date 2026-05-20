@@ -9,7 +9,6 @@ import {
   ConfirmNewCustomerFileBody,
   CreateDriverNoteBody,
   CreateManualPunchBody,
-  CreateParserPromotionSnoozeBody,
   CreateDriverIdAliasBody,
   CreateConnecteamUserAliasBody,
   CreateCustomerBody,
@@ -2580,31 +2579,6 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
   const aliasCountByCustomer = new Map(
     aliasRows.map((r) => [r.customer, r.aliasCount ?? 0]),
   );
-  // Look up active snoozes (snoozedUntil is null or in the future) so we can
-  // suppress promotionCandidate for any customer the admins have chosen to
-  // ignore. Compared case-insensitively to match the unique index.
-  const snoozeRows = await db
-    .select({
-      customer: schema.parserPromotionSnoozesTable.customer,
-      snoozedUntil: schema.parserPromotionSnoozesTable.snoozedUntil,
-    })
-    .from(schema.parserPromotionSnoozesTable);
-  const now = Date.now();
-  const snoozedSet = new Set<string>();
-  for (const s of snoozeRows) {
-    if (
-      s.snoozedUntil == null ||
-      new Date(s.snoozedUntil).getTime() > now
-    ) {
-      snoozedSet.add(s.customer.toLowerCase());
-    }
-  }
-  const isSnoozed = (name: string) => snoozedSet.has(name.toLowerCase());
-  const isPromotionCandidate = (
-    aiWeeks: number,
-    aliases: number,
-    name: string,
-  ) => (aiWeeks >= 3 || aliases >= 5) && !isSnoozed(name);
   const tzPrefRows = await db
     .select({
       customer: schema.customerTzPreferencesTable.customer,
@@ -2692,9 +2666,6 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       isAiImported: false,
       aiImportWeekCount: aiWeekCountByCustomer.get(c.displayName) ?? 0,
       aliasCount: aliasCountByCustomer.get(c.displayName) ?? 0,
-      // Known-customer rows already have a deterministic parser, so they
-      // never need promoting. Keep promotionCandidate=false unconditionally.
-      promotionCandidate: false,
       preferredDispTz: prefFor(c.displayName),
     };
   });
@@ -2775,147 +2746,11 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       isAiImported: hasAiHistory,
       aiImportWeekCount: aiWeeks,
       aliasCount: aliases,
-      promotionCandidate: hasAiHistory
-        ? isPromotionCandidate(aiWeeks, aliases, name)
-        : false,
       preferredDispTz: prefFor(name),
     };
   });
   res.json([...out, ...aiOnly]);
 });
-
-weeksRouter.get(
-  "/parser-promotion-snoozes",
-  requireAdmin,
-  async (_req, res) => {
-    const rows = await db
-      .select({
-        customer: schema.parserPromotionSnoozesTable.customer,
-        snoozedAt: schema.parserPromotionSnoozesTable.snoozedAt,
-        snoozedUntil: schema.parserPromotionSnoozesTable.snoozedUntil,
-        snoozedByUserId: schema.parserPromotionSnoozesTable.snoozedByUserId,
-        reason: schema.parserPromotionSnoozesTable.reason,
-      })
-      .from(schema.parserPromotionSnoozesTable)
-      .orderBy(desc(schema.parserPromotionSnoozesTable.snoozedAt));
-    const actorIds = new Set<number>();
-    for (const r of rows) if (r.snoozedByUserId) actorIds.add(r.snoozedByUserId);
-    const emailById = new Map<number, string>();
-    if (actorIds.size > 0) {
-      const actors = await db
-        .select({ id: schema.usersTable.id, email: schema.usersTable.email })
-        .from(schema.usersTable)
-        .where(inArray(schema.usersTable.id, [...actorIds]));
-      for (const a of actors) emailById.set(a.id, a.email);
-    }
-    res.json(
-      rows.map((r) => ({
-        customer: r.customer,
-        snoozedAt: new Date(r.snoozedAt).toISOString(),
-        snoozedUntil: r.snoozedUntil
-          ? new Date(r.snoozedUntil).toISOString()
-          : null,
-        snoozedByEmail: r.snoozedByUserId
-          ? emailById.get(r.snoozedByUserId) ?? null
-          : null,
-        reason: r.reason ?? null,
-      })),
-    );
-  },
-);
-
-weeksRouter.post(
-  "/parser-promotion-snoozes",
-  requireAdmin,
-  async (req, res) => {
-    const parsed = CreateParserPromotionSnoozeBody.safeParse(req.body);
-    if (!parsed.success) {
-      res
-        .status(400)
-        .json({ error: "Invalid input", details: parsed.error.issues });
-      return;
-    }
-    const customer = parsed.data.customer.trim();
-    if (!customer) {
-      res.status(400).json({ error: "customer is required" });
-      return;
-    }
-    const snoozeWeeks = parsed.data.snoozeWeeks ?? null;
-    const snoozedUntil =
-      snoozeWeeks && snoozeWeeks > 0
-        ? new Date(Date.now() + snoozeWeeks * 7 * 24 * 60 * 60 * 1000)
-        : null;
-    const snoozedAt = new Date();
-    const reason = parsed.data.reason?.trim() || null;
-    // Upsert by case-insensitive customer. The unique index is on lower(customer);
-    // delete-then-insert keeps the upsert simple regardless of casing drift.
-    await db.transaction(async (tx) => {
-      await tx
-        .delete(schema.parserPromotionSnoozesTable)
-        .where(
-          sql`lower(${schema.parserPromotionSnoozesTable.customer}) = lower(${customer})`,
-        );
-      await tx.insert(schema.parserPromotionSnoozesTable).values({
-        customer,
-        snoozedAt,
-        snoozedUntil,
-        snoozedByUserId: req.session.userId ?? null,
-        reason,
-      });
-      await tx.insert(schema.userAuditLogTable).values({
-        actorUserId: req.session.userId ?? null,
-        targetUserId: null,
-        targetEmail: `parser-snooze:${customer}|until=${
-          snoozedUntil ? snoozedUntil.toISOString() : "forever"
-        }`,
-        action: "parser-snooze",
-      });
-    });
-    let snoozedByEmail: string | null = null;
-    if (req.session.userId) {
-      const actor = await db.query.usersTable.findFirst({
-        where: eq(schema.usersTable.id, req.session.userId),
-        columns: { email: true },
-      });
-      snoozedByEmail = actor?.email ?? null;
-    }
-    res.json({
-      customer,
-      snoozedAt: snoozedAt.toISOString(),
-      snoozedUntil: snoozedUntil ? snoozedUntil.toISOString() : null,
-      snoozedByEmail,
-      reason,
-    });
-  },
-);
-
-weeksRouter.delete(
-  "/parser-promotion-snoozes",
-  requireAdmin,
-  async (req, res) => {
-    const customer = String(req.query.customer ?? "").trim();
-    if (!customer) {
-      res.status(400).json({ error: "customer is required" });
-      return;
-    }
-    await db.transaction(async (tx) => {
-      const removed = await tx
-        .delete(schema.parserPromotionSnoozesTable)
-        .where(
-          sql`lower(${schema.parserPromotionSnoozesTable.customer}) = lower(${customer})`,
-        )
-        .returning({ customer: schema.parserPromotionSnoozesTable.customer });
-      if (removed.length === 0) return;
-      await tx.insert(schema.userAuditLogTable).values({
-        actorUserId: req.session.userId ?? null,
-        targetUserId: null,
-        targetEmail: `parser-snooze:${removed[0].customer}`,
-        action: "parser-snooze-lift",
-      });
-    });
-    res.status(204).end();
-  },
-);
 
 // Helper: load the set of customer names currently marked inactive, lowercased
 // for case-insensitive comparisons. Used both by /customer-uploads (to filter

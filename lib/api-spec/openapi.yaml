@@ -1016,50 +1016,6 @@ paths:
                 items: { $ref: "#/components/schemas/CustomerAliasAuditLogEntry" }
         "403": { description: Admin only }
 
-  /parser-promotion-snoozes:
-    get:
-      operationId: listParserPromotionSnoozes
-      tags: [ingest]
-      summary: List every active or expired parser-promotion snooze (admin-only).
-      responses:
-        "200":
-          description: Snoozes ordered by `snoozedAt` desc, joined with the actor email.
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/ParserPromotionSnooze" }
-        "403": { description: Admin only }
-    post:
-      operationId: createParserPromotionSnooze
-      tags: [ingest]
-      summary: Snooze the "promote to parser" suggestion for a customer (admin-only). Upserts the existing row when one is present.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CreateParserPromotionSnoozeBody" }
-      responses:
-        "200":
-          description: Created or updated snooze.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ParserPromotionSnooze" }
-        "400": { description: Invalid input }
-        "403": { description: Admin only }
-    delete:
-      operationId: removeParserPromotionSnooze
-      tags: [ingest]
-      summary: Lift a snooze so the "promote to parser" suggestion can surface again (admin-only).
-      parameters:
-        - name: customer
-          in: query
-          required: true
-          schema: { type: string }
-      responses:
-        "204": { description: Removed (or no snooze existed) }
-        "400": { description: Invalid input }
-
   /customer-active-state:
     get:
       operationId: listInactiveCustomers
@@ -3212,7 +3168,7 @@ components:
 
     CustomerUploadStatus:
       type: object
-      required: [customer, extensions, keywords, punchCount, isAiImported, aiImportWeekCount, aliasCount, promotionCandidate, lastUnmappedIds, preferredDispTz]
+      required: [customer, extensions, keywords, punchCount, isAiImported, aiImportWeekCount, aliasCount, lastUnmappedIds, preferredDispTz]
       properties:
         customer: { type: string }
         extensions:
@@ -3232,9 +3188,6 @@ components:
         aliasCount:
           type: integer
           description: Number of saved driver-name aliases for this customer in `customer_name_aliases`. A growing count is a strong signal that the customer is a recurring weekly run rather than a one-off, and is a good prompt to promote the AI flow to a deterministic parser.
-        promotionCandidate:
-          type: boolean
-          description: True when this customer crosses the heuristic threshold for being promoted to a deterministic parser — currently `aiImportWeekCount >= 3` or `aliasCount >= 5`. Surfaced as a banner on the dashboard with a link to `docs/promote-ai-customer-to-parser.md`.
         lastUploadAt:
           type: ["string", "null"]
           format: date-time
@@ -3608,35 +3561,6 @@ components:
       required: [kfiId]
       properties:
         kfiId: { type: string, minLength: 1 }
-
-    ParserPromotionSnooze:
-      type: object
-      required: [customer, snoozedAt]
-      properties:
-        customer: { type: string }
-        snoozedAt: { type: string, format: date-time }
-        snoozedUntil:
-          type: ["string", "null"]
-          format: date-time
-          description: When the snooze auto-expires. Null means snoozed indefinitely.
-        snoozedByEmail:
-          type: ["string", "null"]
-        reason:
-          type: ["string", "null"]
-
-    CreateParserPromotionSnoozeBody:
-      type: object
-      required: [customer]
-      properties:
-        customer: { type: string, minLength: 1 }
-        snoozeWeeks:
-          type: ["integer", "null"]
-          minimum: 1
-          maximum: 520
-          description: Number of weeks to snooze the suggestion for. Null or omitted = snooze indefinitely (until manually un-snoozed).
-        reason:
-          type: ["string", "null"]
-          maxLength: 500
 
     DriverIdAlias:
       type: object
