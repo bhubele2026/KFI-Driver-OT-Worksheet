@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useGetZenopleReadiness } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export function ZenopleExportButton({ weekStart }: Props) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const { data: readiness, isLoading, refetch } =
@@ -27,7 +29,7 @@ export function ZenopleExportButton({ weekStart }: Props) {
     const r = fresh.data ?? readiness;
     if (!r) {
       toast({
-        title: "Could not check Zenople readiness",
+        title: t("zenopleExport.checkFailed"),
         variant: "destructive",
       });
       return;
@@ -49,10 +51,10 @@ export function ZenopleExportButton({ weekStart }: Props) {
         onClick={handleClick}
         disabled={isLoading}
         data-testid="button-zenople-export"
-        title="Download the Zenople xlsx for this week (admin)"
+        title={t("zenopleExport.buttonTitle")}
       >
         <Download className="mr-2 h-4 w-4" />
-        Export to Zenople
+        {t("zenopleExport.button")}
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -60,11 +62,14 @@ export function ZenopleExportButton({ weekStart }: Props) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-warning" />
-              Not ready to export
+              {t("zenopleExport.notReady")}
             </DialogTitle>
             <DialogDescription>
               {readiness
-                ? `${readiness.driversReady} of ${readiness.driversTotal} drivers are ready. Fix the items below and try again.`
+                ? t("zenopleExport.readinessDesc", {
+                    ready: readiness.driversReady,
+                    total: readiness.driversTotal,
+                  })
                 : null}
             </DialogDescription>
           </DialogHeader>
@@ -73,7 +78,9 @@ export function ZenopleExportButton({ weekStart }: Props) {
               {readiness.unreviewedKfiIds.length > 0 ? (
                 <div>
                   <div className="font-semibold mb-1">
-                    Not yet reviewed ({readiness.unreviewedKfiIds.length}):
+                    {t("zenopleExport.notReviewed", {
+                      count: readiness.unreviewedKfiIds.length,
+                    })}
                   </div>
                   <ul className="list-disc pl-5 font-mono text-xs space-y-0.5 max-h-40 overflow-auto">
                     {readiness.unreviewedKfiIds.map((id) => (
@@ -85,8 +92,9 @@ export function ZenopleExportButton({ weekStart }: Props) {
               {readiness.missingProfileKfiIds.length > 0 ? (
                 <div>
                   <div className="font-semibold mb-1">
-                    Missing pay & bill profile fields (
-                    {readiness.missingProfileKfiIds.length}):
+                    {t("zenopleExport.missingProfile", {
+                      count: readiness.missingProfileKfiIds.length,
+                    })}
                   </div>
                   <ul className="list-disc pl-5 text-xs space-y-0.5 max-h-40 overflow-auto">
                     {readiness.missingProfileKfiIds.map((m) => (
@@ -110,7 +118,7 @@ export function ZenopleExportButton({ weekStart }: Props) {
               onClick={() => setOpen(false)}
               data-testid="button-zenople-not-ready-close"
             >
-              Got it
+              {t("common.gotIt")}
             </Button>
           </DialogFooter>
         </DialogContent>

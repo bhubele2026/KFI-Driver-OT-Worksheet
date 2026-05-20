@@ -120,12 +120,12 @@ export default function AdminCustomerAliases() {
         onSuccess: () => {
           setEdit(null);
           refetch();
-          toast({ title: "Alias re-mapped" });
+          toast({ title: t("adminCustomerAliasesExtra.aliasRemapped") });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't update alias",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminCustomerAliasesExtra.updateFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -139,14 +139,14 @@ export default function AdminCustomerAliases() {
         onSuccess: () => {
           refetch();
           toast({
-            title: "Alias forgotten",
+            title: t("adminCustomerAliasesExtra.aliasForgotten"),
             description: `${a.customer} · ${a.nameOnDoc}`,
           });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't forget alias",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminCustomerAliasesExtra.forgetFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -195,24 +195,20 @@ export default function AdminCustomerAliases() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <Users className="h-4 w-4" />
-              Saved aliases
+              {t("adminCustomerAliasesExtra.cardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
-              Every (customer, name-on-doc) → driver mapping the
-              "New customer file" flow has remembered. Re-map a row when a
-              dispatcher made a wrong call, or forget it to let the next
-              upload re-decide. Forgetting only removes the saved decision
-              — it doesn't touch any imported punches.
+              {t("adminCustomerAliasesExtra.description")}
             </p>
             <div className="flex flex-wrap gap-2 mb-4 text-xs">
               <Badge variant="secondary" className="font-mono">
-                {totalAliases} total
+                {t("adminCustomerAliasesExtra.totalBadge", { count: totalAliases })}
               </Badge>
               {orphans > 0 && (
                 <Badge variant="destructive" className="font-mono">
-                  {orphans} pointing at deleted driver
+                  {t("adminCustomerAliasesExtra.orphansBadge", { count: orphans })}
                 </Badge>
               )}
               {archived > 0 && (
@@ -220,7 +216,7 @@ export default function AdminCustomerAliases() {
                   variant="outline"
                   className="font-mono border-amber-500/50 text-amber-700 dark:text-amber-400"
                 >
-                  {archived} pointing at archived driver
+                  {t("adminCustomerAliasesExtra.archivedBadge", { count: archived })}
                 </Badge>
               )}
               {staleCount > 0 && (
@@ -228,7 +224,7 @@ export default function AdminCustomerAliases() {
                   variant="outline"
                   className="font-mono border-amber-500/50 text-amber-700 dark:text-amber-400"
                 >
-                  {staleCount} unused in {STALE_AFTER_DAYS}+ days
+                  {t("adminCustomerAliasesExtra.staleBadge", { count: staleCount, days: STALE_AFTER_DAYS })}
                 </Badge>
               )}
             </div>
@@ -237,8 +233,7 @@ export default function AdminCustomerAliases() {
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
             ) : grouped.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">
-                No aliases saved yet. They'll appear here as dispatchers
-                confirm new customer files.
+                {t("adminCustomerAliasesExtra.empty")}
               </p>
             ) : (
               <div className="space-y-6">
@@ -253,10 +248,10 @@ export default function AdminCustomerAliases() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Name on doc</TableHead>
-                          <TableHead>Mapped to</TableHead>
-                          <TableHead>Last updated</TableHead>
-                          <TableHead>Last used</TableHead>
+                          <TableHead>{t("adminCustomerAliasesExtra.headerNameOnDoc")}</TableHead>
+                          <TableHead>{t("adminCustomerAliasesExtra.headerMappedTo")}</TableHead>
+                          <TableHead>{t("adminCustomerAliasesExtra.headerLastUpdated")}</TableHead>
+                          <TableHead>{t("adminCustomerAliasesExtra.headerLastUsed")}</TableHead>
                           <TableHead className="w-[1%]" />
                         </TableRow>
                       </TableHeader>
@@ -286,7 +281,7 @@ export default function AdminCustomerAliases() {
                                       {a.driverIsArchived && (
                                         <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono flex items-center gap-1">
                                           <AlertTriangle className="h-3 w-3" />
-                                          Archived driver
+                                          {t("adminCustomerAliasesExtra.archivedDriver")}
                                         </span>
                                       )}
                                     </div>
@@ -297,7 +292,7 @@ export default function AdminCustomerAliases() {
                                       </span>
                                       <span className="text-[10px] uppercase tracking-wider text-rose-600 dark:text-rose-400 font-mono flex items-center gap-1">
                                         <AlertTriangle className="h-3 w-3" />
-                                        Driver no longer in roster
+                                        {t("adminCustomerAliasesExtra.noLongerInRoster")}
                                       </span>
                                     </div>
                                   )}
@@ -311,7 +306,7 @@ export default function AdminCustomerAliases() {
                                   </div>
                                   {a.updatedByEmail && (
                                     <div className="font-mono text-[10px] text-muted-foreground">
-                                      by {a.updatedByEmail}
+                                      {t("adminCustomerAliasesExtra.byEmail", { email: a.updatedByEmail })}
                                     </div>
                                   )}
                                 </TableCell>
@@ -319,28 +314,26 @@ export default function AdminCustomerAliases() {
                                   {a.lastUsedWeek ? (
                                     <div className="flex flex-col gap-0.5">
                                       <span className="font-mono text-muted-foreground">
-                                        week of {a.lastUsedWeek}
+                                        {t("adminCustomerAliasesExtra.weekOf", { week: a.lastUsedWeek })}
                                       </span>
                                       <span className="font-mono text-[10px] text-muted-foreground">
-                                        {a.weeksUsedCount}{" "}
                                         {a.weeksUsedCount === 1
-                                          ? "week"
-                                          : "weeks"}{" "}
-                                        applied
+                                          ? t("adminCustomerAliasesExtra.weekOne", { count: a.weeksUsedCount })
+                                          : t("adminCustomerAliasesExtra.weekOther", { count: a.weeksUsedCount })}
                                       </span>
                                       {isStale(a.lastUsedWeek) && (
                                         <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono">
-                                          Stale
+                                          {t("adminCustomerAliasesExtra.stale")}
                                         </span>
                                       )}
                                     </div>
                                   ) : (
                                     <div className="flex flex-col gap-0.5">
                                       <span className="font-mono text-[10px] text-muted-foreground italic">
-                                        never seen in punches
+                                        {t("adminCustomerAliasesExtra.neverSeen")}
                                       </span>
                                       <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono">
-                                        Stale
+                                        {t("adminCustomerAliasesExtra.stale")}
                                       </span>
                                     </div>
                                   )}
@@ -364,7 +357,7 @@ export default function AdminCustomerAliases() {
                                       }
                                     >
                                       <LinkIcon className="h-3 w-3 mr-1" />
-                                      {isEditing ? "Cancel" : "Change driver"}
+                                      {isEditing ? t("adminCustomerAliasesExtra.cancelButton") : t("adminCustomerAliasesExtra.changeDriverButton")}
                                     </Button>
                                     <Button
                                       type="button"
@@ -372,7 +365,7 @@ export default function AdminCustomerAliases() {
                                       variant="ghost"
                                       onClick={() => handleForget(a)}
                                       disabled={forgetAlias.isPending}
-                                      title="Delete this saved alias"
+                                      title={t("adminCustomerAliasesExtra.deleteAliasTitle")}
                                     >
                                       <Trash2 className="h-3 w-3" />
                                     </Button>
@@ -413,14 +406,12 @@ export default function AdminCustomerAliases() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <History className="h-4 w-4" />
-              Recent activity
+              {t("adminCustomerAliasesExtra.historyTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
-              Append-only log of every alias re-map and forget. Use this to
-              trace which admin (or dispatcher) changed a mapping when a
-              dispatcher's punches start landing on the wrong driver.
+              {t("adminCustomerAliasesExtra.historyDesc")}
             </p>
             {auditLoading ? (
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -428,11 +419,11 @@ export default function AdminCustomerAliases() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>When</TableHead>
-                    <TableHead>Actor</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Customer · name on doc</TableHead>
-                    <TableHead>Change</TableHead>
+                    <TableHead>{t("adminCustomerAliasesExtra.headerWhen")}</TableHead>
+                    <TableHead>{t("adminCustomerAliasesExtra.headerActor")}</TableHead>
+                    <TableHead>{t("adminCustomerAliasesExtra.headerAction")}</TableHead>
+                    <TableHead>{t("adminCustomerAliasesExtra.headerCustomerName")}</TableHead>
+                    <TableHead>{t("adminCustomerAliasesExtra.headerChange")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -480,7 +471,7 @@ export default function AdminCustomerAliases() {
               </Table>
             ) : (
               <p className="text-sm text-muted-foreground italic">
-                No alias changes recorded yet.
+                {t("adminCustomerAliasesExtra.historyEmpty")}
               </p>
             )}
           </CardContent>
@@ -497,16 +488,17 @@ function KfiIdLabel({
   kfiId: string | null;
   driverName: string | null;
 }) {
+  const { t } = useTranslation();
   if (!kfiId) {
     return (
       <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">
-        none
+        {t("adminCustomerAliasesExtra.noneLabel")}
       </span>
     );
   }
   return (
     <span className="inline-flex flex-col">
-      <span className="font-medium">{driverName ? formatPersonName(driverName) : "Unknown driver"}</span>
+      <span className="font-medium">{driverName ? formatPersonName(driverName) : t("adminCustomerAliasesExtra.unknownDriver")}</span>
       <span className="font-mono text-[10px] text-muted-foreground">
         {kfiId}
       </span>
@@ -531,15 +523,16 @@ function EditDriverRow({
   pending: boolean;
   unchanged: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-wrap items-end gap-2">
       <div className="flex-1 min-w-[260px] space-y-1">
         <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-          Re-map to driver
+          {t("adminCustomerAliasesExtra.remapToDriver")}
         </label>
         <Select value={currentKfiId} onValueChange={onChange}>
           <SelectTrigger>
-            <SelectValue placeholder="Pick a driver" />
+            <SelectValue placeholder={t("adminDriverIdsExtra.pickDriverPlaceholder")} />
           </SelectTrigger>
           <SelectContent>
             {drivers.map((d) => (
@@ -560,10 +553,10 @@ function EditDriverRow({
         disabled={pending || unchanged}
       >
         {pending && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-        Save
+        {t("adminCustomerAliasesExtra.saveButton")}
       </Button>
       <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-        Cancel
+        {t("adminCustomerAliasesExtra.cancelButton")}
       </Button>
     </div>
   );

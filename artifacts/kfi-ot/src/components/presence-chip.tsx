@@ -1,4 +1,5 @@
 import { Users } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   Tooltip,
   TooltipContent,
@@ -35,12 +36,8 @@ function colorFor(email: string): string {
   return PALETTE[h % PALETTE.length];
 }
 
-/**
- * "Who's viewing" chip. Renders one avatar bubble per active viewer (other
- * than the current user). Empty when nobody else is on the page, so the
- * header stays calm.
- */
 export function PresenceChip({ viewers, selfEmail }: Props) {
+  const { t } = useTranslation();
   const others = viewers.filter((v) => v.email !== selfEmail);
   if (others.length === 0) return null;
   const visible = others.slice(0, 5);
@@ -74,7 +71,12 @@ export function PresenceChip({ viewers, selfEmail }: Props) {
         </TooltipTrigger>
         <TooltipContent side="bottom" className="max-w-xs">
           <div className="text-xs font-semibold mb-1">
-            {others.length} other viewer{others.length === 1 ? "" : "s"}
+            {t(
+              others.length === 1
+                ? "presenceChip.otherViewers_one"
+                : "presenceChip.otherViewers_other",
+              { count: others.length },
+            )}
           </div>
           <ul className="space-y-0.5 text-xs">
             {others.map((v) => (

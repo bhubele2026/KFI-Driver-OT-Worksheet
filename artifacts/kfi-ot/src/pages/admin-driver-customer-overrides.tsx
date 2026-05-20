@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link, Redirect } from "wouter";
 import {
   useGetMe,
@@ -29,6 +30,7 @@ import { format } from "date-fns";
 import { Logo } from "@/components/logo";
 
 export default function AdminDriverCustomerOverrides() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -65,15 +67,14 @@ export default function AdminDriverCustomerOverrides() {
             },
           });
           toast({
-            title: `Cleared override for ${row.driverName ?? row.kfiId}`,
-            description:
-              "Driver is back under their Connecteam roster customer.",
+            title: t("adminOverrides.clearedTitle", { name: row.driverName ?? row.kfiId }),
+            description: t("adminOverrides.clearedDesc"),
           });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't clear override",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminOverrides.clearFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -97,11 +98,11 @@ export default function AdminDriverCustomerOverrides() {
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to users
+              {t("common.backToUsers")}
             </Button>
           </Link>
           <h1 className="font-display font-bold text-lg tracking-tight">
-            Driver customer overrides
+            {t("adminOverrides.title")}
           </h1>
         </div>
       </header>
@@ -111,17 +112,12 @@ export default function AdminDriverCustomerOverrides() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <Shuffle className="h-4 w-4" />
-              Active overrides
+              {t("adminOverrides.cardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
-              A per-driver override re-groups that driver under a different
-              customer on the week dashboard. Overrides survive Connecteam
-              refreshes; the original roster customer is preserved on the
-              driver record so this page can show it side-by-side. Use the
-              "⋯" menu on any driver row in the sidebar to set or clear an
-              override.
+              {t("adminOverrides.description")}
             </p>
 
             {isLoading ? (
@@ -131,18 +127,17 @@ export default function AdminDriverCustomerOverrides() {
                 className="text-sm text-muted-foreground italic"
                 data-testid="overrides-empty"
               >
-                No driver customer overrides. Open any week and use the row
-                menu on a driver in the sidebar to move them.
+                {t("adminOverrides.empty")}
               </p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Driver</TableHead>
-                    <TableHead>Original (Connecteam)</TableHead>
-                    <TableHead>Override</TableHead>
-                    <TableHead>Set</TableHead>
-                    <TableHead>By</TableHead>
+                    <TableHead>{t("adminOverrides.headerDriver")}</TableHead>
+                    <TableHead>{t("adminOverrides.headerOriginal")}</TableHead>
+                    <TableHead>{t("adminOverrides.headerOverride")}</TableHead>
+                    <TableHead>{t("adminOverrides.headerSet")}</TableHead>
+                    <TableHead>{t("adminOverrides.headerBy")}</TableHead>
                     <TableHead className="w-[1%]" />
                   </TableRow>
                 </TableHeader>
@@ -185,7 +180,7 @@ export default function AdminDriverCustomerOverrides() {
                           ) : (
                             <X className="h-3 w-3 mr-1" />
                           )}
-                          Clear
+                          {t("adminOverrides.clearButton")}
                         </Button>
                       </TableCell>
                     </TableRow>

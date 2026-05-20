@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useSetDriverCustomerOverride,
@@ -46,6 +47,7 @@ export function MoveDriverCustomerDialog({
   onOpenChange,
   driver,
 }: MoveDriverCustomerDialogProps) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: summary } = useGetWeekSummary(weekStart);
@@ -91,17 +93,19 @@ export function MoveDriverCustomerDialog({
             queryKey: getListDriverCustomerOverridesQueryKey(),
           });
           toast({
-            title: `Moved ${driver.name} to "${effectiveTarget}"`,
-            description:
-              "Override saved. It will survive Connecteam refreshes until cleared.",
+            title: t("moveDriverDialog.movedTitle", {
+              name: driver.name,
+              customer: effectiveTarget,
+            }),
+            description: t("moveDriverDialog.movedDesc"),
           });
           reset();
           onOpenChange(false);
         },
         onError: (err) =>
           toast({
-            title: "Couldn't move driver",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("moveDriverDialog.moveFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -119,24 +123,23 @@ export function MoveDriverCustomerDialog({
       <DialogContent className="sm:max-w-md" data-testid="dialog-move-driver">
         <DialogHeader>
           <DialogTitle className="font-display">
-            Move driver to a different customer
+            {t("moveDriverDialog.title")}
           </DialogTitle>
           <DialogDescription>
-            {driver.name} is currently grouped under{" "}
-            <span className="font-mono">{rosterCustomer}</span> (from
-            Connecteam). Choose a different customer to override that grouping
-            on the dashboard. The override survives Connecteam refreshes.
+            {t("moveDriverDialog.descriptionBefore", { name: driver.name })}
+            <span className="font-mono">{rosterCustomer}</span>
+            {t("moveDriverDialog.descriptionAfter")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 py-2">
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">
-              Move to
+              {t("moveDriverDialog.moveTo")}
             </label>
             <Select value={picked} onValueChange={setPicked}>
               <SelectTrigger data-testid="select-move-customer">
-                <SelectValue placeholder="Pick a customer…" />
+                <SelectValue placeholder={t("moveDriverDialog.pickPlaceholder")} />
               </SelectTrigger>
               <SelectContent>
                 {knownCustomers.map((c) => (
@@ -144,7 +147,7 @@ export function MoveDriverCustomerDialog({
                     {c}
                   </SelectItem>
                 ))}
-                <SelectItem value={CUSTOM_VALUE}>Other…</SelectItem>
+                <SelectItem value={CUSTOM_VALUE}>{t("moveDriverDialog.other")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -152,12 +155,12 @@ export function MoveDriverCustomerDialog({
           {picked === CUSTOM_VALUE && (
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">
-                Custom customer name
+                {t("moveDriverDialog.customLabel")}
               </label>
               <Input
                 value={customValue}
                 onChange={(e) => setCustomValue(e.target.value)}
-                placeholder="e.g. Adient"
+                placeholder={t("moveDriverDialog.customPlaceholder")}
                 data-testid="input-move-customer-custom"
               />
             </div>
@@ -171,7 +174,7 @@ export function MoveDriverCustomerDialog({
             onClick={() => onOpenChange(false)}
             disabled={setOverride.isPending}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
@@ -182,7 +185,7 @@ export function MoveDriverCustomerDialog({
             {setOverride.isPending && (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             )}
-            Move
+            {t("moveDriverDialog.moveButton")}
           </Button>
         </DialogFooter>
       </DialogContent>

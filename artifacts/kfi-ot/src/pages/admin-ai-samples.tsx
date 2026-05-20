@@ -61,7 +61,7 @@ export default function AdminAiSamples() {
   const deleteSample = useDeleteAiExtractSample({
     mutation: {
       onSuccess: () => {
-        toast({ title: "Sample deleted" });
+        toast({ title: t("adminAiExtra.sampleDeleted") });
         qc.invalidateQueries({ queryKey: getListAiExtractSamplesQueryKey() });
         qc.invalidateQueries({
           queryKey: getListUserAuditLogQueryKey({ limit: 200 }),
@@ -69,8 +69,8 @@ export default function AdminAiSamples() {
       },
       onError: (err: unknown) => {
         toast({
-          title: "Could not delete sample",
-          description: err instanceof Error ? err.message : "Unknown error",
+          title: t("adminAiExtra.deleteFailed"),
+          description: err instanceof Error ? err.message : t("errors.unknown"),
           variant: "destructive",
         });
       },
@@ -80,17 +80,17 @@ export default function AdminAiSamples() {
     mutation: {
       onSuccess: (updated) => {
         toast({
-          title: updated.pinned ? "Sample pinned" : "Sample unpinned",
+          title: updated.pinned ? t("adminAiExtra.samplePinned") : t("adminAiExtra.sampleUnpinned"),
           description: updated.pinned
-            ? "This sample is exempt from the TTL cleanup."
-            : "This sample will expire on its normal schedule.",
+            ? t("adminAiExtra.pinnedDesc")
+            : t("adminAiExtra.unpinnedDesc"),
         });
         qc.invalidateQueries({ queryKey: getListAiExtractSamplesQueryKey() });
       },
       onError: (err: unknown) => {
         toast({
-          title: "Could not update pin",
-          description: err instanceof Error ? err.message : "Unknown error",
+          title: t("adminAiExtra.pinFailed"),
+          description: err instanceof Error ? err.message : t("errors.unknown"),
           variant: "destructive",
         });
       },
@@ -191,7 +191,7 @@ export default function AdminAiSamples() {
             className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
           >
             <Users className="h-4 w-4 mr-2" />
-            Users
+            {t("adminAiExtra.users")}
           </Button>
         </Link>
       </header>
@@ -201,36 +201,31 @@ export default function AdminAiSamples() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <Sparkles className="h-4 w-4" />
-              Stashed AI customer files
+              {t("adminAiExtra.cardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-xs text-muted-foreground">
-              Original files uploaded through the "New customer file…" flow are
-              stashed here so engineers can grab a fixture when promoting a
-              customer to a deterministic parser. Unconfirmed samples expire
-              after 24 hours; confirmed samples are kept for 90 days. Pin a
-              sample to keep it indefinitely.
-              See{" "}
+              {t("adminAiExtra.descriptionPart1")}
               <code className="font-mono">
                 docs/promote-ai-customer-to-parser.md
-              </code>{" "}
-              for the full workflow.
+              </code>
+              {t("adminAiExtra.descriptionPart2")}
             </p>
 
             <div className="flex items-center gap-2">
               <span className="text-xs uppercase tracking-wider text-muted-foreground">
-                Filter
+                {t("adminAiExtra.filter")}
               </span>
               <Select
                 value={customerFilter || "__all__"}
                 onValueChange={setCustomer}
               >
                 <SelectTrigger className="w-[260px] h-8 text-sm">
-                  <SelectValue placeholder="All customers" />
+                  <SelectValue placeholder={t("adminAiExtra.allCustomers")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__all__">All customers</SelectItem>
+                  <SelectItem value="__all__">{t("adminAiExtra.allCustomers")}</SelectItem>
                   {customers.map((c) => (
                     <SelectItem key={c} value={c}>
                       {c}
@@ -244,7 +239,7 @@ export default function AdminAiSamples() {
                   size="sm"
                   onClick={() => setCustomer("")}
                 >
-                  Clear
+                  {t("adminAiExtra.clear")}
                 </Button>
               )}
             </div>
@@ -252,13 +247,13 @@ export default function AdminAiSamples() {
             {isLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Loading samples…
+                {t("adminAiExtra.loadingSamples")}
               </div>
             ) : grouped.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">
                 {customerFilter
-                  ? `No stashed samples for "${customerFilter}".`
-                  : "No stashed AI samples. They appear here after a dispatcher uses the \"New customer file…\" flow."}
+                  ? t("adminAiExtra.noSamplesFiltered", { customer: customerFilter })
+                  : t("adminAiExtra.noSamples")}
               </p>
             ) : (
               <div className="space-y-6">
@@ -269,21 +264,22 @@ export default function AdminAiSamples() {
                         {customer}
                       </h3>
                       <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                        {rows.length}{" "}
-                        {rows.length === 1 ? "sample" : "samples"}
+                        {rows.length === 1
+                          ? t("adminAiExtra.sampleOne", { count: rows.length })
+                          : t("adminAiExtra.sampleOther", { count: rows.length })}
                       </span>
                     </div>
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-[110px]">Week</TableHead>
-                          <TableHead>File</TableHead>
-                          <TableHead className="w-[90px]">Size</TableHead>
-                          <TableHead className="w-[180px]">Uploaded</TableHead>
-                          <TableHead className="w-[180px]">By</TableHead>
-                          <TableHead className="w-[160px]">Status</TableHead>
+                          <TableHead className="w-[110px]">{t("adminAiExtra.headerWeek")}</TableHead>
+                          <TableHead>{t("adminAiExtra.headerFile")}</TableHead>
+                          <TableHead className="w-[90px]">{t("adminAiExtra.headerSize")}</TableHead>
+                          <TableHead className="w-[180px]">{t("adminAiExtra.headerUploaded")}</TableHead>
+                          <TableHead className="w-[180px]">{t("adminAiExtra.headerBy")}</TableHead>
+                          <TableHead className="w-[160px]">{t("adminAiExtra.headerStatus")}</TableHead>
                           <TableHead className="w-[280px] text-right">
-                            Actions
+                            {t("adminAiExtra.headerActions")}
                           </TableHead>
                         </TableRow>
                       </TableHeader>
@@ -318,7 +314,7 @@ export default function AdminAiSamples() {
                               </TableCell>
                               <TableCell className="text-xs text-muted-foreground break-all">
                                 {s.uploadedByEmail ?? (
-                                  <span className="italic">unknown</span>
+                                  <span className="italic">{t("adminAiExtra.unknown")}</span>
                                 )}
                               </TableCell>
                               <TableCell>
@@ -327,27 +323,27 @@ export default function AdminAiSamples() {
                                     <Badge
                                       variant="outline"
                                       className="text-[10px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
-                                      title={`Expires ${new Date(s.expiresAt).toLocaleString()}`}
+                                      title={t("adminAiExtra.expiresOn", { when: new Date(s.expiresAt).toLocaleString() })}
                                     >
-                                      Confirmed
+                                      {t("adminAiExtra.confirmed")}
                                     </Badge>
                                   ) : (
                                     <Badge
                                       variant="outline"
                                       className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400"
-                                      title={`Expires ${new Date(s.expiresAt).toLocaleString()}`}
+                                      title={t("adminAiExtra.expiresOn", { when: new Date(s.expiresAt).toLocaleString() })}
                                     >
-                                      Unconfirmed
+                                      {t("adminAiExtra.unconfirmed")}
                                     </Badge>
                                   )}
                                   {s.pinned && (
                                     <Badge
                                       variant="outline"
                                       className="text-[10px] border-amber-600/50 bg-amber-100/60 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-                                      title="Pinned: exempt from TTL cleanup"
+                                      title={t("adminAiExtra.pinnedTitle")}
                                     >
                                       <Pin className="h-2.5 w-2.5 mr-1" />
-                                      Pinned
+                                      {t("adminAiExtra.pinned")}
                                     </Badge>
                                   )}
                                 </div>
@@ -367,8 +363,8 @@ export default function AdminAiSamples() {
                                     }
                                     title={
                                       s.pinned
-                                        ? "Unpin: allow this sample to expire on its normal schedule"
-                                        : "Pin: keep this sample even after the TTL"
+                                        ? t("adminAiExtra.unpinTitle")
+                                        : t("adminAiExtra.pinTitle")
                                     }
                                   >
                                     {pinPending ? (
@@ -378,7 +374,7 @@ export default function AdminAiSamples() {
                                     ) : (
                                       <Pin className="h-3.5 w-3.5 mr-1.5" />
                                     )}
-                                    {s.pinned ? "Unpin" : "Pin"}
+                                    {s.pinned ? t("adminAiExtra.unpin") : t("adminAiExtra.pin")}
                                   </Button>
                                   <a
                                     href={downloadUrl}
@@ -390,7 +386,7 @@ export default function AdminAiSamples() {
                                       type="button"
                                     >
                                       <Download className="h-3.5 w-3.5 mr-1.5" />
-                                      Download
+                                      {t("adminAiExtra.download")}
                                     </Button>
                                   </a>
                                   <Button
@@ -405,7 +401,11 @@ export default function AdminAiSamples() {
                                     onClick={() => {
                                       if (
                                         !confirm(
-                                          `Delete this stashed AI sample?\n\n${s.fileName}\n(${s.customer}, week ${s.weekStart})\n\nThis cannot be undone.`,
+                                          t("adminAiExtra.deleteConfirm", {
+                                            fileName: s.fileName,
+                                            customer: s.customer,
+                                            week: s.weekStart,
+                                          }),
                                         )
                                       )
                                         return;
@@ -418,7 +418,7 @@ export default function AdminAiSamples() {
                                     ) : (
                                       <Trash2 className="h-3.5 w-3.5 mr-1.5" />
                                     )}
-                                    Delete
+                                    {t("adminAiExtra.deleteButton")}
                                   </Button>
                                 </div>
                               </TableCell>
@@ -438,33 +438,35 @@ export default function AdminAiSamples() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <History className="h-4 w-4" />
-              Recent AI sample deletions
+              {t("adminAiExtra.historyTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-3">
-              Append-only log of admin deletes from this page.
-              {customerFilter ? ` Filtered to ${customerFilter}.` : ""}
+              {customerFilter
+                ? t("adminAiExtra.historyDescFiltered", { customer: customerFilter })
+                : t("adminAiExtra.historyDesc")}
             </p>
             {auditLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Loading history…
+                {t("adminAiExtra.loadingHistory")}
               </div>
             ) : recentDeletions.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">
-                No AI sample deletions recorded
-                {customerFilter ? ` for "${customerFilter}"` : ""} yet.
+                {customerFilter
+                  ? t("adminAiExtra.noHistoryFiltered", { customer: customerFilter })
+                  : t("adminAiExtra.noHistory")}
               </p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[160px]">When</TableHead>
-                    <TableHead className="w-[200px]">Deleted by</TableHead>
-                    <TableHead className="w-[110px]">Week</TableHead>
-                    <TableHead className="w-[160px]">Customer</TableHead>
-                    <TableHead>File</TableHead>
+                    <TableHead className="w-[160px]">{t("adminAiExtra.headerWhen")}</TableHead>
+                    <TableHead className="w-[200px]">{t("adminAiExtra.headerDeletedBy")}</TableHead>
+                    <TableHead className="w-[110px]">{t("adminAiExtra.headerWeek")}</TableHead>
+                    <TableHead className="w-[160px]">{t("adminAiExtra.headerCustomer")}</TableHead>
+                    <TableHead>{t("adminAiExtra.headerFile")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -475,7 +477,7 @@ export default function AdminAiSamples() {
                       </TableCell>
                       <TableCell className="font-mono text-xs break-all">
                         {entry.actorEmail ?? (
-                          <span className="italic">unknown</span>
+                          <span className="italic">{t("adminAiExtra.unknown")}</span>
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">

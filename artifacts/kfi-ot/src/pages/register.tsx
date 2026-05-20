@@ -115,7 +115,7 @@ export default function Register() {
               <Input
                 id="email"
                 type="email"
-                placeholder="dispatcher@kfi.com"
+                placeholder={t("login.emailPlaceholder")}
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}

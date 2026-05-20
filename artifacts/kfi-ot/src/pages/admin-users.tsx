@@ -94,6 +94,7 @@ import { ipMatchesAny, isCidrEntry } from "@/lib/cidr";
 import { Logo } from "@/components/logo";
 import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { LanguageToggle } from "@/components/language-toggle";
 
 function copy(
@@ -384,13 +385,11 @@ export default function AdminUsers() {
     e.preventDefault();
     const ip = manualBlockIp.trim();
     if (!ip) {
-      setManualBlockError("Enter an IP address or CIDR range.");
+      setManualBlockError(t("adminUsers.validation.enterIp"));
       return;
     }
     if (!looksLikeIpOrCidr(ip)) {
-      setManualBlockError(
-        "That doesn't look like a valid IP (e.g. 203.0.113.7) or CIDR range (e.g. 203.0.113.0/24).",
-      );
+      setManualBlockError(t("adminUsers.validation.invalidIp"));
       return;
     }
     setManualBlockError(null);
@@ -403,12 +402,12 @@ export default function AdminUsers() {
           refetchSuggestions();
           setManualBlockIp("");
           setManualBlockReason("");
-          toast({ title: "Blocked", description: ip });
+          toast({ title: t("adminUsers.toasts.blockedTitle"), description: ip });
         },
         onError: (err) => {
-          const msg = err instanceof Error ? err.message : "Unknown error";
+          const msg = err instanceof Error ? err.message : t("errors.unknown");
           toast({
-            title: "Couldn't block IP",
+            title: t("adminUsers.toasts.blockFailedTitle"),
             description: msg,
             variant: "destructive",
           });
@@ -427,15 +426,14 @@ export default function AdminUsers() {
     if (!trimmed) {
       setBlockDialog((prev) => ({
         ...prev,
-        error: "Enter an IP address or CIDR range.",
+        error: t("adminUsers.validation.enterIp"),
       }));
       return;
     }
     if (!looksLikeIpOrCidr(trimmed)) {
       setBlockDialog((prev) => ({
         ...prev,
-        error:
-          "That doesn't look like a valid IP (e.g. 203.0.113.7) or CIDR range (e.g. 203.0.113.0/24).",
+        error: t("adminUsers.validation.invalidIp"),
       }));
       return;
     }
@@ -447,13 +445,13 @@ export default function AdminUsers() {
           refetchBlocklist();
           refetchSuggestions();
           setBlockDialog({ open: false, ip: "", reason: "", error: null });
-          toast({ title: "Blocked", description: trimmed });
+          toast({ title: t("adminUsers.toasts.blockedTitle"), description: trimmed });
         },
         onError: (err) => {
-          const msg = err instanceof Error ? err.message : "Unknown error";
+          const msg = err instanceof Error ? err.message : t("errors.unknown");
           setBlockDialog((prev) => ({ ...prev, error: msg }));
           toast({
-            title: "Couldn't block IP",
+            title: t("adminUsers.toasts.blockFailedTitle"),
             description: msg,
             variant: "destructive",
           });
@@ -468,12 +466,12 @@ export default function AdminUsers() {
       {
         onSuccess: () => {
           refetchBlocklist();
-          toast({ title: "IP unblocked", description: ip });
+          toast({ title: t("adminUsers.toasts.ipUnblockedTitle"), description: ip });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't unblock IP",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminUsers.toasts.unblockFailedTitle"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -486,12 +484,15 @@ export default function AdminUsers() {
       {
         onSuccess: () => {
           refetchBuckets();
-          toast({ title: "Lockout cleared", description: `${name} · ${key}` });
+          toast({
+            title: t("adminUsers.toasts.lockoutClearedTitle"),
+            description: t("adminUsers.toasts.lockoutClearedDesc", { name, key }),
+          });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't clear lockout",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminUsers.toasts.clearLockoutFailedTitle"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -501,15 +502,15 @@ export default function AdminUsers() {
   const formatBucketLabel = (name: string) => {
     switch (name) {
       case "login:ip":
-        return "Failed sign-ins (per IP)";
+        return t("adminUsers.bucket.loginIp");
       case "login:email":
-        return "Failed sign-ins (per email)";
+        return t("adminUsers.bucket.loginEmail");
       case "auth:request-reset":
-        return "Password-reset requests (per IP)";
+        return t("adminUsers.bucket.requestReset");
       case "auth:token-submit":
-        return "Token submissions (per IP)";
+        return t("adminUsers.bucket.tokenSubmit");
       case "auth:token-lookup":
-        return "Token lookups (per IP)";
+        return t("adminUsers.bucket.tokenLookup");
       default:
         return name;
     }
@@ -517,12 +518,15 @@ export default function AdminUsers() {
 
   const formatTimeRemaining = (resetAtIso: string) => {
     const ms = new Date(resetAtIso).getTime() - Date.now();
-    if (ms <= 0) return "expired";
+    if (ms <= 0) return t("adminUsers.timeRemaining.expired");
     const totalSec = Math.ceil(ms / 1000);
     const m = Math.floor(totalSec / 60);
     const s = totalSec % 60;
-    if (m === 0) return `${s}s`;
-    return `${m}m ${s.toString().padStart(2, "0")}s`;
+    if (m === 0) return t("adminUsers.timeRemaining.secondsShort", { s });
+    return t("adminUsers.timeRemaining.minutesShort", {
+      m,
+      s: s.toString().padStart(2, "0"),
+    });
   };
 
   const handleCreateInvite = (e: React.FormEvent) => {
@@ -538,9 +542,9 @@ export default function AdminUsers() {
         },
         onError: (err) => {
           toast({
-            title: "Couldn't create invite",
+            title: t("adminUsers.toasts.createInviteFailedTitle"),
             description:
-              err instanceof Error ? err.message : "Unknown error",
+              err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           });
         },
@@ -562,12 +566,12 @@ export default function AdminUsers() {
           }));
           refetchInvites();
           toast({
-            title: "Invite re-sent",
-            description: `Emailed the invite link to ${email}.`,
+            title: t("adminUsers.toasts.inviteResentTitle"),
+            description: t("adminUsers.toasts.inviteResentDesc", { email }),
           });
         },
         onError: (err) => {
-          const msg = err instanceof Error ? err.message : "Unknown error";
+          const msg = err instanceof Error ? err.message : t("errors.unknown");
           const tooSoon = /already sent recently/i.test(msg);
           if (tooSoon) {
             const secs = parseCooldownSeconds(msg);
@@ -579,14 +583,14 @@ export default function AdminUsers() {
           }
           toast({
             title: tooSoon
-              ? "Already sent recently"
+              ? t("adminUsers.toasts.alreadySentRecentlyTitle")
               : /not configured/i.test(msg)
-                ? "Email is not configured"
-                : "Couldn't resend invite",
+                ? t("adminUsers.toasts.emailNotConfiguredTitle")
+                : t("adminUsers.toasts.couldntResendInviteTitle"),
             description: tooSoon
               ? msg
               : /not configured/i.test(msg)
-                ? "Ask the admin to connect SendGrid via Replit integrations. Copy the link instead."
+                ? t("adminUsers.toasts.resendInviteNotConfiguredDesc")
                 : msg,
             variant: tooSoon ? "default" : "destructive",
           });
@@ -608,12 +612,12 @@ export default function AdminUsers() {
           }));
           refetchUsers();
           toast({
-            title: "Reset email sent",
-            description: `Emailed a password-reset link to ${email}.`,
+            title: t("adminUsers.toasts.resetEmailSentTitle"),
+            description: t("adminUsers.toasts.resetEmailSentDesc", { email }),
           });
         },
         onError: (err) => {
-          const msg = err instanceof Error ? err.message : "Unknown error";
+          const msg = err instanceof Error ? err.message : t("errors.unknown");
           const tooSoon = /already sent recently/i.test(msg);
           if (tooSoon) {
             const secs = parseCooldownSeconds(msg);
@@ -625,14 +629,14 @@ export default function AdminUsers() {
           }
           toast({
             title: tooSoon
-              ? "Already sent recently"
+              ? t("adminUsers.toasts.alreadySentRecentlyTitle")
               : /not configured/i.test(msg)
-                ? "Email is not configured"
-                : "Couldn't send reset email",
+                ? t("adminUsers.toasts.emailNotConfiguredTitle")
+                : t("adminUsers.toasts.couldntSendResetTitle"),
             description: tooSoon
               ? msg
               : /not configured/i.test(msg)
-                ? "Ask the admin to connect SendGrid via Replit integrations, or use Generate link instead."
+                ? t("adminUsers.toasts.sendResetNotConfiguredDesc")
                 : msg,
             variant: tooSoon ? "default" : "destructive",
           });
@@ -665,9 +669,9 @@ export default function AdminUsers() {
         },
         onError: (err) =>
           toast({
-            title: "Update failed",
+            title: t("adminUsers.toasts.updateFailedTitle"),
             description:
-              err instanceof Error ? err.message : "Unknown error",
+              err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -684,9 +688,9 @@ export default function AdminUsers() {
         },
         onError: (err) =>
           toast({
-            title: "Couldn't unlock account",
+            title: t("adminUsers.toasts.unlockAccountFailedTitle"),
             description:
-              err instanceof Error ? err.message : "Unknown error",
+              err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -704,9 +708,9 @@ export default function AdminUsers() {
         },
         onError: (err) =>
           toast({
-            title: "Update failed",
+            title: t("adminUsers.toasts.updateRoleFailedTitle"),
             description:
-              err instanceof Error ? err.message : "Unknown error",
+              err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -724,9 +728,9 @@ export default function AdminUsers() {
         },
         onError: (err) =>
           toast({
-            title: "Couldn't create reset link",
+            title: t("adminUsers.toasts.createResetLinkFailedTitle"),
             description:
-              err instanceof Error ? err.message : "Unknown error",
+              err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -789,7 +793,7 @@ export default function AdminUsers() {
               size="sm"
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
-              Inactive customers
+              {t("adminUsers.navInactiveCustomers")}
             </Button>
           </Link>
           <Link href="/admin/driver-id-aliases">
@@ -808,7 +812,7 @@ export default function AdminUsers() {
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
               data-testid="link-admin-driver-customer-overrides"
             >
-              Customer overrides
+              {t("adminUsers.navCustomerOverrides")}
             </Button>
           </Link>
           <Link href="/admin/connecteam-user-aliases">
@@ -818,7 +822,7 @@ export default function AdminUsers() {
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
               data-testid="link-admin-ct-user-aliases"
             >
-              Connecteam aliases
+              {t("adminUsers.navConnecteamAliases")}
             </Button>
           </Link>
           <Link href="/admin/clock-offsets">
@@ -854,13 +858,12 @@ export default function AdminUsers() {
             <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
             <div className="flex-1 space-y-1">
               <div className="font-semibold">
-                Email is not connected
+                {t("adminUsers.emailNotConnectedTitle")}
               </div>
               <p className="text-xs text-muted-foreground">
-                Invites and password resets will <strong>not</strong> be
-                emailed — you'll need to copy and share the links manually.
-                Connect SendGrid from the Replit integrations panel to enable
-                email delivery.
+                {t("adminUsers.emailNotConnectedBefore")}
+                <strong>{t("adminUsers.emailNotConnectedNot")}</strong>
+                {t("adminUsers.emailNotConnectedAfter")}
               </p>
               <div className="pt-1">
                 <a
@@ -869,7 +872,7 @@ export default function AdminUsers() {
                   rel="noopener noreferrer"
                   className="text-xs font-medium text-amber-700 dark:text-amber-300 underline underline-offset-2"
                 >
-                  Open Replit integrations →
+                  {t("adminUsers.openIntegrationsLink")}
                 </a>
               </div>
             </div>
@@ -1015,7 +1018,7 @@ export default function AdminUsers() {
                 </Table>
               ) : (
                 <p className="text-sm text-muted-foreground italic">
-                  No outstanding invites.
+                  {t("adminUsers.noInvites")}
                 </p>
               )}
             </div>
@@ -1026,7 +1029,7 @@ export default function AdminUsers() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <ShieldAlert className="h-4 w-4" />
-              Security activity
+              {t("adminUsers.securityActivity")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1036,14 +1039,10 @@ export default function AdminUsers() {
                   <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
                   <div className="flex-1">
                     <h4 className="font-display text-sm font-semibold text-amber-900 dark:text-amber-100">
-                      Suggested blocks
+                      {t("adminUsers.suggestedBlocks")}
                     </h4>
                     <p className="text-xs text-amber-900/80 dark:text-amber-100/80">
-                      {visibleSuggestions.length === 1
-                        ? "1 IP has"
-                        : `${visibleSuggestions.length} IPs have`}{" "}
-                      hit the lockout threshold 3+ times in the past 24 hours
-                      and aren't blocklisted yet.
+                      {t("adminUsers.suggestedBlocksDesc", { count: visibleSuggestions.length })}
                     </p>
                   </div>
                 </div>
@@ -1057,8 +1056,10 @@ export default function AdminUsers() {
                         {s.ip}
                       </span>
                       <span className="font-mono text-amber-900/70 dark:text-amber-100/70">
-                        {s.lockoutCount} lockouts · last{" "}
-                        {format(new Date(s.lastBlockedAt), "MMM d, h:mm a")}
+                        {t("adminUsers.lockoutCountLast", {
+                          count: s.lockoutCount,
+                          date: format(new Date(s.lastBlockedAt), "MMM d, h:mm a"),
+                        })}
                       </span>
                       <span className="font-mono text-[10px] text-amber-900/60 dark:text-amber-100/60">
                         {s.limiters.join(", ")}
@@ -1071,14 +1072,17 @@ export default function AdminUsers() {
                           onClick={() =>
                             handleBlockIp(
                               s.ip,
-                              `Auto-suggested: ${s.lockoutCount} lockouts in 24h (${s.limiters.join(", ")})`,
+                              t("adminUsers.autoSuggestedReason", {
+                                count: s.lockoutCount,
+                                limiters: s.limiters.join(", "),
+                              }),
                             )
                           }
                           disabled={addBlocklist.isPending}
-                          title="Add this IP to the blocklist"
+                          title={t("adminUsers.addIpToBlocklistTitle")}
                         >
                           <ShieldX className="h-3 w-3 mr-1" />
-                          Block
+                          {t("adminUsers.block")}
                         </Button>
                         <Button
                           type="button"
@@ -1090,9 +1094,9 @@ export default function AdminUsers() {
                               [s.ip]: s.lastBlockedAt,
                             })
                           }
-                          title="Hide this suggestion until the IP triggers another lockout"
+                          title={t("adminUsers.hideSuggestionTitle")}
                         >
-                          Dismiss
+                          {t("adminUsers.dismiss")}
                         </Button>
                       </span>
                     </li>
@@ -1101,9 +1105,7 @@ export default function AdminUsers() {
               </div>
             )}
             <p className="text-xs text-muted-foreground mb-3">
-              Active rate-limit buckets (failed sign-ins, password-reset abuse,
-              token guessing). Rows in red are currently blocked. Use the unlock
-              button to clear a lockout for a specific account or IP.
+              {t("adminUsers.bucketsDesc")}
             </p>
             {bucketsLoading ? (
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -1111,10 +1113,10 @@ export default function AdminUsers() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Limiter</TableHead>
-                    <TableHead>Key</TableHead>
-                    <TableHead className="text-right">Attempts</TableHead>
-                    <TableHead>Resets in</TableHead>
+                    <TableHead>{t("adminUsers.tableLimiter")}</TableHead>
+                    <TableHead>{t("adminUsers.tableKey")}</TableHead>
+                    <TableHead className="text-right">{t("adminUsers.tableAttempts")}</TableHead>
+                    <TableHead>{t("adminUsers.tableResetsIn")}</TableHead>
                     <TableHead className="w-[1%]" />
                   </TableRow>
                 </TableHeader>
@@ -1153,10 +1155,10 @@ export default function AdminUsers() {
                             variant="outline"
                             onClick={() => handleClearBucket(b.name, b.key)}
                             disabled={clearBucket.isPending}
-                            title="Clear this lockout"
+                            title={t("adminUsers.clearLockoutTitle")}
                           >
                             <Unlock className="h-3 w-3 mr-1" />
-                            Clear
+                            {t("adminUsers.clear")}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -1166,8 +1168,7 @@ export default function AdminUsers() {
               </Table>
             ) : (
               <p className="text-sm text-muted-foreground italic">
-                No active rate-limit buckets. Sign-ins and password-reset
-                traffic look normal.
+                {t("adminUsers.noBuckets")}
               </p>
             )}
 
@@ -1175,12 +1176,12 @@ export default function AdminUsers() {
               <div className="flex items-start justify-between gap-3 mb-1">
                 <h3 className="font-display text-sm font-semibold flex items-center gap-2">
                   <ShieldAlert className="h-3.5 w-3.5" />
-                  Recent lockouts (last {pressureRangeDays} days)
+                  {t("adminUsers.recentLockoutsHeading", { days: pressureRangeDays })}
                 </h3>
                 <div
                   className="inline-flex rounded-md border border-border/60 bg-muted/20 p-0.5"
                   role="group"
-                  aria-label="Attack pressure window"
+                  aria-label={t("adminUsers.pressureWindowAria")}
                 >
                   {([7, 30, 90] as const).map((d) => (
                     <button
@@ -1197,16 +1198,13 @@ export default function AdminUsers() {
                       }`}
                       aria-pressed={pressureRangeDays === d}
                     >
-                      {d}d
+                      {t("adminUsers.daysShort", { d })}
                     </button>
                   ))}
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mb-3">
-                Each row is a (limiter, key) pair that has hit its threshold
-                at least once in the selected window. Use the count to spot
-                repeat offenders worth blocklisting at the network edge.
-                Widen the window to spot slow brute-force campaigns.
+                {t("adminUsers.lockoutTableDesc")}
               </p>
 
               <LockoutPressureChart
@@ -1223,11 +1221,9 @@ export default function AdminUsers() {
               {lockoutDayFilter && (
                 <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs">
                   <span>
-                    Showing lockouts active on{" "}
-                    <span className="font-mono">
-                      {format(parseISO(lockoutDayFilter), "MMM d, yyyy")}
-                    </span>{" "}
-                    (UTC).
+                    {t("adminUsers.showingLockoutsOn", {
+                      date: format(parseISO(lockoutDayFilter), "MMM d, yyyy"),
+                    })}
                   </span>
                   <Button
                     type="button"
@@ -1236,7 +1232,7 @@ export default function AdminUsers() {
                     className="h-6 px-2"
                     onClick={() => setLockoutDayFilter(null)}
                   >
-                    Clear
+                    {t("adminUsers.clear")}
                   </Button>
                 </div>
               )}
@@ -1249,7 +1245,7 @@ export default function AdminUsers() {
                   return (
                     <div className="mb-3 flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
                       <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                      <span>Loading top offenders…</span>
+                      <span>{t("adminUsers.loadingTopOffenders")}</span>
                     </div>
                   );
                 }
@@ -1257,8 +1253,9 @@ export default function AdminUsers() {
                 return (
                   <div className="mb-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
                     <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                      Top offenders on{" "}
-                      {format(parseISO(lockoutDayFilter), "MMM d")}
+                      {t("adminUsers.topOffendersOn", {
+                        date: format(parseISO(lockoutDayFilter), "MMM d"),
+                      })}
                     </div>
                     <ol className="space-y-1.5">
                       {offenders.map((o, idx) => {
@@ -1293,10 +1290,10 @@ export default function AdminUsers() {
                                     handleClearBucket(o.name, o.key)
                                   }
                                   disabled={clearBucket.isPending}
-                                  title="Clear this live lockout bucket"
+                                  title={t("adminUsers.clearLiveBucketTitle")}
                                 >
                                   <Unlock className="h-3 w-3 mr-1" />
-                                  Clear
+                                  {t("adminUsers.clear")}
                                 </Button>
                               ) : null}
                               <Button
@@ -1305,10 +1302,10 @@ export default function AdminUsers() {
                                 variant="ghost"
                                 className="h-6 px-2 text-[11px]"
                                 onClick={() => copy(o.key, toast, t)}
-                                title="Copy the key (e.g. for blocklisting)"
+                                title={t("adminUsers.copyKeyTitle")}
                               >
                                 <Copy className="h-3 w-3 mr-1" />
-                                Copy key
+                                {t("adminUsers.copyKey")}
                               </Button>
                             </span>
                           </li>
@@ -1333,8 +1330,8 @@ export default function AdminUsers() {
                   return (
                     <p className="text-sm text-muted-foreground italic">
                       {lockoutDayFilter
-                        ? "No lockouts active on the selected day."
-                        : "No lockouts in the past 7 days."}
+                        ? t("adminUsers.noLockoutsOnDay")
+                        : t("adminUsers.noLockoutsRecent")}
                     </p>
                   );
                 }
@@ -1342,11 +1339,11 @@ export default function AdminUsers() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Limiter</TableHead>
-                        <TableHead>Key</TableHead>
-                        <TableHead className="text-right">Lockouts</TableHead>
-                        <TableHead>First</TableHead>
-                        <TableHead>Most recent</TableHead>
+                        <TableHead>{t("adminUsers.tableLimiter")}</TableHead>
+                        <TableHead>{t("adminUsers.tableKey")}</TableHead>
+                        <TableHead className="text-right">{t("adminUsers.tableLockouts")}</TableHead>
+                        <TableHead>{t("adminUsers.tableFirst")}</TableHead>
+                        <TableHead>{t("adminUsers.tableMostRecent")}</TableHead>
                         <TableHead className="w-[1%]" />
                       </TableRow>
                     </TableHeader>
@@ -1385,7 +1382,7 @@ export default function AdminUsers() {
                                 alreadyBlocked ? (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-rose-700 dark:text-rose-300">
                                     <ShieldX className="h-3 w-3" />
-                                    Blocked
+                                    {t("adminUsers.blockedBadge")}
                                   </span>
                                 ) : (
                                   <Button
@@ -1395,14 +1392,17 @@ export default function AdminUsers() {
                                     onClick={() =>
                                       handleBlockIp(
                                         ip,
-                                        `Repeat offender: ${e.count} lockouts on ${e.name}`,
+                                        t("adminUsers.repeatOffenderReason", {
+                                          count: e.count,
+                                          name: e.name,
+                                        }),
                                       )
                                     }
                                     disabled={addBlocklist.isPending}
-                                    title="Add this IP to the blocklist"
+                                    title={t("adminUsers.addIpToBlocklistTitle")}
                                   >
                                     <ShieldX className="h-3 w-3 mr-1" />
-                                    Block IP
+                                    {t("adminUsers.blockIp")}
                                   </Button>
                                 )
                               ) : null}
@@ -1419,16 +1419,14 @@ export default function AdminUsers() {
             <div className="mt-6">
               <h3 className="font-display text-sm font-semibold flex items-center gap-2 mb-1">
                 <ShieldX className="h-3.5 w-3.5" />
-                IP blocklist
+                {t("adminUsers.ipBlocklistHeading")}
               </h3>
               <p className="text-xs text-muted-foreground mb-3">
-                Requests matching these addresses get a 403 before they reach
-                the rate limiter. Entries can be a single IP (e.g.{" "}
-                <code className="font-mono">203.0.113.7</code>) or a CIDR range
-                (e.g. <code className="font-mono">203.0.113.0/24</code>) to
-                cover a whole subnet. Use the Block button on a row above, or
-                add one directly below — useful when an alert from another
-                tool flags an IP before it hits our own lockouts.
+                {t("adminUsers.ipBlocklistDescBefore")}
+                <code className="font-mono">203.0.113.7</code>
+                {t("adminUsers.ipBlocklistDescMid")}
+                <code className="font-mono">203.0.113.0/24</code>
+                {t("adminUsers.ipBlocklistDescAfter")}
               </p>
               <form
                 onSubmit={handleManualBlockSubmit}
@@ -1440,7 +1438,7 @@ export default function AdminUsers() {
                       htmlFor="manual-block-ip"
                       className="block text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1"
                     >
-                      IP or CIDR
+                      {t("adminUsers.ipOrCidrLabel")}
                     </label>
                     <Input
                       id="manual-block-ip"
@@ -1449,7 +1447,7 @@ export default function AdminUsers() {
                         setManualBlockIp(e.target.value);
                         if (manualBlockError) setManualBlockError(null);
                       }}
-                      placeholder="203.0.113.7 or 203.0.113.0/24"
+                      placeholder={t("adminUsers.ipOrCidrPlaceholder")}
                       className="font-mono text-sm"
                       autoComplete="off"
                       spellCheck={false}
@@ -1460,13 +1458,13 @@ export default function AdminUsers() {
                       htmlFor="manual-block-reason"
                       className="block text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1"
                     >
-                      Reason (optional)
+                      {t("adminUsers.reasonOptional")}
                     </label>
                     <Input
                       id="manual-block-reason"
                       value={manualBlockReason}
                       onChange={(e) => setManualBlockReason(e.target.value)}
-                      placeholder="e.g. Cloudflare flagged scraping"
+                      placeholder={t("adminUsers.reasonPlaceholder")}
                       className="text-sm"
                       autoComplete="off"
                     />
@@ -1478,7 +1476,7 @@ export default function AdminUsers() {
                       disabled={addBlocklist.isPending || !manualBlockIp.trim()}
                     >
                       <ShieldX className="h-3 w-3 mr-1" />
-                      Add to blocklist
+                      {t("adminUsers.addToBlocklist")}
                     </Button>
                   </div>
                 </div>
@@ -1494,10 +1492,10 @@ export default function AdminUsers() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>IP</TableHead>
-                      <TableHead>Reason</TableHead>
-                      <TableHead>Blocked by</TableHead>
-                      <TableHead>When</TableHead>
+                      <TableHead>{t("adminUsers.tableIp")}</TableHead>
+                      <TableHead>{t("adminUsers.tableReason")}</TableHead>
+                      <TableHead>{t("adminUsers.tableBlockedBy")}</TableHead>
+                      <TableHead>{t("adminUsers.tableWhen")}</TableHead>
                       <TableHead className="w-[1%]" />
                     </TableRow>
                   </TableHeader>
@@ -1510,9 +1508,9 @@ export default function AdminUsers() {
                             {isCidrEntry(b.ip) && (
                               <span
                                 className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-primary"
-                                title="CIDR range — blocks every address in this subnet"
+                                title={t("adminUsers.cidrRangeTitle")}
                               >
-                                Range
+                                {t("adminUsers.cidrRangeBadge")}
                               </span>
                             )}
                           </span>
@@ -1533,10 +1531,10 @@ export default function AdminUsers() {
                             variant="outline"
                             onClick={() => handleUnblockIp(b.ip)}
                             disabled={removeBlocklist.isPending}
-                            title="Remove this IP from the blocklist"
+                            title={t("adminUsers.removeFromBlocklistTitle")}
                           >
                             <Unlock className="h-3 w-3 mr-1" />
-                            Unblock
+                            {t("adminUsers.unblock")}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -1545,7 +1543,7 @@ export default function AdminUsers() {
                 </Table>
               ) : (
                 <p className="text-sm text-muted-foreground italic">
-                  No IPs are currently blocklisted.
+                  {t("adminUsers.noBlocklisted")}
                 </p>
               )}
             </div>
@@ -1556,20 +1554,18 @@ export default function AdminUsers() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <Clock className="h-4 w-4" />
-              Connecteam clocks
+              {t("adminUsers.connecteamClocks")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-3">
-              Every time-clock discovered in the Connecteam account. Refresh
-              pulls all of them dynamically — shift counts below come from the
-              most recent refresh.
+              {t("adminUsers.clocksDesc")}
             </p>
             {clocksLoading ? (
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
             ) : !clocksAudit ? (
               <p className="text-sm text-muted-foreground italic">
-                Couldn't load clocks audit.
+                {t("adminUsers.clocksLoadFailed")}
               </p>
             ) : (
               <div className="space-y-3">
@@ -1581,31 +1577,31 @@ export default function AdminUsers() {
                     <AlertTriangle className="h-4 w-4 mt-0.5 text-rose-600 dark:text-rose-400 shrink-0" />
                     <div>
                       <div className="font-semibold">
-                        Stale stats:{" "}
-                        {clocksAudit.orphanStats
-                          .map((s) => `${s.name} (${s.id})`)
-                          .join(", ")}
+                        {t("adminUsers.staleStatsLabel", {
+                          list: clocksAudit.orphanStats
+                            .map((s) => `${s.name} (${s.id})`)
+                            .join(", "),
+                        })}
                       </div>
                       <div className="text-muted-foreground">
-                        These clocks previously refreshed but no longer exist in
-                        the Connecteam account.
+                        {t("adminUsers.staleStatsDesc")}
                       </div>
                     </div>
                   </div>
                 )}
                 {clocksAudit.discovered.length === 0 ? (
                   <p className="text-sm text-muted-foreground italic">
-                    No clocks discovered in Connecteam.
+                    {t("adminUsers.noClocksDiscovered")}
                   </p>
                 ) : (
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>ID</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Last refresh</TableHead>
-                        <TableHead className="text-right">Shifts</TableHead>
+                        <TableHead>{t("adminUsers.tableName")}</TableHead>
+                        <TableHead>{t("adminUsers.tableId")}</TableHead>
+                        <TableHead>{t("adminUsers.tableStatus")}</TableHead>
+                        <TableHead>{t("adminUsers.tableLastRefresh")}</TableHead>
+                        <TableHead className="text-right">{t("adminUsers.tableShifts")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1620,11 +1616,11 @@ export default function AdminUsers() {
                           <TableCell className="font-mono text-xs">
                             {clock.isArchived ? (
                               <span className="text-muted-foreground">
-                                ARCHIVED
+                                {t("adminUsers.statusArchived")}
                               </span>
                             ) : (
                               <span className="text-emerald-600 dark:text-emerald-400">
-                                ACTIVE
+                                {t("adminUsers.statusActive")}
                               </span>
                             )}
                           </TableCell>
@@ -1635,7 +1631,7 @@ export default function AdminUsers() {
                                 title={clock.lastError}
                               >
                                 <AlertTriangle className="h-3 w-3" />
-                                Error
+                                {t("adminUsers.errorLabel")}
                               </span>
                             ) : clock.lastRefreshAt ? (
                               <span title={clock.lastRefreshAt}>
@@ -1646,7 +1642,7 @@ export default function AdminUsers() {
                               </span>
                             ) : (
                               <span className="text-muted-foreground italic">
-                                never
+                                {t("adminUsers.neverLabel")}
                               </span>
                             )}
                           </TableCell>
@@ -1668,14 +1664,14 @@ export default function AdminUsers() {
         <Card>
           <CardHeader>
             <CardTitle className="font-display text-base">
-              Dispatcher accounts
+              {t("adminUsers.dispatcherAccounts")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {latestReset && (
               <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs mb-4 space-y-2">
                 <div className="font-semibold">
-                  Password reset link for {latestReset.email} (valid for 1 hour):
+                  {t("adminUsers.resetLinkBanner", { email: latestReset.email })}
                 </div>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 font-mono break-all">
@@ -1688,7 +1684,7 @@ export default function AdminUsers() {
                     onClick={() => copy(latestReset.url, toast, t)}
                   >
                     <Copy className="h-3 w-3 mr-1" />
-                    Copy
+                    {t("adminUsers.copyBtn")}
                   </Button>
                 </div>
               </div>
@@ -1700,10 +1696,10 @@ export default function AdminUsers() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[1%]" />
-                    <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Last sign-in</TableHead>
+                    <TableHead>{t("adminUsers.tableEmail")}</TableHead>
+                    <TableHead>{t("adminUsers.tableRole")}</TableHead>
+                    <TableHead>{t("adminUsers.tableStatus")}</TableHead>
+                    <TableHead>{t("adminUsers.tableLastSignIn")}</TableHead>
                     <TableHead className="w-[1%]" />
                   </TableRow>
                 </TableHeader>
@@ -1722,9 +1718,9 @@ export default function AdminUsers() {
                             variant="ghost"
                             className="h-7 w-7 p-0"
                             onClick={() => toggleExpanded(u.id)}
-                            aria-label={isExpanded ? "Hide history" : "Show history"}
+                            aria-label={isExpanded ? t("adminUsers.hideHistory") : t("adminUsers.showHistory")}
                             aria-expanded={isExpanded}
-                            title={isExpanded ? "Hide history" : "Show history"}
+                            title={isExpanded ? t("adminUsers.hideHistory") : t("adminUsers.showHistory")}
                           >
                             {isExpanded ? (
                               <ChevronDown className="h-4 w-4" />
@@ -1737,7 +1733,7 @@ export default function AdminUsers() {
                           {u.email}
                           {isMe && (
                             <span className="ml-2 text-[10px] uppercase text-muted-foreground">
-                              (you)
+                              {t("adminUsers.youSuffix")}
                             </span>
                           )}
                         </TableCell>
@@ -1746,7 +1742,7 @@ export default function AdminUsers() {
                             <span
                               className={`text-xs font-mono ${u.isAdmin ? "text-primary" : "text-muted-foreground"}`}
                             >
-                              {u.isAdmin ? "ADMIN" : "DISPATCHER"}
+                              {u.isAdmin ? t("adminUsers.roleAdmin") : t("adminUsers.roleDispatcher")}
                             </span>
                             <select
                               data-testid={`select-role-${u.id}`}
@@ -1767,19 +1763,19 @@ export default function AdminUsers() {
                                     },
                                     onError: (err) =>
                                       toast({
-                                        title: "Couldn't update role",
+                                        title: t("adminUsers.toasts.updateRoleFailedTitle"),
                                         description:
                                           err instanceof Error
                                             ? err.message
-                                            : "Unknown error",
+                                            : t("errors.unknown"),
                                         variant: "destructive",
                                       }),
                                   },
                                 );
                               }}
                             >
-                              <option value="reviewer">Reviewer</option>
-                              <option value="supervisor">Supervisor</option>
+                              <option value="reviewer">{t("adminUsers.roleReviewer")}</option>
+                              <option value="supervisor">{t("adminUsers.roleSupervisor")}</option>
                             </select>
                           </div>
                         </TableCell>
@@ -1788,25 +1784,27 @@ export default function AdminUsers() {
                             <span
                               className={`text-xs font-mono ${u.isActive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
                             >
-                              {u.isActive ? "ACTIVE" : "DEACTIVATED"}
+                              {u.isActive ? t("adminUsers.statusActiveBadge") : t("adminUsers.statusDeactivated")}
                             </span>
                             {isLocked && (
                               <span
                                 className="text-[10px] font-mono text-amber-600 dark:text-amber-400"
-                                title={`Locked at ${format(new Date(u.lockedAt!), "yyyy-MM-dd HH:mm")}`}
+                                title={t("adminUsers.lockedAtTitle", {
+                                  date: format(new Date(u.lockedAt!), "yyyy-MM-dd HH:mm"),
+                                })}
                               >
-                                LOCKED · {u.failedLoginCount} fails
+                                {t("adminUsers.lockedFails", { count: u.failedLoginCount })}
                               </span>
                             )}
                             {!isLocked && u.failedLoginCount > 0 && (
                               <span className="text-[10px] font-mono text-muted-foreground">
-                                {u.failedLoginCount} recent fails
+                                {t("adminUsers.recentFails", { count: u.failedLoginCount })}
                               </span>
                             )}
                             {u.isAdmin && (
                               <label
                                 className="mt-1 inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground"
-                                title="Receive the daily email summarising notes that were hidden in the last 24 hours."
+                                title={t("adminUsers.digestOptInTitle")}
                               >
                                 <input
                                   data-testid={`toggle-digest-${u.id}`}
@@ -1826,25 +1824,25 @@ export default function AdminUsers() {
                                           refetchUsers();
                                           toast({
                                             title: next
-                                              ? "Hidden-notes digest enabled"
-                                              : "Hidden-notes digest disabled",
+                                              ? t("adminUsers.toasts.hiddenDigestEnabledTitle")
+                                              : t("adminUsers.toasts.hiddenDigestDisabledTitle"),
                                             description: u.email,
                                           });
                                         },
                                         onError: (err) =>
                                           toast({
-                                            title: "Couldn't update preference",
+                                            title: t("adminUsers.toasts.updatePrefFailedTitle"),
                                             description:
                                               err instanceof Error
                                                 ? err.message
-                                                : "Unknown error",
+                                                : t("errors.unknown"),
                                             variant: "destructive",
                                           }),
                                       },
                                     );
                                   }}
                                 />
-                                Hidden-notes digest
+                                {t("adminUsers.digestOptInLabel")}
                               </label>
                             )}
                           </div>
@@ -1862,7 +1860,7 @@ export default function AdminUsers() {
                               variant="outline"
                               onClick={() => handleUnlock(u.id)}
                               disabled={updateUser.isPending}
-                              title="Unlock account"
+                              title={t("adminUsers.unlockAccountTitle")}
                             >
                               <LockOpen className="h-3 w-3" />
                             </Button>
@@ -1870,7 +1868,7 @@ export default function AdminUsers() {
                           {!isLocked && u.failedLoginCount > 0 && (
                             <span
                               className="inline-flex items-center text-muted-foreground"
-                              title={`${u.failedLoginCount} consecutive failed sign-ins`}
+                              title={t("adminUsers.consecutiveFailsTitle", { count: u.failedLoginCount })}
                             >
                               <Lock className="h-3 w-3 opacity-30" />
                             </span>
@@ -1894,14 +1892,14 @@ export default function AdminUsers() {
                                 }
                                 title={
                                   onCooldown
-                                    ? `You can send another reset email in ${sendResetRemaining}s`
-                                    : "Email a password-reset link to this user"
+                                    ? t("adminUsers.sendResetCooldownTitle", { seconds: sendResetRemaining })
+                                    : t("adminUsers.sendResetTitle")
                                 }
                               >
                                 <Send className="h-3 w-3" />
                                 {onCooldown && (
                                   <span className="ml-1 text-[10px]">
-                                    Try again in {sendResetRemaining}s
+                                    {t("adminUsers.tryAgainSuffix", { seconds: sendResetRemaining })}
                                   </span>
                                 )}
                               </Button>
@@ -1915,7 +1913,7 @@ export default function AdminUsers() {
                               handleCreateReset(u.id, u.email)
                             }
                             disabled={!u.isActive || createReset.isPending}
-                            title="Generate password-reset link"
+                            title={t("adminUsers.generateResetTitle")}
                           >
                             <KeyRound className="h-3 w-3" />
                           </Button>
@@ -1925,7 +1923,7 @@ export default function AdminUsers() {
                             variant="outline"
                             onClick={() => handleToggleAdmin(u.id, u.isAdmin)}
                             disabled={isMe || updateUser.isPending}
-                            title={u.isAdmin ? "Remove admin" : "Make admin"}
+                            title={u.isAdmin ? t("adminUsers.removeAdminTitle") : t("adminUsers.makeAdminTitle")}
                           >
                             {u.isAdmin ? (
                               <ShieldOff className="h-3 w-3" />
@@ -1939,7 +1937,7 @@ export default function AdminUsers() {
                             variant={u.isActive ? "destructive" : "outline"}
                             onClick={() => handleToggleActive(u.id, u.isActive)}
                             disabled={isMe || updateUser.isPending}
-                            title={u.isActive ? "Deactivate" : "Reactivate"}
+                            title={u.isActive ? t("adminUsers.deactivateTitle") : t("adminUsers.reactivateTitle")}
                           >
                             {u.isActive ? (
                               <PowerOff className="h-3 w-3" />
@@ -1969,7 +1967,7 @@ export default function AdminUsers() {
         <Card>
           <CardHeader>
             <CardTitle className="font-display text-base">
-              Recent activity
+              {t("adminUsers.recentActivity")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1979,10 +1977,10 @@ export default function AdminUsers() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>When</TableHead>
-                    <TableHead>Actor</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Target</TableHead>
+                    <TableHead>{t("adminUsers.auditWhen")}</TableHead>
+                    <TableHead>{t("adminUsers.auditActor")}</TableHead>
+                    <TableHead>{t("adminUsers.auditAction")}</TableHead>
+                    <TableHead>{t("adminUsers.auditTarget")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -2003,20 +2001,20 @@ export default function AdminUsers() {
                         {entry.aiSample ? (
                           <span>
                             {entry.action === "pin-ai-extract-sample"
-                              ? "Pinned AI sample "
+                              ? t("adminUsers.aiSamplePinned")
                               : entry.action === "unpin-ai-extract-sample"
-                                ? "Unpinned AI sample "
-                                : "Deleted AI sample "}
+                                ? t("adminUsers.aiSampleUnpinned")
+                                : t("adminUsers.aiSampleDeleted")}
                             <span className="font-mono">{entry.aiSample.fileName}</span>{" "}
                             <span className="text-muted-foreground">
                               ({entry.aiSample.customer}
                               {entry.aiSample.weekStart
-                                ? `, week ${entry.aiSample.weekStart}`
+                                ? t("adminUsers.aiSampleWeek", { week: entry.aiSample.weekStart })
                                 : ""}
                               )
                             </span>
                           </span>
-                        ) : renderWeekResetLabel(entry.action, entry.targetEmail) ?? renderParserSnoozeLabel(entry.action, entry.targetEmail) ?? (
+                        ) : renderWeekResetLabel(entry.action, entry.targetEmail, t) ?? renderParserSnoozeLabel(entry.action, entry.targetEmail, t) ?? (
                           <span className="font-mono">{entry.targetEmail ?? "—"}</span>
                         )}
                       </TableCell>
@@ -2026,7 +2024,7 @@ export default function AdminUsers() {
               </Table>
             ) : (
               <p className="text-sm text-muted-foreground italic">
-                No admin activity recorded yet.
+                {t("adminUsers.noActivityYet")}
               </p>
             )}
           </CardContent>
@@ -2141,6 +2139,7 @@ function UserAuditHistory({
   userId: number;
   email: string;
 }) {
+  const { t } = useTranslation();
   const { data, isLoading, isError } = useListUserAuditLog(
     { targetUserId: userId, limit: 100 },
     {
@@ -2209,6 +2208,7 @@ function UserAuditHistory({
                     const label = renderParserSnoozeLabel(
                       entry.action,
                       entry.targetEmail,
+                      t,
                     );
                     return label ? (
                       <span className="text-xs text-muted-foreground">
@@ -2229,6 +2229,7 @@ function UserAuditHistory({
 function renderWeekResetLabel(
   action: string,
   targetEmail: string | null | undefined,
+  t: TFunction,
 ): ReactNode | null {
   if (action !== "week-reset") return null;
   if (!targetEmail) return null;
@@ -2248,15 +2249,21 @@ function renderWeekResetLabel(
   const notes = meta.notes ?? "0";
   const scopeLabel =
     scope === "all"
-      ? "everything"
+      ? t("adminUsers.weekResetScopeAll")
       : scope === "punches-and-reviewed"
-        ? "punches + reviewed"
-        : "punches only";
+        ? t("adminUsers.weekResetScopePunchesReviewed")
+        : t("adminUsers.weekResetScopePunchesOnly");
   return (
     <span>
-      Reset week <span className="font-mono">{weekStart}</span>{" "}
+      {t("adminUsers.weekResetPrefix")}{" "}
+      <span className="font-mono">{weekStart}</span>{" "}
       <span className="text-muted-foreground">
-        ({scopeLabel}; {punches} punches, {reviewed} reviewed, {notes} notes)
+        {t("adminUsers.weekResetMeta", {
+          scope: scopeLabel,
+          punches,
+          reviewed,
+          notes,
+        })}
       </span>
     </span>
   );
@@ -2265,6 +2272,7 @@ function renderWeekResetLabel(
 function renderParserSnoozeLabel(
   action: string,
   targetEmail: string | null | undefined,
+  t: TFunction,
 ): ReactNode | null {
   if (action !== "parser-snooze" && action !== "parser-snooze-lift") {
     return null;
@@ -2274,28 +2282,33 @@ function renderParserSnoozeLabel(
     ? targetEmail.slice("parser-snooze:".length)
     : targetEmail;
   const [customerRaw, ...metaParts] = rest.split("|");
-  const customer = customerRaw || "(unknown customer)";
+  const customer = customerRaw || t("adminUsers.unknownCustomer");
   if (action === "parser-snooze-lift") {
     return (
       <span>
-        Resumed <span className="font-mono">{customer}</span> parser nudge
+        {t("adminUsers.parserSnoozeResumedPrefix")}{" "}
+        <span className="font-mono">{customer}</span>{" "}
+        {t("adminUsers.parserSnoozeResumedSuffix")}
       </span>
     );
   }
   const untilPart = metaParts.find((m) => m.startsWith("until="));
   const untilValue = untilPart ? untilPart.slice("until=".length) : "";
-  let untilLabel = "forever";
+  let untilLabel = t("adminUsers.parserSnoozeForever");
   if (untilValue && untilValue !== "forever") {
     try {
-      untilLabel = `until ${format(parseISO(untilValue), "MMM d, yyyy")}`;
+      untilLabel = t("adminUsers.parserSnoozeUntil", {
+        date: format(parseISO(untilValue), "MMM d, yyyy"),
+      });
     } catch {
-      untilLabel = `until ${untilValue}`;
+      untilLabel = t("adminUsers.parserSnoozeUntil", { date: untilValue });
     }
   }
   return (
     <span>
-      Snoozed <span className="font-mono">{customer}</span> parser nudge{" "}
-      {untilLabel}
+      {t("adminUsers.parserSnoozedPrefix")}{" "}
+      <span className="font-mono">{customer}</span>{" "}
+      {t("adminUsers.parserSnoozedSuffix", { until: untilLabel })}
     </span>
   );
 }

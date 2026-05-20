@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
+import { useTranslation } from "react-i18next";
 import {
   useGetMe,
   useGetWeekSummary,
@@ -42,10 +43,6 @@ import { formatPersonName } from "@/lib/format-name";
 
 type FilterChip = "unreviewed";
 
-const CHIP_LABELS: Record<FilterChip, string> = {
-  unreviewed: "Un-reviewed",
-};
-
 interface SidebarProps {
   weekStart: string;
   selectedKfiId?: string;
@@ -60,6 +57,7 @@ function useToggleReviewed(
   const setReviewed = useSetReviewed();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   return (kfiId: string, currentVal: boolean) => {
     const newVal = !currentVal;
@@ -77,8 +75,8 @@ function useToggleReviewed(
         },
         onError: () => {
           toast({
-            title: "Error",
-            description: "Failed to update review status",
+            title: t("weekSummary.errorTitle"),
+            description: t("weekSummary.updateReviewFailed"),
             variant: "destructive",
           });
         },
@@ -103,6 +101,7 @@ function DriversList({
   chips,
 }: ListProps) {
   const [, setLocation] = useLocation();
+  const { t } = useTranslation();
   const { data: summary } = useGetWeekSummary(weekStart);
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -126,26 +125,20 @@ function DriversList({
             queryKey: getListDriverCustomerOverridesQueryKey(),
           });
           toast({
-            title: `Cleared override for ${name}`,
-            description:
-              "Driver is back under their Connecteam roster customer.",
+            title: t("driversSidebar.toast.clearedOverrideTitle", { name }),
+            description: t("driversSidebar.toast.clearedOverrideDesc"),
           });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't clear override",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("driversSidebar.toast.clearOverrideFailedTitle"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
     );
   };
 
-  // When the dispatcher double-clicks the row for the driver they're currently
-  // viewing to mark it reviewed, jump to the next unreviewed driver in
-  // sidebar order — same behavior as the header checkbox / `r` shortcut.
-  // For double-clicks on *other* rows we stay put, since they're using the
-  // sidebar as a quick toggle, not advancing through their queue.
   const toggleReviewed = useToggleReviewed(weekStart, (toggledId, newVal) => {
     if (!newVal) return;
     if (toggledId !== selectedKfiId) return;
@@ -172,7 +165,7 @@ function DriversList({
       setLocation(`/weeks/${weekStart}/drivers/${nextId}`);
       onNavigate?.();
     } else {
-      toast({ title: "All drivers reviewed for this week" });
+      toast({ title: t("driversSidebar.toast.allReviewed") });
     }
   });
 
@@ -199,7 +192,7 @@ function DriversList({
   if (!summary?.customers || summary.customers.length === 0) {
     return (
       <p className="px-4 py-3 text-xs text-muted-foreground">
-        No drivers loaded. Click "Refresh Connecteam" to pull this week.
+        {t("driversSidebar.empty.noDriversInstructions")}
       </p>
     );
   }
@@ -211,8 +204,8 @@ function DriversList({
         data-testid="sidebar-empty-filtered"
       >
         {filterActive
-          ? "No drivers match the current filters."
-          : "No drivers loaded."}
+          ? t("driversSidebar.empty.noMatch")
+          : t("driversSidebar.empty.noDrivers")}
       </p>
     );
   }
@@ -237,8 +230,19 @@ function DriversList({
                 onNavigate?.();
               };
               const bubbleLabel = driver.reviewed
-                ? `Mark ${driver.name} unreviewed`
-                : `Mark ${driver.name} reviewed`;
+                ? t("driversSidebar.bubble.markUnreviewed", { name: driver.name })
+                : t("driversSidebar.bubble.markReviewed", { name: driver.name });
+              const flaggedCount = (driver as { flaggedPunchCount?: number })
+                .flaggedPunchCount;
+              const originalCustomer = (driver as {
+                originalCustomer?: string | null;
+              }).originalCustomer;
+              const overrideSetByEmail = (driver as {
+                overrideSetByEmail?: string | null;
+              }).overrideSetByEmail;
+              const overrideSetAt = (driver as {
+                overrideSetAt?: string | null;
+              }).overrideSetAt;
               return (
                 <li key={driver.kfiId}>
                   <div
@@ -256,7 +260,7 @@ function DriversList({
                         navigate();
                       }
                     }}
-                    title="Click bubble to review · click name to open · double-click row to review"
+                    title={t("driversSidebar.rowTitle")}
                     data-testid={`sidebar-driver-${driver.kfiId}`}
                     className={cn(
                       "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 transition-colors group select-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -273,13 +277,19 @@ function DriversList({
                         toggleReviewed(driver.kfiId, driver.reviewed);
                       }}
                       onDoubleClick={(e) => {
-                        // Swallow so the row's dblclick doesn't toggle a
-                        // second time after the bubble's single click.
                         e.stopPropagation();
                       }}
                       disabled={isBad}
-                      aria-label={isBad ? `${driver.name} flagged bad` : bubbleLabel}
-                      title={isBad ? "Marked bad — clear from driver page" : bubbleLabel}
+                      aria-label={
+                        isBad
+                          ? t("driversSidebar.bubble.flaggedBad", { name: driver.name })
+                          : bubbleLabel
+                      }
+                      title={
+                        isBad
+                          ? t("driversSidebar.bubble.markedBadInfo")
+                          : bubbleLabel
+                      }
                       data-testid={`sidebar-bubble-${driver.kfiId}`}
                       className={cn(
                         "inline-flex items-center justify-center h-5 w-5 rounded-full shrink-0 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -308,56 +318,39 @@ function DriversList({
                     )}
                     {driver.overtimeHours > 0 && (
                       <span className="text-[10px] font-mono font-semibold text-warning bg-warning/10 px-1 rounded">
-                        OT
+                        {t("driversSidebar.badge.ot")}
                       </span>
                     )}
-                    {(driver as { flaggedPunchCount?: number })
-                      .flaggedPunchCount ? (
+                    {flaggedCount ? (
                       <span
                         className="inline-flex items-center gap-0.5 text-[10px] font-mono font-semibold text-rose-700 dark:text-rose-300 bg-rose-500/15 px-1 rounded"
-                        title={`${
-                          (driver as { flaggedPunchCount?: number })
-                            .flaggedPunchCount
-                        } punch${
-                          (driver as { flaggedPunchCount?: number })
-                            .flaggedPunchCount === 1
-                            ? ""
-                            : "es"
-                        } flagged for review`}
+                        title={t(
+                          flaggedCount === 1
+                            ? "driversSidebar.badge.flaggedTitle_one"
+                            : "driversSidebar.badge.flaggedTitle_other",
+                          { count: flaggedCount },
+                        )}
                         data-testid={`sidebar-flag-count-${driver.kfiId}`}
                       >
                         <Flag className="h-2.5 w-2.5 fill-current" />
-                        {
-                          (driver as { flaggedPunchCount?: number })
-                            .flaggedPunchCount
-                        }
+                        {flaggedCount}
                       </span>
                     ) : null}
-                    {(driver as { originalCustomer?: string | null })
-                      .originalCustomer && (
+                    {originalCustomer && (
                       <span
                         className="text-[10px] font-mono font-semibold text-sky-700 dark:text-sky-300 bg-sky-500/10 px-1 rounded"
-                        title={`Moved from "${
-                          (driver as { originalCustomer?: string | null })
-                            .originalCustomer
-                        }"${
-                          (driver as { overrideSetByEmail?: string | null })
-                            .overrideSetByEmail
-                            ? ` by ${
-                                (driver as { overrideSetByEmail?: string | null })
-                                  .overrideSetByEmail
-                              }`
-                            : ""
-                        }${
-                          (driver as { overrideSetAt?: string | null })
-                            .overrideSetAt
-                            ? ` on ${(driver as { overrideSetAt?: string | null })
-                                .overrideSetAt!.slice(0, 10)}`
-                            : ""
-                        }`}
+                        title={t("driversSidebar.movedTitle", {
+                          from: originalCustomer,
+                          by: overrideSetByEmail
+                            ? t("driversSidebar.movedBy", { email: overrideSetByEmail })
+                            : "",
+                          when: overrideSetAt
+                            ? t("driversSidebar.movedOn", { date: overrideSetAt.slice(0, 10) })
+                            : "",
+                        })}
                         data-testid={`sidebar-moved-${driver.kfiId}`}
                       >
-                        moved
+                        {t("driversSidebar.movedLabel")}
                       </span>
                     )}
                     <DropdownMenu>
@@ -366,8 +359,8 @@ function DriversList({
                           type="button"
                           onClick={(e) => e.stopPropagation()}
                           onDoubleClick={(e) => e.stopPropagation()}
-                          aria-label={`Actions for ${driver.name}`}
-                          title="More actions"
+                          aria-label={t("driversSidebar.actionsAria", { name: driver.name })}
+                          title={t("driversSidebar.actionsTitle")}
                           data-testid={`sidebar-actions-${driver.kfiId}`}
                           className="inline-flex items-center justify-center h-5 w-5 rounded shrink-0 text-muted-foreground/60 hover:text-foreground hover:bg-foreground/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
@@ -385,21 +378,15 @@ function DriversList({
                               kfiId: driver.kfiId,
                               name: driver.name,
                               customer: driver.customer,
-                              originalCustomer:
-                                (
-                                  driver as {
-                                    originalCustomer?: string | null;
-                                  }
-                                ).originalCustomer ?? null,
+                              originalCustomer: originalCustomer ?? null,
                             });
                           }}
                           data-testid={`sidebar-move-${driver.kfiId}`}
                         >
                           <Shuffle className="h-3.5 w-3.5 mr-2" />
-                          Move to customer…
+                          {t("driversSidebar.moveToCustomer")}
                         </DropdownMenuItem>
-                        {(driver as { originalCustomer?: string | null })
-                          .originalCustomer && (
+                        {originalCustomer && (
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
@@ -410,7 +397,7 @@ function DriversList({
                               data-testid={`sidebar-clear-override-${driver.kfiId}`}
                             >
                               <X className="h-3.5 w-3.5 mr-2" />
-                              Clear override
+                              {t("driversSidebar.clearOverride")}
                             </DropdownMenuItem>
                           </>
                         )}
@@ -444,6 +431,7 @@ interface FilterCountProps {
 }
 
 function FilterCountBadge({ weekStart, search, chips }: FilterCountProps) {
+  const { t } = useTranslation();
   const { data: summary } = useGetWeekSummary(weekStart);
   const needle = search.trim().toLowerCase();
   const filterActive = needle.length > 0 || chips.size > 0;
@@ -473,7 +461,7 @@ function FilterCountBadge({ weekStart, search, chips }: FilterCountProps) {
       data-testid="sidebar-filter-count"
       className="inline-flex items-center text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground bg-muted/60 border border-border/60 rounded px-1.5 py-0.5"
     >
-      {counts.matched} of {counts.total} drivers
+      {t("driversSidebar.filterCount", { matched: counts.matched, total: counts.total })}
     </span>
   );
 }
@@ -493,7 +481,11 @@ function FilterControls({
   onToggleChip,
   weekStart,
 }: FilterControlsProps) {
+  const { t } = useTranslation();
   const chipKeys: FilterChip[] = ["unreviewed"];
+  const chipLabels: Record<FilterChip, string> = {
+    unreviewed: t("driversSidebar.chip.unreviewed"),
+  };
   return (
     <div className="px-3 py-2 border-b border-border bg-muted/20 space-y-2">
       <div className="relative">
@@ -502,8 +494,8 @@ function FilterControls({
           type="search"
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Search name or KFI ID"
-          aria-label="Search drivers"
+          placeholder={t("driversSidebar.searchPlaceholder")}
+          aria-label={t("driversSidebar.searchAria")}
           data-testid="input-sidebar-search"
           className="h-8 pl-7 pr-7 text-xs"
         />
@@ -511,7 +503,7 @@ function FilterControls({
           <button
             type="button"
             onClick={() => onSearchChange("")}
-            aria-label="Clear search"
+            aria-label={t("driversSidebar.searchClear")}
             data-testid="button-sidebar-search-clear"
             className="absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
           >
@@ -536,7 +528,7 @@ function FilterControls({
                   : "bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-foreground/40",
               )}
             >
-              {CHIP_LABELS[key]}
+              {chipLabels[key]}
             </button>
           );
         })}
@@ -598,8 +590,6 @@ function useDriverFilters(weekStart: string) {
   const [chips, setChips] = useState<Set<FilterChip>>(() => new Set());
   const [hydratedKey, setHydratedKey] = useState<string | null>(null);
 
-  // Hydrate (or re-hydrate) when the storage key changes — i.e. once the
-  // current user is known, or when the dispatcher switches weeks.
   useEffect(() => {
     if (!storageKey) return;
     const persisted = readPersistedFilters(storageKey);
@@ -618,8 +608,6 @@ function useDriverFilters(weekStart: string) {
   };
 
   useEffect(() => {
-    // Don't write until the current key has been hydrated, otherwise we
-    // would clobber a previously-stored value with a momentary empty state.
     if (typeof window === "undefined") return;
     if (!storageKey || hydratedKey !== storageKey) return;
     try {
@@ -641,11 +629,12 @@ function useDriverFilters(weekStart: string) {
 }
 
 function SidebarHeader({ onCollapse }: { onCollapse?: () => void }) {
+  const { t } = useTranslation();
   return (
     <div className="px-4 py-3 border-b border-border bg-muted/40 flex items-start justify-between gap-2">
       <div>
         <h3 className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
-          Drivers by Customer
+          {t("driversSidebar.heading")}
         </h3>
       </div>
       {onCollapse && (
@@ -653,7 +642,7 @@ function SidebarHeader({ onCollapse }: { onCollapse?: () => void }) {
           variant="ghost"
           size="icon"
           onClick={onCollapse}
-          title="Collapse sidebar"
+          title={t("driversSidebar.collapse")}
           className="h-7 w-7 shrink-0 -mr-1 text-muted-foreground hover:text-foreground"
           data-testid="button-collapse-sidebar"
         >
@@ -665,6 +654,7 @@ function SidebarHeader({ onCollapse }: { onCollapse?: () => void }) {
 }
 
 export function DriversSidebar({ weekStart, selectedKfiId, collapsed, onToggle }: SidebarProps) {
+  const { t } = useTranslation();
   const { search, setSearch, chips, toggleChip } = useDriverFilters(weekStart);
 
   if (collapsed) {
@@ -677,7 +667,7 @@ export function DriversSidebar({ weekStart, selectedKfiId, collapsed, onToggle }
           variant="ghost"
           size="icon"
           onClick={onToggle}
-          title="Expand drivers sidebar"
+          title={t("driversSidebar.expand")}
           className="h-8 w-8"
           data-testid="button-expand-sidebar"
         >
@@ -721,6 +711,7 @@ export function DriversSidebarMobileTrigger({
   selectedKfiId,
   className,
 }: MobileTriggerProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { search, setSearch, chips, toggleChip } = useDriverFilters(weekStart);
   return (
@@ -729,7 +720,7 @@ export function DriversSidebarMobileTrigger({
         variant="ghost"
         size="icon"
         onClick={() => setOpen(true)}
-        title="Open drivers sidebar"
+        title={t("driversSidebar.openMobile")}
         data-testid="button-open-mobile-sidebar"
         className={cn("h-8 w-8 md:hidden", className)}
       >

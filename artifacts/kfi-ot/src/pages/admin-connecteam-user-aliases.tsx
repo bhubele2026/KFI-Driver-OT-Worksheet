@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { formatPersonName } from "@/lib/format-name";
 import { Link, Redirect } from "wouter";
 import {
@@ -46,6 +47,7 @@ import { format } from "date-fns";
 type EditState = { ctUserId: number; kfiId: string } | null;
 
 export default function AdminConnecteamUserAliases() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -101,14 +103,14 @@ export default function AdminConnecteamUserAliases() {
           resetCreateForm();
           refetch();
           toast({
-            title: "Alias saved",
-            description: `Connecteam user ${ctUserId} mapped.`,
+            title: t("adminConnecteamAliases.aliasSaved"),
+            description: t("adminConnecteamAliases.ctUserMapped", { id: ctUserId }),
           });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't save alias",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminConnecteamAliases.saveFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -123,12 +125,12 @@ export default function AdminConnecteamUserAliases() {
         onSuccess: () => {
           setEdit(null);
           refetch();
-          toast({ title: "Alias re-pointed" });
+          toast({ title: t("adminConnecteamAliases.aliasRepointed") });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't update alias",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminConnecteamAliases.updateFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -138,9 +140,8 @@ export default function AdminConnecteamUserAliases() {
   const handleDelete = (a: ConnecteamUserAlias) => {
     if (a.seededFromStatic) {
       toast({
-        title: "Can't delete a seeded alias",
-        description:
-          "This entry comes from the USER_ID_ALIASES_LD static seed in code. Override it by saving a new mapping for the same Connecteam user id.",
+        title: t("adminConnecteamAliases.cannotDeleteSeeded"),
+        description: t("adminConnecteamAliases.cannotDeleteSeededDesc"),
         variant: "destructive",
       });
       return;
@@ -151,14 +152,14 @@ export default function AdminConnecteamUserAliases() {
         onSuccess: () => {
           refetch();
           toast({
-            title: "Alias forgotten",
-            description: `Connecteam user ${a.ctUserId}`,
+            title: t("adminConnecteamAliases.aliasForgotten"),
+            description: t("adminConnecteamAliases.ctUser", { id: a.ctUserId }),
           });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't delete alias",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminConnecteamAliases.deleteFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -185,11 +186,11 @@ export default function AdminConnecteamUserAliases() {
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to users
+              {t("common.backToUsers")}
             </Button>
           </Link>
           <h1 className="font-display font-bold text-lg tracking-tight">
-            Connecteam user aliases
+            {t("adminConnecteamAliases.title")}
           </h1>
         </div>
       </header>
@@ -199,27 +200,26 @@ export default function AdminConnecteamUserAliases() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <Plus className="h-4 w-4" />
-              Add a new alias
+              {t("adminConnecteamAliases.addCardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
-              Map a Connecteam <code className="font-mono">userId</code> to an
-              existing KFI driver. Use this when the same driver shows up on
-              more than one time-clock under different Connecteam ids — refresh
-              will merge their punches into the single KFI driver. Saved rows
-              take effect on the next refresh; they override the static
-              <code className="font-mono"> USER_ID_ALIASES_LD</code> seed.
+              {t("adminConnecteamAliases.addDescPart1")}
+              <code className="font-mono">userId</code>
+              {t("adminConnecteamAliases.addDescPart2")}
+              <code className="font-mono"> USER_ID_ALIASES_LD</code>
+              {t("adminConnecteamAliases.addDescPart3")}
             </p>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1">
                 <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Connecteam user id
+                  {t("adminConnecteamAliases.ctIdLabel")}
                 </label>
                 <Input
                   value={newCtUserId}
                   onChange={(e) => setNewCtUserId(e.target.value)}
-                  placeholder="e.g. 12345678"
+                  placeholder={t("adminConnecteamAliases.ctIdPlaceholder")}
                   className="font-mono"
                   inputMode="numeric"
                   data-testid="input-new-ct-user-id"
@@ -227,21 +227,21 @@ export default function AdminConnecteamUserAliases() {
                 {conflictingExisting && (
                   <div className="text-[10px] text-amber-700 dark:text-amber-400 flex items-center gap-1">
                     <AlertTriangle className="h-3 w-3" />
-                    Already mapped to{" "}
+                    {t("adminConnecteamAliases.alreadyMappedBefore")}
                     {conflictingExisting.driverName
                       ? formatPersonName(conflictingExisting.driverName)
                       : conflictingExisting.kfiId}
-                    . Saving will overwrite it.
+                    {t("adminConnecteamAliases.alreadyMappedAfter")}
                   </div>
                 )}
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  KFI driver
+                  {t("adminConnecteamAliases.kfiDriverLabel")}
                 </label>
                 <Select value={newKfiId} onValueChange={setNewKfiId}>
                   <SelectTrigger data-testid="select-new-kfi-id">
-                    <SelectValue placeholder="Pick a driver" />
+                    <SelectValue placeholder={t("adminConnecteamAliases.pickDriverPlaceholder")} />
                   </SelectTrigger>
                   <SelectContent>
                     {drivers.map((d) => (
@@ -260,12 +260,12 @@ export default function AdminConnecteamUserAliases() {
               </div>
               <div className="space-y-1 md:col-span-2">
                 <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Note (optional)
+                  {t("adminConnecteamAliases.noteLabel")}
                 </label>
                 <Input
                   value={newNote}
                   onChange={(e) => setNewNote(e.target.value)}
-                  placeholder="Why this alias exists"
+                  placeholder={t("adminConnecteamAliases.notePlaceholder")}
                 />
               </div>
             </div>
@@ -284,7 +284,7 @@ export default function AdminConnecteamUserAliases() {
                 {createAlias.isPending && (
                   <Loader2 className="h-3 w-3 mr-2 animate-spin" />
                 )}
-                Save alias
+                {t("adminConnecteamAliases.saveAliasButton")}
               </Button>
               {(newCtUserId || newKfiId || newNote) && (
                 <Button
@@ -293,7 +293,7 @@ export default function AdminConnecteamUserAliases() {
                   variant="ghost"
                   onClick={resetCreateForm}
                 >
-                  Reset
+                  {t("adminConnecteamAliases.resetButton")}
                 </Button>
               )}
             </div>
@@ -304,25 +304,25 @@ export default function AdminConnecteamUserAliases() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <Tag className="h-4 w-4" />
-              Saved aliases
+              {t("adminConnecteamAliases.savedCardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2 mb-4 text-xs">
               <Badge variant="secondary" className="font-mono">
-                {aliases.length} total
+                {t("adminConnecteamAliases.totalBadge", { count: aliases.length })}
               </Badge>
               {seeded > 0 && (
                 <Badge
                   variant="outline"
                   className="font-mono border-sky-500/50 text-sky-700 dark:text-sky-400"
                 >
-                  {seeded} from static seed
+                  {t("adminConnecteamAliases.seededBadge", { count: seeded })}
                 </Badge>
               )}
               {orphans > 0 && (
                 <Badge variant="destructive" className="font-mono">
-                  {orphans} pointing at deleted driver
+                  {t("adminConnecteamAliases.orphansBadge", { count: orphans })}
                 </Badge>
               )}
             </div>
@@ -334,17 +334,16 @@ export default function AdminConnecteamUserAliases() {
                 className="text-sm text-muted-foreground italic"
                 data-testid="text-empty-aliases"
               >
-                No aliases yet. Add one above whenever a refresh surfaces an
-                unresolved Connecteam user id.
+                {t("adminConnecteamAliases.emptyAliases")}
               </p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Connecteam id</TableHead>
-                    <TableHead>Mapped to</TableHead>
-                    <TableHead>Note</TableHead>
-                    <TableHead>Last updated</TableHead>
+                    <TableHead>{t("adminConnecteamAliases.headerCtId")}</TableHead>
+                    <TableHead>{t("adminConnecteamAliases.headerMappedTo")}</TableHead>
+                    <TableHead>{t("adminConnecteamAliases.headerNote")}</TableHead>
+                    <TableHead>{t("adminConnecteamAliases.headerLastUpdated")}</TableHead>
                     <TableHead className="w-[1%]" />
                   </TableRow>
                 </TableHeader>
@@ -358,7 +357,7 @@ export default function AdminConnecteamUserAliases() {
                             {a.ctUserId}
                             {a.seededFromStatic && (
                               <div className="text-[10px] uppercase tracking-wider text-sky-700 dark:text-sky-400 font-mono mt-1">
-                                static seed
+                                {t("adminConnecteamAliases.staticSeed")}
                               </div>
                             )}
                           </TableCell>
@@ -377,7 +376,7 @@ export default function AdminConnecteamUserAliases() {
                                 {a.driverIsArchived && (
                                   <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono flex items-center gap-1">
                                     <AlertTriangle className="h-3 w-3" />
-                                    Archived driver
+                                    {t("adminConnecteamAliases.archivedDriver")}
                                   </span>
                                 )}
                               </div>
@@ -388,7 +387,7 @@ export default function AdminConnecteamUserAliases() {
                                 </span>
                                 <span className="text-[10px] uppercase tracking-wider text-rose-600 dark:text-rose-400 font-mono flex items-center gap-1">
                                   <AlertTriangle className="h-3 w-3" />
-                                  Driver no longer in roster
+                                  {t("adminConnecteamAliases.noLongerInRoster")}
                                 </span>
                               </div>
                             )}
@@ -419,7 +418,7 @@ export default function AdminConnecteamUserAliases() {
                                 </div>
                                 {a.updatedByEmail && (
                                   <div className="font-mono text-[10px] text-muted-foreground">
-                                    by {a.updatedByEmail}
+                                    {t("adminConnecteamAliases.byEmail", { email: a.updatedByEmail })}
                                   </div>
                                 )}
                               </>
@@ -441,7 +440,7 @@ export default function AdminConnecteamUserAliases() {
                                 data-testid={`button-edit-${a.ctUserId}`}
                               >
                                 <LinkIcon className="h-3 w-3 mr-1" />
-                                {isEditing ? "Cancel" : "Change driver"}
+                                {isEditing ? t("adminConnecteamAliases.cancelButton") : t("adminConnecteamAliases.changeDriverButton")}
                               </Button>
                               {!a.seededFromStatic && (
                                 <Button
@@ -450,7 +449,7 @@ export default function AdminConnecteamUserAliases() {
                                   variant="ghost"
                                   onClick={() => handleDelete(a)}
                                   disabled={deleteAlias.isPending}
-                                  title="Delete this alias"
+                                  title={t("adminConnecteamAliases.deleteAliasTitle")}
                                   data-testid={`button-delete-${a.ctUserId}`}
                                 >
                                   <Trash2 className="h-3 w-3" />
@@ -471,7 +470,7 @@ export default function AdminConnecteamUserAliases() {
                                   }
                                 >
                                   <SelectTrigger className="max-w-md">
-                                    <SelectValue placeholder="Pick a driver" />
+                                    <SelectValue placeholder={t("adminConnecteamAliases.pickDriverPlaceholder")} />
                                   </SelectTrigger>
                                   <SelectContent>
                                     {drivers.map((d) => (
@@ -498,14 +497,14 @@ export default function AdminConnecteamUserAliases() {
                                   {updateAlias.isPending && (
                                     <Loader2 className="h-3 w-3 mr-2 animate-spin" />
                                   )}
-                                  Save
+                                  {t("adminConnecteamAliases.saveButton")}
                                 </Button>
                                 <Button
                                   size="sm"
                                   variant="ghost"
                                   onClick={() => setEdit(null)}
                                 >
-                                  Cancel
+                                  {t("adminConnecteamAliases.cancelButton")}
                                 </Button>
                               </div>
                             </TableCell>

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Link, Redirect } from "wouter";
 import {
   useGetMe,
@@ -23,6 +24,7 @@ import { format } from "date-fns";
 import { Logo } from "@/components/logo";
 
 export default function AdminInactiveCustomers() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -61,15 +63,14 @@ export default function AdminInactiveCustomers() {
             },
           });
           toast({
-            title: `Reactivated "${c.customer}"`,
-            description:
-              "The row is back on the per-week customer files panel and uploads are accepted again.",
+            title: t("adminInactive.reactivatedTitle", { customer: c.customer }),
+            description: t("adminInactive.reactivatedDesc"),
           });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't reactivate",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminInactive.reactivateFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -91,11 +92,11 @@ export default function AdminInactiveCustomers() {
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to users
+              {t("common.backToUsers")}
             </Button>
           </Link>
           <h1 className="font-display font-bold text-lg tracking-tight">
-            Inactive customers
+            {t("adminInactive.title")}
           </h1>
         </div>
       </header>
@@ -105,32 +106,27 @@ export default function AdminInactiveCustomers() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <EyeOff className="h-4 w-4" />
-              Hidden customers
+              {t("adminInactive.cardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
-              Inactive customers are hidden from the per-week customer files
-              panel and all upload routes reject files for them with a clear
-              error. Historical punches, upload attempts, aliases, and AI
-              samples are preserved — reactivating brings the row back exactly
-              as it was.
+              {t("adminInactive.description")}
             </p>
 
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
             ) : rows.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">
-                No inactive customers. Use the row menu (⋯) on the week
-                dashboard's customer files panel to mark a customer inactive.
+                {t("adminInactive.empty")}
               </p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Marked inactive</TableHead>
-                    <TableHead>By</TableHead>
+                    <TableHead>{t("adminInactive.headerCustomer")}</TableHead>
+                    <TableHead>{t("adminInactive.headerMarked")}</TableHead>
+                    <TableHead>{t("adminInactive.headerBy")}</TableHead>
                     <TableHead className="w-[1%]" />
                   </TableRow>
                 </TableHeader>
@@ -162,7 +158,7 @@ export default function AdminInactiveCustomers() {
                           ) : (
                             <Eye className="h-3 w-3 mr-1" />
                           )}
-                          Reactivate
+                          {t("adminInactive.reactivateButton")}
                         </Button>
                       </TableCell>
                     </TableRow>

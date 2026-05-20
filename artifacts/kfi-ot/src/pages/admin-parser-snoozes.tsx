@@ -24,20 +24,23 @@ import { ArrowLeft, BellOff, BellRing, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { Logo } from "@/components/logo";
 
-function snoozeStatus(s: ParserPromotionSnooze): {
+function snoozeStatus(
+  s: ParserPromotionSnooze,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): {
   label: string;
   expired: boolean;
 } {
-  if (!s.snoozedUntil) return { label: "Forever (until lifted)", expired: false };
+  if (!s.snoozedUntil) return { label: t("adminSnoozesExtra.foreverLabel"), expired: false };
   const until = new Date(s.snoozedUntil);
   if (until.getTime() <= Date.now()) {
     return {
-      label: `Expired ${format(until, "yyyy-MM-dd HH:mm")}`,
+      label: t("adminSnoozesExtra.expiredLabel", { when: format(until, "yyyy-MM-dd HH:mm") }),
       expired: true,
     };
   }
   return {
-    label: `Until ${format(until, "yyyy-MM-dd HH:mm")}`,
+    label: t("adminSnoozesExtra.untilLabel", { when: format(until, "yyyy-MM-dd HH:mm") }),
     expired: false,
   };
 }
@@ -84,14 +87,14 @@ export default function AdminParserSnoozes() {
             },
           });
           toast({
-            title: "Snooze lifted",
-            description: `"${s.customer}" can be suggested again.`,
+            title: t("adminSnoozesExtra.snoozeLifted"),
+            description: t("adminSnoozesExtra.snoozeLiftedDesc", { customer: s.customer }),
           });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't lift snooze",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminSnoozesExtra.liftFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -99,8 +102,8 @@ export default function AdminParserSnoozes() {
   };
 
   const snoozes = data ?? [];
-  const active = snoozes.filter((s) => !snoozeStatus(s).expired);
-  const expired = snoozes.filter((s) => snoozeStatus(s).expired);
+  const active = snoozes.filter((s) => !snoozeStatus(s, t).expired);
+  const expired = snoozes.filter((s) => snoozeStatus(s, t).expired);
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
@@ -129,23 +132,20 @@ export default function AdminParserSnoozes() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <BellOff className="h-4 w-4" />
-              Snoozed customers
+              {t("adminSnoozesExtra.cardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
-              The week dashboard hides the "Parser candidate" suggestion for
-              every customer listed below. Lift a snooze to let the suggestion
-              come back the next time the customer crosses the heuristic
-              threshold (3+ AI-imported weeks or 5+ saved aliases).
+              {t("adminSnoozesExtra.description")}
             </p>
             <div className="flex flex-wrap gap-2 mb-4 text-xs">
               <Badge variant="secondary" className="font-mono">
-                {active.length} active
+                {t("adminSnoozesExtra.activeCount", { count: active.length })}
               </Badge>
               {expired.length > 0 && (
                 <Badge variant="outline" className="font-mono">
-                  {expired.length} expired
+                  {t("adminSnoozesExtra.expiredCount", { count: expired.length })}
                 </Badge>
               )}
             </div>
@@ -154,23 +154,22 @@ export default function AdminParserSnoozes() {
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
             ) : snoozes.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">
-                No snoozes yet. Use the "Don't suggest" button on the week
-                dashboard's parser-candidate banner to add one.
+                {t("adminSnoozesExtra.empty")}
               </p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Snoozed</TableHead>
-                    <TableHead>Until</TableHead>
-                    <TableHead>By</TableHead>
+                    <TableHead>{t("adminSnoozesExtra.headerCustomer")}</TableHead>
+                    <TableHead>{t("adminSnoozesExtra.headerSnoozed")}</TableHead>
+                    <TableHead>{t("adminSnoozesExtra.headerUntil")}</TableHead>
+                    <TableHead>{t("adminSnoozesExtra.headerBy")}</TableHead>
                     <TableHead className="w-[1%]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {snoozes.map((s) => {
-                    const status = snoozeStatus(s);
+                    const status = snoozeStatus(s, t);
                     return (
                       <TableRow key={s.customer}>
                         <TableCell className="text-sm align-top">
@@ -219,7 +218,7 @@ export default function AdminParserSnoozes() {
                             ) : (
                               <BellRing className="h-3 w-3 mr-1" />
                             )}
-                            Resume suggestions
+                            {t("adminSnoozesExtra.resumeButton")}
                           </Button>
                         </TableCell>
                       </TableRow>

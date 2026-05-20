@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   useGetDriverPayrollProfile,
   useUpdateDriverPayrollProfile,
@@ -75,6 +76,7 @@ function toForm(p: unknown): FormState {
 }
 
 export function PayrollProfileCard({ kfiId, canEdit }: Props) {
+  const { t } = useTranslation();
   const { data: profile } = useGetDriverPayrollProfile(kfiId);
   const update = useUpdateDriverPayrollProfile();
   const queryClient = useQueryClient();
@@ -100,8 +102,8 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
         const n = Number.parseInt(raw, 10);
         if (Number.isNaN(n)) {
           toast({
-            title: "Invalid value",
-            description: `${fd.label} must be an integer`,
+            title: t("payrollProfile.invalidValue"),
+            description: t("payrollProfile.mustBeInteger", { label: fd.label }),
             variant: "destructive",
           });
           return;
@@ -111,8 +113,8 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
         const n = Number.parseFloat(raw);
         if (Number.isNaN(n)) {
           toast({
-            title: "Invalid value",
-            description: `${fd.label} must be a number`,
+            title: t("payrollProfile.invalidValue"),
+            description: t("payrollProfile.mustBeNumber", { label: fd.label }),
             variant: "destructive",
           });
           return;
@@ -130,11 +132,11 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
             queryKey: getGetDriverPayrollProfileQueryKey(kfiId),
           });
           setEditing(false);
-          toast({ title: "Payroll profile saved" });
+          toast({ title: t("payrollProfile.savedTitle") });
         },
         onError: (err) => {
           toast({
-            title: "Failed to save",
+            title: t("payrollProfile.saveFailedTitle"),
             description: err instanceof Error ? err.message : String(err),
             variant: "destructive",
           });
@@ -183,7 +185,7 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
         <CardTitle className="text-sm font-display tracking-tight flex items-center justify-between gap-2">
           <span className="flex items-center gap-2">
             <DollarSign className="h-4 w-4 text-primary" />
-            Pay &amp; bill rates (Zenople)
+            {t("payrollProfile.cardTitle")}
           </span>
           {canEdit ? (
             editing ? (
@@ -194,7 +196,7 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
                   onClick={() => setEditing(false)}
                   data-testid="button-cancel-payroll-profile"
                 >
-                  <X className="h-4 w-4 mr-1" /> Cancel
+                  <X className="h-4 w-4 mr-1" /> {t("common.cancel")}
                 </Button>
                 <Button
                   size="sm"
@@ -202,7 +204,7 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
                   disabled={update.isPending}
                   data-testid="button-save-payroll-profile"
                 >
-                  <Save className="h-4 w-4 mr-1" /> Save
+                  <Save className="h-4 w-4 mr-1" /> {t("common.save")}
                 </Button>
               </span>
             ) : (
@@ -212,7 +214,7 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
                 onClick={() => setEditing(true)}
                 data-testid="button-edit-payroll-profile"
               >
-                <Edit2 className="h-4 w-4 mr-1" /> Edit
+                <Edit2 className="h-4 w-4 mr-1" /> {t("common.edit")}
               </Button>
             )
           ) : null}
@@ -224,7 +226,7 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
             {renderEditInputs(RATE_FIELDS)}
             <div className="pt-2 border-t border-border/50">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
-                Identifiers
+                {t("payrollProfile.identifiers")}
               </p>
               {renderEditInputs(IDENTIFIER_FIELDS)}
             </div>
@@ -262,7 +264,7 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
                 <ChevronDown
                   className={`h-3 w-3 transition-transform ${identifiersOpen ? "rotate-0" : "-rotate-90"}`}
                 />
-                Identifiers
+                {t("payrollProfile.identifiers")}
               </CollapsibleTrigger>
               <CollapsibleContent className="mt-2">
                 <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 text-xs">
@@ -292,8 +294,14 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
         )}
         {profile?.updatedAt ? (
           <p className="mt-3 text-[11px] text-muted-foreground">
-            Last updated {new Date(profile.updatedAt).toLocaleString()}
-            {profile.updatedByEmail ? ` by ${profile.updatedByEmail}` : ""}
+            {profile.updatedByEmail
+              ? t("payrollProfile.lastUpdatedBy", {
+                  date: new Date(profile.updatedAt).toLocaleString(),
+                  email: profile.updatedByEmail,
+                })
+              : t("payrollProfile.lastUpdated", {
+                  date: new Date(profile.updatedAt).toLocaleString(),
+                })}
           </p>
         ) : null}
       </CardContent>

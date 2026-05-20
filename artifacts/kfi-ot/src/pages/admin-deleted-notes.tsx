@@ -79,14 +79,14 @@ export default function AdminDeletedNotes() {
             queryKey: getListDriverNotesQueryKey(n.weekStart, n.kfiId),
           });
           toast({
-            title: "Note restored",
-            description: `Note for ${n.kfiId} (week of ${n.weekStart}) is visible to dispatchers again.`,
+            title: t("adminDeletedNotesExtra.restoredTitle"),
+            description: t("adminDeletedNotesExtra.restoredDesc", { kfiId: n.kfiId, week: n.weekStart }),
           });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't restore note",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminDeletedNotesExtra.restoreFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -124,19 +124,18 @@ export default function AdminDeletedNotes() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <EyeOff className="h-4 w-4" />
-              Soft-deleted driver-week notes
+              {t("adminDeletedNotesExtra.cardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
-              Notes hidden by an admin via the driver-detail page. The row stays
-              in the database for audit. Restoring clears the hide so the note
-              shows up live on the driver-detail page again. Both the hide and
-              the restore are recorded in the user audit log.
+              {t("adminDeletedNotesExtra.description")}
             </p>
             <div className="flex flex-wrap gap-2 mb-4 text-xs">
               <Badge variant="secondary" className="font-mono">
-                {notes.length} hidden{notes.length === LIMIT ? "+" : ""}
+                {notes.length === LIMIT
+                  ? t("adminDeletedNotesExtra.hiddenCountMore", { count: notes.length })
+                  : t("adminDeletedNotesExtra.hiddenCount", { count: notes.length })}
               </Badge>
             </div>
 
@@ -144,18 +143,17 @@ export default function AdminDeletedNotes() {
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
             ) : notes.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">
-                No hidden notes. When an admin hides a note from the driver-detail
-                page, it'll appear here so it can be restored.
+                {t("adminDeletedNotesExtra.emptyState")}
               </p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[110px]">Week</TableHead>
-                    <TableHead className="w-[110px]">Driver</TableHead>
-                    <TableHead>Note</TableHead>
-                    <TableHead className="w-[180px]">Author</TableHead>
-                    <TableHead className="w-[180px]">Hidden</TableHead>
+                    <TableHead className="w-[110px]">{t("adminDeletedNotesExtra.headerWeek")}</TableHead>
+                    <TableHead className="w-[110px]">{t("adminDeletedNotesExtra.headerDriver")}</TableHead>
+                    <TableHead>{t("adminDeletedNotesExtra.headerNote")}</TableHead>
+                    <TableHead className="w-[180px]">{t("adminDeletedNotesExtra.headerAuthor")}</TableHead>
+                    <TableHead className="w-[180px]">{t("adminDeletedNotesExtra.headerHidden")}</TableHead>
                     <TableHead className="w-[1%]" />
                   </TableRow>
                 </TableHeader>
@@ -179,9 +177,9 @@ export default function AdminDeletedNotes() {
                         </Link>
                         {n.punchId != null && (
                           <div className="text-[10px] text-muted-foreground mt-0.5">
-                            punch #{n.punchId}
+                            {t("adminDeletedNotesExtra.punchHash", { id: n.punchId })}
                             {!n.punchExists && (
-                              <span className="ml-1 italic">(orphaned)</span>
+                              <span className="ml-1 italic">{t("adminDeletedNotesExtra.orphaned")}</span>
                             )}
                           </div>
                         )}
@@ -199,15 +197,15 @@ export default function AdminDeletedNotes() {
                           {n.authorRole}
                         </Badge>
                         <span className="font-mono text-muted-foreground">
-                          {n.authorEmail ?? "(deleted user)"}
+                          {n.authorEmail ?? t("common.deletedUser")}
                         </span>
                         <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                          wrote {format(new Date(n.createdAt), "yyyy-MM-dd HH:mm")}
+                          {t("adminDeletedNotesExtra.wrote", { time: format(new Date(n.createdAt), "yyyy-MM-dd HH:mm") })}
                         </div>
                       </TableCell>
                       <TableCell className="text-xs align-top">
                         <span className="font-mono text-muted-foreground">
-                          {n.deletedByEmail ?? "(deleted user)"}
+                          {n.deletedByEmail ?? t("common.deletedUser")}
                         </span>
                         <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
                           {format(new Date(n.deletedAt), "yyyy-MM-dd HH:mm")}
@@ -228,7 +226,7 @@ export default function AdminDeletedNotes() {
                           ) : (
                             <Undo2 className="h-3 w-3 mr-1" />
                           )}
-                          Restore
+                          {t("adminDeletedNotesExtra.restoreButton")}
                         </Button>
                       </TableCell>
                     </TableRow>

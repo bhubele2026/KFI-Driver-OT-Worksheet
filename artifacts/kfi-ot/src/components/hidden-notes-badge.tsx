@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { useTranslation } from "react-i18next";
 import {
   useGetHiddenNotesUnseenCount,
   useGetMe,
@@ -11,6 +12,7 @@ import { EyeOff } from "lucide-react";
 type Variant = "nav" | "compact";
 
 export function HiddenNotesBadge({ variant = "nav" }: { variant?: Variant }) {
+  const { t } = useTranslation();
   const { data: me } = useGetMe();
   const enabled = !!me?.isAdmin;
   const { data } = useGetHiddenNotesUnseenCount({
@@ -33,10 +35,15 @@ export function HiddenNotesBadge({ variant = "nav" }: { variant?: Variant }) {
           size="sm"
           className="h-8 border-amber-500/60 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
           data-testid="badge-hidden-notes-compact"
-          title={`${count} note${count === 1 ? "" : "s"} hidden since you last checked`}
+          title={t(
+            count === 1
+              ? "hiddenNotes.compactTitle_one"
+              : "hiddenNotes.compactTitle_other",
+            { count },
+          )}
         >
           <EyeOff className="h-4 w-4 mr-2" />
-          {count} hidden
+          {t("hiddenNotes.compactLabel", { count })}
         </Button>
       </Link>
     );
@@ -50,7 +57,7 @@ export function HiddenNotesBadge({ variant = "nav" }: { variant?: Variant }) {
         className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8 relative"
         data-testid="link-hidden-notes"
       >
-        Hidden notes
+        {t("hiddenNotes.navLabel")}
         {count > 0 && (
           <Badge
             variant="destructive"

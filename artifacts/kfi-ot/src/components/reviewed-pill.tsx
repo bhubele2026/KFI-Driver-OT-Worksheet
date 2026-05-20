@@ -1,4 +1,5 @@
 import { CheckCircle2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 interface ReviewedPillProps {
@@ -9,6 +10,7 @@ interface ReviewedPillProps {
 }
 
 export function ReviewedPill({ reviewed, total, className, testId }: ReviewedPillProps) {
+  const { t } = useTranslation();
   const allDone = total > 0 && reviewed >= total;
   return (
     <span
@@ -24,12 +26,10 @@ export function ReviewedPill({ reviewed, total, className, testId }: ReviewedPil
       {allDone ? (
         <>
           <CheckCircle2 className="h-3.5 w-3.5" />
-          All reviewed
+          {t("reviewedPill.all")}
         </>
       ) : (
-        <>
-          {reviewed} / {total} reviewed
-        </>
+        <>{t("reviewedPill.progress", { reviewed, total })}</>
       )}
     </span>
   );

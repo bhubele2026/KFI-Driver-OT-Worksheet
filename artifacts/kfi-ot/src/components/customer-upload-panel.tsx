@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ToastAction } from "@/components/ui/toast";
 import { Link } from "wouter";
 import {
@@ -66,16 +67,19 @@ const UNIVERSAL_ACCEPT =
 // (e.g. truncated JSON, "model did not return valid JSON", or a column
 // position) which is noise to the operator. Keep the original around
 // in the server logs; surface this in the toast instead.
-function friendlyUploadError(raw: string): string {
+function friendlyUploadError(
+  raw: string,
+  t: (key: string) => string,
+): string {
   const lower = raw.toLowerCase();
   if (lower.includes("upload canceled") || lower.includes("aborted")) {
-    return "Upload canceled.";
+    return t("customerUpload.uploadCanceled");
   }
   if (
     lower.includes("ai extraction timed out") ||
     lower.includes("timed out after")
   ) {
-    return "The AI reader took longer than the maximum allowed and was canceled. Try the original spreadsheet (much faster than a scan), or retry in a moment.";
+    return t("customerUpload.errorAiTimeout");
   }
   // The new server-side "0 punches" message already explains exactly what
   // happened (unrecognized drivers, out-of-window dates, etc.) and points
@@ -87,7 +91,7 @@ function friendlyUploadError(raw: string): string {
     lower.includes("truncated") ||
     lower.includes("salvage")
   ) {
-    return "AI couldn't read this file end-to-end. Try uploading the original spreadsheet or a clearer scan, then re-try.";
+    return t("customerUpload.errorAiInvalidJson");
   }
   if (
     lower.includes("did not return") ||
@@ -96,7 +100,7 @@ function friendlyUploadError(raw: string): string {
     lower.includes("column") ||
     lower.includes("position")
   ) {
-    return "AI couldn't read this file. Try a clearer scan or the original export, then re-try.";
+    return t("customerUpload.errorAiGeneric");
   }
   return raw;
 }
@@ -203,6 +207,7 @@ type UploadResult =
   | { ok: false; error: string };
 
 export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
+  const { t } = useTranslation();
   const { data: statuses } = useGetCustomerUploadStatus(weekStart);
   const { data: me } = useGetMe();
   const queryClient = useQueryClient();
@@ -235,11 +240,11 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       {
         onSuccess: () => {
           toast({
-            title: `Snoozed "${customer}"`,
+            title: t("customerUpload.snoozedTitle", { customer }),
             description:
               snoozeWeeks == null
-                ? "The promotion suggestion is hidden until you lift the snooze in Admin."
-                : `The promotion suggestion is hidden for ${snoozeWeeks} ${snoozeWeeks === 1 ? "week" : "weeks"}.`,
+                ? t("customerUpload.snoozedForeverDesc")
+                : t("customerUpload.snoozedWeeksDesc", { count: snoozeWeeks }),
           });
           queryClient.invalidateQueries({
             queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
@@ -250,8 +255,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         },
         onError: (err) =>
           toast({
-            title: "Couldn't snooze suggestion",
-            description: errMessage(err, "Snooze failed"),
+            title: t("customerUpload.snoozeFailedTitle"),
+            description: errMessage(err, t("customerUpload.snoozeFailedFallback")),
             variant: "destructive",
           }),
       },
@@ -264,9 +269,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       {
         onSuccess: () => {
           toast({
-            title: `Hid "${customer}"`,
-            description:
-              "Existing punches and uploads are kept. Reactivate from Admin · Inactive customers to bring it back.",
+            title: t("customerUpload.hidTitle", { customer }),
+            description: t("customerUpload.hidDesc"),
           });
           queryClient.invalidateQueries({
             queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
@@ -277,8 +281,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         },
         onError: (err) =>
           toast({
-            title: "Couldn't mark inactive",
-            description: errMessage(err, "Mark inactive failed"),
+            title: t("customerUpload.markInactiveFailedTitle"),
+            description: errMessage(err, t("customerUpload.markInactiveFailedFallback")),
             variant: "destructive",
           }),
       },
@@ -368,7 +372,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       if (!extractRes.ok) {
         const msg =
           (extractBody && "error" in extractBody && extractBody.error) ||
-          "Upload failed";
+          t("customerUpload.uploadFailedFallback");
         return { ok: false, error: msg };
       }
       const preview = extractBody as CustomerPreviewData & {
@@ -403,7 +407,10 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           }
         | null;
       if (!confirmRes.ok) {
-        return { ok: false, error: confirmBody?.error ?? "Upload failed" };
+        return {
+          ok: false,
+          error: confirmBody?.error ?? t("customerUpload.uploadFailedFallback"),
+        };
       }
       return {
         ok: true,
@@ -412,7 +419,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         skipped: false,
       };
     } catch (err) {
-      return { ok: false, error: errMessage(err, "Upload failed") };
+      return { ok: false, error: errMessage(err, t("customerUpload.uploadFailedFallback")) };
     }
   };
 
@@ -450,7 +457,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         | null;
       if (!res.ok) {
         throw new Error(
-          (body && "error" in body && body.error) || "Upload failed",
+          (body && "error" in body && body.error) ||
+            t("customerUpload.uploadFailedFallback"),
         );
       }
       const data = body as CustomerPreviewData;
@@ -473,8 +481,10 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       // Same stale-request guard for the error path — a newer upload
       // already owns this row's state.
       if (rowAborts.current[customer] !== controller && !aborted) return;
-      const raw = aborted ? "Upload canceled." : errMessage(err, "Upload failed");
-      const msg = friendlyUploadError(raw);
+      const raw = aborted
+        ? t("customerUpload.uploadCanceled")
+        : errMessage(err, t("customerUpload.uploadFailedFallback"));
+      const msg = friendlyUploadError(raw, t);
       if (rowAborts.current[customer] === controller) {
         setRow(customer, {
           uploading: false,
@@ -484,7 +494,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       }
       if (!aborted) {
         toast({
-          title: `${customer} extract failed`,
+          title: t("customerUpload.extractFailedTitle", { customer }),
           description: msg,
           variant: "destructive",
         });
@@ -531,14 +541,14 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         return;
       }
       if (!isCurrent) return;
-      const msg = friendlyUploadError(r.error);
+      const msg = friendlyUploadError(r.error, t);
       setRow(customer, {
         uploading: false,
         error: msg,
         uploadStartedAt: null,
       });
       toast({
-        title: `${customer} upload failed`,
+        title: t("customerUpload.uploadFailedTitle", { customer }),
         description: msg,
         variant: "destructive",
       });
@@ -551,16 +561,20 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
         .join(", ");
       toast({
-        title: `${customer} uploaded with ${r.unmapped.length} unknown ${
-          r.unmapped.length === 1 ? "badge" : "badges"
-        }`,
-        description: `Imported ${r.punches} punches. These IDs aren't in the KFI roster, so their rows were skipped: ${formatted}. Add them to the driver mapping if they're new hires.`,
+        title: t("customerUpload.uploadedWithUnknownTitle", {
+          count: r.unmapped.length,
+          customer,
+        }),
+        description: t("customerUpload.uploadedWithUnknownDesc", {
+          count: r.punches,
+          ids: formatted,
+        }),
         variant: "destructive",
       });
     } else {
       toast({
-        title: `${customer} uploaded`,
-        description: `Imported ${r.punches} punches.`,
+        title: t("customerUpload.uploadedTitle", { customer }),
+        description: t("customerUpload.uploadedDesc", { count: r.punches }),
       });
     }
     invalidateAll();
@@ -590,8 +604,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     }
     if (rejected.length > 0) {
       toast({
-        title: `Skipped ${rejected.length} unsupported ${rejected.length === 1 ? "file" : "files"}`,
-        description: `Only .xlsx, .xls, .csv, .pdf, and image files (JPG, PNG, HEIC, WEBP) are accepted. Skipped: ${rejected.join(", ")}.`,
+        title: t("customerUpload.skippedUnsupportedTitle", { count: rejected.length }),
+        description: t("customerUpload.skippedUnsupportedDesc", { names: rejected.join(", ") }),
         variant: "destructive",
       });
     }
@@ -679,7 +693,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       } else {
         failed++;
         if (firstFailedIdx === null) firstFailedIdx = i;
-        const msg = friendlyUploadError(r.error);
+        const msg = friendlyUploadError(r.error, t);
         setBulkItems((prev) =>
           prev.map((it, idx) =>
             idx === i ? { ...it, status: "error", error: msg } : it,
@@ -690,19 +704,20 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     }
     setBulkRunning(false);
     invalidateAll();
-    const parts = [`${uploaded} uploaded`];
-    if (skipped > 0) parts.push(`${skipped} skipped`);
-    if (needsReview > 0) parts.push(`${needsReview} need review`);
-    parts.push(`${failed} failed`);
+    const parts = [t("customerUpload.bulkUploaded", { count: uploaded })];
+    if (skipped > 0) parts.push(t("customerUpload.bulkSkipped", { count: skipped }));
+    if (needsReview > 0)
+      parts.push(t("customerUpload.bulkNeedReview", { count: needsReview }));
+    parts.push(t("customerUpload.bulkFailed", { count: failed }));
     toast({
-      title: `Bulk upload complete`,
+      title: t("customerUpload.bulkCompleteTitle"),
       description: parts.join(", ") + ".",
       variant: failed > 0 ? "destructive" : "default",
       action:
         firstFailedIdx != null
           ? (
               <ToastAction
-                altText="Show first failed file"
+                altText={t("customerUpload.showFirstFailureAlt")}
                 onClick={() => {
                   const el = bulkItemRefs.current[firstFailedIdx];
                   if (!el) return;
@@ -713,7 +728,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   }, 2000);
                 }}
               >
-                Show first failure
+                {t("customerUpload.showFirstFailure")}
               </ToastAction>
             )
           : undefined,
@@ -779,8 +794,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     if (files.length === 0) return;
     if (files.length > 1) {
       toast({
-        title: "Drop a single file per customer",
-        description: `Per-row upload accepts one file at a time. Use the panel-wide drop zone to bulk-upload ${files.length} files.`,
+        title: t("customerUpload.dropSingleTitle"),
+        description: t("customerUpload.dropSingleDesc", { count: files.length }),
         variant: "destructive",
       });
       return;
@@ -795,8 +810,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       /\.(jpe?g|png|heic|heif|webp)$/i.test(lower);
     if (!ok) {
       toast({
-        title: "Unsupported file type",
-        description: `Only .xlsx, .xls, .csv, .pdf, and image files (JPG, PNG, HEIC, WEBP) are accepted. "${file.name}" was skipped.`,
+        title: t("customerUpload.unsupportedFileTitle"),
+        description: t("customerUpload.unsupportedFileDesc", { name: file.name }),
         variant: "destructive",
       });
       return;
@@ -834,8 +849,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     setIsDragOver(false);
     if (bulkRunning) {
       toast({
-        title: "Upload already in progress",
-        description: "Wait for the current bulk upload to finish before dropping more files.",
+        title: t("customerUpload.bulkBusyTitle"),
+        description: t("customerUpload.bulkBusyDesc"),
         variant: "destructive",
       });
       return;
@@ -884,10 +899,10 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
             <UploadCloud className="h-6 w-6 text-primary" />
             <div>
               <div className="font-display font-semibold text-sm">
-                Drop customer files to upload
+                {t("customerUpload.dropZoneTitle")}
               </div>
               <div className="text-xs text-muted-foreground">
-                .xlsx, .pdf, or photos (JPG/PNG/HEIC) — anything else is skipped
+                {t("customerUpload.dropZoneSubtitle")}
               </div>
             </div>
           </div>
@@ -896,29 +911,28 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
       <div className="bg-muted/40 px-4 py-3 border-b border-border flex items-center justify-between gap-3">
         <div>
           <h3 className="font-display font-semibold text-base">
-            Customer files
+            {t("customerPanel.title")}
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Each customer's weekly export. Re-uploading replaces only that
-            customer's imported rows; manual punches are kept.
+            {t("customerUpload.panelDescription")}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Tz
+              {t("customerUpload.tzLabel")}
             </span>
             <Select value={overrideTz} onValueChange={setOverrideTz}>
               <SelectTrigger
                 className="h-8 w-[170px] text-xs"
                 data-testid="select-upload-tz"
-                title="Override the timezone applied to the next upload. 'Auto' uses the driver / customer / system default."
+                title={t("customerUpload.tzTitle")}
               >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__auto__" className="text-xs">
-                  Auto (per driver/customer)
+                  {t("customerUpload.tzAuto")}
                 </SelectItem>
                 {(allowedTzs?.allowed ?? []).map((tz) => (
                   <SelectItem key={tz} value={tz} className="text-xs">
@@ -969,18 +983,18 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
             ) : (
               <UploadCloud className="mr-2 h-4 w-4" />
             )}
-            Upload all customer files
+            {t("customerUpload.uploadAll")}
           </Button>
           <Button
             variant="outline"
             size="sm"
             disabled={bulkRunning}
             onClick={() => folderInputRef.current?.click()}
-            title="Pick a whole folder; all .xlsx, .pdf, and image files inside are uploaded."
+            title={t("customerUpload.folderTitle")}
             data-testid="button-upload-folder"
           >
             <FolderUp className="mr-2 h-4 w-4" />
-            Folder…
+            {t("customerUpload.folder")}
           </Button>
           <Button
             variant="outline"
@@ -988,7 +1002,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
             onClick={() => openNewWithFile(null)}
           >
             <Sparkles className="mr-2 h-4 w-4" />
-            New customer file…
+            {t("customerPanel.newCustomer")}
           </Button>
         </div>
       </div>
@@ -996,7 +1010,9 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         <div className="border-b border-border bg-muted/20 px-4 py-3 space-y-2">
           <div className="flex items-center justify-between">
             <h4 className="font-display font-semibold text-sm">
-              {bulkRunning ? "Uploading…" : "Bulk upload results"}
+              {bulkRunning
+                ? t("customerUpload.uploadingHeader")
+                : t("customerUpload.bulkResultsHeader")}
             </h4>
             {!bulkRunning && (
               <Button
@@ -1006,7 +1022,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 onClick={dismissBulk}
               >
                 <X className="h-3 w-3 mr-1" />
-                Dismiss
+                {t("common.dismiss")}
               </Button>
             )}
           </div>
@@ -1068,19 +1084,21 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       )}
                       {item.status === "success" && (
                         <span className="text-[10px] text-muted-foreground">
-                          {item.punchesUpserted} punches imported
+                          {t("customerUpload.punchesImported", { count: item.punchesUpserted ?? 0 })}
                         </span>
                       )}
                       {item.status === "warning" && (
                         <span className="text-[10px] text-amber-700 dark:text-amber-400">
-                          {item.punchesUpserted} imported · {item.unmappedCount}{" "}
-                          unknown{" "}
-                          {item.unmappedCount === 1 ? "badge" : "badges"}
+                          {t("customerUpload.importedUnknownBadges", {
+                            count: item.unmappedCount ?? 0,
+                            imported: item.punchesUpserted ?? 0,
+                            unknown: item.unmappedCount ?? 0,
+                          })}
                         </span>
                       )}
                       {item.status === "skipped" && (
                         <span className="text-[10px] text-muted-foreground">
-                          Already up to date
+                          {t("customerUpload.alreadyUpToDate")}
                         </span>
                       )}
                     </div>
@@ -1089,23 +1107,18 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                         className="mt-1 text-destructive text-[11px] font-medium leading-snug"
                         data-testid={`bulk-item-error-${idx}`}
                       >
-                        {item.error ?? "Upload failed"}
+                        {item.error ?? t("customerUpload.uploadFailedFallback")}
                       </div>
                     )}
                     {driftHint && (
                       <div className="mt-1 text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-1">
                         <Lightbulb className="h-3 w-3 mt-0.5 shrink-0" />
-                        <span>
-                          Probably a format change — open the file directly and
-                          compare it against the last working upload before
-                          retrying.
-                        </span>
+                        <span>{t("customerUpload.formatDriftHint")}</span>
                       </div>
                     )}
                     {isUnknown && (
                       <div className="mt-0.5 text-amber-800 dark:text-amber-300 text-[11px]">
-                        Not a known customer — use the new-customer flow to map
-                        it.
+                        {t("customerUpload.notKnownCustomer")}
                       </div>
                     )}
                   </div>
@@ -1117,7 +1130,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       onClick={() => openNewWithFile(item.file)}
                     >
                       <Sparkles className="h-3 w-3 mr-1" />
-                      New customer file…
+                      {t("customerPanel.newCustomer")}
                     </Button>
                   )}
                 </li>
@@ -1133,24 +1146,23 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
             <div className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
               <span className="font-semibold">
                 {promotionCandidates.length === 1
-                  ? "Parser candidate:"
-                  : "Parser candidates:"}
+                  ? t("customerUpload.parserCandidateOne")
+                  : t("customerUpload.parserCandidateOther")}
               </span>{" "}
-              These customers have come through the AI flow enough to justify a
-              real parser. See{" "}
+              {t("customerUpload.parserCandidatesBody")}{" "}
               <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-amber-500/10">
                 docs/promote-ai-customer-to-parser.md
               </code>{" "}
-              for the promotion checklist.
+              {t("customerUpload.parserCandidatesBodyAfter")}
               {me?.isAdmin && (
                 <>
                   {" "}
-                  Manage hidden suggestions on{" "}
+                  {t("customerUpload.manageHidden")}{" "}
                   <Link
                     href="/admin/parser-snoozes"
                     className="underline underline-offset-2"
                   >
-                    Admin · Parser snoozes
+                    {t("customerUpload.adminParserSnoozesLink")}
                   </Link>
                   .
                 </>
@@ -1165,10 +1177,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
               >
                 <span className="font-medium">{s.customer}</span>
                 <span className="font-mono text-[10px] text-amber-800/80 dark:text-amber-300/80">
-                  {s.aiImportWeekCount}{" "}
-                  {s.aiImportWeekCount === 1 ? "week" : "weeks"} AI ·{" "}
-                  {s.aliasCount}{" "}
-                  {s.aliasCount === 1 ? "alias" : "aliases"}
+                  {t("customerUpload.aiWeeks", { count: s.aiImportWeekCount })}{" "}
+                  · {t("customerUpload.aliases", { count: s.aliasCount })}
                 </span>
                 {me?.isAdmin && (
                   <DropdownMenu>
@@ -1187,28 +1197,28 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                         ) : (
                           <BellOff className="h-3 w-3 mr-1" />
                         )}
-                        Don't suggest
+                        {t("customerUpload.dontSuggest")}
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
                       <DropdownMenuLabel className="text-xs">
-                        Snooze "{s.customer}" for…
+                        {t("customerUpload.snoozeFor", { customer: s.customer })}
                       </DropdownMenuLabel>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => snooze(s.customer, 4)}>
-                        4 weeks
+                        {t("customerUpload.snoozeWeeks4")}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => snooze(s.customer, 12)}>
-                        12 weeks
+                        {t("customerUpload.snoozeWeeks12")}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => snooze(s.customer, 26)}>
-                        26 weeks
+                        {t("customerUpload.snoozeWeeks26")}
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         onClick={() => snooze(s.customer, null)}
                       >
-                        Forever (until lifted)
+                        {t("customerUpload.snoozeForever")}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -1256,7 +1266,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-primary/5">
                   <div className="rounded border-2 border-dashed border-primary bg-background/95 px-3 py-1.5 shadow text-xs font-display font-semibold flex items-center gap-2">
                     <UploadCloud className="h-4 w-4 text-primary" />
-                    Drop to upload as {s.customer}
+                    {t("customerUpload.dropToUploadAs", { customer: s.customer })}
                   </div>
                 </div>
               )}
@@ -1277,32 +1287,32 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       variant="secondary"
                       className="font-mono text-[10px]"
                     >
-                      {s.punchCount} punches
+                      {t("customerUpload.punches", { count: s.punchCount })}
                     </Badge>
                   ) : showError ? (
                     <Badge
                       variant="destructive"
                       className="text-[10px]"
                     >
-                      Last upload failed
+                      {t("customerUpload.lastUploadFailed")}
                     </Badge>
                   ) : (
                     <Badge
                       variant="outline"
                       className="text-[10px] text-muted-foreground"
                     >
-                      Not uploaded
+                      {t("customerUpload.notUploaded")}
                     </Badge>
                   )}
                   {showSkipped && (
                     <Badge
                       variant="outline"
                       className="text-[10px] text-muted-foreground gap-1 border-muted-foreground/30"
-                      title="Your most recent upload for this customer was identical to the file already imported, so it was skipped. Use Re-upload to force a fresh import anyway."
+                      title={t("customerUpload.latestFileImportedTitle")}
                       data-testid={`badge-skipped-${s.customer}`}
                     >
                       <CheckCircle2 className="h-3 w-3" />
-                      Latest file already imported
+                      {t("customerUpload.latestFileImported")}
                     </Badge>
                   )}
                   {s.isAiImported &&
@@ -1315,13 +1325,17 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                           className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1 cursor-pointer hover:bg-amber-500/10"
                           title={
                             s.promotionCandidate
-                              ? `This customer has accumulated ${s.aiImportWeekCount} AI-imported week(s) and ${s.aliasCount} saved driver alias(es). Click to view stashed samples — and consider writing a deterministic parser.`
-                              : `AI-imported (no deterministic parser yet). ${s.aliasCount} saved driver alias(es). Click to view stashed samples.`
+                              ? t("customerUpload.aiBadgeTitlePromo", {
+                                  weeks: s.aiImportWeekCount,
+                                  aliases: s.aliasCount,
+                                })
+                              : t("customerUpload.aiBadgeTitle", {
+                                  aliases: s.aliasCount,
+                                })
                           }
                         >
                           <Wand2 className="h-3 w-3" />
-                          AI · {s.aiImportWeekCount}{" "}
-                          {s.aiImportWeekCount === 1 ? "week" : "weeks"}
+                          {t("customerUpload.aiBadge", { count: s.aiImportWeekCount })}
                         </Badge>
                       </Link>
                     ) : (
@@ -1330,17 +1344,21 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                         className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1"
                         title={
                           s.promotionCandidate
-                            ? `This customer has accumulated ${s.aiImportWeekCount} AI-imported week(s) and ${s.aliasCount} saved driver alias(es). Consider writing a deterministic parser — see docs/promote-ai-customer-to-parser.md.`
-                            : `AI-imported (no deterministic parser yet). ${s.aliasCount} saved driver alias(es).`
+                            ? t("customerUpload.aiBadgeTitlePromoNoAdmin", {
+                                weeks: s.aiImportWeekCount,
+                                aliases: s.aliasCount,
+                              })
+                            : t("customerUpload.aiBadgeTitleNoAdmin", {
+                                aliases: s.aliasCount,
+                              })
                         }
                       >
                         <Wand2 className="h-3 w-3" />
-                        AI · {s.aiImportWeekCount}{" "}
-                        {s.aiImportWeekCount === 1 ? "week" : "weeks"}
+                        {t("customerUpload.aiBadge", { count: s.aiImportWeekCount })}
                       </Badge>
                     ))}
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    Any file
+                    {t("customerUpload.anyFile")}
                   </span>
                 </div>
                 <div className="text-xs text-muted-foreground font-mono mt-0.5 truncate">
@@ -1352,7 +1370,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       {s.lastFileName ? ` · ${s.lastFileName}` : ""}
                     </>
                   ) : (
-                    <span className="italic">No upload yet for this week</span>
+                    <span className="italic">{t("customerUpload.noUploadYet")}</span>
                   )}
                 </div>
                 {showError && (
@@ -1365,7 +1383,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   <div className="mt-1 text-xs text-destructive flex items-start gap-1">
                     <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
                     <span>
-                      Unknown {s.lastUnmappedIds.length === 1 ? "badge" : "badges"}:{" "}
+                      {t("customerUpload.unknownBadges", { count: s.lastUnmappedIds.length })}:{" "}
                       {s.lastUnmappedIds.map((u, i) => {
                         const params = new URLSearchParams({
                           id: u.id,
@@ -1393,8 +1411,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       })}
                       .{" "}
                       {me?.isAdmin
-                        ? "Click an id to add a driver mapping."
-                        : "Ask an admin to add the missing driver mapping."}
+                        ? t("customerUpload.mapIdsAdmin")
+                        : t("customerUpload.mapIdsUser")}
                     </span>
                   </div>
                 )}
@@ -1423,7 +1441,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 // fast (cache → readWithRoles). Task #255.
                 const hint =
                   elapsed > 15
-                    ? "First-time AI read can take a few minutes — next upload of this format will be instant."
+                    ? t("customerUpload.readingHint")
                     : null;
                 return (
                   <span
@@ -1432,7 +1450,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                     data-testid={`upload-elapsed-${s.customer}`}
                     title={hint ?? undefined}
                   >
-                    Reading… {elapsed}s
+                    {t("customerUpload.reading", { elapsed })}
                     {hint ? (
                       <span className="ml-2 hidden lg:inline font-sans normal-case text-[10px] text-muted-foreground/80">
                         {hint}
@@ -1452,7 +1470,9 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 ) : (
                   <UploadCloud className="mr-2 h-3.5 w-3.5" />
                 )}
-                {uploaded ? "Re-upload" : "Upload"}
+                {uploaded
+                  ? t("customerUpload.reuploadButton")
+                  : t("customerUpload.uploadButton")}
               </Button>
               {st.uploading && (
                 <Button
@@ -1460,9 +1480,9 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   size="sm"
                   onClick={() => cancelRowUpload(s.customer)}
                   data-testid={`upload-cancel-${s.customer}`}
-                  title="Cancel upload"
+                  title={t("customerUpload.cancelUpload")}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
               )}
               {me?.isAdmin && (
@@ -1472,7 +1492,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       variant="ghost"
                       size="sm"
                       className="h-8 w-8 p-0 shrink-0"
-                      title={`Row actions for ${s.customer}`}
+                      title={t("customerUpload.rowActionsTitle", { customer: s.customer })}
                       data-testid={`row-actions-${s.customer}`}
                       disabled={
                         markInactiveMutation.isPending &&
@@ -1489,7 +1509,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                           ⋯
                         </span>
                       )}
-                      <span className="sr-only">Row actions</span>
+                      <span className="sr-only">{t("customerUpload.rowActions")}</span>
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -1501,7 +1521,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       onClick={() => markInactive(s.customer)}
                       className="text-destructive focus:text-destructive"
                     >
-                      Mark inactive (hide from this panel)
+                      {t("customerUpload.markInactive")}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

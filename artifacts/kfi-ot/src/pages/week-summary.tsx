@@ -255,22 +255,16 @@ export default function WeekSummary() {
             queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
           });
           toast({
-            title: "Week reset",
-            description: `Deleted ${data.punchesDeleted} punch${
-              data.punchesDeleted === 1 ? "" : "es"
-            }${
-              data.reviewedDeleted > 0
-                ? `, ${data.reviewedDeleted} review row${
-                    data.reviewedDeleted === 1 ? "" : "s"
-                  }`
-                : ""
-            }${
-              data.notesSoftDeleted > 0
-                ? `, ${data.notesSoftDeleted} note${
-                    data.notesSoftDeleted === 1 ? "" : "s"
-                  } hidden`
-                : ""
-            }.`,
+            title: t("weekSummary.weekResetTitle"),
+            description:
+              t("weekSummary.weekResetPunches", { count: data.punchesDeleted }) +
+              (data.reviewedDeleted > 0
+                ? t("weekSummary.weekResetReviews", { count: data.reviewedDeleted })
+                : "") +
+              (data.notesSoftDeleted > 0
+                ? t("weekSummary.weekResetNotes", { count: data.notesSoftDeleted })
+                : "") +
+              ".",
           });
         },
         onError: (err) => {
@@ -280,14 +274,14 @@ export default function WeekSummary() {
           };
           if (e.status === 409 && e.data?.lockedKfiIds?.length) {
             toast({
-              title: "Reset blocked: locked drivers",
-              description: `Unlock first: ${e.data.lockedKfiIds.join(", ")}`,
+              title: t("weekSummary.resetBlockedTitle"),
+              description: t("weekSummary.resetBlockedDesc", { ids: e.data.lockedKfiIds.join(", ") }),
               variant: "destructive",
             });
           } else {
             toast({
-              title: "Reset failed",
-              description: errMessage(err, "Could not reset week."),
+              title: t("weekSummary.resetFailedTitle"),
+              description: errMessage(err, t("weekSummary.resetCouldNot")),
               variant: "destructive",
             });
           }
@@ -319,9 +313,7 @@ export default function WeekSummary() {
           });
           if (data.clockFailures && data.clockFailures.length > 0) {
             toast({
-              title: `${data.clockFailures.length} clock${
-                data.clockFailures.length === 1 ? "" : "s"
-              } failed to pull`,
+              title: t("weekSummary.refreshClockFailuresTitle", { count: data.clockFailures.length }),
               description: data.clockFailures
                 .map((f) => `${f.clockName} (${f.clockId}): ${f.error}`)
                 .join(" · "),
@@ -447,7 +439,7 @@ export default function WeekSummary() {
                     value={w.startDate}
                     className="font-mono"
                   >
-                    {w.startDate} to {w.endDate}
+                    {t("weekSummary.weekRangeOption", { start: w.startDate, end: w.endDate })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -500,22 +492,20 @@ export default function WeekSummary() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="font-display font-semibold text-amber-900 dark:text-amber-200">
-                    Last refresh had issues
+                    {t("weekSummary.refreshIssuesBanner")}
                   </div>
                   <button
                     type="button"
                     className="text-xs underline text-muted-foreground"
                     onClick={() => setLastRefreshIssues(null)}
                   >
-                    Dismiss
+                    {t("common.dismiss")}
                   </button>
                 </div>
                 {lastRefreshIssues.failures.length > 0 && (
                   <div className="text-xs">
                     <span className="font-semibold">
-                      {lastRefreshIssues.failures.length} clock
-                      {lastRefreshIssues.failures.length === 1 ? "" : "s"}{" "}
-                      failed:
+                      {t("weekSummary.refreshIssuesClocksFailed", { count: lastRefreshIssues.failures.length })}
                     </span>{" "}
                     <span className="font-mono">
                       {lastRefreshIssues.failures
@@ -528,9 +518,7 @@ export default function WeekSummary() {
                   <div className="text-xs space-y-1">
                     <div>
                       <span className="font-semibold">
-                        {lastRefreshIssues.unresolved.length} Connecteam user
-                        {lastRefreshIssues.unresolved.length === 1 ? "" : "s"}{" "}
-                        with shifts but no KFI driver:
+                        {t("weekSummary.refreshIssuesUnresolved", { count: lastRefreshIssues.unresolved.length })}
                       </span>{" "}
                       <span className="font-mono">
                         {lastRefreshIssues.unresolved
@@ -544,7 +532,7 @@ export default function WeekSummary() {
                       href="/admin/connecteam-user-aliases"
                       className="text-xs underline text-amber-900 dark:text-amber-200"
                     >
-                      Map them on the Connecteam aliases page →
+                      {t("weekSummary.refreshIssuesMapLink")}
                     </Link>
                   </div>
                 )}
@@ -559,7 +547,7 @@ export default function WeekSummary() {
             <div className="space-y-1">
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-2xl font-bold font-display tracking-tight text-foreground">
-                  Week of {weekStart}
+                  {t("weekSummary.weekHeading", { week: weekStart })}
                 </h2>
                 {summary ? (
                   <ReviewedPill
@@ -688,7 +676,7 @@ export default function WeekSummary() {
                         >
                           <span className="truncate">{c.customer}</span>
                           <span className="ml-auto text-xs text-muted-foreground font-mono">
-                            HTML · {c.driverCount}
+                            {t("weekSummary.htmlBadge", { count: c.driverCount })}
                           </span>
                         </DropdownMenuItem>
                       ))}
@@ -705,7 +693,7 @@ export default function WeekSummary() {
                         >
                           <span className="truncate">{c.customer}</span>
                           <span className="ml-auto text-xs text-muted-foreground font-mono">
-                            PDF · {c.driverCount}
+                            {t("weekSummary.pdfBadge", { count: c.driverCount })}
                           </span>
                         </DropdownMenuItem>
                       ))}
@@ -731,7 +719,7 @@ export default function WeekSummary() {
                     disabled={resetWeekMut.isPending}
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
-                    Reset Week
+                    {t("weekSummary.resetWeek")}
                   </Button>
                 </>
               ) : null}
@@ -741,12 +729,9 @@ export default function WeekSummary() {
           <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
             <AlertDialogContent data-testid="dialog-reset-week">
               <AlertDialogHeader>
-                <AlertDialogTitle>Reset week {weekStart}?</AlertDialogTitle>
+                <AlertDialogTitle>{t("weekSummary.resetDialogTitle", { week: weekStart })}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This is a destructive admin action. Choose what to wipe,
-                  then type the week start date below to confirm. Every
-                  deleted punch is still recorded in the deletion audit
-                  log, so this remains attributable.
+                  {t("weekSummary.resetDialogDesc")}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <RadioGroup
@@ -767,11 +752,10 @@ export default function WeekSummary() {
                   />
                   <div className="space-y-0.5">
                     <Label htmlFor="reset-scope-punches" className="font-medium">
-                      Punches only
+                      {t("weekSummary.resetScopePunches")}
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      Delete every driver + customer + manual punch for
-                      this week. Review status and notes are preserved.
+                      {t("weekSummary.resetScopePunchesDesc")}
                     </p>
                   </div>
                 </div>
@@ -787,10 +771,10 @@ export default function WeekSummary() {
                       htmlFor="reset-scope-reviewed"
                       className="font-medium"
                     >
-                      Punches + reviewed flags
+                      {t("weekSummary.resetScopeReviewed")}
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      Also clear every "reviewed" mark for this week.
+                      {t("weekSummary.resetScopeReviewedDesc")}
                     </p>
                   </div>
                 </div>
@@ -803,12 +787,10 @@ export default function WeekSummary() {
                   />
                   <div className="space-y-0.5">
                     <Label htmlFor="reset-scope-all" className="font-medium">
-                      Everything (full reset)
+                      {t("weekSummary.resetScopeAll")}
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      Also hide every note, clear customer-upload history,
-                      wipe Connecteam parity baselines, and unmark the
-                      week as refreshed.
+                      {t("weekSummary.resetScopeAllDesc")}
                     </p>
                   </div>
                 </div>
@@ -818,7 +800,7 @@ export default function WeekSummary() {
                   htmlFor="reset-confirm"
                   className="text-xs uppercase tracking-wide text-muted-foreground"
                 >
-                  Type <span className="font-mono">{weekStart}</span> to confirm
+                  {t("weekSummary.resetTypePrefix")} <span className="font-mono">{weekStart}</span> {t("weekSummary.resetTypeSuffix")}
                 </Label>
                 <Input
                   id="reset-confirm"
@@ -835,7 +817,7 @@ export default function WeekSummary() {
                   disabled={resetWeekMut.isPending}
                   data-testid="button-reset-cancel"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </AlertDialogCancel>
                 <AlertDialogAction
                   onClick={(e) => {
@@ -853,7 +835,7 @@ export default function WeekSummary() {
                   ) : (
                     <Trash2 className="mr-2 h-4 w-4" />
                   )}
-                  Reset week
+                  {t("weekSummary.resetWeekButton")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -869,7 +851,7 @@ export default function WeekSummary() {
                 <div className="flex flex-col items-center justify-center text-center space-y-2">
                   <AlertTriangle className="h-8 w-8 text-destructive" />
                   <p className="text-destructive font-medium">
-                    {errMessage(error, "Failed to load week summary")}
+                    {errMessage(error, t("weekSummary.loadWeekFailed"))}
                   </p>
                 </div>
               </CardContent>

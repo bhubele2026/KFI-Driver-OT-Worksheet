@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   useConfirmNewCustomerFile,
   useGetAllowedTimezones,
@@ -96,6 +97,7 @@ export function NewCustomerDialog({
   onImported: () => void;
   initialFile?: File | null;
 }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const confirmMut = useConfirmNewCustomerFile();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -148,13 +150,16 @@ export function NewCustomerDialog({
         return next;
       });
       toast({
-        title: "Mapping forgotten",
-        description: `Will ask again next time "${nameOnDoc}" appears on a ${preview.customer} file.`,
+        title: t("newCustomer.mappingForgotten"),
+        description: t("newCustomer.mappingForgottenDesc", {
+          name: nameOnDoc,
+          customer: preview.customer,
+        }),
       });
     } catch (err) {
       toast({
-        title: "Could not forget mapping",
-        description: errMessage(err, "Network error"),
+        title: t("newCustomer.forgetFailed"),
+        description: errMessage(err, t("newCustomer.forgetFailedFallback")),
         variant: "destructive",
       });
     } finally {
@@ -178,7 +183,7 @@ export function NewCustomerDialog({
         | (ExtractPreview & { error?: string })
         | null;
       if (!res.ok || !body) {
-        throw new Error(body?.error ?? "Could not extract rows");
+        throw new Error(body?.error ?? t("newCustomer.extractFailedFallback"));
       }
       setPreview(body);
       setEditedRows(body.rows);
@@ -200,7 +205,7 @@ export function NewCustomerDialog({
       }
       setMapping(initialMap);
     } catch (err) {
-      setExtractError(errMessage(err, "Could not extract rows"));
+      setExtractError(errMessage(err, t("newCustomer.extractFailedFallback")));
     } finally {
       setExtracting(false);
     }
@@ -267,20 +272,25 @@ export function NewCustomerDialog({
       {
         onSuccess: (data) => {
           toast({
-            title: `${data.customer} imported`,
-            description: `Added ${data.imported} punches${
+            title: t("newCustomer.importedTitle", { customer: data.customer }),
+            description:
               data.skippedUnmapped > 0
-                ? ` · skipped ${data.skippedUnmapped} (${data.unmappedNames.join(", ") || "incomplete rows"})`
-                : ""
-            }.`,
+                ? t("newCustomer.importedDescSkipped", {
+                    imported: data.imported,
+                    skipped: data.skippedUnmapped,
+                    names:
+                      data.unmappedNames.join(", ") ||
+                      t("newCustomer.incompleteRows"),
+                  })
+                : t("newCustomer.importedDesc", { imported: data.imported }),
           });
           onImported();
           onOpenChange(false);
         },
         onError: (err) => {
           toast({
-            title: "Import failed",
-            description: errMessage(err, "Could not save punches"),
+            title: t("newCustomer.importFailed"),
+            description: errMessage(err, t("newCustomer.importFailedFallback")),
             variant: "destructive",
           });
         },
@@ -313,11 +323,10 @@ export function NewCustomerDialog({
         <DialogHeader className="px-6 pt-6 pb-3 border-b border-border">
           <DialogTitle className="flex items-center gap-2 font-display">
             <Sparkles className="h-5 w-5 text-primary" />
-            New customer file (AI extract)
+            {t("newCustomer.dialogTitle")}
           </DialogTitle>
           <DialogDescription>
-            For one-off customer files we don't have a parser for. Nothing is
-            saved until you confirm.
+            {t("newCustomer.dialogDescription")}
           </DialogDescription>
         </DialogHeader>
 
@@ -325,21 +334,20 @@ export function NewCustomerDialog({
           {!hasPreview ? (
             <div className="space-y-4 max-w-md">
               <div className="space-y-1.5">
-                <Label htmlFor="ncf-customer">Customer name</Label>
+                <Label htmlFor="ncf-customer">{t("newCustomer.customerLabel")}</Label>
                 <Input
                   id="ncf-customer"
-                  placeholder="e.g. Acme Logistics"
+                  placeholder={t("newCustomer.customerPlaceholder")}
                   value={customer}
                   onChange={(e) => setCustomer(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  This name will be saved as the customer for every imported
-                  punch.
+                  {t("newCustomer.customerHelp")}
                 </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="ncf-file">
-                  File (.pdf, .xlsx, or a photo of the timesheet)
+                  {t("newCustomer.fileLabel")}
                 </Label>
                 <Input
                   id="ncf-file"
@@ -365,26 +373,11 @@ export function NewCustomerDialog({
                 >
                   <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
                   <span>
-                    {preview.failedChunks && preview.failedChunks > 0 ? (
-                      <>
-                        Heads up: this file was split into parts for the AI,
-                        and {preview.failedChunks}{" "}
-                        {preview.failedChunks === 1 ? "part" : "parts"} timed
-                        out and{" "}
-                        {preview.failedChunks === 1 ? "was" : "were"} skipped.
-                        The preview shows the rows that came through — review
-                        carefully, then either confirm what's here or
-                        re-upload the file split into smaller parts.
-                      </>
-                    ) : (
-                      <>
-                        Heads up: this file was too large for the AI to read
-                        in one pass, so even after auto-splitting, some rows
-                        may be missing from the preview below. Review
-                        carefully — if the row count looks low, re-upload the
-                        file split into smaller parts.
-                      </>
-                    )}
+                    {preview.failedChunks && preview.failedChunks > 0
+                      ? t("newCustomer.truncatedChunks", {
+                          count: preview.failedChunks,
+                        })
+                      : t("newCustomer.truncated")}
                   </span>
                 </div>
               ) : null}
@@ -392,14 +385,19 @@ export function NewCustomerDialog({
                 <div>
                   <span className="font-semibold">{preview.customer}</span>
                   <span className="text-muted-foreground">
-                    {" "}· week of {preview.weekStart} · {keptCount} of{" "}
-                    {editedRows.length} rows selected
-                    {excluded.size > 0 ? ` · ${excluded.size} excluded` : ""}
+                    {t("newCustomer.headerSummary", {
+                      week: preview.weekStart,
+                      kept: keptCount,
+                      total: editedRows.length,
+                    })}
+                    {excluded.size > 0
+                      ? t("newCustomer.excludedSuffix", { count: excluded.size })
+                      : ""}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Tz
+                    {t("newCustomer.tzLabel")}
                   </Label>
                   <Select value={dispTz} onValueChange={setDispTz}>
                     <SelectTrigger
@@ -410,7 +408,7 @@ export function NewCustomerDialog({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__auto__" className="text-xs">
-                        Auto (per driver/customer)
+                        {t("newCustomer.tzAuto")}
                       </SelectItem>
                       {(allowedTzs?.allowed ?? []).map((tz) => (
                         <SelectItem key={tz} value={tz} className="text-xs">
@@ -424,19 +422,18 @@ export function NewCustomerDialog({
 
               <section>
                 <h4 className="font-display font-semibold text-sm mb-2">
-                  Driver mapping
+                  {t("newCustomer.driverMappingHeading")}
                 </h4>
                 <p className="text-xs text-muted-foreground mb-3">
-                  Each name on the document is matched to a Connecteam driver.
-                  Leave as "Skip" to drop that driver's rows.
+                  {t("newCustomer.driverMappingDesc")}
                 </p>
                 <div className="border border-border rounded overflow-hidden">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Name on document</TableHead>
-                        <TableHead>Badge / ID</TableHead>
-                        <TableHead>Connecteam driver</TableHead>
+                        <TableHead>{t("newCustomer.headerNameOnDoc")}</TableHead>
+                        <TableHead>{t("newCustomer.headerBadgeId")}</TableHead>
+                        <TableHead>{t("newCustomer.headerConnecteamDriver")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -447,7 +444,7 @@ export function NewCustomerDialog({
                               <span>{s.driverNameOnDoc}</span>
                               {forgottenAliases.has(s.driverNameOnDoc) ? (
                                 <span className="text-[10px] text-muted-foreground">
-                                  Saved mapping forgotten
+                                  {t("newCustomer.savedMappingForgotten")}
                                 </span>
                               ) : s.savedKfiId ? (
                                 <button
@@ -459,8 +456,8 @@ export function NewCustomerDialog({
                                   disabled={forgettingName === s.driverNameOnDoc}
                                 >
                                   {forgettingName === s.driverNameOnDoc
-                                    ? "Forgetting…"
-                                    : "Forget saved mapping"}
+                                    ? t("newCustomer.forgetting")
+                                    : t("newCustomer.forgetSavedMapping")}
                                 </button>
                               ) : null}
                             </div>
@@ -483,7 +480,7 @@ export function NewCustomerDialog({
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value={UNMAPPED}>
-                                  — Skip / unmapped —
+                                  {t("newCustomer.skipUnmapped")}
                                 </SelectItem>
                                 {s.matches.map((m) => (
                                   <SelectItem key={m.kfiId} value={m.kfiId}>
@@ -495,7 +492,7 @@ export function NewCustomerDialog({
                                       {s.savedKfiId === m.kfiId &&
                                       !forgottenAliases.has(s.driverNameOnDoc) ? (
                                         <Badge className="text-[10px]">
-                                          saved
+                                          {t("newCustomer.saved")}
                                         </Badge>
                                       ) : (
                                         <Badge
@@ -520,23 +517,22 @@ export function NewCustomerDialog({
 
               <section>
                 <h4 className="font-display font-semibold text-sm mb-2">
-                  Extracted rows
+                  {t("newCustomer.extractedRowsHeading")}
                 </h4>
                 <p className="text-xs text-muted-foreground mb-3">
-                  Untick "Keep" to drop a row. Rows whose driver is unmapped
-                  are also skipped automatically.
+                  {t("newCustomer.extractedRowsDesc")}
                 </p>
                 <div className="border border-border rounded overflow-hidden">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-10">Keep</TableHead>
-                        <TableHead>Driver (on doc)</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead>In</TableHead>
-                        <TableHead>Out</TableHead>
-                        <TableHead className="text-right">Hours</TableHead>
-                        <TableHead>Mapped to</TableHead>
+                        <TableHead className="w-10">{t("customerPreview.headerKeep")}</TableHead>
+                        <TableHead>{t("newCustomer.headerDriverOnDoc")}</TableHead>
+                        <TableHead>{t("customerPreview.headerDate")}</TableHead>
+                        <TableHead>{t("customerPreview.headerIn")}</TableHead>
+                        <TableHead>{t("customerPreview.headerOut")}</TableHead>
+                        <TableHead className="text-right">{t("customerPreview.headerHours")}</TableHead>
+                        <TableHead>{t("newCustomer.headerMappedTo")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -550,7 +546,7 @@ export function NewCustomerDialog({
                                 ?.matches.find((m) => m.kfiId === target)?.name ?? null;
                         const targetLabel =
                           target === UNMAPPED
-                            ? "Skip"
+                            ? t("newCustomer.skipLabel")
                             : matchedName
                               ? formatPersonName(matchedName)
                               : target;
@@ -568,7 +564,7 @@ export function NewCustomerDialog({
                                 checked={!isExcluded}
                                 onCheckedChange={() => toggleExclude(idx)}
                                 data-testid={`checkbox-keep-new-${idx}`}
-                                aria-label={`Keep row ${idx + 1}`}
+                                aria-label={t("newCustomer.keepRowAria", { n: idx + 1 })}
                               />
                             </TableCell>
                             <TableCell className="text-xs font-medium">
@@ -624,7 +620,7 @@ export function NewCustomerDialog({
           {!hasPreview ? (
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 onClick={runExtract}
@@ -635,18 +631,18 @@ export function NewCustomerDialog({
                 ) : (
                   <Sparkles className="mr-2 h-4 w-4" />
                 )}
-                Extract with AI
+                {t("newCustomer.extractWithAi")}
               </Button>
             </>
           ) : (
             <>
               <Button variant="ghost" onClick={goBack}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
-                Pick a different file
+                {t("newCustomer.pickDifferent")}
               </Button>
               <div className="flex-1" />
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 onClick={handleConfirm}
@@ -655,7 +651,7 @@ export function NewCustomerDialog({
                 {confirmMut.isPending && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                Confirm import
+                {t("newCustomer.confirmImport")}
               </Button>
             </>
           )}

@@ -92,14 +92,14 @@ export default function AdminDriverIdAliases() {
         onSuccess: () => {
           refetchIgnored();
           toast({
-            title: "Ignore rule lifted",
-            description: `${label} will surface in the next upload preview.`,
+            title: t("adminDriverIdsExtra.ignoreLifted"),
+            description: t("adminDriverIdsExtra.ignoreLiftedDesc", { label }),
           });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't lift the ignore rule",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminDriverIdsExtra.liftFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -152,12 +152,12 @@ export default function AdminDriverIdAliases() {
         onSuccess: () => {
           resetCreateForm();
           refetch();
-          toast({ title: "Mapping saved", description: externalId });
+          toast({ title: t("adminDriverIdsExtra.mappingSaved"), description: externalId });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't save mapping",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminDriverIdsExtra.saveFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -172,12 +172,12 @@ export default function AdminDriverIdAliases() {
         onSuccess: () => {
           setEdit(null);
           refetch();
-          toast({ title: "Mapping re-pointed" });
+          toast({ title: t("adminDriverIdsExtra.mappingRepointed") });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't update mapping",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminDriverIdsExtra.updateFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -191,14 +191,14 @@ export default function AdminDriverIdAliases() {
         onSuccess: () => {
           refetch();
           toast({
-            title: "Mapping forgotten",
+            title: t("adminDriverIdsExtra.mappingForgotten"),
             description: a.externalId,
           });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't delete mapping",
-            description: err instanceof Error ? err.message : "Unknown error",
+            title: t("adminDriverIdsExtra.deleteFailed"),
+            description: err instanceof Error ? err.message : t("errors.unknown"),
             variant: "destructive",
           }),
       },
@@ -243,43 +243,40 @@ export default function AdminDriverIdAliases() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <Plus className="h-4 w-4" />
-              Add a new mapping
+              {t("adminDriverIdsExtra.addCardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
-              Map a customer payroll id (TELD code, badge #, employee number,
-              etc.) to a KFI driver. New mappings take effect on the next
-              customer-file upload — no code change needed. To override a stale
-              built-in mapping, just enter the same id; the saved row wins.
+              {t("adminDriverIdsExtra.addDescription")}
             </p>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1">
                 <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Customer payroll id
+                  {t("adminDriverIdsExtra.externalIdLabel")}
                 </label>
                 <Input
                   value={newExternalId}
                   onChange={(e) => setNewExternalId(e.target.value)}
-                  placeholder="e.g. TELD12345 or 4821"
+                  placeholder={t("adminDriverIdsExtra.externalIdPlaceholder")}
                   className="font-mono"
                 />
                 {conflictingExisting && (
                   <div className="text-[10px] text-amber-700 dark:text-amber-400 flex items-center gap-1">
                     <AlertTriangle className="h-3 w-3" />
-                    Already mapped to{" "}
+                    {t("adminDriverIdsExtra.alreadyMappedBefore")}
                     {conflictingExisting.driverName ? formatPersonName(conflictingExisting.driverName) : conflictingExisting.kfiId}
-                    . Saving will overwrite it.
+                    {t("adminDriverIdsExtra.alreadyMappedAfter")}
                   </div>
                 )}
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  KFI driver
+                  {t("adminDriverIdsExtra.kfiDriverLabel")}
                 </label>
                 <Select value={newKfiId} onValueChange={setNewKfiId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Pick a driver" />
+                    <SelectValue placeholder={t("adminDriverIdsExtra.pickDriverPlaceholder")} />
                   </SelectTrigger>
                   <SelectContent>
                     {drivers.map((d) => (
@@ -295,22 +292,22 @@ export default function AdminDriverIdAliases() {
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Source customer (optional)
+                  {t("adminDriverIdsExtra.customerLabel")}
                 </label>
                 <Input
                   value={newCustomer}
                   onChange={(e) => setNewCustomer(e.target.value)}
-                  placeholder="e.g. Adient"
+                  placeholder={t("adminDriverIdsExtra.customerPlaceholder")}
                 />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Sample name on doc (optional)
+                  {t("adminDriverIdsExtra.sampleNameLabel")}
                 </label>
                 <Input
                   value={newSampleName}
                   onChange={(e) => setNewSampleName(e.target.value)}
-                  placeholder="As it appeared in the file"
+                  placeholder={t("adminDriverIdsExtra.sampleNamePlaceholder")}
                 />
               </div>
             </div>
@@ -328,7 +325,7 @@ export default function AdminDriverIdAliases() {
                 {createAlias.isPending && (
                   <Loader2 className="h-3 w-3 mr-2 animate-spin" />
                 )}
-                Save mapping
+                {t("adminDriverIdsExtra.saveMappingButton")}
               </Button>
               {(newExternalId || newKfiId || newCustomer || newSampleName) && (
                 <Button
@@ -337,7 +334,7 @@ export default function AdminDriverIdAliases() {
                   variant="ghost"
                   onClick={resetCreateForm}
                 >
-                  Reset
+                  {t("adminDriverIdsExtra.resetButton")}
                 </Button>
               )}
             </div>
@@ -348,17 +345,17 @@ export default function AdminDriverIdAliases() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <Tag className="h-4 w-4" />
-              Saved mappings
+              {t("adminDriverIdsExtra.savedCardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2 mb-4 text-xs">
               <Badge variant="secondary" className="font-mono">
-                {aliases.length} total
+                {t("adminDriverIdsExtra.totalBadge", { count: aliases.length })}
               </Badge>
               {orphans > 0 && (
                 <Badge variant="destructive" className="font-mono">
-                  {orphans} pointing at deleted driver
+                  {t("adminDriverIdsExtra.orphansBadge", { count: orphans })}
                 </Badge>
               )}
               {archived > 0 && (
@@ -366,7 +363,7 @@ export default function AdminDriverIdAliases() {
                   variant="outline"
                   className="font-mono border-amber-500/50 text-amber-700 dark:text-amber-400"
                 >
-                  {archived} pointing at archived driver
+                  {t("adminDriverIdsExtra.archivedBadge", { count: archived })}
                 </Badge>
               )}
             </div>
@@ -375,17 +372,16 @@ export default function AdminDriverIdAliases() {
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
             ) : aliases.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">
-                No saved mappings yet. Add one above whenever a customer file
-                surfaces an unknown payroll id.
+                {t("adminDriverIdsExtra.empty")}
               </p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>External id</TableHead>
-                    <TableHead>Mapped to</TableHead>
-                    <TableHead>Context</TableHead>
-                    <TableHead>Last updated</TableHead>
+                    <TableHead>{t("adminDriverIdsExtra.headerExternalId")}</TableHead>
+                    <TableHead>{t("adminDriverIdsExtra.headerMappedTo")}</TableHead>
+                    <TableHead>{t("adminDriverIdsExtra.headerContext")}</TableHead>
+                    <TableHead>{t("adminDriverIdsExtra.headerLastUpdated")}</TableHead>
                     <TableHead className="w-[1%]" />
                   </TableRow>
                 </TableHeader>
@@ -413,7 +409,7 @@ export default function AdminDriverIdAliases() {
                                 {a.driverIsArchived && (
                                   <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono flex items-center gap-1">
                                     <AlertTriangle className="h-3 w-3" />
-                                    Archived driver
+                                    {t("adminDriverIdsExtra.archivedDriver")}
                                   </span>
                                 )}
                               </div>
@@ -424,7 +420,7 @@ export default function AdminDriverIdAliases() {
                                 </span>
                                 <span className="text-[10px] uppercase tracking-wider text-rose-600 dark:text-rose-400 font-mono flex items-center gap-1">
                                   <AlertTriangle className="h-3 w-3" />
-                                  Driver no longer in roster
+                                  {t("adminDriverIdsExtra.noLongerInRoster")}
                                 </span>
                               </div>
                             )}
@@ -458,7 +454,7 @@ export default function AdminDriverIdAliases() {
                             </div>
                             {a.updatedByEmail && (
                               <div className="font-mono text-[10px] text-muted-foreground">
-                                by {a.updatedByEmail}
+                                {t("adminDriverIdsExtra.byEmail", { email: a.updatedByEmail })}
                               </div>
                             )}
                           </TableCell>
@@ -480,7 +476,7 @@ export default function AdminDriverIdAliases() {
                                 }
                               >
                                 <LinkIcon className="h-3 w-3 mr-1" />
-                                {isEditing ? "Cancel" : "Change driver"}
+                                {isEditing ? t("adminDriverIdsExtra.cancelButton") : t("adminDriverIdsExtra.changeDriverButton")}
                               </Button>
                               <Button
                                 type="button"
@@ -488,7 +484,7 @@ export default function AdminDriverIdAliases() {
                                 variant="ghost"
                                 onClick={() => handleDelete(a)}
                                 disabled={deleteAlias.isPending}
-                                title="Delete this mapping"
+                                title={t("adminDriverIdsExtra.deleteMappingTitle")}
                               >
                                 <Trash2 className="h-3 w-3" />
                               </Button>
@@ -526,31 +522,27 @@ export default function AdminDriverIdAliases() {
           <CardHeader>
             <CardTitle className="font-display text-base flex items-center gap-2">
               <Ban className="h-4 w-4" />
-              "Not a driver" ignore list
+              {t("adminDriverIdsExtra.ignoreCardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
-              Per-customer ids dispatchers marked as "not a driver" from the
-              upload preview. Future uploads silently drop these ids instead
-              of nagging. Delete a row here to start surfacing it again on
-              the next upload.
+              {t("adminDriverIdsExtra.ignoreDescription")}
             </p>
             {ignoredQuery.isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
             ) : ignoredRows.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">
-                No ignore rules yet. Dispatchers can add them from the upload
-                preview's unmapped-ids picker.
+                {t("adminDriverIdsExtra.ignoreEmpty")}
               </p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>External id</TableHead>
-                    <TableHead>Sample name on doc</TableHead>
-                    <TableHead>Added</TableHead>
+                    <TableHead>{t("adminDriverIdsExtra.headerCustomer")}</TableHead>
+                    <TableHead>{t("adminDriverIdsExtra.headerExternalId")}</TableHead>
+                    <TableHead>{t("adminDriverIdsExtra.headerSampleName")}</TableHead>
+                    <TableHead>{t("adminDriverIdsExtra.headerAdded")}</TableHead>
                     <TableHead className="w-[1%]" />
                   </TableRow>
                 </TableHeader>

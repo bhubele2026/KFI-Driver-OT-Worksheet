@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   useConfirmCustomerFile,
   useDiscardCustomerExtract,
@@ -99,6 +100,7 @@ export function CustomerPreviewDialog({
   onOpenChange: (open: boolean) => void;
   onConfirmed: () => void;
 }) {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const confirmMutation = useConfirmCustomerFile();
   const discardMutation = useDiscardCustomerExtract();
@@ -220,16 +222,24 @@ export function CustomerPreviewDialog({
               .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
               .join(", ");
             toast({
-              title: `${preview.customer} imported with ${unmapped.length} unknown ${
-                unmapped.length === 1 ? "badge" : "badges"
-              }`,
-              description: `Imported ${body.punchesUpserted ?? 0} punches. These IDs aren't in the KFI roster, so their rows were skipped: ${formatted}.`,
+              title: t("customerPreview.importedUnknown", {
+                count: unmapped.length,
+                customer: preview.customer,
+              }),
+              description: t("customerPreview.importedUnknownDesc", {
+                count: body.punchesUpserted ?? 0,
+                ids: formatted,
+              }),
               variant: "destructive",
             });
           } else {
             toast({
-              title: `${preview.customer} imported`,
-              description: `Imported ${body.punchesUpserted ?? 0} punches.`,
+              title: t("customerPreview.importedTitle", {
+                customer: preview.customer,
+              }),
+              description: t("customerPreview.importedDesc", {
+                count: body.punchesUpserted ?? 0,
+              }),
             });
           }
           onConfirmed();
@@ -237,8 +247,10 @@ export function CustomerPreviewDialog({
         },
         onError: (err) => {
           toast({
-            title: `${preview.customer} import failed`,
-            description: errMessage(err, "Confirm failed"),
+            title: t("customerPreview.importFailedTitle", {
+              customer: preview.customer,
+            }),
+            description: errMessage(err, t("customerPreview.importFailedFallback")),
             variant: "destructive",
           });
         },
@@ -276,11 +288,11 @@ export function CustomerPreviewDialog({
       <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="font-display">
-            Review {preview.customer} upload
+            {t("customerPreview.reviewTitle", { customer: preview.customer })}
           </DialogTitle>
           <DialogDescription>
-            <span className="font-mono text-xs">{preview.fileName}</span> ·
-            Nothing is saved until you confirm.
+            <span className="font-mono text-xs">{preview.fileName}</span> ·{" "}
+            {t("customerPreview.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -290,7 +302,7 @@ export function CustomerPreviewDialog({
               className="flex items-center gap-2 text-xs text-muted-foreground"
               data-testid="text-extract-source"
             >
-              <span>Read by:</span>
+              <span>{t("customerPreview.readBy")}</span>
               <span
                 className={
                   preview.extractSource === "ai"
@@ -298,20 +310,24 @@ export function CustomerPreviewDialog({
                     : "inline-flex items-center rounded border border-border bg-muted/40 px-2 py-0.5 font-medium"
                 }
               >
-                {preview.extractSource === "ai" ? "AI" : "Learned schema"}
+                {preview.extractSource === "ai"
+                  ? t("customerPreview.ai")
+                  : preview.extractSource === "cache"
+                    ? t("customerPreview.learnedSchema")
+                    : t("customerPreview.builtinParser")}
               </span>
               {preview.extractSource === "ai" ? (
                 <span className="text-muted-foreground/80">
-                  · Review every row before confirming.
+                  {t("customerPreview.aiReviewHint")}
                 </span>
               ) : null}
               {preview.extractSource === "ai" && preview.cacheWritten ? (
                 <span
                   className="ml-1 inline-flex items-center rounded border border-emerald-500/40 bg-emerald-50/60 dark:bg-emerald-950/20 px-2 py-0.5 text-[10px] font-medium text-emerald-800 dark:text-emerald-200"
                   data-testid="chip-cache-warmed"
-                  title="The column layout for this file was learned. Future uploads of the same format will skip AI entirely."
+                  title={t("customerPreview.cacheWarmedTitle")}
                 >
-                  Next upload of this format will be instant
+                  {t("customerPreview.cacheWarmedLabel")}
                 </span>
               ) : null}
             </div>
@@ -323,26 +339,11 @@ export function CustomerPreviewDialog({
             >
               <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
               <span>
-                {preview.failedChunks && preview.failedChunks > 0 ? (
-                  <>
-                    Heads up: this file was split into parts for the AI, and{" "}
-                    {preview.failedChunks}{" "}
-                    {preview.failedChunks === 1 ? "part" : "parts"} timed out
-                    and{" "}
-                    {preview.failedChunks === 1 ? "was" : "were"} skipped.
-                    The preview shows the rows that came through — review
-                    carefully, then either confirm what's here or re-upload
-                    the file split into smaller parts.
-                  </>
-                ) : (
-                  <>
-                    Heads up: this file was too large for the AI to read in
-                    one pass, so even after auto-splitting, some rows may be
-                    missing from the preview below. Review carefully — if
-                    the row count looks low, re-upload the file split into
-                    smaller parts.
-                  </>
-                )}
+                {preview.failedChunks && preview.failedChunks > 0
+                  ? t("customerPreview.truncatedChunks", {
+                      count: preview.failedChunks,
+                    })
+                  : t("customerPreview.truncated")}
               </span>
             </div>
           ) : null}
@@ -350,21 +351,20 @@ export function CustomerPreviewDialog({
             <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
               <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
               <span data-testid="text-replace-warning">
-                Confirming will replace{" "}
-                <strong>{preview.existingPunchCount}</strong> existing{" "}
-                {preview.existingPunchCount === 1 ? "punch" : "punches"} for{" "}
-                {preview.customer} in this week with{" "}
-                <strong>{includedCount}</strong> new{" "}
-                {includedCount === 1 ? "row" : "rows"} from this file. Manual,
-                edited, and locked driver-week rows are preserved (and are not
-                counted in the replacement total).
+                {t("customerPreview.replaceWarning", {
+                  count: preview.existingPunchCount,
+                  existing: preview.existingPunchCount,
+                  included: includedCount,
+                  customer: preview.customer,
+                })}
               </span>
             </div>
           ) : (
             <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              Will import <strong>{includedCount}</strong>{" "}
-              {includedCount === 1 ? "punch" : "punches"}. No existing{" "}
-              {preview.customer} rows for this week will change.
+              {t("customerPreview.willImport", {
+                count: includedCount,
+                customer: preview.customer,
+              })}
             </div>
           )}
           {preview.unmappedIds.length > 0 && (
@@ -375,12 +375,9 @@ export function CustomerPreviewDialog({
               <div className="flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
                 <span>
-                  {preview.unmappedIds.length}{" "}
-                  {preview.unmappedIds.length === 1 ? "badge" : "badges"} in
-                  this file don't match any KFI driver. Pick the matching
-                  driver below and we'll remember the mapping so future
-                  uploads import automatically. Leave any row as
-                  <em> Skip — leave dropped</em> to keep the rows dropped.
+                  {t("customerPreview.unmappedHeadline", {
+                    count: preview.unmappedIds.length,
+                  })}
                 </span>
               </div>
               <div className="space-y-1.5 max-h-[30vh] overflow-auto">
@@ -415,12 +412,15 @@ export function CustomerPreviewDialog({
                         <span className="font-medium text-foreground">
                           {u.sampleName
                             ? formatPersonName(u.sampleName)
-                            : "(no name on doc)"}
+                            : t("customerPreview.noNameOnDoc")}
                         </span>
                         <span className="font-mono text-[10px] text-muted-foreground">
                           {u.id.startsWith("name:")
-                            ? `${u.count} ${u.count === 1 ? "row" : "rows"}`
-                            : `${u.id} · ${u.count} ${u.count === 1 ? "row" : "rows"}`}
+                            ? t("customerPreview.rows", { count: u.count })
+                            : t("customerPreview.rowsWithId", {
+                                count: u.count,
+                                id: u.id,
+                              })}
                         </span>
                       </div>
                       <div className="flex-1 min-w-[240px]">
@@ -434,18 +434,18 @@ export function CustomerPreviewDialog({
                             className="h-8 text-xs"
                             data-testid={`select-unmapped-${u.id}`}
                           >
-                            <SelectValue placeholder="Pick a driver…" />
+                            <SelectValue placeholder={t("customerPreview.pickDriverPlaceholder")} />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value={SKIP_PICK}>
-                              Skip — leave dropped (this upload only)
+                              {t("customerPreview.skipLeaveDropped")}
                             </SelectItem>
                             <SelectItem value={IGNORE_PICK}>
-                              Not a driver — never import for {preview.customer}
+                              {t("customerPreview.notADriver", { customer: preview.customer })}
                             </SelectItem>
                             {orderedDrivers.length === 0 ? (
                               <SelectItem value="__no_drivers" disabled>
-                                No drivers loaded — refresh Connecteam first
+                                {t("customerPreview.noDriversLoaded")}
                               </SelectItem>
                             ) : null}
                             {orderedDrivers.map((d) => {
@@ -460,7 +460,7 @@ export function CustomerPreviewDialog({
                                   </span>
                                   {isSuggested ? (
                                     <span className="ml-2 text-[10px] text-emerald-600 dark:text-emerald-400">
-                                      suggested
+                                      {t("customerPreview.suggested")}
                                     </span>
                                   ) : null}
                                 </SelectItem>
@@ -475,9 +475,7 @@ export function CustomerPreviewDialog({
               </div>
               {mappedCount > 0 ? (
                 <div className="text-[11px] text-emerald-700 dark:text-emerald-300">
-                  Will save {mappedCount}{" "}
-                  {mappedCount === 1 ? "mapping" : "mappings"} on confirm and
-                  re-import the previously-dropped rows.
+                  {t("customerPreview.willSaveMappings", { count: mappedCount })}
                 </div>
               ) : null}
               {ignoredCount > 0 ? (
@@ -485,18 +483,15 @@ export function CustomerPreviewDialog({
                   className="text-[11px] text-muted-foreground"
                   data-testid="text-ignore-summary"
                 >
-                  Will remember {ignoredCount}{" "}
-                  {ignoredCount === 1 ? "id" : "ids"} as "not a driver" for{" "}
-                  {preview.customer} — future uploads will skip{" "}
-                  {ignoredCount === 1 ? "it" : "them"} silently. Undo from
-                  /admin/driver-id-aliases.
+                  {t("customerPreview.willRememberIgnored", {
+                    count: ignoredCount,
+                    customer: preview.customer,
+                  })}
                 </div>
               ) : null}
               {unresolvedPicks > 0 ? (
                 <div className="text-[11px] text-muted-foreground">
-                  {unresolvedPicks}{" "}
-                  {unresolvedPicks === 1 ? "id has" : "ids have"} no pick yet
-                  — pick a driver or choose Skip.
+                  {t("customerPreview.noPickYet", { count: unresolvedPicks })}
                 </div>
               ) : null}
             </div>
@@ -506,18 +501,15 @@ export function CustomerPreviewDialog({
               className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground"
               data-testid="text-auto-ignored"
             >
-              Silently dropped{" "}
-              <strong>{preview.autoIgnoredIds.length}</strong>{" "}
-              {preview.autoIgnoredIds.length === 1 ? "id" : "ids"} previously
-              marked "not a driver" for {preview.customer}:{" "}
-              <span className="font-mono">
-                {preview.autoIgnoredIds
+              {t("customerPreview.autoIgnored", {
+                count: preview.autoIgnoredIds.length,
+                customer: preview.customer,
+                ids: preview.autoIgnoredIds
                   .map((u) =>
                     u.sampleName ? `${u.id} (${u.sampleName})` : u.id,
                   )
-                  .join(", ")}
-              </span>
-              . Manage from /admin/driver-id-aliases.
+                  .join(", "),
+              })}
             </div>
           ) : null}
         </div>
@@ -526,12 +518,12 @@ export function CustomerPreviewDialog({
           <Table>
             <TableHeader className="sticky top-0 bg-card z-10">
               <TableRow>
-                <TableHead className="w-10">Keep</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>In</TableHead>
-                <TableHead>Out</TableHead>
-                <TableHead className="text-right">Hours</TableHead>
+                <TableHead className="w-10">{t("customerPreview.headerKeep")}</TableHead>
+                <TableHead>{t("customerPreview.headerSource")}</TableHead>
+                <TableHead>{t("customerPreview.headerDate")}</TableHead>
+                <TableHead>{t("customerPreview.headerIn")}</TableHead>
+                <TableHead>{t("customerPreview.headerOut")}</TableHead>
+                <TableHead className="text-right">{t("customerPreview.headerHours")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -551,11 +543,16 @@ export function CustomerPreviewDialog({
 
         <DialogFooter className="flex items-center sm:justify-between gap-2">
           <div className="text-xs text-muted-foreground">
-            {includedCount} of {preview.rows.length}{" "}
-            {preview.rows.length === 1 ? "row" : "rows"} selected
-            {excluded.size > 0 ? ` · ${excluded.size} excluded` : ""}
+            {t("customerPreview.rowsSelected", {
+              count: preview.rows.length,
+              included: includedCount,
+              total: preview.rows.length,
+            })}
+            {excluded.size > 0
+              ? t("customerPreview.excludedSuffix", { count: excluded.size })
+              : ""}
             {mappedCount > 0
-              ? ` · + ${mappedCount} from picked ${mappedCount === 1 ? "driver" : "drivers"}`
+              ? t("customerPreview.plusFromPicked", { count: mappedCount })
               : ""}
           </div>
           <div className="flex gap-2">
@@ -565,7 +562,7 @@ export function CustomerPreviewDialog({
               disabled={confirmMutation.isPending}
               data-testid="button-cancel-import"
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={onConfirm}
@@ -580,7 +577,7 @@ export function CustomerPreviewDialog({
               ) : (
                 <UploadCloud className="mr-2 h-4 w-4" />
               )}
-              Confirm import
+              {t("customerPreview.confirmImport")}
             </Button>
           </div>
         </DialogFooter>
@@ -602,6 +599,7 @@ function DriverGroup({
   excluded: Set<number>;
   onToggle: (index: number) => void;
 }) {
+  const { t } = useTranslation();
   const includedHours = rows.reduce(
     (acc, r) => (excluded.has(r.index) ? acc : acc + r.hours),
     0,
@@ -621,7 +619,7 @@ function DriverGroup({
               {kfiId}
             </span>
             <span className="text-[10px] text-muted-foreground">
-              · {rows.length} {rows.length === 1 ? "row" : "rows"}
+              · {t("customerPreview.rows", { count: rows.length })}
             </span>
           </div>
         </TableCell>
@@ -642,7 +640,7 @@ function DriverGroup({
                 checked={!isExcluded}
                 onCheckedChange={() => onToggle(r.index)}
                 data-testid={`checkbox-keep-${r.index}`}
-                aria-label={`Keep row ${r.index + 1}`}
+                aria-label={t("customerPreview.keepRowAria", { n: r.index + 1 })}
               />
             </TableCell>
             <TableCell className="text-[11px] text-muted-foreground font-mono">

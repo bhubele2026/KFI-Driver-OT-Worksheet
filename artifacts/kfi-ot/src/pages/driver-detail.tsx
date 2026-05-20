@@ -202,9 +202,8 @@ export default function DriverDetail() {
     const msg = err instanceof Error ? err.message : fallback;
     if (/423|locked/i.test(msg)) {
       toast({
-        title: "Driver-week is locked",
-        description:
-          "A supervisor has locked this driver-week. Unlock it to make changes.",
+        title: t("driverDetail.lockedToastTitle"),
+        description: t("driverDetail.lockedToastDesc"),
         variant: "destructive",
       });
       queryClient.invalidateQueries({
@@ -215,7 +214,7 @@ export default function DriverDetail() {
       });
       return;
     }
-    toast({ title: "Error", description: msg, variant: "destructive" });
+    toast({ title: t("weekSummary.errorTitle"), description: msg, variant: "destructive" });
   };
 
   const refreshAfterLockChange = () => {
@@ -238,12 +237,12 @@ export default function DriverDetail() {
         {
           onSuccess: () => {
             refreshAfterLockChange();
-            toast({ title: "Driver-week unlocked" });
+            toast({ title: t("driverDetail.toasts.unlocked") });
           },
           onError: (err) =>
             toast({
-              title: "Couldn't unlock",
-              description: errMsg(err, "Unlock failed"),
+              title: t("driverDetail.couldntUnlock"),
+              description: errMsg(err, t("driverDetail.unlockFailed")),
               variant: "destructive",
             }),
         },
@@ -254,12 +253,12 @@ export default function DriverDetail() {
         {
           onSuccess: () => {
             refreshAfterLockChange();
-            toast({ title: "Driver-week locked" });
+            toast({ title: t("driverDetail.toasts.lockedToast") });
           },
           onError: (err) =>
             toast({
-              title: "Couldn't lock",
-              description: errMsg(err, "Lock failed"),
+              title: t("driverDetail.couldntLock"),
+              description: errMsg(err, t("driverDetail.lockFailed")),
               variant: "destructive",
             }),
         },
@@ -275,7 +274,7 @@ export default function DriverDetail() {
           refreshAfterLockChange();
           if (next === "good" && autoAdvance) advanceToNextUnreviewed();
         },
-        onError: (err) => handleLockedError(err, "Failed to update review"),
+        onError: (err) => handleLockedError(err, t("driverDetail.updateReviewFailed")),
       },
     );
   };
@@ -388,7 +387,7 @@ export default function DriverDetail() {
           queryClient.invalidateQueries({ queryKey: getGetWeekSummaryQueryKey(weekStart) });
           toast({ title: t("weekSummary.refreshSuccessTitle"), description: t("weekSummary.refreshSuccessDesc", { drivers: res.driversFound, punches: res.punchesUpserted }) });
         },
-        onError: (err) => handleLockedError(err, "Connecteam refresh failed"),
+        onError: (err) => handleLockedError(err, t("driverDetail.ctRefreshFailed")),
       },
     );
   };
@@ -471,26 +470,26 @@ export default function DriverDetail() {
         },
         onError: (err) =>
           toast({
-            title: "Couldn't save note",
-            description: errMsg(err, "Save failed"),
+            title: t("driverDetail.couldntSaveNote"),
+            description: errMsg(err, t("driverDetail.saveFailedTitle")),
             variant: "destructive",
           }),
       },
     );
   };
   const handleSoftDeleteNote = (id: number) => {
-    if (!confirm("Hide this note? The row is preserved for audit.")) return;
+    if (!confirm(t("driverDetail.hideNoteConfirm"))) return;
     softDeleteNote.mutate(
       { id },
       {
         onSuccess: () => {
           refreshNotes();
-          toast({ title: "Note hidden" });
+          toast({ title: t("driverDetail.toasts.noteHidden") });
         },
         onError: (err) =>
           toast({
-            title: "Couldn't hide note",
-            description: errMsg(err, "Delete failed"),
+            title: t("driverDetail.couldntHideNote"),
+            description: errMsg(err, t("driverDetail.deleteFailedTitle")),
             variant: "destructive",
           }),
       },
@@ -684,7 +683,7 @@ export default function DriverDetail() {
           }
         }
         if (!target) {
-          toast({ title: "All drivers reviewed for this week" });
+          toast({ title: t("driverDetail.toasts.allReviewed") });
           return;
         }
         setLocation(`/weeks/${weekStart}/drivers/${target}`);
@@ -747,7 +746,7 @@ export default function DriverDetail() {
     if (next) {
       setLocation(`/weeks/${weekStart}/drivers/${next}`);
     } else {
-      toast({ title: "All drivers reviewed for this week" });
+      toast({ title: t("driverDetail.toasts.allReviewed") });
     }
   };
 
@@ -768,11 +767,11 @@ export default function DriverDetail() {
 
   const handleCreateManual = () => {
     if (!manualClockIn || !manualClockOut || !manualDate) {
-      toast({ title: "Validation", description: "Date, Clock In, and Clock Out are required.", variant: "destructive" });
+      toast({ title: t("common.validationTitle"), description: t("driverDetail.toasts.validationRequiredFields"), variant: "destructive" });
       return;
     }
     if (manualSource === "Customer" && !manualCustomer) {
-      toast({ title: "Validation", description: "Pick a customer for a Customer-source punch.", variant: "destructive" });
+      toast({ title: t("common.validationTitle"), description: t("driverDetail.toasts.validationPickCustomer"), variant: "destructive" });
       return;
     }
     // Fail-safe: never submit before the dispatcher has seen a valid preview.
@@ -780,8 +779,8 @@ export default function DriverDetail() {
     // preview could still race a fast double-click.
     if (!dialogPreview || !dialogPreview.valid) {
       toast({
-        title: "Preview not ready",
-        description: dialogPreview?.invalidReason || "Wait for the preview to load before saving.",
+        title: t("driverDetail.previewNotReady"),
+        description: dialogPreview?.invalidReason || t("driverDetail.previewNotReadyDesc"),
         variant: "destructive",
       });
       return;
@@ -807,12 +806,12 @@ export default function DriverDetail() {
           // ~10s undo: hits DELETE /punches/:id with the row we just
           // created. We don't dismiss the toast on click — the auto-timeout
           // closes it like any other.
-          const t = toast({
-            title: "Manual punch added",
-            description: `${created.date} · ${created.clockIn} – ${created.clockOut}`,
+          const tt = toast({
+            title: t("driverDetail.manualPunchAdded"),
+            description: t("driverDetail.manualPunchAddedDesc", { date: created.date, clockIn: created.clockIn, clockOut: created.clockOut }),
             action: (
               <ToastAction
-                altText="Undo"
+                altText={t("driverDetail.undo")}
                 onClick={() => {
                   deletePunch.mutate(
                     { id: created.id },
@@ -821,23 +820,23 @@ export default function DriverDetail() {
                         queryClient.invalidateQueries({
                           queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
                         });
-                        toast({ title: "Punch reverted" });
+                        toast({ title: t("driverDetail.toasts.punchReverted") });
                       },
                       onError: (err) =>
-                        handleLockedError(err, "Undo failed"),
+                        handleLockedError(err, t("driverDetail.undoFailed")),
                     },
                   );
-                  t.dismiss();
+                  tt.dismiss();
                 }}
               >
                 <Undo2 className="h-3 w-3 mr-1" />
-                Undo
+                {t("driverDetail.undo")}
               </ToastAction>
             ),
           });
-          setTimeout(() => t.dismiss(), 10_000);
+          setTimeout(() => tt.dismiss(), 10_000);
         },
-        onError: (err) => handleLockedError(err, "Failed to add punch"),
+        onError: (err) => handleLockedError(err, t("driverDetail.failedAddPunch")),
       },
     );
   };
@@ -872,9 +871,9 @@ export default function DriverDetail() {
           queryClient.invalidateQueries({ queryKey: getGetDriverWeekQueryKey(weekStart, kfiId) });
           release(id);
           setEditingPunchId(null);
-          toast({ title: "Punch updated" });
+          toast({ title: t("driverDetail.toasts.punchUpdated") });
         },
-        onError: (err) => handleLockedError(err, "Failed to update punch"),
+        onError: (err) => handleLockedError(err, t("driverDetail.failedUpdatePunch")),
       },
     );
   };
@@ -896,8 +895,8 @@ export default function DriverDetail() {
     const target = parseFloat(editingDayValue);
     if (!Number.isFinite(target) || target < 0 || target > 24) {
       toast({
-        title: "Invalid total",
-        description: "Enter a number between 0 and 24.",
+        title: t("driverDetail.invalidTotal"),
+        description: t("driverDetail.invalidTotalDesc"),
         variant: "destructive",
       });
       return;
@@ -915,19 +914,15 @@ export default function DriverDetail() {
           setEditingDay(null);
           setEditingDayValue("");
           setEditingDayRowId(null);
-          toast({ title: `Daily total set to ${target.toFixed(2)}h` });
+          toast({ title: t("driverDetail.toasts.dailyTotalSet", { hours: target.toFixed(2) }) });
         },
-        onError: (err) => handleLockedError(err, "Couldn't update daily total"),
+        onError: (err) => handleLockedError(err, t("driverDetail.couldntUpdateDailyTotal")),
       },
     );
   };
 
   const handleResetDay = (date: string) => {
-    if (
-      !confirm(
-        `Reset ${date} back to the engine-derived total? Each punch's hours will be recomputed from its clock-in / clock-out.`,
-      )
-    ) {
+    if (!confirm(t("driverDetail.resetDayConfirm", { date }))) {
       return;
     }
     resetDayHours.mutate(
@@ -940,23 +935,23 @@ export default function DriverDetail() {
           queryClient.invalidateQueries({
             queryKey: getGetWeekSummaryQueryKey(weekStart),
           });
-          toast({ title: `Daily total reset for ${date}` });
+          toast({ title: t("driverDetail.toasts.dailyTotalReset", { date }) });
         },
-        onError: (err) => handleLockedError(err, "Couldn't reset daily total"),
+        onError: (err) => handleLockedError(err, t("driverDetail.couldntResetDailyTotal")),
       },
     );
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm("Are you sure you want to delete this punch?")) return;
+    if (!confirm(t("driverDetail.deletePunchConfirm"))) return;
     deletePunch.mutate(
       { id },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getGetDriverWeekQueryKey(weekStart, kfiId) });
-          toast({ title: "Punch deleted" });
+          toast({ title: t("driverDetail.punchDeleted") });
         },
-        onError: (err) => handleLockedError(err, "Failed to delete punch"),
+        onError: (err) => handleLockedError(err, t("driverDetail.deletePunchFailed")),
       },
     );
   };
@@ -978,7 +973,7 @@ export default function DriverDetail() {
             </Button>
           </Link>
           <h1 className="font-display font-bold text-lg tracking-tight">
-            Week of <span className="font-mono">{weekStart}</span>
+            {t("common.weekOf", { week: weekStart })}
           </h1>
         </header>
         <div className="flex-1 flex min-h-0">
@@ -1041,7 +1036,7 @@ export default function DriverDetail() {
             queryKey: getGetWeekSummaryQueryKey(weekStart),
           });
         },
-        onError: (err) => handleLockedError(err, "Failed to mark reviewed"),
+        onError: (err) => handleLockedError(err, t("driverDetail.failedMarkReviewed")),
       },
     );
   };
@@ -1058,7 +1053,7 @@ export default function DriverDetail() {
             queryKey: getGetWeekSummaryQueryKey(weekStart),
           });
         },
-        onError: (err) => handleLockedError(err, "Failed to flag punch"),
+        onError: (err) => handleLockedError(err, t("driverDetail.failedFlagPunch")),
       },
     );
   };
@@ -1133,22 +1128,22 @@ export default function DriverDetail() {
                   : "border-sidebar-border/60 text-sidebar-foreground/80 bg-sidebar-accent/30",
               )}
               data-testid="pill-punch-reviewed-progress"
-              title="Per-punch reviewed checkboxes"
+              title={t("driverDetail.perPunchReviewedTitle")}
             >
               {weekReviewedCount === weekPunchCount && (
                 <CheckIcon className="h-3 w-3" />
               )}
-              {weekReviewedCount}/{weekPunchCount} punches
+              {t("driverDetail.punchesCount", { reviewed: weekReviewedCount, total: weekPunchCount })}
             </span>
           )}
           {weekFlaggedCount > 0 && (
             <span
               className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded border border-rose-500/40 text-rose-200 bg-rose-600/20"
               data-testid="pill-punch-flagged-count"
-              title="Punches flagged for review on this driver-week"
+              title={t("driverDetail.flaggedTitle")}
             >
               <Flag className="h-3 w-3 fill-current" />
-              {weekFlaggedCount} flagged
+              {t("driverDetail.flaggedCount", { count: weekFlaggedCount })}
             </span>
           )}
           <div
@@ -1182,7 +1177,7 @@ export default function DriverDetail() {
                   : "bg-sidebar-accent/40 hover:bg-sidebar-accent text-sidebar-foreground border-sidebar-border/60",
               )}
             >
-              <ThumbsDown className="h-3.5 w-3.5" /> Bad
+              <ThumbsDown className="h-3.5 w-3.5" /> {t("driverDetail.bad")}
             </button>
           </div>
           {canLock && (
@@ -1323,7 +1318,7 @@ export default function DriverDetail() {
                   <button
                     type="button"
                     data-testid="button-driver-tz"
-                    title="Display timezone — click to change override, re-pull, or shift existing punches."
+                    title={t("driverDetail.displayTz.title")}
                     className="inline-flex items-center gap-1 rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[11px] hover:bg-muted"
                   >
                     <Globe className="h-3 w-3" />
@@ -1335,21 +1330,21 @@ export default function DriverDetail() {
                         variant="outline"
                         className="ml-1 h-4 px-1 text-[9px] font-mono border-primary/40 text-primary"
                       >
-                        override
+                        {t("driverDetail.tz.override")}
                       </Badge>
                     ) : null}
                   </button>
                 </PopoverTrigger>
                 <PopoverContent align="start" className="w-80 space-y-3">
                   <div className="space-y-1">
-                    <Label className="text-xs">Display timezone</Label>
+                    <Label className="text-xs">{t("driverDetail.displayTz.label")}</Label>
                     <Select value={tzDraft} onValueChange={setTzDraft}>
                       <SelectTrigger className="h-8 text-xs" data-testid="select-driver-tz">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__default__" className="text-xs">
-                          (default — customer / system)
+                          {t("driverDetail.tz.defaultOption")}
                         </SelectItem>
                         {(allowedTzs?.allowed ?? []).map((tz) => (
                           <SelectItem key={tz} value={tz} className="text-xs">
@@ -1359,10 +1354,7 @@ export default function DriverDetail() {
                       </SelectContent>
                     </Select>
                     <p className="text-[10px] text-muted-foreground">
-                      Saving only changes future ingests. Use "Re-pull
-                      Connecteam" to restamp this week from Connecteam, or
-                      "Shift existing" to add Xh to every punch already
-                      stored.
+                      {t("driverDetail.tz.savingHelp")}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -1392,20 +1384,17 @@ export default function DriverDetail() {
                                 queryKey: getGetWeekSummaryQueryKey(weekStart),
                               });
                               toast({
-                                title: "Timezone updated",
+                                title: t("driverDetail.tz.updatedTitle"),
                                 description:
                                   tzDraft === "__default__"
-                                    ? "Cleared override."
-                                    : `Now ${tzDraft}.`,
+                                    ? t("driverDetail.tz.clearedOverrideDesc")
+                                    : t("driverDetail.tz.nowDesc", { tz: tzDraft }),
                               });
                             },
                             onError: (err) =>
                               toast({
-                                title: "Update failed",
-                                description:
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Unknown error",
+                                title: t("driverDetail.tz.updateFailed"),
+                                description: errMsg(err, t("driverDetail.unknownError")),
                                 variant: "destructive",
                               }),
                           },
@@ -1417,7 +1406,7 @@ export default function DriverDetail() {
                       ) : (
                         <Save className="h-3 w-3 mr-1" />
                       )}
-                      Save
+                      {t("common.save")}
                     </Button>
                     <Button
                       size="sm"
@@ -1439,18 +1428,15 @@ export default function DriverDetail() {
                                 queryKey: getGetWeekSummaryQueryKey(weekStart),
                               });
                               toast({
-                                title: "Re-pulled from Connecteam",
-                                description: `${res.punchesUpserted} punches restamped.`,
+                                title: t("driverDetail.tz.repullTitle"),
+                                description: t("driverDetail.tz.repullDesc", { count: res.punchesUpserted }),
                               });
                               setTzPopoverOpen(false);
                             },
                             onError: (err) =>
                               toast({
-                                title: "Re-pull failed",
-                                description:
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Unknown error",
+                                title: t("driverDetail.tz.repullFailed"),
+                                description: errMsg(err, t("driverDetail.unknownError")),
                                 variant: "destructive",
                               }),
                           },
@@ -1462,12 +1448,12 @@ export default function DriverDetail() {
                       ) : (
                         <RefreshCw className="h-3 w-3 mr-1" />
                       )}
-                      Re-pull Connecteam
+                      {t("driverDetail.tz.repullButton")}
                     </Button>
                   </div>
                   <div className="space-y-1 border-t border-border/40 pt-2">
                     <Label className="text-xs">
-                      Shift existing punches by (hours)
+                      {t("driverDetail.tz.shiftExistingLabel")}
                     </Label>
                     <div className="flex items-center gap-2">
                       <Input
@@ -1485,9 +1471,8 @@ export default function DriverDetail() {
                           const n = Number(shiftHours);
                           if (!Number.isFinite(n) || n === 0) {
                             toast({
-                              title: "Invalid shift",
-                              description:
-                                "Enter a non-zero number of hours (e.g. 1 or -1).",
+                              title: t("driverDetail.tz.invalidShift"),
+                              description: t("driverDetail.tz.invalidShiftDesc"),
                               variant: "destructive",
                             });
                             return;
@@ -1516,18 +1501,15 @@ export default function DriverDetail() {
                                   ),
                                 });
                                 toast({
-                                  title: "Punches shifted",
-                                  description: `${res.shifted} punches moved by ${n}h.`,
+                                  title: t("driverDetail.tz.shiftTitle"),
+                                  description: t("driverDetail.tz.shiftDesc", { count: res.shifted, hours: n }),
                                 });
                                 setTzPopoverOpen(false);
                               },
                               onError: (err) =>
                                 toast({
-                                  title: "Shift failed",
-                                  description:
-                                    err instanceof Error
-                                      ? err.message
-                                      : "Unknown error",
+                                  title: t("driverDetail.tz.shiftFailed"),
+                                  description: errMsg(err, t("driverDetail.unknownError")),
                                   variant: "destructive",
                                 }),
                             },
@@ -1537,7 +1519,7 @@ export default function DriverDetail() {
                         {shiftPunches.isPending ? (
                           <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                         ) : null}
-                        Shift
+                        {t("driverDetail.tz.shiftButton")}
                       </Button>
                     </div>
                   </div>
@@ -1580,8 +1562,8 @@ export default function DriverDetail() {
                         data-testid={`button-customer-tz-${ct.customer}`}
                         title={
                           isMismatch
-                            ? `${ct.customer} feed is landing in ${ct.dispTz} (driver default ${data.driver.effectiveDispTz}). Click to save a customer default or shift existing punches.`
-                            : `${ct.customer} feed matches driver tz (${ct.dispTz}).`
+                            ? t("driverDetail.tz.customerMismatchTitle", { customer: ct.customer, tz: ct.dispTz, driverTz: data.driver.effectiveDispTz })
+                            : t("driverDetail.tz.customerMatchTitle", { customer: ct.customer, tz: ct.dispTz })
                         }
                         className={cn(
                           "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px]",
@@ -1598,7 +1580,7 @@ export default function DriverDetail() {
                             variant="outline"
                             className="ml-1 h-4 px-1 text-[9px] font-mono border-primary/40 text-primary"
                           >
-                            pref
+                            {t("driverDetail.tz.pref")}
                           </Badge>
                         ) : null}
                       </button>
@@ -1606,7 +1588,7 @@ export default function DriverDetail() {
                     <PopoverContent align="start" className="w-80 space-y-3">
                       <div className="space-y-1">
                         <Label className="text-xs">
-                          {ct.customer} — preferred timezone
+                          {t("driverDetail.tz.customerPrefLabel", { customer: ct.customer })}
                         </Label>
                         <Select
                           value={customerTzDraft}
@@ -1620,8 +1602,7 @@ export default function DriverDetail() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__driver__" className="text-xs">
-                              (use driver default —{" "}
-                              {data.driver.effectiveDispTz})
+                              {t("driverDetail.tz.driverDefaultOption", { tz: data.driver.effectiveDispTz })}
                             </SelectItem>
                             {(allowedTzs?.allowed ?? []).map((tz) => (
                               <SelectItem
@@ -1635,9 +1616,7 @@ export default function DriverDetail() {
                           </SelectContent>
                         </Select>
                         <p className="text-[10px] text-muted-foreground">
-                          Saving updates only future uploads for this
-                          customer. Use "Shift existing" below to fix the
-                          punches already on this week.
+                          {t("driverDetail.tz.customerSavingHelp")}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -1666,17 +1645,14 @@ export default function DriverDetail() {
                                     ),
                                   });
                                   toast({
-                                    title: "Customer timezone saved",
-                                    description: `${ct.customer} → ${customerTzDraft} for future uploads.`,
+                                    title: t("driverDetail.tz.customerSavedTitle"),
+                                    description: t("driverDetail.tz.customerSavedDesc", { customer: ct.customer, tz: customerTzDraft }),
                                   });
                                 },
                                 onError: (err) =>
                                   toast({
-                                    title: "Save failed",
-                                    description:
-                                      err instanceof Error
-                                        ? err.message
-                                        : "Unknown error",
+                                    title: t("driverDetail.saveFailedTitle"),
+                                    description: errMsg(err, t("driverDetail.unknownError")),
                                     variant: "destructive",
                                   }),
                               },
@@ -1688,13 +1664,12 @@ export default function DriverDetail() {
                           ) : (
                             <Save className="h-3 w-3 mr-1" />
                           )}
-                          Save as default
+                          {t("driverDetail.tz.saveAsDefault")}
                         </Button>
                       </div>
                       <div className="space-y-1 border-t border-border/40 pt-2">
                         <Label className="text-xs">
-                          Shift {ct.customer}&apos;s existing punches by
-                          (hours)
+                          {t("driverDetail.tz.customerShiftLabel", { customer: ct.customer })}
                         </Label>
                         <div className="flex items-center gap-2">
                           <Input
@@ -1714,9 +1689,8 @@ export default function DriverDetail() {
                               const n = Number(customerShiftHours);
                               if (!Number.isFinite(n) || n === 0) {
                                 toast({
-                                  title: "Invalid shift",
-                                  description:
-                                    "Enter a non-zero number of hours (e.g. 1 or -1).",
+                                  title: t("driverDetail.tz.invalidShift"),
+                                  description: t("driverDetail.tz.invalidShiftDesc"),
                                   variant: "destructive",
                                 });
                                 return;
@@ -1748,18 +1722,15 @@ export default function DriverDetail() {
                                         getGetWeekSummaryQueryKey(weekStart),
                                     });
                                     toast({
-                                      title: "Customer punches shifted",
-                                      description: `${res.shifted} ${ct.customer} rows moved by ${n}h.`,
+                                      title: t("driverDetail.tz.customerShiftTitle"),
+                                      description: t("driverDetail.tz.customerShiftDesc", { count: res.shifted, customer: ct.customer, hours: n }),
                                     });
                                     setOpenCustomerTz(null);
                                   },
                                   onError: (err) =>
                                     toast({
-                                      title: "Shift failed",
-                                      description:
-                                        err instanceof Error
-                                          ? err.message
-                                          : "Unknown error",
+                                      title: t("driverDetail.tz.shiftFailed"),
+                                      description: errMsg(err, t("driverDetail.unknownError")),
                                       variant: "destructive",
                                     }),
                                 },
@@ -1769,7 +1740,7 @@ export default function DriverDetail() {
                             {shiftPunches.isPending ? (
                               <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                             ) : null}
-                            Shift
+                            {t("driverDetail.tz.shiftButton")}
                           </Button>
                         </div>
                       </div>
@@ -1821,14 +1792,14 @@ export default function DriverDetail() {
           <Card className="border-warning bg-warning/5">
             <CardHeader className="pb-2 pt-4 px-4">
               <CardTitle className="text-sm text-warning flex items-center gap-2">
-                <AlertCircle className="h-4 w-4" /> Validation Alerts
+                <AlertCircle className="h-4 w-4" /> {t("driverDetail.validationAlerts")}
               </CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-4">
               <ul className="space-y-1 text-sm text-warning-foreground">
                 {data.checks.map((chk, i) => (
                   <li key={i} className="flex gap-2">
-                    <span className="font-mono text-xs opacity-70 w-24 shrink-0">{chk.date || "General"}</span>
+                    <span className="font-mono text-xs opacity-70 w-24 shrink-0">{chk.date || t("driverDetail.generalAlertDate")}</span>
                     <span>{chk.message}</span>
                   </li>
                 ))}
@@ -1854,13 +1825,13 @@ export default function DriverDetail() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[110px] uppercase text-[11px] tracking-wider">Date</TableHead>
-                  <TableHead className="w-[110px] uppercase text-[11px] tracking-wider">Source</TableHead>
-                  <TableHead className="uppercase text-[11px] tracking-wider">Clock In</TableHead>
-                  <TableHead className="uppercase text-[11px] tracking-wider">Clock Out</TableHead>
-                  <TableHead className="text-right uppercase text-[11px] tracking-wider w-[80px]">Hours</TableHead>
-                  <TableHead className="text-right uppercase text-[11px] tracking-wider w-[90px]">Running</TableHead>
-                  <TableHead className="text-right uppercase text-[11px] tracking-wider w-[100px]">Type</TableHead>
+                  <TableHead className="w-[110px] uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.date")}</TableHead>
+                  <TableHead className="w-[110px] uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.source")}</TableHead>
+                  <TableHead className="uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.clockIn")}</TableHead>
+                  <TableHead className="uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.clockOut")}</TableHead>
+                  <TableHead className="text-right uppercase text-[11px] tracking-wider w-[80px]">{t("driverDetail.punchTable.hours")}</TableHead>
+                  <TableHead className="text-right uppercase text-[11px] tracking-wider w-[90px]">{t("driverDetail.punchTable.running")}</TableHead>
+                  <TableHead className="text-right uppercase text-[11px] tracking-wider w-[100px]">{t("driverDetail.punchTable.type")}</TableHead>
                   <TableHead className="text-right w-[90px] print:hidden"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -1868,7 +1839,7 @@ export default function DriverDetail() {
                 {rows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
-                      No punches recorded for this week.
+                      {t("driverDetail.noPunches")}
                     </TableCell>
                   </TableRow>
                 )}
@@ -1884,10 +1855,10 @@ export default function DriverDetail() {
                     : "bg-primary/[0.07] dark:bg-primary/15";
                   const tooltipLine =
                     remaining > 0.0001
-                      ? `${remaining.toFixed(2)}h until OT`
+                      ? t("driverDetail.untilOt", { hours: remaining.toFixed(2) })
                       : remaining < -0.0001
-                        ? `${Math.abs(remaining).toFixed(2)}h over OT`
-                        : `at the 40h OT line`;
+                        ? t("driverDetail.overOt", { hours: Math.abs(remaining).toFixed(2) })
+                        : t("driverDetail.atOtLine");
                   const punchNotes = notesByPunch.get(p.id) ?? [];
                   const noteOpen = openNoteForPunch === p.id;
                   const rowEditors = editorsForPunch(p.id);
@@ -1914,12 +1885,12 @@ export default function DriverDetail() {
                         <div className="flex flex-wrap items-center gap-1 mt-1">
                           {p.isManual && (
                             <span className="text-[9px] uppercase tracking-wider px-1 py-0 rounded border border-border text-muted-foreground">
-                              Manual
+                              {t("driverDetail.manualBadge")}
                             </span>
                           )}
                           {p.edited && (
                             <span className="text-[9px] uppercase tracking-wider px-1 py-0 rounded border border-border text-muted-foreground">
-                              Edited
+                              {t("driverDetail.editedBadge")}
                             </span>
                           )}
                         </div>
@@ -1929,7 +1900,7 @@ export default function DriverDetail() {
                           <Input
                             autoFocus
                             className="h-7 w-24 font-mono text-xs"
-                            placeholder="7:30 AM"
+                            placeholder={t("driverDetail.clockInPlaceholder")}
                             value={editClockIn}
                             onChange={(e) => {
                               setEditClockIn(e.target.value);
@@ -1954,7 +1925,7 @@ export default function DriverDetail() {
                         {isEditing ? (
                           <Input
                             className="h-7 w-24 font-mono text-xs"
-                            placeholder="3:45 PM"
+                            placeholder={t("driverDetail.clockOutPlaceholder")}
                             value={editClockOut}
                             onChange={(e) => {
                               setEditClockOut(e.target.value);
@@ -1984,12 +1955,12 @@ export default function DriverDetail() {
                                 className="text-[10px] font-normal text-muted-foreground mt-0.5 leading-tight"
                                 data-testid={`edit-preview-${p.id}`}
                               >
-                                <div>day {editPreview.dailyTotalAfter.totalHours.toFixed(2)}h</div>
+                                <div>{t("driverDetail.editPreviewDay", { hours: editPreview.dailyTotalAfter.totalHours.toFixed(2) })}</div>
                                 <div>
-                                  wk RT {editPreview.weekly.regularHours.toFixed(2)}h ·
+                                  {t("driverDetail.editPreviewWkRt", { hours: editPreview.weekly.regularHours.toFixed(2) })}
                                   {" "}
                                   <span className={editPreview.weekly.overtimeHours > 0.005 ? "text-warning font-semibold" : ""}>
-                                    OT {editPreview.weekly.overtimeHours.toFixed(2)}h
+                                    {t("driverDetail.editPreviewOt", { hours: editPreview.weekly.overtimeHours.toFixed(2) })}
                                   </span>
                                 </div>
                               </div>
@@ -1999,8 +1970,11 @@ export default function DriverDetail() {
                           const isOverridden = dayOverridesByDate.get(p.date) ?? false;
                           const lastTouch = dayLastTouchByDate.get(p.date);
                           const overrideTitle = isOverridden
-                            ? `Day total overridden${lastTouch?.email ? ` by ${lastTouch.email}` : ""}${lastTouch?.at ? ` on ${new Date(lastTouch.at).toLocaleString()}` : ""} — click to re-edit`
-                            : "Click to set this day's total — punches will be scaled proportionally";
+                            ? t("driverDetail.dayOverriddenTitle", {
+                                by: lastTouch?.email ? t("driverDetail.dayOverriddenBy", { email: lastTouch.email }) : "",
+                                on: lastTouch?.at ? t("driverDetail.dayOverriddenOn", { when: new Date(lastTouch.at).toLocaleString() }) : "",
+                              })
+                            : t("driverDetail.dayClickToSet");
                           const isEditorOnThisRow =
                             editingDay === p.date && editingDayRowId === p.id;
                           const isSavingThisDay =
@@ -2032,7 +2006,7 @@ export default function DriverDetail() {
                                     }
                                   }}
                                   data-testid={`input-day-total-${p.date}`}
-                                  title={`Day total (currently ${dayTotal.toFixed(2)}h)`}
+                                  title={t("driverDetail.dayTotalCurrent", { hours: dayTotal.toFixed(2) })}
                                 />
                                 <Button
                                   size="icon"
@@ -2086,7 +2060,7 @@ export default function DriverDetail() {
                                   className="h-5 w-5 text-amber-700 dark:text-amber-300 hover:text-foreground print:hidden"
                                   onClick={() => handleResetDay(p.date)}
                                   disabled={resetDayHours.isPending}
-                                  title="Reset this day back to the engine-derived total"
+                                  title={t("driverDetail.punchTable.resetDayTitle")}
                                   data-testid={`button-reset-day-total-${p.date}`}
                                 >
                                   <Undo2 className="h-3 w-3" />
@@ -2110,7 +2084,7 @@ export default function DriverDetail() {
                               </span>
                             </TooltipTrigger>
                             <TooltipContent side="top" className="font-mono text-[11px] leading-relaxed">
-                              <div>Cumulative: {after.toFixed(2)}h</div>
+                              <div>{t("driverDetail.cumulative", { hours: after.toFixed(2) })}</div>
                               <div>{tooltipLine}</div>
                             </TooltipContent>
                           </Tooltip>
@@ -2158,7 +2132,7 @@ export default function DriverDetail() {
                                       onCheckedChange={(v) =>
                                         togglePunchReviewed(p.id, !!v)
                                       }
-                                      aria-label="Mark this punch reviewed"
+                                      aria-label={t("driverDetail.punchTable.markPunchReviewed")}
                                       data-testid={`checkbox-punch-reviewed-${p.id}`}
                                       className="h-4 w-4"
                                     />
@@ -2167,13 +2141,11 @@ export default function DriverDetail() {
                                 <TooltipContent side="top" className="text-[11px]">
                                   {p.reviewed
                                     ? p.reviewedByEmail
-                                      ? `Reviewed by ${p.reviewedByEmail}${
-                                          p.reviewedAt
-                                            ? ` · ${new Date(p.reviewedAt).toLocaleString()}`
-                                            : ""
-                                        }`
-                                      : "Reviewed"
-                                    : "Mark this punch reviewed"}
+                                      ? p.reviewedAt
+                                        ? t("driverDetail.reviewedByAtTooltip", { email: p.reviewedByEmail, when: new Date(p.reviewedAt).toLocaleString() })
+                                        : t("driverDetail.reviewedByTooltip", { email: p.reviewedByEmail })
+                                      : t("driverDetail.reviewedTooltip")
+                                    : t("driverDetail.punchTable.markPunchReviewed")}
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
@@ -2198,8 +2170,8 @@ export default function DriverDetail() {
                                     }
                                     aria-label={
                                       (p as { flagged?: boolean }).flagged
-                                        ? "Clear review flag"
-                                        : "Flag this punch for review"
+                                        ? t("driverDetail.clearReviewFlag")
+                                        : t("driverDetail.flagPunchForReview")
                                     }
                                     aria-pressed={
                                       !!(p as { flagged?: boolean }).flagged
@@ -2216,23 +2188,15 @@ export default function DriverDetail() {
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent side="top" className="text-[11px]">
-                                  {(p as { flagged?: boolean }).flagged
-                                    ? (p as { flaggedByEmail?: string | null })
-                                        .flaggedByEmail
-                                      ? `Flagged by ${
-                                          (p as { flaggedByEmail?: string | null })
-                                            .flaggedByEmail
-                                        }${
-                                          (p as { flaggedAt?: string | null })
-                                            .flaggedAt
-                                            ? ` · ${new Date(
-                                                (p as { flaggedAt?: string | null })
-                                                  .flaggedAt!,
-                                              ).toLocaleString()}`
-                                            : ""
-                                        } — click to clear`
-                                      : "Flagged for review — click to clear"
-                                    : "Flag this punch for review"}
+                                  {(() => {
+                                    const flagged = (p as { flagged?: boolean }).flagged;
+                                    if (!flagged) return t("driverDetail.flagPunchForReview");
+                                    const email = (p as { flaggedByEmail?: string | null }).flaggedByEmail;
+                                    const at = (p as { flaggedAt?: string | null }).flaggedAt;
+                                    if (!email) return t("driverDetail.flaggedClear");
+                                    if (at) return t("driverDetail.flaggedByAtClear", { email, when: new Date(at).toLocaleString() });
+                                    return t("driverDetail.flaggedByClear", { email });
+                                  })()}
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
@@ -2251,8 +2215,8 @@ export default function DriverDetail() {
                               }}
                               title={
                                 punchNotes.length > 0
-                                  ? `${punchNotes.length} note${punchNotes.length === 1 ? "" : "s"}`
-                                  : "Add a note"
+                                  ? t("driverDetail.noteCount", { count: punchNotes.length })
+                                  : t("driverDetail.addNote")
                               }
                               data-testid={`button-toggle-note-punch-${p.id}`}
                             >
@@ -2314,7 +2278,7 @@ export default function DriverDetail() {
                                   autoFocus
                                   value={punchNoteDraft}
                                   onChange={(e) => setPunchNoteDraft(e.target.value)}
-                                  placeholder="Add a note about this punch…"
+                                  placeholder={t("driverDetail.punchTable.addNotePlaceholder")}
                                   className="min-h-[44px] text-sm flex-1"
                                   maxLength={5000}
                                   data-testid={`input-punch-note-${p.id}`}
@@ -2370,21 +2334,21 @@ export default function DriverDetail() {
       <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Keyboard shortcuts</DialogTitle>
+            <DialogTitle>{t("driverDetail.shortcutsDialogTitle")}</DialogTitle>
           </DialogHeader>
           <div className="text-sm space-y-2 py-2">
-            <ShortcutRow keys={["j", "↓"]} label="Next driver" />
-            <ShortcutRow keys={["k", "↑"]} label="Previous driver" />
-            <ShortcutRow keys={["n"]} label="Next unreviewed driver" />
-            <ShortcutRow keys={["p"]} label="Previous unreviewed driver" />
-            <ShortcutRow keys={["r"]} label="Toggle reviewed" />
-            <ShortcutRow keys={["?"]} label="Show this help" />
+            <ShortcutRow keys={["j", "↓"]} label={t("driverDetail.shortcutsList.nextDriver")} />
+            <ShortcutRow keys={["k", "↑"]} label={t("driverDetail.shortcutsList.prevDriver")} />
+            <ShortcutRow keys={["n"]} label={t("driverDetail.shortcutsList.nextUnreviewed")} />
+            <ShortcutRow keys={["p"]} label={t("driverDetail.shortcutsList.prevUnreviewed")} />
+            <ShortcutRow keys={["r"]} label={t("driverDetail.shortcutsList.toggleReviewed")} />
+            <ShortcutRow keys={["?"]} label={t("driverDetail.shortcutsList.showHelp")} />
             <div className="flex items-center justify-between gap-4 pt-3 mt-2 border-t border-border">
               <label
                 htmlFor="auto-advance-pref"
                 className="text-foreground cursor-pointer"
               >
-                Jump to next unreviewed after marking reviewed
+                {t("driverDetail.shortcutsList.autoAdvanceLabel")}
               </label>
               <Checkbox
                 id="auto-advance-pref"
@@ -2398,7 +2362,7 @@ export default function DriverDetail() {
                 htmlFor="celebration-sound-pref"
                 className="text-foreground cursor-pointer"
               >
-                Play a chime when the week is fully reviewed
+                {t("driverDetail.shortcutsList.celebrationSoundLabel")}
               </label>
               <Checkbox
                 id="celebration-sound-pref"
@@ -2408,7 +2372,7 @@ export default function DriverDetail() {
               />
             </div>
             <p className="text-xs text-muted-foreground pt-2">
-              Shortcuts are ignored while typing in a field or while a dialog is open.
+              {t("driverDetail.shortcutsList.note")}
             </p>
           </div>
         </DialogContent>
@@ -2417,34 +2381,31 @@ export default function DriverDetail() {
       <Dialog open={isManualModalOpen} onOpenChange={setIsManualModalOpen}>
         <DialogContent data-testid="dialog-add-manual-punch">
           <DialogHeader>
-            <DialogTitle>Add Manual Punch</DialogTitle>
+            <DialogTitle>{t("driverDetail.manualPunch.title")}</DialogTitle>
             <DialogDescription>
-              Adds a new punch alongside the driver's existing entries. It
-              never overwrites or replaces a Connecteam or customer-file
-              punch — both will count toward the day. Manual punches are
-              also preserved across the next Connecteam refresh.
+              {t("driverDetail.manualPunchDialog.description")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label>Date</Label>
+              <Label>{t("driverDetail.manualPunch.date")}</Label>
               <Input type="date" value={manualDate} onChange={(e) => setManualDate(e.target.value)} />
             </div>
             <div className="grid gap-2">
-              <Label>Source</Label>
+              <Label>{t("driverDetail.manualPunch.source")}</Label>
               <Select value={manualSource} onValueChange={(val) => setManualSource(val as "Driver" | "Customer")}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Driver">Driver</SelectItem>
-                  <SelectItem value="Customer">Customer</SelectItem>
+                  <SelectItem value="Driver">{t("driverDetail.manualPunch.driver")}</SelectItem>
+                  <SelectItem value="Customer">{t("driverDetail.manualPunch.customer")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             {manualSource === "Customer" && (
               <div className="grid gap-2">
-                <Label>Customer</Label>
+                <Label>{t("driverDetail.manualPunch.customer")}</Label>
                 <Select value={manualCustomer} onValueChange={setManualCustomer}>
                   <SelectTrigger>
                     <SelectValue />
@@ -2461,15 +2422,15 @@ export default function DriverDetail() {
             )}
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label>Clock In</Label>
-                <Input placeholder="7:30 AM" value={manualClockIn} onChange={(e) => { setManualClockIn(e.target.value); touchActivity(null); }} data-testid="input-manual-clock-in" />
+                <Label>{t("driverDetail.manualPunch.clockIn")}</Label>
+                <Input placeholder={t("driverDetail.clockInPlaceholder")} value={manualClockIn} onChange={(e) => { setManualClockIn(e.target.value); touchActivity(null); }} data-testid="input-manual-clock-in" />
               </div>
               <div className="grid gap-2">
-                <Label>Clock Out</Label>
-                <Input placeholder="3:45 PM" value={manualClockOut} onChange={(e) => { setManualClockOut(e.target.value); touchActivity(null); }} data-testid="input-manual-clock-out" />
+                <Label>{t("driverDetail.manualPunch.clockOut")}</Label>
+                <Input placeholder={t("driverDetail.clockOutPlaceholder")} value={manualClockOut} onChange={(e) => { setManualClockOut(e.target.value); touchActivity(null); }} data-testid="input-manual-clock-out" />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">Format as "H:MM AM/PM" (e.g. "8:00 AM"). The date is stored in this driver's display timezone, so what you see here is what payroll sees.</p>
+            <p className="text-xs text-muted-foreground">{t("driverDetail.manualPunchDialog.timeHelp")}</p>
 
             <PreviewPanel
               preview={dialogPreview}
@@ -2491,7 +2452,7 @@ export default function DriverDetail() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsManualModalOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={handleCreateManual}
@@ -2503,7 +2464,7 @@ export default function DriverDetail() {
               data-testid="button-save-manual-punch"
             >
               {createPunch.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save Punch
+              {t("driverDetail.manualPunchDialog.savePunch")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2553,6 +2514,7 @@ function SummaryAndChecks({
     }>;
   } | null;
 }) {
+  const { t } = useTranslation();
   // Connecteam parity badge driven by a real numeric comparison: each
   // /refresh-connecteam call snapshots the per-day Connecteam-side total
   // for this driver-week into `connecteam_daily_snapshots`, and the API
@@ -2566,7 +2528,7 @@ function SummaryAndChecks({
   const diffCount = connecteamParity?.diffCount ?? 0;
   const lastRefreshedAt = connecteamParity?.lastRefreshedAt ?? null;
   const refreshedNote = lastRefreshedAt
-    ? ` Baseline refreshed ${new Date(lastRefreshedAt).toLocaleString()}.`
+    ? t("driverDetail.ct.baselineRefreshed", { when: new Date(lastRefreshedAt).toLocaleString() })
     : "";
   // Baseline staleness: a green "matches" badge against a hours-old snapshot
   // is misleading because Connecteam may have new shifts on its side that
@@ -2578,20 +2540,20 @@ function SummaryAndChecks({
   const formatAge = (h: number): string => {
     if (h < 1) {
       const m = Math.max(1, Math.round(h * 60));
-      return `${m} min`;
+      return t("driverDetail.ct.ageMin", { count: m });
     }
     if (h < 24) {
       const r = Math.round(h);
-      return `${r} hour${r === 1 ? "" : "s"}`;
+      return t("driverDetail.ct.ageHour", { count: r });
     }
     const d = Math.round(h / 24);
-    return `${d} day${d === 1 ? "" : "s"}`;
+    return t("driverDetail.ct.ageDay", { count: d });
   };
   const ageLabel =
     baselineAgeHours != null ? formatAge(baselineAgeHours) : null;
   const staleNote =
     baselineStale && ageLabel
-      ? ` Baseline is ${ageLabel} old — refresh to recheck.`
+      ? t("driverDetail.ct.baselineStaleNote", { age: ageLabel })
       : "";
   const diffDayList = (connecteamParity?.days ?? [])
     .filter((d) => d.matches === false)
@@ -2629,12 +2591,12 @@ function SummaryAndChecks({
   const eq = (a: number, b: number) => Math.abs(a - b) < 0.015;
 
   const checks = [
-    { label: "Total = Driver + Customer", expected: total, actual: checkTotal },
-    { label: "Customer = Total − Driver", expected: totCust, actual: checkCustomer },
-    { label: "Driver = Total − Customer", expected: totDriver, actual: checkDriver },
-    { label: "RT = min(Total, 40)", expected: rt, actual: checkRt },
-    { label: "OT = max(0, Total − 40)", expected: ot, actual: checkOt },
-    { label: "RT + OT = Total", expected: total, actual: rtPlusOt },
+    { key: "total-driver-customer", label: t("driverDetail.checks.totalEq"), expected: total, actual: checkTotal },
+    { key: "customer-total-driver", label: t("driverDetail.checks.customerEq"), expected: totCust, actual: checkCustomer },
+    { key: "driver-total-customer", label: t("driverDetail.checks.driverEq"), expected: totDriver, actual: checkDriver },
+    { key: "rt-min-total-40-", label: t("driverDetail.checks.rtEq"), expected: rt, actual: checkRt },
+    { key: "ot-max-0-total-40-", label: t("driverDetail.checks.otEq"), expected: ot, actual: checkOt },
+    { key: "rt-ot-total", label: t("driverDetail.checks.rtPlusOtEq"), expected: total, actual: rtPlusOt },
   ];
   const allOk = checks.every((c) => eq(c.expected, c.actual));
 
@@ -2643,60 +2605,60 @@ function SummaryAndChecks({
       <Card data-testid="card-summary">
         <CardHeader className="pb-2 pt-4 px-4">
           <CardTitle className="text-sm font-display tracking-tight flex items-center justify-between gap-2">
-            <span>Summary</span>
+            <span>{t("driverDetail.summaryHeading")}</span>
             {parityStatus === "match" && baselineStale && ageLabel ? (
               <span
                 className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/40"
                 data-testid="badge-ct-parity-stale"
-                title={`Dashboard matches the snapshot, but the snapshot is ${ageLabel} old — Connecteam may have logged new shifts since.${refreshedNote} Re-pull Connecteam to recheck.`}
+                title={t("driverDetail.ct.parityStaleTitle", { age: ageLabel, refreshedNote })}
               >
                 <AlertTriangle className="h-3 w-3" />
-                Baseline {ageLabel} old — refresh to recheck
+                {t("driverDetail.ct.parityStaleLabel", { age: ageLabel })}
               </span>
             ) : parityStatus === "match" ? (
               <span
                 className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
                 data-testid="badge-ct-parity-match"
-                title={`Every day's dashboard total reconciles to the Connecteam baseline within 0.005h.${refreshedNote}`}
+                title={t("driverDetail.ct.parityMatchTitle", { refreshedNote })}
               >
                 <CheckIcon className="h-3 w-3" />
-                Matches Connecteam
+                {t("driverDetail.ct.parityMatch")}
               </span>
             ) : parityStatus === "differ" ? (
               <span
                 className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-warning/15 text-warning border border-warning/40"
                 data-testid="badge-ct-parity-diff"
-                title={`${diffCount} day${diffCount === 1 ? "" : "s"} diverge from the Connecteam baseline.${refreshedNote}${staleNote}${diffDayList ? `\n\n${diffDayList}` : ""}`}
+                title={t("driverDetail.ct.parityDifferTitle", { count: diffCount, refreshedNote, staleNote, dayList: diffDayList ? `\n\n${diffDayList}` : "" })}
               >
                 <AlertTriangle className="h-3 w-3" />
-                Differs from Connecteam ({diffCount})
+                {t("driverDetail.ct.parityDiffer", { count: diffCount })}
               </span>
             ) : (
               <span
                 className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-muted text-muted-foreground border border-border"
                 data-testid="badge-ct-parity-unknown"
-                title="No Connecteam baseline yet — refresh from Connecteam to enable parity comparison."
+                title={t("driverDetail.noConnecteamBaselineTitle")}
               >
-                Connecteam: not yet refreshed
+                {t("driverDetail.ct.parityUnknown")}
               </span>
             )}
           </CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4">
           <dl className="divide-y divide-border">
-            <SummaryRow label="Total Driver" value={totDriver} testId="row-summary-total-driver" />
-            <SummaryRow label="Total Customer" value={totCust} testId="row-summary-total-customer" />
-            <SummaryRow label="Total Hours" value={total} testId="row-summary-total-hours" />
-            <SummaryRow label="RT" value={rt} testId="row-summary-rt" />
+            <SummaryRow label={t("driverDetail.summary.totalDriver")} value={totDriver} testId="row-summary-total-driver" />
+            <SummaryRow label={t("driverDetail.summary.totalCustomer")} value={totCust} testId="row-summary-total-customer" />
+            <SummaryRow label={t("driverDetail.summary.totalHours")} value={total} testId="row-summary-total-hours" />
+            <SummaryRow label={t("driverDetail.summary.rt")} value={rt} testId="row-summary-rt" />
             <SummaryRow
-              label="OT"
+              label={t("driverDetail.summary.ot")}
               value={ot}
               valueClass={ot > 0.005 ? "text-warning" : undefined}
               testId="row-summary-ot"
             />
-            <SummaryRow label="Driver RT" value={driverRt} testId="row-summary-driver-rt" />
+            <SummaryRow label={t("driverDetail.summary.driverRt")} value={driverRt} testId="row-summary-driver-rt" />
             <SummaryRow
-              label="Driver OT"
+              label={t("driverDetail.summary.driverOt")}
               value={driverOt}
               valueClass={driverOt > 0.005 ? "text-warning" : undefined}
               testId="row-summary-driver-ot"
@@ -2727,7 +2689,7 @@ function SummaryAndChecks({
             ) : (
               <AlertCircle className="h-4 w-4" />
             )}
-            Checks {allOk ? "— all reconcile" : "— mismatch"}
+            {allOk ? t("driverDetail.checks.allReconcile") : t("driverDetail.checks.mismatch")}
           </CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4">
@@ -2738,7 +2700,7 @@ function SummaryAndChecks({
                 <div
                   key={c.label}
                   className="flex items-center justify-between py-1.5 gap-3"
-                  data-testid={`row-check-${c.label.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
+                  data-testid={`row-check-${c.key.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
                 >
                   <dt className="flex items-center gap-2 text-sm">
                     {ok ? (
@@ -2810,12 +2772,13 @@ function NoteItem({
   isAdmin: boolean;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation();
   const roleLabel =
     note.authorRole === "admin"
-      ? "Admin"
+      ? t("driverDetail.noteRole.admin")
       : note.authorRole === "supervisor"
-        ? "Supervisor"
-        : "Reviewer";
+        ? t("driverDetail.noteRole.supervisor")
+        : t("driverDetail.noteRole.reviewer");
   const roleClass =
     note.authorRole === "admin"
       ? "bg-warning/15 text-warning border-warning/40"
@@ -2838,7 +2801,7 @@ function NoteItem({
             {roleLabel}
           </span>
           <span className="font-mono text-muted-foreground">
-            {note.authorEmail ?? "(deleted user)"}
+            {note.authorEmail ?? t("common.deletedUser")}
           </span>
           <span className="text-muted-foreground">·</span>
           <span
@@ -2849,17 +2812,16 @@ function NoteItem({
           </span>
           {note.punchId != null && !note.punchExists && (
             <span className="text-[10px] uppercase tracking-wider px-1 py-0 rounded border border-warning/40 bg-warning/10 text-warning">
-              orphaned punch
+              {t("driverDetail.orphanedPunch")}
             </span>
           )}
           {isAdmin && note.lastHiddenAt && (
             <span
               className="text-[10px] uppercase tracking-wider px-1 py-0 rounded border border-dashed border-muted-foreground/60 bg-muted/40 text-muted-foreground"
-              title={`Previously hidden by ${note.lastHiddenByEmail ?? "(deleted user)"} at ${new Date(note.lastHiddenAt).toLocaleString()}`}
+              title={t("driverDetail.previouslyHiddenTitle", { email: note.lastHiddenByEmail ?? t("common.deletedUser"), when: new Date(note.lastHiddenAt).toLocaleString() })}
               data-testid={`note-previously-hidden-${note.id}`}
             >
-              previously hidden by {note.lastHiddenByEmail ?? "(deleted user)"}{" "}
-              · {new Date(note.lastHiddenAt).toLocaleString()}
+              {t("driverDetail.previouslyHiddenLabel", { email: note.lastHiddenByEmail ?? t("common.deletedUser"), when: new Date(note.lastHiddenAt).toLocaleString() })}
             </span>
           )}
         </div>
@@ -2869,7 +2831,7 @@ function NoteItem({
             variant="ghost"
             className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
             onClick={onDelete}
-            title="Hide note (admin only)"
+            title={t("driverDetail.punchTable.hideNoteTitle")}
             data-testid={`button-delete-note-${note.id}`}
           >
             <X className="h-3 w-3" />
@@ -2902,6 +2864,7 @@ function ShortcutRow({ keys, label }: { keys: string[]; label: string }) {
 }
 
 function SourceBadge({ source }: { source: "Driver" | "Customer" | string }) {
+  const { t } = useTranslation();
   const isDriver = source === "Driver";
   return (
     <span
@@ -2912,7 +2875,7 @@ function SourceBadge({ source }: { source: "Driver" | "Customer" | string }) {
           : "bg-primary text-primary-foreground border-primary",
       )}
     >
-      {source}
+      {isDriver ? t("driverDetail.sourceBadge.driver") : t("driverDetail.sourceBadge.customer")}
     </span>
   );
 }
@@ -2953,10 +2916,11 @@ function PreviewPanel({
     }>;
   } | null;
 }) {
+  const { t } = useTranslation();
   if (!preview) {
     return (
       <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-        Fill in date, clock in, and clock out to preview the impact on this driver's day and week.
+        {t("driverDetail.previewPanel.fillIn")}
       </div>
     );
   }
@@ -2964,7 +2928,7 @@ function PreviewPanel({
     return (
       <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive flex items-start gap-2">
         <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-        <span>{preview.invalidReason || "Invalid punch"}</span>
+        <span>{preview.invalidReason || t("driverDetail.previewPanel.invalid")}</span>
       </div>
     );
   }
@@ -2975,21 +2939,21 @@ function PreviewPanel({
         className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs"
         data-testid="preview-panel"
       >
-        <div className="font-display font-semibold text-foreground mb-1">Preview</div>
+        <div className="font-display font-semibold text-foreground mb-1">{t("driverDetail.preview.title")}</div>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono">
-          <dt className="text-muted-foreground">Duration</dt>
+          <dt className="text-muted-foreground">{t("driverDetail.preview.duration")}</dt>
           <dd className="text-right" data-testid="preview-hours">
             {preview.hours.toFixed(2)}h
           </dd>
-          <dt className="text-muted-foreground">New daily total ({preview.dailyTotalAfter.date})</dt>
+          <dt className="text-muted-foreground">{t("driverDetail.previewPanel.newDailyTotal", { date: preview.dailyTotalAfter.date })}</dt>
           <dd className="text-right" data-testid="preview-daily-total">
             {preview.dailyTotalAfter.totalHours.toFixed(2)}h
           </dd>
-          <dt className="text-muted-foreground">New weekly RT</dt>
+          <dt className="text-muted-foreground">{t("driverDetail.preview.newWeeklyRt")}</dt>
           <dd className="text-right" data-testid="preview-weekly-rt">
             {preview.weekly.regularHours.toFixed(2)}h
           </dd>
-          <dt className="text-muted-foreground">New weekly OT</dt>
+          <dt className="text-muted-foreground">{t("driverDetail.preview.newWeeklyOt")}</dt>
           <dd
             className={cn(
               "text-right",
@@ -3010,17 +2974,17 @@ function PreviewPanel({
             <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-warning" />
             <div className="flex-1">
               <div className="font-semibold text-foreground">
-                Overlaps {preview.overlaps.length} existing {preview.overlaps[0].source.toLowerCase()} punch{preview.overlaps.length === 1 ? "" : "es"}
+                {t("driverDetail.previewPanel.overlapTitle", { count: preview.overlaps.length, source: preview.overlaps[0].source.toLowerCase() })}
               </div>
               <div className="text-muted-foreground mt-0.5">
-                Saving will keep both — review the times below to make sure that's intentional.
+                {t("driverDetail.previewPanel.overlapHelp")}
               </div>
               <ul className="mt-1.5 space-y-0.5 font-mono text-[11px]">
                 {preview.overlaps.slice(0, 3).map((o) => (
                   <li key={o.id} className="text-foreground flex items-center gap-2">
                     <span>
                       {o.date} · {o.clockIn.replace(/^\d{4}-\d{2}-\d{2}\s+/, "")} – {o.clockOut.replace(/^\d{4}-\d{2}-\d{2}\s+/, "")}
-                      <span className="text-muted-foreground"> ({o.overlapMinutes}m overlap)</span>
+                      <span className="text-muted-foreground"> {t("driverDetail.previewPanel.overlapMinutes", { count: o.overlapMinutes })}</span>
                     </span>
                     {onViewOverlap && (
                       <button
@@ -3029,13 +2993,13 @@ function PreviewPanel({
                         className="text-[10px] uppercase tracking-wider text-primary hover:underline focus:outline-none focus:underline"
                         data-testid={`view-overlap-${o.id}`}
                       >
-                        View
+                        {t("driverDetail.previewPanel.overlapView")}
                       </button>
                     )}
                   </li>
                 ))}
                 {preview.overlaps.length > 3 && (
-                  <li className="text-muted-foreground">…and {preview.overlaps.length - 3} more</li>
+                  <li className="text-muted-foreground">{t("driverDetail.previewPanel.overlapMore", { count: preview.overlaps.length - 3 })}</li>
                 )}
               </ul>
             </div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw } from "lucide-react";
@@ -44,6 +45,7 @@ function ago(ms: number): string {
 }
 
 export default function AdminRealtime() {
+  const { t } = useTranslation();
   const [data, setData] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -73,7 +75,7 @@ export default function AdminRealtime() {
   return (
     <div className="container max-w-5xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-heading">Realtime snapshot</h1>
+        <h1 className="text-2xl font-heading">{t("adminRealtime.title")}</h1>
         <Button
           variant="outline"
           size="sm"
@@ -82,7 +84,7 @@ export default function AdminRealtime() {
           data-testid="button-refresh"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          <span className="ml-2">Refresh</span>
+          <span className="ml-2">{t("adminRealtime.refresh")}</span>
         </Button>
       </div>
       {err && (
@@ -97,7 +99,7 @@ export default function AdminRealtime() {
           <div className="grid grid-cols-3 gap-4">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">SSE clients</CardTitle>
+                <CardTitle className="text-sm">{t("adminRealtime.sseClients")}</CardTitle>
               </CardHeader>
               <CardContent className="font-mono text-2xl">
                 {data.clientCount}
@@ -105,7 +107,7 @@ export default function AdminRealtime() {
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Active viewers</CardTitle>
+                <CardTitle className="text-sm">{t("adminRealtime.activeViewers")}</CardTitle>
               </CardHeader>
               <CardContent className="font-mono text-2xl">
                 {data.presenceCount}
@@ -113,7 +115,7 @@ export default function AdminRealtime() {
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Editing locks</CardTitle>
+                <CardTitle className="text-sm">{t("adminRealtime.editingLocks")}</CardTitle>
               </CardHeader>
               <CardContent className="font-mono text-2xl">
                 {data.editingCount}
@@ -123,19 +125,19 @@ export default function AdminRealtime() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Clients</CardTitle>
+              <CardTitle className="text-base">{t("adminRealtime.clients")}</CardTitle>
             </CardHeader>
             <CardContent>
               {data.clients.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No active SSE clients.</p>
+                <p className="text-sm text-muted-foreground">{t("adminRealtime.noClients")}</p>
               ) : (
                 <table className="w-full text-xs font-mono">
                   <thead>
                     <tr className="text-left text-muted-foreground">
-                      <th className="py-1">email</th>
-                      <th>week</th>
-                      <th>driver</th>
-                      <th className="text-right">connected</th>
+                      <th className="py-1">{t("adminRealtime.email")}</th>
+                      <th>{t("adminRealtime.week")}</th>
+                      <th>{t("adminRealtime.driver")}</th>
+                      <th className="text-right">{t("adminRealtime.connected")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -144,7 +146,7 @@ export default function AdminRealtime() {
                         <td className="py-1">{c.email}</td>
                         <td>{c.weekStart}</td>
                         <td>{c.kfiId ?? "—"}</td>
-                        <td className="text-right">{ago(c.connectedAgoMs)} ago</td>
+                        <td className="text-right">{t("adminRealtime.ago", { when: ago(c.connectedAgoMs) })}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -155,20 +157,20 @@ export default function AdminRealtime() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Editing</CardTitle>
+              <CardTitle className="text-base">{t("adminRealtime.editing")}</CardTitle>
             </CardHeader>
             <CardContent>
               {data.editing.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nobody is currently editing.</p>
+                <p className="text-sm text-muted-foreground">{t("adminRealtime.noEditing")}</p>
               ) : (
                 <table className="w-full text-xs font-mono">
                   <thead>
                     <tr className="text-left text-muted-foreground">
-                      <th className="py-1">email</th>
-                      <th>week</th>
-                      <th>driver</th>
-                      <th>punch</th>
-                      <th className="text-right">expires</th>
+                      <th className="py-1">{t("adminRealtime.email")}</th>
+                      <th>{t("adminRealtime.week")}</th>
+                      <th>{t("adminRealtime.driver")}</th>
+                      <th>{t("adminRealtime.punch")}</th>
+                      <th className="text-right">{t("adminRealtime.expires")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -178,7 +180,7 @@ export default function AdminRealtime() {
                         <td>{e.weekStart}</td>
                         <td>{e.kfiId}</td>
                         <td>{e.punchId ?? "row"}</td>
-                        <td className="text-right">in {ago(Math.max(0, e.expiresInMs))}</td>
+                        <td className="text-right">{t("adminRealtime.inTime", { when: ago(Math.max(0, e.expiresInMs)) })}</td>
                       </tr>
                     ))}
                   </tbody>

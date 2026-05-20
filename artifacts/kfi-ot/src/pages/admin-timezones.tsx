@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, Redirect } from "wouter";
 import {
   useGetMe,
@@ -53,6 +54,7 @@ function isoWeekStart(d: Date): string {
 }
 
 export default function AdminTimezones() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -135,14 +137,14 @@ export default function AdminTimezones() {
           setNewCustomer("");
           invalidatePrefs();
           toast({
-            title: "Preference saved",
+            title: t("adminTimezones.prefSaved"),
             description: `${customer} → ${newTz}`,
           });
         },
         onError: (err) =>
           toast({
-            title: "Save failed",
-            description: errMessage(err, "Unknown error"),
+            title: t("adminTimezones.saveFailed"),
+            description: errMessage(err, t("errors.unknown")),
             variant: "destructive",
           }),
       },
@@ -156,14 +158,14 @@ export default function AdminTimezones() {
         onSuccess: () => {
           invalidatePrefs();
           toast({
-            title: "Updated",
+            title: t("adminTimezones.updated"),
             description: `${customer} → ${displayTz}`,
           });
         },
         onError: (err) =>
           toast({
-            title: "Update failed",
-            description: errMessage(err, "Unknown error"),
+            title: t("adminTimezones.updateFailed"),
+            description: errMessage(err, t("errors.unknown")),
             variant: "destructive",
           }),
       },
@@ -176,12 +178,12 @@ export default function AdminTimezones() {
       {
         onSuccess: () => {
           invalidatePrefs();
-          toast({ title: "Cleared", description: customer });
+          toast({ title: t("adminTimezones.cleared"), description: customer });
         },
         onError: (err) =>
           toast({
-            title: "Clear failed",
-            description: errMessage(err, "Unknown error"),
+            title: t("adminTimezones.clearFailed"),
+            description: errMessage(err, t("errors.unknown")),
             variant: "destructive",
           }),
       },
@@ -195,14 +197,14 @@ export default function AdminTimezones() {
         onSuccess: () => {
           invalidateWeek();
           toast({
-            title: "Driver tz updated",
-            description: `${name} → ${tz ?? "(default)"}`,
+            title: t("adminTimezones.driverTzUpdated"),
+            description: `${name} → ${tz ?? t("adminTimezones.defaultValue")}`,
           });
         },
         onError: (err) =>
           toast({
-            title: "Update failed",
-            description: errMessage(err, "Unknown error"),
+            title: t("adminTimezones.updateFailed"),
+            description: errMessage(err, t("errors.unknown")),
             variant: "destructive",
           }),
       },
@@ -234,12 +236,12 @@ export default function AdminTimezones() {
               className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to users
+              {t("common.backToUsers")}
             </Button>
           </Link>
           <h1 className="font-display font-bold text-lg tracking-tight flex items-center gap-2">
             <Globe className="h-4 w-4" />
-            Timezones
+            {t("adminTimezones.title")}
           </h1>
         </div>
       </header>
@@ -248,30 +250,28 @@ export default function AdminTimezones() {
         <Card>
           <CardHeader>
             <CardTitle className="font-display text-base">
-              Per-customer default timezone
+              {t("adminTimezones.customerCardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-xs text-muted-foreground">
-              When uploading a customer file, the parser stamps each row in this
-              timezone unless the dispatcher picks a per-upload override or a
-              driver has their own override.
+              {t("adminTimezones.customerHelp")}
             </p>
             <div className="flex flex-wrap items-end gap-2">
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-muted-foreground">
-                  Customer
+                  {t("adminTimezones.customerLabel")}
                 </label>
                 <Input
                   value={newCustomer}
                   onChange={(e) => setNewCustomer(e.target.value)}
-                  placeholder="Adient, IWG, Penda…"
+                  placeholder={t("adminTimezones.customerPlaceholder")}
                   className="h-8 w-56"
                 />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-muted-foreground">
-                  Timezone
+                  {t("adminTimezones.tzLabel")}
                 </label>
                 <Select value={newTz} onValueChange={setNewTz}>
                   <SelectTrigger className="h-8 w-[200px] text-xs">
@@ -296,20 +296,26 @@ export default function AdminTimezones() {
                 ) : (
                   <Plus className="h-4 w-4 mr-1" />
                 )}
-                Save
+                {t("adminTimezones.saveButton")}
               </Button>
             </div>
 
             {prefsLoading ? (
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            ) : customerRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">
+                {t("adminTimezones.noPrefsBefore")}
+                <span className="font-mono">{DEFAULT_TZ_FALLBACK}</span>
+                {t("adminTimezones.noPrefsAfter")}
+              </p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Timezone</TableHead>
-                    <TableHead>Updated</TableHead>
-                    <TableHead>By</TableHead>
+                    <TableHead>{t("adminTimezones.headerCustomer")}</TableHead>
+                    <TableHead>{t("adminTimezones.headerTimezone")}</TableHead>
+                    <TableHead>{t("adminTimezones.headerUpdated")}</TableHead>
+                    <TableHead>{t("adminTimezones.headerBy")}</TableHead>
                     <TableHead className="w-[1%]" />
                   </TableRow>
                 </TableHeader>
@@ -327,7 +333,7 @@ export default function AdminTimezones() {
                                 variant="outline"
                                 className="text-[10px] font-normal"
                               >
-                                AI-only
+                                {t("adminTimezones.aiOnly")}
                               </Badge>
                             ) : null}
                           </div>
@@ -351,7 +357,7 @@ export default function AdminTimezones() {
                                 value="__default__"
                                 className="text-xs"
                               >
-                                (driver default)
+                                {t("adminTimezones.driverDefaultOption")}
                               </SelectItem>
                               {tzOptions.map((tz) => (
                                 <SelectItem
@@ -380,7 +386,7 @@ export default function AdminTimezones() {
                               variant="ghost"
                               onClick={() => removePref(row.customer)}
                               disabled={del.isPending}
-                              title="Clear preference"
+                              title={t("adminTimezones.clearTitle")}
                             >
                               <Trash2 className="h-3 w-3" />
                             </Button>
@@ -398,27 +404,25 @@ export default function AdminTimezones() {
         <Card>
           <CardHeader>
             <CardTitle className="font-display text-base">
-              Per-driver overrides
+              {t("adminTimezones.driverCardTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-xs text-muted-foreground">
-              A driver's override wins over the customer preference and the
-              system default. Use "(default)" to clear and fall back to the
-              customer / system default.
+              {t("adminTimezones.driverHelp")}
             </p>
             {drivers.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">
-                No drivers loaded for the current week yet.
+                {t("adminTimezones.driverEmpty")}
               </p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Driver</TableHead>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Override</TableHead>
-                    <TableHead>Effective</TableHead>
+                    <TableHead>{t("adminTimezones.headerDriver")}</TableHead>
+                    <TableHead>{t("adminTimezones.headerCustomer")}</TableHead>
+                    <TableHead>{t("adminTimezones.headerOverride")}</TableHead>
+                    <TableHead>{t("adminTimezones.headerEffective")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -452,7 +456,7 @@ export default function AdminTimezones() {
                               value="__default__"
                               className="text-xs"
                             >
-                              (default)
+                              {t("adminTimezones.defaultOption")}
                             </SelectItem>
                             {tzOptions.map((tz) => (
                               <SelectItem
