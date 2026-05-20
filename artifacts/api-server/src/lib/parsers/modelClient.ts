@@ -36,18 +36,16 @@ export interface ModelClient {
   /** Short human-readable name used in log lines (e.g. "claude", "gemini"). */
   name: string;
   /**
-   * Single round-trip JSON generation. Implementations are responsible for
-   * applying their per-request timeout; callers do not race externally.
-   * `jsonSchema` is an optional structured-output hint — Gemini honors it
-   * via `responseSchema`; Claude relies on the prompt's "return strictly
-   * JSON" instruction and ignores the schema (the existing
-   * `parseOrSalvage` recovery handles minor format slips).
+   * Single round-trip text generation. Implementations are responsible
+   * for applying their per-request timeout; callers do not race
+   * externally. The response is plain text — the chunked-extract caller
+   * parses it as NDJSON (Task #308) so neither provider relies on a
+   * structured-output JSON-mode hint here.
    */
   generate(opts: {
     parts: ContentPart[];
     maxOutputTokens: number;
     timeoutMs: number;
-    jsonSchema?: unknown;
   }): Promise<{ text: string; usage: ModelCallUsage }>;
 }
 

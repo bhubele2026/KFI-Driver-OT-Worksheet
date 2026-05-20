@@ -200,8 +200,6 @@ export async function extractImageForKnownCustomer(args: {
   });
   const {
     rows: rawRows,
-    truncated: extractionTruncated,
-    failedChunks,
     budgetSummary: aiBudgetSummary,
   } = await aiExtractRows(
     fileName,
@@ -280,8 +278,6 @@ export async function extractImageForKnownCustomer(args: {
     unmappedDriverCount,
     invalidTimeCount,
     acceptedCount: punches.length,
-    extractionTruncated,
-    failedChunks,
   };
   if (punches.length === 0 && rawRows.length > 0) {
     log?.warn(

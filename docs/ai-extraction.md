@@ -21,11 +21,43 @@ turned the demo-night Adient 429 RATELIMIT_EXCEEDED from a hard
 "upload failed" into a quiet ~3s pause and success.
 
 Chunked spreadsheet extraction uses a bounded worker pool
-(`XLSX_CHUNK_CONCURRENCY`, currently 6) plus the shared
-`runWithConcurrency` helper. The chunking math, the truncation +
-halving-retry path, the schema cache, the OCR fallback for scanned
-DeLallo PDFs, and AI-sample retention are all unchanged from before the
-Claude swap.
+(`XLSX_CHUNK_CONCURRENCY`, currently 3 — see Task #296) plus the shared
+`runWithConcurrency` helper. The chunking math, the schema cache, the
+OCR fallback for scanned DeLallo PDFs, and AI-sample retention are all
+unchanged from before the Claude swap. Per-chunk recovery now uses
+NDJSON row-tag re-issue instead of the legacy chunk-halving — see
+[NDJSON output with `[R<n>]` row tags](#ndjson-output-with-rn-row-tags-task-308)
+below.
+
+### NDJSON output with `[R<n>]` row tags (Task #308)
+
+The chunked-extract pipeline asks both Claude and Gemini for
+newline-delimited JSON (one `{...}` object per line) instead of a
+single `{ "rows": [...] }` blob. Each input row in the per-chunk body
+is prefixed with a synthetic `[R<n>]` tag (1-indexed within the chunk)
+and the model is instructed to echo that number as a `_row` field on
+every output line — data and `{"_row":N,"_skip":true}` skip lines
+alike. `parseNdjson` in `lib/parsers/aiExtract.ts` walks the response
+line by line, tolerates stray ``` fence markers and blank lines, and
+returns `{ rows, emittedRowIds, nonBlankLines, parseFailedLines }`.
+
+After the first call, the runner diffs the assigned row IDs against
+`emittedRowIds`. If any are missing (the classic
+`maxOutputTokens`-mid-stream cut-off shows up as exactly this), it
+re-issues a second model call carrying ONLY the missing rows
+(`chunk_reissue` purpose on the `IngestionBudget`) and merges the
+recovered objects with the originals. If the re-issue still misses
+any IDs, the runner throws the same "split the spreadsheet into two
+smaller files" error the old double-truncate path used — there's no
+silent-partial state to surface, so the deprecated `extractionTruncated`
+/ `failedChunks` fields on the preview payload are hardcoded to
+`false` / `0` (kept on the OpenAPI contract for one release to avoid
+a coordinated UI bump).
+
+Per-chunk telemetry: when `nonBlankLines !== assignedIds.length` the
+runner emits a `warn` with `{ chunkIdx, expected, emitted, missing,
+parseFailedLines }` so a model that quietly drops or invents lines is
+visible in the logs without waiting for the missing-IDs diff to fire.
 
 ## Uniform per-row upload pipeline (Task #250)
 
@@ -162,7 +194,7 @@ Every AI-powered customer-file upload runs inside an `IngestionBudget`
 | `MAX_TOKENS_PER_UPLOAD` | 400_000 (input + output) | Same. |
 | `SOFT_WARN_CALLS` | 20 | Single `warn` log (`warnedHot=true`) then continue. |
 
-Each model invocation (chunk, chunk_retry, chunk_halved, gemini_fallback,
+Each model invocation (chunk, chunk_retry, chunk_reissue, gemini_fallback,
 single_call) calls `budget.recordCall(usage, purpose)` immediately after
 the response so the ceiling can trip mid-upload — the existing 763-row
 TriEnda incident burned ~1M tokens / ~$3 with no ceiling at all.

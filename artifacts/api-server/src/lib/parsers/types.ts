@@ -88,23 +88,13 @@ export interface ExtractDiagnostics {
   /** Rows that made it through and became persisted punches. */
   acceptedCount: number;
   /**
-   * True when at least one Gemini response was truncated at the
-   * `maxOutputTokens` cap and salvage recovered only the rows that fit.
-   * Task #264. Even after auto-chunking + halving retries, an extremely
-   * dense workbook can still bust the cap; the route surfaces this flag
-   * to the dispatcher so they know the preview may be missing rows.
+   * Deprecated (Task #308). Always `false` / `0` now that the NDJSON
+   * pipeline either fully recovers a chunk via targeted re-issue or
+   * throws — there is no partial-extraction state to surface. The
+   * fields stay on the type (and on the OpenAPI contract) for one
+   * release to avoid forcing a coordinated UI bump.
    */
   extractionTruncated?: boolean;
-  /**
-   * Number of chunks (in the chunked xlsx path) whose Gemini call threw
-   * or timed out and were skipped instead of failing the whole upload.
-   * Task #267. Non-zero implies `extractionTruncated: true` (some rows
-   * are missing) and triggers a stronger preview-dialog banner so the
-   * dispatcher knows the preview is incomplete and can re-upload the
-   * file split into smaller parts if the row count looks wrong. Absent
-   * / 0 on single-call paths (images, PDFs, small xlsx) since those
-   * have no per-chunk fan-out to partially fail.
-   */
   failedChunks?: number;
 }
 

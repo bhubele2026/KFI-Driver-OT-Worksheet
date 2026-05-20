@@ -40,7 +40,6 @@ export class GeminiModelClient implements ModelClient {
     parts: ContentPart[];
     maxOutputTokens: number;
     timeoutMs: number;
-    jsonSchema?: unknown;
   }): Promise<{ text: string; usage: ModelCallUsage }> {
     const ai = getGeminiClient();
     const geminiParts = opts.parts.map((p) =>
@@ -62,8 +61,9 @@ export class GeminiModelClient implements ModelClient {
       model: this.model,
       contents: [{ role: "user", parts: geminiParts }],
       config: {
-        responseMimeType: "application/json",
-        ...(opts.jsonSchema ? { responseSchema: opts.jsonSchema as never } : {}),
+        // Task #308: NDJSON output (one JSON object per line) — do NOT
+        // ask Gemini for `application/json`; that mode demands a single
+        // top-level JSON value and refuses our newline-delimited stream.
         maxOutputTokens: opts.maxOutputTokens,
       },
     });

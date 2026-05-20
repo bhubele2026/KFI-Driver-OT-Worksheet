@@ -2065,8 +2065,8 @@ weeksRouter.post(
       existingPunchCount,
       extractSource,
       cacheWritten,
-      extractionTruncated: result.diagnostics?.extractionTruncated ?? false,
-      failedChunks: result.diagnostics?.failedChunks ?? 0,
+      extractionTruncated: false,
+      failedChunks: 0,
       geminiFallbackUsed,
     });
   },
@@ -3469,8 +3469,6 @@ weeksRouter.post(
       }
     }
     let rows;
-    let extractionTruncated = false;
-    let failedChunks = 0;
     let geminiFallbackUsedNew = false;
     // Per-upload AI spend tracker (Task #297). Constructed before the
     // try so the catch branch can still persist a budget_exceeded /
@@ -3551,8 +3549,6 @@ weeksRouter.post(
         },
       );
       rows = extracted.rows;
-      extractionTruncated = extracted.truncated;
-      failedChunks = extracted.failedChunks;
       geminiFallbackUsedNew = extracted.geminiFallbackUsed;
     } catch (err) {
       req.log.error({ err, fileName: req.file.originalname }, "AI extract error");
@@ -3709,8 +3705,8 @@ weeksRouter.post(
       rows,
       suggestions,
       sampleId: sample.id,
-      extractionTruncated,
-      failedChunks,
+      extractionTruncated: false,
+      failedChunks: 0,
       geminiFallbackUsed: geminiFallbackUsedNew,
     });
   },

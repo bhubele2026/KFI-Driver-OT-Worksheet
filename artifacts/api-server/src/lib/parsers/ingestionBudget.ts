@@ -35,7 +35,7 @@ export type IngestionPurpose =
   | "structure_probe" // future: cheap pre-chunk probe (not used yet)
   | "chunk" // primary per-chunk model call
   | "chunk_retry" // withModelRetry retry on the same chunk
-  | "chunk_halved" // post-truncation half-of-a-chunk retry
+  | "chunk_reissue" // targeted re-issue of missing NDJSON row IDs (Task #308)
   | "gemini_fallback" // Claude failed, Gemini took the call (opt-in)
   | "recipe_derivation"; // future: derive a deterministic recipe (not used yet)
 

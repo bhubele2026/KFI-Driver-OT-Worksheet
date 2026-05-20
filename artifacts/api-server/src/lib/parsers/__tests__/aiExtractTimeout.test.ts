@@ -130,7 +130,6 @@ test("aiExtractRows merges per-chunk results on the chunked xlsx path", async ()
       "2026-05-16",
     );
     assert.equal(merged.rows.length, chunks.length);
-    assert.equal(merged.truncated, false);
     for (let i = 0; i < chunks.length; i++) {
       assert.equal(merged.rows[i].badgeOrId, `B${i}`);
     }
@@ -164,92 +163,14 @@ test("row-count trigger forces chunking on row-dense small files (Task #264)", (
 });
 
 /**
- * Task #264 regression: when the single-call response comes back
- * truncated, aiExtractRows must auto-recover by re-extracting via
- * forced chunking instead of silently returning the partial salvage.
- * This is the safety net for the rare case where a workbook slips
- * under the 150-row trigger but still busts the 32k output-token cap
- * (e.g. extremely verbose pay-category splits).
+ * Task #308: NDJSON re-issue. When the chunked path's first model call
+ * drops some assigned `_row` IDs (e.g. the response was cut off
+ * mid-stream by maxOutputTokens), the runner must re-send ONLY the
+ * missing rows in a second targeted call and merge the recovered rows
+ * with the originals — no full chunk re-run, no truncated flag, no
+ * silent partial output.
  */
-test("single-call truncation auto-recovers via forced chunking (Task #264)", async () => {
-  // 10 rows: total CSV well under both triggers — single-call path.
-  const rows = Array.from({ length: 10 }, (_, i) => ({
-    Name: `Driver ${i}`,
-    Badge: `B${i}`,
-    Date: "2026-05-12",
-    In: "7:00 AM",
-    Out: "3:00 PM",
-  }));
-  const buf = makeXlsx(rows);
-  // Sanity-check the test setup: this file is small enough to take the
-  // single-call path, so the truncation-retry path is what we're
-  // actually exercising.
-  assert.equal(
-    xlsxToChunks(buf).length,
-    1,
-    "test setup must produce a single chunk so the single-call path runs",
-  );
-
-  __clearAiExtractStubs();
-  try {
-    // 1st stub: single-call returns truncated partial (2 rows).
-    __pushAiExtractStub(
-      [
-        {
-          driverNameOnDoc: "partial-1",
-          badgeOrId: "B0",
-          date: "2026-05-12",
-          timeIn: "7:00 AM",
-          timeOut: "3:00 PM",
-        },
-        {
-          driverNameOnDoc: "partial-2",
-          badgeOrId: "B1",
-          date: "2026-05-12",
-          timeIn: "7:00 AM",
-          timeOut: "3:00 PM",
-        },
-      ],
-      { truncated: true },
-    );
-    // 2nd+ stubs: the forced-rechunk path. 10 rows with forceChunkMaxRows=100
-    // → still one chunk on re-extract; push one clean stub to satisfy it.
-    __pushAiExtractStub([
-      {
-        driverNameOnDoc: "rechunk-driver",
-        badgeOrId: "RECHUNK",
-        date: "2026-05-12",
-        timeIn: "7:00 AM",
-        timeOut: "3:00 PM",
-      },
-    ]);
-    const out = await aiExtractRows(
-      "small.xlsx",
-      buf,
-      "TestCo",
-      "2026-05-10",
-      "2026-05-16",
-    );
-    // Critical assertion: the SALVAGED partial rows were discarded in
-    // favor of the re-chunked clean run.
-    assert.equal(out.rows.length, 1);
-    assert.equal(out.rows[0].badgeOrId, "RECHUNK");
-    assert.equal(
-      out.truncated,
-      false,
-      "successful re-chunk recovery should clear the truncated flag",
-    );
-  } finally {
-    __clearAiExtractStubs();
-  }
-});
-
-/**
- * Task #264: when a chunk in the multi-chunk path comes back truncated,
- * runChunkedXlsxExtract halves it and retries each half. Surfaces a
- * `truncated: true` flag only if even the halves can't recover all rows.
- */
-test("chunked path halves and retries a truncated chunk (Task #264)", async () => {
+test("chunked path re-issues missing NDJSON row IDs and merges recovered rows (Task #308)", async () => {
   const wide = "Z".repeat(120);
   const rows = Array.from({ length: 2000 }, (_, i) => ({
     Name: `Driver ${i} ${wide}`,
@@ -265,33 +186,34 @@ test("chunked path halves and retries a truncated chunk (Task #264)", async () =
 
   __clearAiExtractStubs();
   try {
-    // First chunk: truncated. Halving retry produces 2 sub-requests.
+    // Chunk 1 first attempt: returns one row but the stub claims row
+    // IDs 2 and 3 never came back (model dropped them mid-stream).
     __pushAiExtractStub(
       [
         {
-          driverNameOnDoc: "first-partial",
-          badgeOrId: "P0",
+          driverNameOnDoc: "first-row",
+          badgeOrId: "FIRST",
           date: "2026-05-12",
           timeIn: "7:00 AM",
           timeOut: "3:00 PM",
         },
       ],
-      { truncated: true },
+      { missingRowIds: [2, 3] },
     );
-    // Halved retry 1.1 and 1.2: both clean.
+    // Chunk 1 re-issue: the runner re-sends just the two missing IDs
+    // and the model returns both this time (default stub claims to
+    // have emitted every assigned ID, so no further re-issue).
     __pushAiExtractStub([
       {
-        driverNameOnDoc: "half-1",
-        badgeOrId: "H1",
+        driverNameOnDoc: "reissue-2",
+        badgeOrId: "R2",
         date: "2026-05-12",
         timeIn: "7:00 AM",
         timeOut: "3:00 PM",
       },
-    ]);
-    __pushAiExtractStub([
       {
-        driverNameOnDoc: "half-2",
-        badgeOrId: "H2",
+        driverNameOnDoc: "reissue-3",
+        badgeOrId: "R3",
         date: "2026-05-12",
         timeIn: "7:00 AM",
         timeOut: "3:00 PM",
@@ -316,16 +238,74 @@ test("chunked path halves and retries a truncated chunk (Task #264)", async () =
       "2026-05-10",
       "2026-05-16",
     );
-    // The halved-retry rows replace the truncated partial for that
-    // chunk: runChunkedXlsxExtract appends the two half results in
-    // place of the original chunk's salvaged partial.
     const badges = out.rows.map((r) => r.badgeOrId);
-    assert.ok(badges.includes("H1"), "halved retry 1 row must survive");
-    assert.ok(badges.includes("H2"), "halved retry 2 row must survive");
-    assert.equal(
-      out.truncated,
-      false,
-      "successful halving should clear the truncated flag",
+    assert.ok(badges.includes("FIRST"), "originals from the first call must survive");
+    assert.ok(badges.includes("R2"), "re-issue row 2 must be merged in");
+    assert.ok(badges.includes("R3"), "re-issue row 3 must be merged in");
+  } finally {
+    __clearAiExtractStubs();
+  }
+});
+
+/**
+ * Task #308: if the targeted re-issue retry ALSO drops some assigned
+ * `_row` IDs, the runner must throw the clear "split the file"
+ * error rather than silently returning an incomplete row set.
+ */
+test("chunked path throws when re-issue retry still misses row IDs (Task #308)", async () => {
+  // Two narrow chunks: chunk1's first call drops one ID; the re-issue
+  // ALSO drops it. Must throw the "split the file" guidance.
+  const rows = Array.from({ length: 240 }, (_, i) => ({
+    Name: `Driver ${i}`,
+    Badge: `B${i}`,
+    Date: "2026-05-12",
+    In: "7:00 AM",
+    Out: "3:00 PM",
+  }));
+  const buf = makeXlsx(rows);
+  const chunks = xlsxToChunks(buf);
+  assert.equal(chunks.length, 2, "test setup must produce exactly 2 chunks");
+
+  __clearAiExtractStubs();
+  try {
+    // Stub queue ordering: both chunks dispatch in parallel from the
+    // worker pool, so stub1 → chunk0's first call, stub2 → chunk1's
+    // first call, stub3 → chunk0's re-issue. Chunk 1 must finish
+    // cleanly on the first call so we don't burn its slot on a
+    // re-issue and steal stub3 from chunk 0.
+    __pushAiExtractStub(
+      [
+        {
+          driverNameOnDoc: "first-row",
+          badgeOrId: "FIRST",
+          date: "2026-05-12",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+        },
+      ],
+      { missingRowIds: [5] },
+    );
+    __pushAiExtractStub([
+      {
+        driverNameOnDoc: "chunk-2",
+        badgeOrId: "C2",
+        date: "2026-05-12",
+        timeIn: "7:00 AM",
+        timeOut: "3:00 PM",
+      },
+    ]);
+    // Chunk 0 re-issue: still drops row 5.
+    __pushAiExtractStub([], { missingRowIds: [5] });
+    await assert.rejects(
+      aiExtractRows(
+        "double-miss.xlsx",
+        buf,
+        "TestCo",
+        "2026-05-10",
+        "2026-05-16",
+      ),
+      /split the spreadsheet into two smaller files/i,
+      "repeated re-issue miss must reject with the 'split the file' guidance",
     );
   } finally {
     __clearAiExtractStubs();
@@ -383,97 +363,6 @@ test("chunked path aborts when any chunk throws (Task #279 reverses #267)", asyn
       ),
       /timed out|extract/i,
       "any failing chunk must reject the whole extract",
-    );
-  } finally {
-    __clearAiExtractStubs();
-  }
-});
-
-/**
- * Task #279: when a chunk truncates and BOTH halves of the halved
- * retry still truncate, throw a clear "split the file" error rather
- * than returning a quietly-incomplete row set.
- */
-test("chunked path throws when a chunk and both retry halves truncate (Task #279)", async () => {
-  // Narrow 240-row workbook: forces chunking on the row-count trigger
-  // (>100 rows) into EXACTLY 2 chunks at the current XLSX_CHUNK_MAX_ROWS
-  // (=120 post-Task #296). We need exactly 2 chunks so the worker pool's
-  // synchronous stub-shift race is deterministic: worker 1 grabs chunk1's
-  // truncated stub, worker 2 grabs chunk2's clean stub, then worker 1
-  // halves and consumes both remaining truncated half stubs in order.
-  const rows = Array.from({ length: 240 }, (_, i) => ({
-    Name: `Driver ${i}`,
-    Badge: `B${i}`,
-    Date: "2026-05-12",
-    In: "7:00 AM",
-    Out: "3:00 PM",
-  }));
-  const buf = makeXlsx(rows);
-  const chunks = xlsxToChunks(buf);
-  assert.equal(chunks.length, 2, "test setup must produce exactly 2 chunks");
-
-  __clearAiExtractStubs();
-  try {
-    // First chunk + both halves: all truncated.
-    __pushAiExtractStub(
-      [
-        {
-          driverNameOnDoc: "partial",
-          badgeOrId: "P0",
-          date: "2026-05-12",
-          timeIn: "7:00 AM",
-          timeOut: "3:00 PM",
-        },
-      ],
-      { truncated: true },
-    );
-    __pushAiExtractStub(
-      [
-        {
-          driverNameOnDoc: "h1-partial",
-          badgeOrId: "H1",
-          date: "2026-05-12",
-          timeIn: "7:00 AM",
-          timeOut: "3:00 PM",
-        },
-      ],
-      { truncated: true },
-    );
-    __pushAiExtractStub(
-      [
-        {
-          driverNameOnDoc: "h2-partial",
-          badgeOrId: "H2",
-          date: "2026-05-12",
-          timeIn: "7:00 AM",
-          timeOut: "3:00 PM",
-        },
-      ],
-      { truncated: true },
-    );
-    // Remaining chunks: clean stubs (may or may not be consumed before
-    // the first chunk's failure rejects Promise.all).
-    for (let i = 1; i < chunks.length; i++) {
-      __pushAiExtractStub([
-        {
-          driverNameOnDoc: `clean-${i}`,
-          badgeOrId: `C${i}`,
-          date: "2026-05-12",
-          timeIn: "7:00 AM",
-          timeOut: "3:00 PM",
-        },
-      ]);
-    }
-    await assert.rejects(
-      aiExtractRows(
-        "double-truncate.xlsx",
-        buf,
-        "TestCo",
-        "2026-05-10",
-        "2026-05-16",
-      ),
-      /split the spreadsheet into two smaller files/i,
-      "double truncation must reject with the 'split the file' guidance",
     );
   } finally {
     __clearAiExtractStubs();
@@ -584,8 +473,6 @@ test("chunked path runs chunks in parallel, not sequentially (Task #267)", async
       "2026-05-16",
     );
     assert.equal(out.rows.length, chunks.length);
-    assert.equal(out.failedChunks, 0);
-    assert.equal(out.truncated, false);
   } finally {
     __clearAiExtractStubs();
   }

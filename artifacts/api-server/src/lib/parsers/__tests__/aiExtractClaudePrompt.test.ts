@@ -1,17 +1,11 @@
 /**
- * Pins the Claude-tailored prompt shape (Task #293 follow-up). Claude
- * Sonnet ignores Anthropic's lack of a `responseSchema` parameter and
- * follows whatever the prompt tells it, so the tuned prompt must:
- *  - frame the role concretely in payroll terms,
- *  - include the JSON schema as an inline example block,
- *  - put the schema example LAST (right before the document the chunker
- *    appends), so it's the freshest context Claude sees, and
- *  - call out "no ```json fences, no prose" explicitly because that was
- *    the first live-fire failure mode after the cut-over.
- *
- * The Gemini prompt must stay identical to its pre-tuning shape because
- * Gemini's `responseSchema` enforcement already handles output format
- * and adding the inline example actually regresses its behaviour.
+ * Pins the Claude- and Gemini-tailored prompt shapes after the Task
+ * #308 NDJSON cut-over. Both providers now emit one JSON object per
+ * line (no `{ "rows": [...] }` wrapper, no surrounding array, no
+ * ```json fences), so the prompts share the NDJSON "Output format"
+ * section and a worked single-line example. Claude keeps its longer
+ * concrete-role framing because Anthropic doesn't enforce a response
+ * shape server-side — the framing carries that weight in the prompt.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -32,17 +26,25 @@ test("buildPrompt('claude') frames the role concretely", () => {
   assert.match(p, /Accuracy matters more than coverage/);
 });
 
-test("buildPrompt('claude') includes an inline JSON schema example with a worked row", () => {
+test("buildPrompt('claude') includes an inline NDJSON example with a worked row (Task #308)", () => {
   const p = buildPrompt("Adient", "2026-05-10", "2026-05-16", roster, "claude");
-  assert.ok(p.includes("\"rows\""), "must show the rows key");
-  assert.ok(p.includes("\"driverNameOnDoc\""), "must show driverNameOnDoc key");
-  assert.ok(p.includes("\"resolvedKfiId\""), "must show resolvedKfiId key");
-  assert.ok(p.includes("\"2026-05-10\""), "sample row must anchor date in the week window");
+  assert.ok(p.includes('"driverNameOnDoc"'), "must show driverNameOnDoc key");
+  assert.ok(p.includes('"resolvedKfiId"'), "must show resolvedKfiId key");
+  assert.ok(p.includes('"_row":1'), "must show the _row tag on the example data line");
+  assert.ok(p.includes('"_skip":true'), "must show the _skip example line");
+  assert.ok(p.includes('"2026-05-10"'), "sample row must anchor date in the week window");
   assert.ok(/"timeIn":\s*"\d{1,2}:\d{2} (AM|PM)"/.test(p), "must show timeIn format");
   assert.ok(/"hours":\s*\d/.test(p), "must show hours as a decimal");
+  // The new contract is per-line objects; the old `{ "rows": [...] }`
+  // wrapper must not appear as actual structured output — it may only
+  // be referenced in the no-wrapper prohibition.
+  assert.ok(
+    !/\n\s*\{\s*"rows"\s*:/.test(p),
+    "must not show the deprecated rows-wrapper as a structured example",
+  );
 });
 
-test("buildPrompt('claude') puts the schema example LAST (after the roster)", () => {
+test("buildPrompt('claude') puts the NDJSON Output format section LAST (after the roster)", () => {
   const p = buildPrompt("Adient", "2026-05-10", "2026-05-16", roster, "claude");
   const rosterIdx = p.indexOf("KNOWN DRIVERS");
   const schemaIdx = p.indexOf("Output format");
@@ -50,12 +52,14 @@ test("buildPrompt('claude') puts the schema example LAST (after the roster)", ()
   assert.ok(schemaIdx > rosterIdx, "Output format section must come after the roster");
 });
 
-test("buildPrompt('claude') explicitly forbids markdown fences and prose", () => {
+test("buildPrompt('claude') explicitly forbids markdown fences, arrays, prose (Task #308)", () => {
   const p = buildPrompt("Adient", "2026-05-10", "2026-05-16", roster, "claude");
-  // Two reinforcements — once in the Rules block, once next to the schema.
+  // Forbids fences in two places (Rules block + Output format block).
   assert.match(p, /No ```json fences/);
   assert.match(p, /No prose before or after/);
-  assert.match(p, /Start with `\{` and end with `\}`/);
+  // NDJSON-specific: no surrounding array, no rows-wrapper.
+  assert.match(p, /No surrounding `\[\.\.\.\]` array/);
+  assert.match(p, /No outer `\{ "rows": \[\.\.\.\]/);
 });
 
 test("buildPrompt('claude') warns omit-don't-null and never-invent", () => {
@@ -65,23 +69,25 @@ test("buildPrompt('claude') warns omit-don't-null and never-invent", () => {
   assert.match(p, /partial extract is fine; fabrication is not/);
 });
 
-test("buildPrompt() default (Gemini) is unchanged — first line still the original framing", () => {
-  // Gemini's responseSchema enforces output format natively; we deliberately
-  // do NOT add the Claude-style inline example or fence-ban here.
-  const p = buildPrompt("Adient", "2026-05-10", "2026-05-16", roster);
-  assert.match(
-    p,
-    /^You are extracting timecard punches from a payroll export uploaded for customer "Adient"\.$/m,
-  );
-  assert.ok(!p.includes("payroll-data extractor"), "must not pick up Claude framing");
-  assert.ok(!p.includes("```"), "must not include the inline JSON example fence");
-  assert.ok(!p.includes("Output format"), "must not include the Claude-only Output format section");
+test("buildPrompt('claude') instructs to echo the [R<n>] tag on every output line (Task #308)", () => {
+  const p = buildPrompt("Adient", "2026-05-10", "2026-05-16", roster, "claude");
+  assert.match(p, /\[R<n>\]/);
+  assert.match(p, /"_row"/);
+  assert.match(p, /"_skip":true/);
 });
 
-test("buildPrompt('gemini') (explicit) also follows the default Gemini shape", () => {
-  const p = buildPrompt("Adient", "2026-05-10", "2026-05-16", roster, "gemini");
-  assert.match(p, /Return strictly JSON matching the provided schema\./);
-  assert.ok(!p.includes("payroll-data extractor"));
+test("buildPrompt() default (Gemini) is the NDJSON shape too (Task #308)", () => {
+  // Gemini no longer uses `responseSchema`; both providers share the
+  // NDJSON contract so the test just pins the per-line shape.
+  const p = buildPrompt("Adient", "2026-05-10", "2026-05-16", roster);
+  assert.match(p, /^You are extracting timecard punches/m);
+  assert.ok(!p.includes("payroll-data extractor"), "must not pick up Claude framing");
+  assert.match(p, /NDJSON/);
+  assert.ok(p.includes('"_row":1'), "Gemini prompt must show the _row tag example");
+  assert.ok(
+    !/\n\s*\{\s*"rows"\s*:/.test(p),
+    "Gemini prompt must not show the deprecated rows-wrapper as a structured example",
+  );
 });
 
 test("buildPrompt('claude') caps the roster at 200 drivers with an omitted-count note", () => {
