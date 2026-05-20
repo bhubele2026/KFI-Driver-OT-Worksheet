@@ -935,8 +935,8 @@ export default function DriverDetail() {
 
   if (isLoading || isError || !data) {
     return (
-      <div className="min-h-[100dvh] flex flex-col bg-background">
-        <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 h-14 flex items-center gap-4 shadow-sm">
+      <div className="h-[100dvh] flex flex-col bg-background overflow-hidden print:h-auto print:overflow-visible">
+        <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 h-14 flex items-center gap-4 shadow-sm shrink-0">
           <DriversSidebarMobileTrigger
             weekStart={weekStart}
             selectedKfiId={kfiId}
@@ -1071,8 +1071,8 @@ export default function DriverDetail() {
     : t("driverDetail.needsRosterCleanup");
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-background">
-      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 h-14 flex items-center justify-between shadow-sm print:hidden">
+    <div className="h-[100dvh] flex flex-col bg-background overflow-hidden print:h-auto print:overflow-visible">
+      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 h-14 flex items-center justify-between shadow-sm shrink-0 print:hidden">
         <div className="flex items-center gap-3">
           <DriversSidebarMobileTrigger
             weekStart={weekStart}
@@ -1246,7 +1246,7 @@ export default function DriverDetail() {
           />
         </div>
 
-        <main className="print-sheet flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden print:p-0 print:max-w-none print:mx-0 print:overflow-visible print:space-y-4">
+        <main className="print-sheet flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-y-auto overflow-x-hidden print:p-0 print:max-w-none print:mx-0 print:overflow-visible print:space-y-4">
           <AllReviewedSplash
             visible={allReviewedSplashVisible}
             onDismiss={dismissAllReviewedSplash}
