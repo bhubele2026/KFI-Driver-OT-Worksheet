@@ -19,7 +19,7 @@ const LABELS: SummaryCheckLabels = {
   rtEq: "Customer RT + Driver RT = RT",
   otEq: "Customer OT + Driver OT = OT",
   rtPlusOtEq: "RT + OT = Total",
-  rowSumEq: "Total Hours = Running total (last row)",
+  rowSumEq: "Summary matches detail",
 };
 
 // Internally consistent totals for a 42h week — 35h customer + 7h driver,

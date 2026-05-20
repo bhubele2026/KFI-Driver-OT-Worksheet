@@ -1,5 +1,5 @@
 /**
- * End-to-end coverage for the "Total = sum of punch rows" check added in
+ * End-to-end coverage for the "Summary matches detail" check added in
  * task #397 to the driver-detail Summary/Checks panels.
  *
  * The pure helper (`artifacts/kfi-ot/src/lib/summaryChecks.ts`) is unit-
@@ -136,7 +136,7 @@ test("row-sum check renders, reconciles, and shows the row-hours total", async (
   // equals Total Hours when there is no drift).
   const rowSum = checks.getByTestId("row-check-total-row-sum");
   await expect(rowSum).toBeVisible();
-  await expect(rowSum).toContainText("Total = sum of punch rows");
+  await expect(rowSum).toContainText("Summary matches detail");
   await expect(rowSum).toContainText(TOTAL_HOURS.toFixed(2));
 
   // The row renders its own passing-state check icon (emerald), not the
@@ -193,7 +193,7 @@ test("row-sum check flips the card to mismatch and warns when rows diverge from 
   // warning styling (text-warning + font-mono).
   const rowSum = checks.getByTestId("row-check-total-row-sum");
   await expect(rowSum).toBeVisible();
-  await expect(rowSum).toContainText("Total = sum of punch rows");
+  await expect(rowSum).toContainText("Summary matches detail");
   const valueCell = rowSum.locator("dd");
   await expect(valueCell).toHaveText("49.22");
   await expect(valueCell).toHaveClass(/font-mono/);

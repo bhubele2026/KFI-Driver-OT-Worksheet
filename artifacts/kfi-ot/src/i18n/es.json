@@ -472,7 +472,7 @@
       "rtEq": "RT cliente + RT conductor = RT",
       "otEq": "HE cliente + HE conductor = HE",
       "rtPlusOtEq": "RT + HE = Total",
-      "rowSumEq": "Total de horas = Total acumulado (última fila)"
+      "rowSumEq": "El resumen coincide con el detalle"
     },
     "previewPanel": {
       "fillIn": "Complete fecha, entrada y salida para previsualizar el impacto en el día y la semana de este conductor.",
