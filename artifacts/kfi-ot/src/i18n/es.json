@@ -1217,6 +1217,7 @@
     "reading": "Leyendo… {{elapsed}}s",
     "readingHint": "La primera lectura por IA puede tardar unos minutos — la próxima subida con este formato será instantánea.",
     "readingChunk": "Bloque {{current}} de {{total}}",
+    "readingChunkResumed": "Reanudados {{resumed}} de {{total}} bloques — reprocesando {{remaining}}",
     "uploadButton": "Subir",
     "reuploadButton": "Volver a subir",
     "cancelUpload": "Cancelar subida",

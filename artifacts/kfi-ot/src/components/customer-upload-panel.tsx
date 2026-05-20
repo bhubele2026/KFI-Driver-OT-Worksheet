@@ -1409,8 +1409,16 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 // at least one tick, prefer "Chunk N of M" over a bare
                 // elapsed counter — it gives the dispatcher a real
                 // sense of how close the 71-chunk Adient upload is to
-                // done.
+                // done. Task #328: when this upload resumed from
+                // staging (a prior attempt got partway through), show
+                // "Resumed N of M — re-running K" instead so the long
+                // wait makes sense ("we already have most of it,
+                // just re-running the chunks that failed").
                 const cp = st.chunkProgress;
+                const resumed =
+                  cp && typeof cp.resumedFromStaging === "number"
+                    ? cp.resumedFromStaging
+                    : 0;
                 return (
                   <span
                     className="text-xs text-muted-foreground font-mono tabular-nums whitespace-nowrap"
@@ -1424,10 +1432,16 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                         className="ml-2 font-sans normal-case text-[11px] text-muted-foreground"
                         data-testid={`upload-chunk-${s.customer}`}
                       >
-                        {t("customerUpload.readingChunk", {
-                          current: cp.current,
-                          total: cp.total,
-                        })}
+                        {resumed > 0 && resumed < cp.total
+                          ? t("customerUpload.readingChunkResumed", {
+                              resumed,
+                              total: cp.total,
+                              remaining: cp.total - resumed,
+                            })
+                          : t("customerUpload.readingChunk", {
+                              current: cp.current,
+                              total: cp.total,
+                            })}
                       </span>
                     ) : null}
                     {hint ? (

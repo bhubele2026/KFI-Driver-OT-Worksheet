@@ -53,7 +53,11 @@ export interface AiExtractOptions {
    * paths emit one final `(1, 1)` tick so the dispatcher always sees
    * a completion event. Never throws — observer-only.
    */
-  onChunkProgress?: (current: number, total: number) => void;
+  onChunkProgress?: (
+    current: number,
+    total: number,
+    resumedFromStaging?: number,
+  ) => void;
   /**
    * Task #314: opaque per-upload id minted at the route boundary and
    * stamped onto every event this upload pushes into the process-wide
@@ -1073,23 +1077,69 @@ async function runChunkedXlsxExtract(
   allowGeminiFallback: boolean,
   ingestionId: string,
   roster?: RosterContext,
-  onChunkProgress?: (current: number, total: number) => void,
+  onChunkProgress?: (
+    current: number,
+    total: number,
+    resumedFromStaging?: number,
+  ) => void,
+  uploadKey?: string,
+  stageStore?: ChunkStageStore,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
+  // Task #309: resume support. Load every previously-staged chunk for
+  // this upload identity so the runner can short-circuit the model call
+  // on chunks that already completed cleanly on a prior attempt. A
+  // failure here only costs the resume optimization — we log and
+  // continue with an empty staged set (worst case: pay for chunks we
+  // already paid for once before).
+  //
+  // We load staging BEFORE emitting the first progress tick so the
+  // dispatcher's dialog can render "Resumed N of M — re-running K"
+  // (Task #328) from the very first tick instead of only learning
+  // about the resume once the next chunk completes.
+  const stagedByIndex = new Map<number, AiExtractedRow[]>();
+  if (uploadKey && stageStore) {
+    try {
+      const loaded = await stageStore.load(uploadKey);
+      for (const [idx, rows] of loaded) {
+        if (idx >= 0 && idx < chunks.length) stagedByIndex.set(idx, rows);
+      }
+    } catch (err) {
+      (log ?? logger).warn(
+        { err, uploadKey, customer, fileName },
+        "AI extract staging load failed — proceeding without resume",
+      );
+    }
+    if (stagedByIndex.size > 0) {
+      logger.info(
+        {
+          customer,
+          fileName,
+          uploadKey,
+          skipped: stagedByIndex.size,
+          total: chunks.length,
+        },
+        `Resuming AI extract — skipped ${stagedByIndex.size} of ${chunks.length} chunks from staging`,
+      );
+    }
+  }
   // Task #296: emit (0, total) before the first chunk so the polling
   // client sees a definitive total as soon as work begins, then
-  // (completed, total) after each chunk finishes. Never lets observer
-  // throws bubble.
+  // (completed, total) after each chunk finishes. Task #328 threads
+  // the resumed-from-staging count through every tick so the polling
+  // client can render "Resumed N of M — re-running K". Never lets
+  // observer throws bubble.
+  const resumedFromStaging = stagedByIndex.size;
   let completedChunks = 0;
   const tickProgress = () => {
     completedChunks++;
     try {
-      onChunkProgress?.(completedChunks, chunks.length);
+      onChunkProgress?.(completedChunks, chunks.length, resumedFromStaging);
     } catch {
       /* observer-only */
     }
   };
   try {
-    onChunkProgress?.(0, chunks.length);
+    onChunkProgress?.(0, chunks.length, resumedFromStaging);
   } catch {
     /* observer-only */
   }
@@ -1388,7 +1438,13 @@ async function aiExtractRowsImpl(
   budget: IngestionBudget,
   allowGeminiFallback: boolean,
   ingestionId: string,
-  onChunkProgress?: (current: number, total: number) => void,
+  onChunkProgress?: (
+    current: number,
+    total: number,
+    resumedFromStaging?: number,
+  ) => void,
+  uploadKey?: string,
+  stageStore?: ChunkStageStore,
 ): Promise<AiExtractResult> {
   const overallStart = Date.now();
   // Wrap the rest of the function in try/catch so a budget trip or any
@@ -1409,6 +1465,8 @@ async function aiExtractRowsImpl(
       allowGeminiFallback,
       ingestionId,
       onChunkProgress,
+      uploadKey,
+      stageStore,
     );
     const summary = budget.summary();
     logIngestDone(log, {
@@ -1455,11 +1513,20 @@ async function runExtraction(
   budget: IngestionBudget,
   allowGeminiFallback: boolean,
   ingestionId: string,
-  onChunkProgress?: (current: number, total: number) => void,
+  onChunkProgress?: (
+    current: number,
+    total: number,
+    resumedFromStaging?: number,
+  ) => void,
+  uploadKey?: string,
+  stageStore?: ChunkStageStore,
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
   // Task #296: never let an observer throw bubble out and tank the
   // extract. Single-call / image / PDF paths emit a single final
   // (1, 1) so the polling client always sees a completion event.
+  // Task #328: the chunked xlsx path threads `resumedFromStaging`
+  // through this same callback; single-call paths never resume, so
+  // we leave the third arg undefined.
   const safeProgress = (current: number, total: number) => {
     try {
       onChunkProgress?.(current, total);
@@ -1623,6 +1690,8 @@ async function runExtraction(
         ingestionId,
         roster,
         onChunkProgress,
+        uploadKey,
+        stageStore,
       );
     }
     attachmentParts.push({
@@ -1789,6 +1858,8 @@ async function runExtraction(
       ingestionId,
       roster,
       onChunkProgress,
+      uploadKey,
+      stageStore,
     );
   }
   // Single-call path completed without re-chunking — emit a final

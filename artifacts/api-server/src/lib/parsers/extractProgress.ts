@@ -22,6 +22,13 @@
 interface ProgressEntry {
   current: number;
   total: number;
+  /**
+   * Task #328: when an upload resumes from staging, how many of `total`
+   * chunks were already complete on a prior attempt and are being
+   * skipped this run. 0 (or undefined) for a fresh upload. Surfaced
+   * in the dispatcher's progress UI as "Resumed N of M — re-running K".
+   */
+  resumedFromStaging?: number;
   updatedAt: number;
 }
 
@@ -39,19 +46,32 @@ export function publishExtractProgress(
   key: string | undefined,
   current: number,
   total: number,
+  resumedFromStaging?: number,
 ): void {
   if (!key) return;
   prune();
-  _byKey.set(key, { current, total, updatedAt: Date.now() });
+  _byKey.set(key, {
+    current,
+    total,
+    resumedFromStaging,
+    updatedAt: Date.now(),
+  });
 }
 
 export function readExtractProgress(
   key: string,
-): { current: number; total: number } | null {
+): { current: number; total: number; resumedFromStaging?: number } | null {
   prune();
   const v = _byKey.get(key);
   if (!v) return null;
-  return { current: v.current, total: v.total };
+  const out: { current: number; total: number; resumedFromStaging?: number } = {
+    current: v.current,
+    total: v.total,
+  };
+  if (v.resumedFromStaging !== undefined) {
+    out.resumedFromStaging = v.resumedFromStaging;
+  }
+  return out;
 }
 
 export function clearExtractProgress(key: string | undefined): void {

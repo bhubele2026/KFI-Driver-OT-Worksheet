@@ -37,3 +37,26 @@ test("clear removes a published key", () => {
   clearExtractProgress("k2");
   assert.equal(readExtractProgress("k2"), null);
 });
+
+// Task #328: the chunked extractor threads its `resumedFromStaging`
+// count through every tick so the polling client can render
+// "Resumed N of M — re-running K" on retried uploads.
+test("publish carries resumedFromStaging through to the snapshot", () => {
+  publishExtractProgress("k3", 0, 70, 42);
+  assert.deepEqual(readExtractProgress("k3"), {
+    current: 0,
+    total: 70,
+    resumedFromStaging: 42,
+  });
+  publishExtractProgress("k3", 5, 70, 42);
+  assert.deepEqual(readExtractProgress("k3"), {
+    current: 5,
+    total: 70,
+    resumedFromStaging: 42,
+  });
+});
+
+test("omitting resumedFromStaging leaves it off the snapshot", () => {
+  publishExtractProgress("k4", 3, 10);
+  assert.deepEqual(readExtractProgress("k4"), { current: 3, total: 10 });
+});

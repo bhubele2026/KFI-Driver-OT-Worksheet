@@ -1706,8 +1706,23 @@ weeksRouter.post(
             budget: aiBudget,
             allowGeminiFallback,
             ingestionId,
-            onChunkProgress: (current, total) =>
-              publishExtractProgress(progressKey, current, total),
+            onChunkProgress: (current, total, resumedFromStaging) =>
+              publishExtractProgress(
+                progressKey,
+                current,
+                total,
+                resumedFromStaging,
+              ),
+            // Task #309: identity for per-chunk resume staging. Same
+            // bytes + same (week, customer) → same key, so a failed
+            // earlier upload's staged chunks short-circuit Claude calls
+            // here.
+            uploadKey: makeUploadKey({
+              contentHash,
+              weekStart: startDate,
+              customer: detectedCustomer,
+            }),
+            stageStore: dbChunkStageStore,
           },
         });
         result = aiResult;
@@ -3547,8 +3562,23 @@ weeksRouter.post(
           budget: aiBudgetNew,
           allowGeminiFallback: allowGeminiFallbackNew,
           ingestionId: ingestionIdNew,
-          onChunkProgress: (current, total) =>
-            publishExtractProgress(progressKey, current, total),
+          onChunkProgress: (current, total, resumedFromStaging) =>
+            publishExtractProgress(
+              progressKey,
+              current,
+              total,
+              resumedFromStaging,
+            ),
+          // Task #309: identity for per-chunk resume staging. The
+          // new-customer path computes its hash off the extract
+          // buffer (post-image-normalize), matching the bytes the
+          // chunker actually sees so a retry hits the same key.
+          uploadKey: makeUploadKey({
+            contentHash: createHash("sha256").update(extractBuffer).digest("hex"),
+            weekStart: startDate,
+            customer,
+          }),
+          stageStore: dbChunkStageStore,
         },
       );
       rows = extracted.rows;

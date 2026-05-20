@@ -1219,6 +1219,7 @@
     "reading": "Reading… {{elapsed}}s",
     "readingHint": "First-time AI read can take a few minutes — next upload of this format will be instant.",
     "readingChunk": "Chunk {{current}} of {{total}}",
+    "readingChunkResumed": "Resumed {{resumed}} of {{total}} chunks — re-running {{remaining}}",
     "uploadButton": "Upload",
     "reuploadButton": "Re-upload",
     "cancelUpload": "Cancel upload",

@@ -28,7 +28,11 @@ export interface RowState {
   uploading: boolean;
   error: string | null;
   uploadStartedAt: number | null;
-  chunkProgress: { current: number; total: number } | null;
+  chunkProgress: {
+    current: number;
+    total: number;
+    resumedFromStaging?: number;
+  } | null;
 }
 
 export interface BulkItem {
@@ -152,7 +156,11 @@ function mintProgressKey(): string {
 function startProgressPolling(
   weekStart: string,
   progressKey: string,
-  onTick: (snap: { current: number; total: number }) => void,
+  onTick: (snap: {
+    current: number;
+    total: number;
+    resumedFromStaging?: number;
+  }) => void,
 ): () => void {
   let stopped = false;
   const url = `${import.meta.env.BASE_URL}api/weeks/${weekStart}/extract-progress/${progressKey}`;
@@ -163,14 +171,24 @@ function startProgressPolling(
       if (stopped) return;
       if (res.status === 200) {
         const body = (await res.json().catch(() => null)) as
-          | { current?: number; total?: number }
+          | {
+              current?: number;
+              total?: number;
+              resumedFromStaging?: number;
+            }
           | null;
         if (
           body &&
           typeof body.current === "number" &&
           typeof body.total === "number"
         ) {
-          onTick({ current: body.current, total: body.total });
+          onTick({
+            current: body.current,
+            total: body.total,
+            ...(typeof body.resumedFromStaging === "number"
+              ? { resumedFromStaging: body.resumedFromStaging }
+              : {}),
+          });
         }
       }
     } catch {
