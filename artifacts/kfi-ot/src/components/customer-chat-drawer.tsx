@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, Send, MessageSquare, CheckCircle2, X } from "lucide-react";
+import {
+  Loader2,
+  Send,
+  MessageSquare,
+  CheckCircle2,
+  X,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+} from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -21,6 +30,7 @@ import {
 import type {
   CustomerUploadChatMessage,
   ProposedFix,
+  ChatFileEvidence,
 } from "@workspace/api-client-react";
 
 interface Props {
@@ -277,6 +287,7 @@ function ChatMessage(props: {
 
   const isUser = m.role === "user";
   const fix = m.proposedFix as ProposedFix | null;
+  const evidence = (m.fileEvidence ?? null) as ChatFileEvidence | null;
   const resolved = !!m.appliedAt || !!m.dismissedAt;
 
   return (
@@ -319,6 +330,7 @@ function ChatMessage(props: {
             <pre className="font-mono text-[10px] whitespace-pre-wrap overflow-x-auto">
               {JSON.stringify(fix, null, 2)}
             </pre>
+            {evidence && <FileEvidenceBlock evidence={evidence} />}
             {!resolved && (
               <div className="mt-2 space-y-2">
                 <div>
@@ -368,6 +380,118 @@ function ChatMessage(props: {
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Task #420: collapsible "Evidence from file" block rendered beside
+ * a proposed fix. Lists the rows the assistant pulled from the
+ * uploaded customer file via `read_upload_file_rows` during the
+ * turn — driver, date, in, out, hours — so the dispatcher can
+ * sanity-check the proposal without re-opening the spreadsheet.
+ * Defaults to open when the row count is small (≤3) since the
+ * dispatcher almost always wants to glance at it; collapses
+ * otherwise to keep long lists from dominating the chat.
+ */
+function FileEvidenceBlock({ evidence }: { evidence: ChatFileEvidence }) {
+  const total = evidence.resolvedRows.length + evidence.pendingRows.length;
+  const [open, setOpen] = useState(total <= 3);
+  return (
+    <div
+      className="mt-2 rounded border border-dashed bg-muted/40 text-foreground p-2 text-xs"
+      data-testid="chat-file-evidence"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 w-full text-left font-medium hover:text-primary"
+        data-testid="chat-file-evidence-toggle"
+      >
+        {open ? (
+          <ChevronDown className="h-3 w-3 shrink-0" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0" />
+        )}
+        <FileText className="h-3 w-3 shrink-0" />
+        <span>
+          Evidence from file ({total} row{total === 1 ? "" : "s"})
+        </span>
+        <span className="ml-1 text-[10px] text-muted-foreground truncate">
+          {evidence.fileName}
+        </span>
+      </button>
+      {open && (
+        <div className="mt-1.5 space-y-1.5">
+          {evidence.resolvedRows.length > 0 && (
+            <EvidenceTable
+              caption="Matched to a driver"
+              headers={["Driver", "Date", "In", "Out", "Hours"]}
+              rows={evidence.resolvedRows.map((r) => [
+                r.driverName ?? `kfiId ${r.kfiId}`,
+                r.date,
+                r.clockIn,
+                r.clockOut,
+                r.hours == null ? "—" : r.hours.toString(),
+              ])}
+              testId="chat-file-evidence-resolved"
+            />
+          )}
+          {evidence.pendingRows.length > 0 && (
+            <EvidenceTable
+              caption="Name on doc — not yet aliased"
+              headers={["Name on doc", "Date", "In", "Out", "Hours"]}
+              rows={evidence.pendingRows.map((r) => [
+                r.driverNameOnDoc,
+                r.date,
+                r.timeIn ?? "—",
+                r.timeOut ?? "—",
+                r.hours == null ? "—" : r.hours.toString(),
+              ])}
+              testId="chat-file-evidence-pending"
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EvidenceTable(props: {
+  caption: string;
+  headers: string[];
+  rows: string[][];
+  testId: string;
+}) {
+  return (
+    <div data-testid={props.testId}>
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">
+        {props.caption}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full font-mono text-[10px]">
+          <thead>
+            <tr className="text-muted-foreground">
+              {props.headers.map((h) => (
+                <th key={h} className="text-left font-normal pr-2 pb-0.5">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {props.rows.map((cells, i) => (
+              <tr key={i}>
+                {cells.map((c, j) => (
+                  <td key={j} className="pr-2 align-top">
+                    {c}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

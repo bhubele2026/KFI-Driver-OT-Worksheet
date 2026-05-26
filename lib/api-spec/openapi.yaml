@@ -4591,6 +4591,49 @@ components:
             hint: { type: string }
             sampleId: { type: ["integer", "null"] }
 
+    ChatFileEvidenceResolvedRow:
+      type: object
+      required: [kfiId, date, clockIn, clockOut]
+      properties:
+        kfiId: { type: string }
+        driverName:
+          type: ["string", "null"]
+        date: { type: string }
+        clockIn: { type: string }
+        clockOut: { type: string }
+        hours:
+          type: ["number", "null"]
+        payType:
+          type: ["string", "null"]
+
+    ChatFileEvidencePendingRow:
+      type: object
+      required: [driverNameOnDoc, date]
+      properties:
+        driverNameOnDoc: { type: string }
+        badgeOrId:
+          type: ["string", "null"]
+        date: { type: string }
+        timeIn:
+          type: ["string", "null"]
+        timeOut:
+          type: ["string", "null"]
+        hours:
+          type: ["number", "null"]
+
+    ChatFileEvidence:
+      type: object
+      required: [sampleId, fileName, resolvedRows, pendingRows]
+      properties:
+        sampleId: { type: integer }
+        fileName: { type: string }
+        resolvedRows:
+          type: array
+          items: { $ref: "#/components/schemas/ChatFileEvidenceResolvedRow" }
+        pendingRows:
+          type: array
+          items: { $ref: "#/components/schemas/ChatFileEvidencePendingRow" }
+
     CustomerUploadChatMessage:
       type: object
       required: [id, chatId, role, content, createdAt]
@@ -4605,6 +4648,10 @@ components:
             - type: "null"
         proposedLesson:
           type: ["string", "null"]
+        fileEvidence:
+          oneOf:
+            - $ref: "#/components/schemas/ChatFileEvidence"
+            - type: "null"
         appliedAt:
           type: ["string", "null"]
           format: date-time

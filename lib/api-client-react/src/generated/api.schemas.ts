@@ -2054,6 +2054,39 @@ export type ProposedFix =
       sampleId?: number | null;
     };
 
+export interface ChatFileEvidenceResolvedRow {
+  kfiId: string;
+  /** @nullable */
+  driverName?: string | null;
+  date: string;
+  clockIn: string;
+  clockOut: string;
+  /** @nullable */
+  hours?: number | null;
+  /** @nullable */
+  payType?: string | null;
+}
+
+export interface ChatFileEvidencePendingRow {
+  driverNameOnDoc: string;
+  /** @nullable */
+  badgeOrId?: string | null;
+  date: string;
+  /** @nullable */
+  timeIn?: string | null;
+  /** @nullable */
+  timeOut?: string | null;
+  /** @nullable */
+  hours?: number | null;
+}
+
+export interface ChatFileEvidence {
+  sampleId: number;
+  fileName: string;
+  resolvedRows: ChatFileEvidenceResolvedRow[];
+  pendingRows: ChatFileEvidencePendingRow[];
+}
+
 export type CustomerUploadChatMessageRole =
   (typeof CustomerUploadChatMessageRole)[keyof typeof CustomerUploadChatMessageRole];
 
@@ -2071,6 +2104,7 @@ export interface CustomerUploadChatMessage {
   proposedFix?: ProposedFix | null;
   /** @nullable */
   proposedLesson?: string | null;
+  fileEvidence?: ChatFileEvidence | null;
   /** @nullable */
   appliedAt?: string | null;
   /** @nullable */

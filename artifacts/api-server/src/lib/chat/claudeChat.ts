@@ -9,7 +9,7 @@ import {
 } from "../parsers/claude.js";
 import { getModelClient } from "../parsers/modelClient.js";
 import { loadLessonsForPrompt } from "./lessonsStore.js";
-import type { ProposedFix } from "@workspace/db/schema";
+import type { ProposedFix, FileEvidence } from "@workspace/db/schema";
 import type {
   StashedExtractedPunch,
   PendingNamedRow,
@@ -70,6 +70,14 @@ export interface ChatTurnResult {
   proposedFix: ProposedFix | null;
   /** The lesson text Claude attached to the proposed fix, if any. */
   proposedLesson: string | null;
+  /**
+   * Task #420: rows the assistant read from the uploaded file via
+   * `read_upload_file_rows` during this turn, surfaced to the
+   * dispatcher as a collapsible evidence block beside the proposed
+   * fix. `null` when no file-row read happened (or the file was
+   * unavailable / over-budget).
+   */
+  fileEvidence: FileEvidence | null;
   /** Diagnostics for the chat audit row. */
   toolCallCount: number;
   inputTokens: number;
@@ -91,7 +99,56 @@ interface ChatToolCtx {
   weekStart: string;
   customer: string;
   cache: ChatToolCache;
+  /**
+   * Task #420: accumulates de-duplicated rows returned by
+   * `read_upload_file_rows` across all calls within a single user
+   * turn. Surfaced to the dispatcher beside the proposed fix.
+   */
+  evidence: EvidenceAccumulator;
   log?: { warn: (obj: Record<string, unknown>, msg: string) => void };
+}
+
+/**
+ * Task #420: per-turn evidence collector. Each
+ * `read_upload_file_rows` call merges its resolved + pending rows
+ * here, keyed for de-duplication so a runaway Claude that calls the
+ * same filter five times only ever appears as a single row to the
+ * dispatcher.
+ */
+class EvidenceAccumulator {
+  private sampleId: number | null = null;
+  private fileName = "";
+  private resolved = new Map<string, FileEvidence["resolvedRows"][number]>();
+  private pending = new Map<string, FileEvidence["pendingRows"][number]>();
+
+  record(
+    sampleId: number,
+    fileName: string,
+    resolvedRows: FileEvidence["resolvedRows"],
+    pendingRows: FileEvidence["pendingRows"],
+  ): void {
+    this.sampleId = sampleId;
+    this.fileName = fileName;
+    for (const r of resolvedRows) {
+      const key = `${r.kfiId}|${r.date}|${r.clockIn}|${r.clockOut}`;
+      if (!this.resolved.has(key)) this.resolved.set(key, r);
+    }
+    for (const r of pendingRows) {
+      const key = `${r.driverNameOnDoc}|${r.date}|${r.timeIn ?? ""}|${r.timeOut ?? ""}`;
+      if (!this.pending.has(key)) this.pending.set(key, r);
+    }
+  }
+
+  build(): FileEvidence | null {
+    if (this.sampleId === null) return null;
+    if (this.resolved.size === 0 && this.pending.size === 0) return null;
+    return {
+      sampleId: this.sampleId,
+      fileName: this.fileName,
+      resolvedRows: [...this.resolved.values()],
+      pendingRows: [...this.pending.values()],
+    };
+  }
 }
 
 interface UploadSampleCache {
@@ -175,10 +232,12 @@ export async function runChatTurn(input: ChatTurnInput): Promise<ChatTurnResult>
   // Task #419: per-turn cache so file-read tools load the sample row
   // (and PDF/xlsx text serialization) at most once per turn.
   const cache = new ChatToolCache();
+  const evidence = new EvidenceAccumulator();
   const toolCtx: ChatToolCtx = {
     weekStart: input.weekStart,
     customer: input.customer,
     cache,
+    evidence,
   };
 
   const messages: Anthropic.Messages.MessageParam[] = [];
@@ -252,6 +311,7 @@ export async function runChatTurn(input: ChatTurnInput): Promise<ChatTurnResult>
     assistantText: assistantText.trim() || "(no reply)",
     proposedFix,
     proposedLesson,
+    fileEvidence: evidence.build(),
     toolCallCount,
     inputTokens: totalIn,
     outputTokens: totalOut,
@@ -742,6 +802,12 @@ async function runReadUploadFileRows(
   if (tripped) {
     return { resultText: tripped, isError: true };
   }
+  // Task #420: stash the rows we just returned to Claude so the
+  // dispatcher can see them on the proposed-fix card. Recorded only
+  // after the byte-budget check passes — over-budget reads are not
+  // surfaced to Claude and so shouldn't be surfaced to the dispatcher
+  // either.
+  ctx.evidence.record(sample.id, sample.fileName, resolved, pending);
   return { resultText: body };
 }
 
@@ -1057,6 +1123,7 @@ export const _internals = {
   runTool,
   CHAT_MODEL,
   ChatToolCache,
+  EvidenceAccumulator,
   CHAT_FILE_READ_MAX_CALLS,
   CHAT_FILE_READ_MAX_BYTES,
   setOcrOverride,

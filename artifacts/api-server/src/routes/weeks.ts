@@ -8074,6 +8074,7 @@ async function serializeChatMessage(
     content: m.content,
     proposedFix: m.proposedFix ?? null,
     proposedLesson: m.proposedLesson ?? null,
+    fileEvidence: m.fileEvidence ?? null,
     appliedAt: m.appliedAt ? new Date(m.appliedAt).toISOString() : null,
     appliedByEmail: m.appliedBy ? e.get(m.appliedBy) ?? null : null,
     dismissedAt: m.dismissedAt ? new Date(m.dismissedAt).toISOString() : null,
@@ -8291,6 +8292,7 @@ weeksRouter.post(
         content: turn.assistantText,
         proposedFix: turn.proposedFix,
         proposedLesson: turn.proposedLesson,
+        fileEvidence: turn.fileEvidence,
       })
       .returning();
     req.log.info(

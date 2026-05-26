@@ -5,6 +5,7 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { ChatFileEvidence } from "./chatFileEvidence";
 import type { CustomerUploadChatMessageRole } from "./customerUploadChatMessageRole";
 import type { ProposedFix } from "./proposedFix";
 
@@ -16,6 +17,7 @@ export interface CustomerUploadChatMessage {
   proposedFix?: ProposedFix | null;
   /** @nullable */
   proposedLesson?: string | null;
+  fileEvidence?: ChatFileEvidence | null;
   /** @nullable */
   appliedAt?: Date | null;
   /** @nullable */

@@ -13,6 +13,17 @@ import { _internals, type UploadSampleCache } from "../claudeChat.js";
  * `ToolUseBlock` — no API key, no SDK calls.
  */
 
+function makeCtx(
+  cache: InstanceType<typeof _internals.ChatToolCache> = new _internals.ChatToolCache(),
+) {
+  return {
+    weekStart: "2026-01-04",
+    customer: "Acme",
+    cache,
+    evidence: new _internals.EvidenceAccumulator(),
+  };
+}
+
 function call(name: string, input: Record<string, unknown>) {
   return _internals.runTool(
     {
@@ -21,11 +32,7 @@ function call(name: string, input: Record<string, unknown>) {
       name,
       input,
     } as unknown as Parameters<typeof _internals.runTool>[0],
-    {
-      weekStart: "2026-01-04",
-      customer: "Acme",
-      cache: new _internals.ChatToolCache(),
-    },
+    makeCtx(),
   );
 }
 
@@ -43,7 +50,7 @@ function callWithSample(
       name,
       input,
     } as unknown as Parameters<typeof _internals.runTool>[0],
-    { weekStart: "2026-01-04", customer: "Acme", cache },
+    makeCtx(cache),
   );
 }
 
@@ -236,6 +243,83 @@ test("read_upload_file_rows: returns resolved + pending rows from stash", async 
   assert.equal(body.pendingRows[0].timeIn, "6:00 AM");
 });
 
+test("read_upload_file_rows: records de-duplicated evidence rows for the turn", async () => {
+  // Task #420: every successful row-read records the returned rows
+  // on the per-turn evidence accumulator so the dispatcher can see
+  // exactly what the assistant looked at. Repeated calls within the
+  // same turn de-dupe by (kfiId, date, in, out) for resolved rows.
+  const cache = new _internals.ChatToolCache();
+  cache.preloadSample(makeSample());
+  const ctx = makeCtx(cache);
+  await _internals.runTool(
+    {
+      type: "tool_use",
+      id: "tu_ev_1",
+      name: "read_upload_file_rows",
+      input: { date: "2026-01-06" },
+    } as unknown as Parameters<typeof _internals.runTool>[0],
+    ctx,
+  );
+  await _internals.runTool(
+    {
+      type: "tool_use",
+      id: "tu_ev_2",
+      name: "read_upload_file_rows",
+      input: { date: "2026-01-07" },
+    } as unknown as Parameters<typeof _internals.runTool>[0],
+    ctx,
+  );
+  // Second filter for the same date — should NOT duplicate.
+  await _internals.runTool(
+    {
+      type: "tool_use",
+      id: "tu_ev_3",
+      name: "read_upload_file_rows",
+      input: { date: "2026-01-06" },
+    } as unknown as Parameters<typeof _internals.runTool>[0],
+    ctx,
+  );
+  // Empty filter — picks up the pending row too.
+  await _internals.runTool(
+    {
+      type: "tool_use",
+      id: "tu_ev_4",
+      name: "read_upload_file_rows",
+      input: {},
+    } as unknown as Parameters<typeof _internals.runTool>[0],
+    ctx,
+  );
+  const built = ctx.evidence.build();
+  assert.ok(built, "expected evidence to be populated");
+  assert.equal(built!.sampleId, 1);
+  assert.equal(built!.fileName, "acme.xlsx");
+  assert.equal(built!.resolvedRows.length, 2, "de-duped to two unique resolved rows");
+  assert.equal(built!.pendingRows.length, 1);
+  assert.equal(built!.resolvedRows[0].kfiId, "100");
+  assert.equal(built!.pendingRows[0].driverNameOnDoc, "Willie Medina");
+});
+
+test("evidence accumulator stays null when no rows are returned", async () => {
+  // Task #420: a turn that never calls read_upload_file_rows (or
+  // calls it without a stashed sample) should not surface an empty
+  // "Evidence from file" card.
+  const ev = new _internals.EvidenceAccumulator();
+  assert.equal(ev.build(), null);
+  const cache = new _internals.ChatToolCache();
+  cache.preloadSample(null);
+  const ctx = makeCtx(cache);
+  await _internals.runTool(
+    {
+      type: "tool_use",
+      id: "tu_no_sample",
+      name: "read_upload_file_rows",
+      input: {},
+    } as unknown as Parameters<typeof _internals.runTool>[0],
+    ctx,
+  );
+  assert.equal(ctx.evidence.build(), null);
+});
+
 test("read_upload_file_rows: date + kfiId filters narrow the response", async () => {
   const r = await callWithSample(
     "read_upload_file_rows",
@@ -312,7 +396,7 @@ test("read_upload_file_raw: rejects unsupported file types with a clear error", 
 test("read budget caps total reads per turn", async () => {
   const cache = new _internals.ChatToolCache();
   cache.preloadSample(makeSample());
-  const ctx = { weekStart: "2026-01-04", customer: "Acme", cache };
+  const ctx = makeCtx(cache);
   let lastErr: { isError?: boolean; resultText: string } | null = null;
   for (let i = 0; i < _internals.CHAT_FILE_READ_MAX_CALLS + 2; i++) {
     lastErr = await _internals.runTool(
@@ -342,7 +426,7 @@ test("over-budget raw read does NOT invoke the parser (DoS guard)", async () => 
     parserInvoked = true;
     return orig(ctx);
   };
-  const ctx = { weekStart: "2026-01-04", customer: "Acme", cache };
+  const ctx = makeCtx(cache);
   // Exhaust the call budget with cheap row reads first.
   for (let i = 0; i < _internals.CHAT_FILE_READ_MAX_CALLS; i++) {
     await _internals.runTool(
@@ -374,7 +458,7 @@ test("over-budget raw read does NOT invoke the parser (DoS guard)", async () => 
 test("no-sample read still counts against the call budget", async () => {
   const cache = new _internals.ChatToolCache();
   cache.preloadSample(null);
-  const ctx = { weekStart: "2026-01-04", customer: "Acme", cache };
+  const ctx = makeCtx(cache);
   for (let i = 0; i < _internals.CHAT_FILE_READ_MAX_CALLS; i++) {
     const r = await _internals.runTool(
       {

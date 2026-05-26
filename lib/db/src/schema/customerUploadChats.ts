@@ -93,6 +93,40 @@ export type ProposedFix =
       sampleId?: number;
     };
 
+/**
+ * Task #420: rows the assistant pulled from the uploaded customer
+ * file (via `read_upload_file_rows`) on the turn that produced the
+ * proposed fix. Surfaced to the dispatcher as a collapsible
+ * "Evidence from file" block so they can sanity-check the proposal
+ * without re-opening the spreadsheet. Stored on the assistant
+ * message row at turn-write time.
+ *
+ * Rows are de-duplicated across multiple tool calls within the same
+ * turn — a runaway loop calling the same filter five times only
+ * persists the rows once.
+ */
+export type FileEvidence = {
+  sampleId: number;
+  fileName: string;
+  resolvedRows: Array<{
+    kfiId: string;
+    driverName: string | null;
+    date: string;
+    clockIn: string;
+    clockOut: string;
+    hours: number | null;
+    payType: string | null;
+  }>;
+  pendingRows: Array<{
+    driverNameOnDoc: string;
+    badgeOrId: string | null;
+    date: string;
+    timeIn: string | null;
+    timeOut: string | null;
+    hours: number | null;
+  }>;
+};
+
 export const customerUploadChatMessagesTable = pgTable(
   "customer_upload_chat_messages",
   {
@@ -106,6 +140,13 @@ export const customerUploadChatMessagesTable = pgTable(
     proposedFix: jsonb("proposed_fix").$type<ProposedFix | null>(),
     /** Optional one-line lesson Claude wants to remember. */
     proposedLesson: text("proposed_lesson"),
+    /**
+     * Task #420: rows pulled from the uploaded customer file via the
+     * `read_upload_file_rows` tool during this turn. Surfaced to the
+     * dispatcher as a collapsible "Evidence from file" block beside
+     * the proposed fix so they can sanity-check it.
+     */
+    fileEvidence: jsonb("file_evidence").$type<FileEvidence | null>(),
     /** When the dispatcher applied the proposed fix (if ever). */
     appliedAt: timestamp("applied_at", { withTimezone: true }),
     appliedBy: integer("applied_by"),

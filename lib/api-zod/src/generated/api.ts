@@ -3873,6 +3873,36 @@ export const GetCustomerUploadChatResponse = zod.object({
         ])
         .optional(),
       proposedLesson: zod.string().nullish(),
+      fileEvidence: zod
+        .union([
+          zod.object({
+            sampleId: zod.number(),
+            fileName: zod.string(),
+            resolvedRows: zod.array(
+              zod.object({
+                kfiId: zod.string(),
+                driverName: zod.string().nullish(),
+                date: zod.string(),
+                clockIn: zod.string(),
+                clockOut: zod.string(),
+                hours: zod.number().nullish(),
+                payType: zod.string().nullish(),
+              }),
+            ),
+            pendingRows: zod.array(
+              zod.object({
+                driverNameOnDoc: zod.string(),
+                badgeOrId: zod.string().nullish(),
+                date: zod.string(),
+                timeIn: zod.string().nullish(),
+                timeOut: zod.string().nullish(),
+                hours: zod.number().nullish(),
+              }),
+            ),
+          }),
+          zod.null(),
+        ])
+        .optional(),
       appliedAt: zod.coerce.date().nullish(),
       appliedByEmail: zod.string().nullish(),
       dismissedAt: zod.coerce.date().nullish(),
@@ -3988,6 +4018,36 @@ export const PostCustomerUploadChatMessageResponse = zod.object({
     ])
     .optional(),
   proposedLesson: zod.string().nullish(),
+  fileEvidence: zod
+    .union([
+      zod.object({
+        sampleId: zod.number(),
+        fileName: zod.string(),
+        resolvedRows: zod.array(
+          zod.object({
+            kfiId: zod.string(),
+            driverName: zod.string().nullish(),
+            date: zod.string(),
+            clockIn: zod.string(),
+            clockOut: zod.string(),
+            hours: zod.number().nullish(),
+            payType: zod.string().nullish(),
+          }),
+        ),
+        pendingRows: zod.array(
+          zod.object({
+            driverNameOnDoc: zod.string(),
+            badgeOrId: zod.string().nullish(),
+            date: zod.string(),
+            timeIn: zod.string().nullish(),
+            timeOut: zod.string().nullish(),
+            hours: zod.number().nullish(),
+          }),
+        ),
+      }),
+      zod.null(),
+    ])
+    .optional(),
   appliedAt: zod.coerce.date().nullish(),
   appliedByEmail: zod.string().nullish(),
   dismissedAt: zod.coerce.date().nullish(),
@@ -4077,6 +4137,36 @@ export const ApplyCustomerUploadChatFixResponse = zod.object({
       ])
       .optional(),
     proposedLesson: zod.string().nullish(),
+    fileEvidence: zod
+      .union([
+        zod.object({
+          sampleId: zod.number(),
+          fileName: zod.string(),
+          resolvedRows: zod.array(
+            zod.object({
+              kfiId: zod.string(),
+              driverName: zod.string().nullish(),
+              date: zod.string(),
+              clockIn: zod.string(),
+              clockOut: zod.string(),
+              hours: zod.number().nullish(),
+              payType: zod.string().nullish(),
+            }),
+          ),
+          pendingRows: zod.array(
+            zod.object({
+              driverNameOnDoc: zod.string(),
+              badgeOrId: zod.string().nullish(),
+              date: zod.string(),
+              timeIn: zod.string().nullish(),
+              timeOut: zod.string().nullish(),
+              hours: zod.number().nullish(),
+            }),
+          ),
+        }),
+        zod.null(),
+      ])
+      .optional(),
     appliedAt: zod.coerce.date().nullish(),
     appliedByEmail: zod.string().nullish(),
     dismissedAt: zod.coerce.date().nullish(),
@@ -4193,6 +4283,36 @@ export const DismissCustomerUploadChatFixResponse = zod.object({
     ])
     .optional(),
   proposedLesson: zod.string().nullish(),
+  fileEvidence: zod
+    .union([
+      zod.object({
+        sampleId: zod.number(),
+        fileName: zod.string(),
+        resolvedRows: zod.array(
+          zod.object({
+            kfiId: zod.string(),
+            driverName: zod.string().nullish(),
+            date: zod.string(),
+            clockIn: zod.string(),
+            clockOut: zod.string(),
+            hours: zod.number().nullish(),
+            payType: zod.string().nullish(),
+          }),
+        ),
+        pendingRows: zod.array(
+          zod.object({
+            driverNameOnDoc: zod.string(),
+            badgeOrId: zod.string().nullish(),
+            date: zod.string(),
+            timeIn: zod.string().nullish(),
+            timeOut: zod.string().nullish(),
+            hours: zod.number().nullish(),
+          }),
+        ),
+      }),
+      zod.null(),
+    ])
+    .optional(),
   appliedAt: zod.coerce.date().nullish(),
   appliedByEmail: zod.string().nullish(),
   dismissedAt: zod.coerce.date().nullish(),
