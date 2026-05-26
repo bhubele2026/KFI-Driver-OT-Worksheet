@@ -60,6 +60,8 @@ import {
   loadCustomers,
 } from "../lib/customersStore.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
+import { loadLessonsForPrompt } from "../lib/chat/lessonsStore.js";
+import { runChatTurn } from "../lib/chat/claudeChat.js";
 import { releaseIngestion } from "../lib/parsers/modelClient.js";
 import {
   publishExtractProgress,
@@ -4213,6 +4215,9 @@ weeksRouter.post(
             customer,
           }),
           stageStore: dbChunkStageStore,
+          // Task #406: prepend any saved lessons for this customer so
+          // past dispatcher corrections shape this extraction.
+          lessons: await loadLessonsForPrompt(customer),
         },
       );
       rows = extracted.rows;
@@ -7984,3 +7989,633 @@ weeksRouter.post("/editing", (req, res) => {
 weeksRouter.get("/admin/realtime", requireAdmin, (_req, res) => {
   res.json(realtimeSnapshot());
 });
+
+// ──────────────────────────────────────────────────────────────────
+// Task #406: per-customer Claude chat to fix uploads
+// ──────────────────────────────────────────────────────────────────
+
+async function findOrCreateChat(weekStart: string, customer: string, userId: number | null) {
+  const existing = await db
+    .select()
+    .from(schema.customerUploadChatsTable)
+    .where(
+      and(
+        eq(schema.customerUploadChatsTable.weekStart, weekStart),
+        eq(schema.customerUploadChatsTable.customer, customer),
+      ),
+    )
+    .limit(1);
+  if (existing.length > 0) return existing[0];
+  const [row] = await db
+    .insert(schema.customerUploadChatsTable)
+    .values({ weekStart, customer, createdBy: userId })
+    .returning();
+  return row;
+}
+
+async function loadEmailsByIds(ids: ReadonlyArray<number | null | undefined>): Promise<Map<number, string>> {
+  const filtered = [...new Set(ids.filter((x): x is number => typeof x === "number"))];
+  if (filtered.length === 0) return new Map();
+  const rows = await db
+    .select({ id: schema.usersTable.id, email: schema.usersTable.email })
+    .from(schema.usersTable)
+    .where(inArray(schema.usersTable.id, filtered));
+  return new Map(rows.map((r) => [r.id, r.email]));
+}
+
+async function serializeChat(
+  c: typeof schema.customerUploadChatsTable.$inferSelect,
+): Promise<Record<string, unknown>> {
+  const emails = await loadEmailsByIds([c.createdBy]);
+  return {
+    id: c.id,
+    weekStart: c.weekStart,
+    customer: c.customer,
+    createdAt: new Date(c.createdAt).toISOString(),
+    createdByEmail: c.createdBy ? emails.get(c.createdBy) ?? null : null,
+  };
+}
+
+async function serializeChatMessage(
+  m: typeof schema.customerUploadChatMessagesTable.$inferSelect,
+  emails?: Map<number, string>,
+): Promise<Record<string, unknown>> {
+  const e =
+    emails ??
+    (await loadEmailsByIds([m.authorUserId, m.appliedBy, m.dismissedBy]));
+  return {
+    id: m.id,
+    chatId: m.chatId,
+    role: m.role,
+    content: m.content,
+    proposedFix: m.proposedFix ?? null,
+    proposedLesson: m.proposedLesson ?? null,
+    appliedAt: m.appliedAt ? new Date(m.appliedAt).toISOString() : null,
+    appliedByEmail: m.appliedBy ? e.get(m.appliedBy) ?? null : null,
+    dismissedAt: m.dismissedAt ? new Date(m.dismissedAt).toISOString() : null,
+    dismissedByEmail: m.dismissedBy ? e.get(m.dismissedBy) ?? null : null,
+    authorEmail: m.authorUserId ? e.get(m.authorUserId) ?? null : null,
+    createdAt: new Date(m.createdAt).toISOString(),
+  };
+}
+
+async function serializeLesson(
+  l: typeof schema.customerExtractionLessonsTable.$inferSelect,
+  emails?: Map<number, string>,
+): Promise<Record<string, unknown>> {
+  const e = emails ?? (await loadEmailsByIds([l.createdBy, l.updatedBy]));
+  return {
+    id: l.id,
+    customer: l.customer,
+    lessonText: l.lessonText,
+    active: l.active,
+    createdAt: new Date(l.createdAt).toISOString(),
+    updatedAt: new Date(l.updatedAt).toISOString(),
+    createdByEmail: l.createdBy ? e.get(l.createdBy) ?? null : null,
+    updatedByEmail: l.updatedBy ? e.get(l.updatedBy) ?? null : null,
+    createdFromChatMessageId: l.createdFromChatMessageId ?? null,
+  };
+}
+
+weeksRouter.get(
+  "/weeks/:weekStart/customer-chat/:customer",
+  async (req, res) => {
+    const weekStart = req.params.weekStart;
+    const customer = decodeURIComponent(req.params.customer ?? "").trim();
+    if (!isWeek(weekStart) || !customer) {
+      res.status(400).json({ error: "Invalid week or customer" });
+      return;
+    }
+    const chat = await findOrCreateChat(weekStart, customer, req.session.userId ?? null);
+    const messages = await db
+      .select()
+      .from(schema.customerUploadChatMessagesTable)
+      .where(eq(schema.customerUploadChatMessagesTable.chatId, chat.id))
+      .orderBy(asc(schema.customerUploadChatMessagesTable.createdAt));
+    const lessons = await db
+      .select()
+      .from(schema.customerExtractionLessonsTable)
+      .where(
+        and(
+          sql`lower(${schema.customerExtractionLessonsTable.customer}) = lower(${customer})`,
+          eq(schema.customerExtractionLessonsTable.active, true),
+        ),
+      )
+      .orderBy(desc(schema.customerExtractionLessonsTable.createdAt));
+    const customerPunchCountRows = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.punchesTable)
+      .where(
+        and(
+          eq(schema.punchesTable.weekStart, weekStart),
+          sql`lower(coalesce(${schema.punchesTable.customer}, '')) = lower(${customer})`,
+        ),
+      );
+    const lastSample = await db
+      .select({
+        fileName: schema.aiExtractSamplesTable.fileName,
+      })
+      .from(schema.aiExtractSamplesTable)
+      .where(
+        and(
+          eq(schema.aiExtractSamplesTable.weekStart, weekStart),
+          sql`lower(${schema.aiExtractSamplesTable.customer}) = lower(${customer})`,
+        ),
+      )
+      .orderBy(desc(schema.aiExtractSamplesTable.uploadedAt))
+      .limit(1);
+    const lockedKfiIds = await loadLockedKfiIds(weekStart);
+    const allEmails = await loadEmailsByIds([
+      chat.createdBy,
+      ...messages.flatMap((m) => [m.authorUserId, m.appliedBy, m.dismissedBy]),
+      ...lessons.flatMap((l) => [l.createdBy, l.updatedBy]),
+    ]);
+    res.json({
+      chat: await serializeChat(chat),
+      messages: await Promise.all(messages.map((m) => serializeChatMessage(m, allEmails))),
+      lessons: await Promise.all(lessons.map((l) => serializeLesson(l, allEmails))),
+      customerPunchCount: customerPunchCountRows[0]?.n ?? 0,
+      lastFileName: lastSample[0]?.fileName ?? null,
+      lockedKfiIds: [...lockedKfiIds],
+    });
+  },
+);
+
+weeksRouter.post(
+  "/weeks/:weekStart/customer-chat/:customer/messages",
+  async (req, res) => {
+    const weekStart = req.params.weekStart;
+    const customer = decodeURIComponent(req.params.customer ?? "").trim();
+    if (!isWeek(weekStart) || !customer) {
+      res.status(400).json({ error: "Invalid week or customer" });
+      return;
+    }
+    const contentRaw = String((req.body as { content?: unknown })?.content ?? "").trim();
+    if (!contentRaw || contentRaw.length > 4000) {
+      res.status(400).json({ error: "content is required (1–4000 chars)" });
+      return;
+    }
+    const chat = await findOrCreateChat(weekStart, customer, req.session.userId ?? null);
+    // Persist the user turn before calling Claude so the tool layer's
+    // history list (rebuilt from the DB on the next call) stays consistent
+    // even if the Claude call throws.
+    await db.insert(schema.customerUploadChatMessagesTable).values({
+      chatId: chat.id,
+      role: "user",
+      content: contentRaw,
+      authorUserId: req.session.userId ?? null,
+    });
+    const history = await db
+      .select({
+        role: schema.customerUploadChatMessagesTable.role,
+        content: schema.customerUploadChatMessagesTable.content,
+      })
+      .from(schema.customerUploadChatMessagesTable)
+      .where(eq(schema.customerUploadChatMessagesTable.chatId, chat.id))
+      .orderBy(asc(schema.customerUploadChatMessagesTable.createdAt));
+    // Slice off the just-inserted user message — runChatTurn takes it
+    // separately as the "current" turn.
+    const prior = history.slice(0, -1).filter(
+      (h): h is { role: "user" | "assistant"; content: string } =>
+        h.role === "user" || h.role === "assistant",
+    );
+    let turn;
+    try {
+      turn = await runChatTurn({
+        weekStart,
+        customer,
+        history: prior,
+        userMessage: contentRaw,
+      });
+    } catch (err) {
+      req.log.error({ err, chatId: chat.id }, "chat turn failed");
+      const msg = err instanceof Error ? err.message : "chat turn failed";
+      // Persist the failure as an assistant turn so the UI can render it
+      // instead of a silent dead-end.
+      const [failRow] = await db
+        .insert(schema.customerUploadChatMessagesTable)
+        .values({
+          chatId: chat.id,
+          role: "assistant",
+          content: `Sorry — I couldn't process that request: ${msg}`,
+        })
+        .returning();
+      res.status(/budget/i.test(msg) ? 402 : 400).json(await serializeChatMessage(failRow));
+      return;
+    }
+    const [assistantRow] = await db
+      .insert(schema.customerUploadChatMessagesTable)
+      .values({
+        chatId: chat.id,
+        role: "assistant",
+        content: turn.assistantText,
+        proposedFix: turn.proposedFix,
+        proposedLesson: turn.proposedLesson,
+      })
+      .returning();
+    req.log.info(
+      {
+        chatId: chat.id,
+        toolCalls: turn.toolCallCount,
+        inputTokens: turn.inputTokens,
+        outputTokens: turn.outputTokens,
+        proposedKind: turn.proposedFix?.kind ?? null,
+      },
+      "chat turn complete",
+    );
+    res.json(await serializeChatMessage(assistantRow));
+  },
+);
+
+weeksRouter.post(
+  "/weeks/:weekStart/customer-chat/:customer/messages/:messageId/apply",
+  async (req, res) => {
+    const weekStart = req.params.weekStart;
+    const customer = decodeURIComponent(req.params.customer ?? "").trim();
+    const messageId = parseInt(req.params.messageId, 10);
+    if (!isWeek(weekStart) || !customer || !Number.isFinite(messageId)) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const msg = await db.query.customerUploadChatMessagesTable.findFirst({
+      where: eq(schema.customerUploadChatMessagesTable.id, messageId),
+    });
+    if (!msg) {
+      res.status(404).json({ error: "Message not found" });
+      return;
+    }
+    if (msg.appliedAt || msg.dismissedAt) {
+      res.status(409).json({ error: "Already applied or dismissed" });
+      return;
+    }
+    const fix = msg.proposedFix;
+    if (!fix) {
+      res.status(400).json({ error: "Message has no proposed fix" });
+      return;
+    }
+    // Verify the message belongs to this (week, customer) — defends
+    // against an /apply with a wrong URL pointing at another chat.
+    const owningChat = await db.query.customerUploadChatsTable.findFirst({
+      where: eq(schema.customerUploadChatsTable.id, msg.chatId),
+    });
+    if (
+      !owningChat ||
+      owningChat.weekStart !== weekStart ||
+      owningChat.customer.toLowerCase() !== customer.toLowerCase()
+    ) {
+      res.status(400).json({ error: "Message does not belong to this chat" });
+      return;
+    }
+
+    const lessonText =
+      typeof (req.body as { lessonText?: unknown })?.lessonText === "string"
+        ? String((req.body as { lessonText: string }).lessonText).trim()
+        : null;
+
+    let summary = "";
+    let reExtractSampleId: number | null = null;
+    const { startDate, endDate } = await ensureWeek(weekStart);
+
+    try {
+      switch (fix.kind) {
+        case "addPunches": {
+          if (!Array.isArray(fix.punches) || fix.punches.length === 0) {
+            res.status(400).json({ error: "addPunches requires at least one punch" });
+            return;
+          }
+          const kfiIds = [...new Set(fix.punches.map((p) => p.kfiId))];
+          for (const k of kfiIds) {
+            if (!(await assertNotLocked(res, startDate, k))) return;
+          }
+          for (const p of fix.punches) {
+            if (p.date < startDate || p.date > endDate) {
+              res.status(400).json({
+                error: `Punch date ${p.date} is outside the week ${startDate}…${endDate}`,
+              });
+              return;
+            }
+            const driverTz = await loadDriverTz(p.kfiId);
+            const dispTz = resolveDispTz(p.kfiId, driverTz);
+            const clockIn = fmtDT(`${p.date} ${p.clockIn}`);
+            const clockOut = fmtDT(`${p.date} ${p.clockOut}`);
+            const hours = Math.round(diffHours(clockIn, clockOut) * 100) / 100;
+            const [row] = await db
+              .insert(schema.punchesTable)
+              .values({
+                weekStart: startDate,
+                kfiId: p.kfiId,
+                customer,
+                source: "Customer",
+                date: p.date,
+                clockIn,
+                clockOut,
+                hours: String(hours),
+                payType: p.payType ?? null,
+                dispTz,
+                isManual: true,
+                createdBy: req.session.userId ?? null,
+              })
+              .returning();
+            publishRealtime({
+              type: "punch-changed",
+              weekStart: startDate,
+              kfiId: p.kfiId,
+              action: "create",
+              punchId: row.id,
+              actor: actorRef(req),
+            });
+          }
+          summary = `Added ${fix.punches.length} punch${fix.punches.length === 1 ? "" : "es"}.`;
+          break;
+        }
+        case "editPunch": {
+          const existing = await db.query.punchesTable.findFirst({
+            where: eq(schema.punchesTable.id, fix.punchId),
+          });
+          if (!existing) {
+            res.status(400).json({ error: `Punch ${fix.punchId} not found` });
+            return;
+          }
+          if (!(await assertNotLocked(res, existing.weekStart, existing.kfiId))) return;
+          const prefix = (s: string | null | undefined): string => {
+            if (!s) return s ?? "";
+            if (/^\d{4}-\d{2}-\d{2}\s/.test(s)) return s;
+            return `${fix.date ?? existing.date} ${s.trim()}`;
+          };
+          const newIn = prefix(fix.clockIn ?? existing.clockIn);
+          const newOut = prefix(fix.clockOut ?? existing.clockOut);
+          const hoursOverride =
+            typeof fix.hours === "number" && Number.isFinite(fix.hours)
+              ? fix.hours
+              : null;
+          const hours =
+            hoursOverride !== null
+              ? hoursOverride
+              : diffHours(newIn, newOut);
+          const [row] = await db
+            .update(schema.punchesTable)
+            .set({
+              clockIn: newIn,
+              clockOut: newOut,
+              date: fix.date ?? existing.date,
+              hours: String(Math.round(hours * 100) / 100),
+              edited: true,
+              updatedBy: req.session.userId ?? null,
+              reviewedAt: null,
+              reviewedBy: null,
+            })
+            .where(eq(schema.punchesTable.id, fix.punchId))
+            .returning();
+          publishRealtime({
+            type: "punch-changed",
+            weekStart: row.weekStart,
+            kfiId: row.kfiId,
+            action: "update",
+            punchId: row.id,
+            actor: actorRef(req),
+          });
+          summary = `Edited punch #${fix.punchId}.`;
+          break;
+        }
+        case "deletePunch": {
+          const existing = await db.query.punchesTable.findFirst({
+            where: eq(schema.punchesTable.id, fix.punchId),
+          });
+          if (!existing) {
+            res.status(400).json({ error: `Punch ${fix.punchId} not found` });
+            return;
+          }
+          if (!(await assertNotLocked(res, existing.weekStart, existing.kfiId))) return;
+          await db.transaction(async (tx) => {
+            await tx.insert(schema.punchDeletionsTable).values({
+              punchId: existing.id,
+              weekStart: existing.weekStart,
+              kfiId: existing.kfiId,
+              customer: existing.customer,
+              source: existing.source,
+              deletedBy: req.session.userId ?? null,
+            });
+            await tx
+              .delete(schema.punchesTable)
+              .where(eq(schema.punchesTable.id, existing.id));
+          });
+          publishRealtime({
+            type: "punch-changed",
+            weekStart: existing.weekStart,
+            kfiId: existing.kfiId,
+            action: "delete",
+            punchId: existing.id,
+            actor: actorRef(req),
+          });
+          summary = `Deleted punch #${fix.punchId} (${fix.reason}).`;
+          break;
+        }
+        case "addDriverAlias": {
+          await db
+            .delete(schema.customerNameAliasesTable)
+            .where(
+              and(
+                sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+                sql`lower(${schema.customerNameAliasesTable.nameOnDoc}) = lower(${fix.nameOnDoc})`,
+              ),
+            );
+          await db.insert(schema.customerNameAliasesTable).values({
+            customer,
+            nameOnDoc: fix.nameOnDoc,
+            kfiId: fix.kfiId,
+            updatedBy: req.session.userId ?? null,
+          });
+          summary = `Saved alias "${fix.nameOnDoc}" → ${fix.kfiId} for ${customer}.`;
+          break;
+        }
+        case "reExtractWithHint": {
+          // Apply is a no-op against punches — saving the lesson IS the
+          // payload, and the frontend re-uses the existing extract-preview
+          // flow with the returned sampleId.
+          reExtractSampleId = fix.sampleId ?? null;
+          summary = `Saved hint for re-extraction${reExtractSampleId ? ` (sample #${reExtractSampleId})` : ""}.`;
+          break;
+        }
+        default: {
+          const _exhaustive: never = fix;
+          void _exhaustive;
+          res.status(400).json({ error: "Unknown proposed fix kind" });
+          return;
+        }
+      }
+    } catch (err) {
+      req.log.error({ err, messageId }, "apply fix failed");
+      const m = err instanceof Error ? err.message : "apply failed";
+      res.status(400).json({ error: m });
+      return;
+    }
+
+    // Save the lesson AFTER the fix went in, so a lesson is never
+    // persisted for a fix that errored.
+    let lessonRow:
+      | typeof schema.customerExtractionLessonsTable.$inferSelect
+      | null = null;
+    const finalLessonText = lessonText ?? msg.proposedLesson ?? null;
+    if (finalLessonText && finalLessonText.length > 0) {
+      const [inserted] = await db
+        .insert(schema.customerExtractionLessonsTable)
+        .values({
+          customer,
+          lessonText: finalLessonText,
+          createdFromChatMessageId: msg.id,
+          createdBy: req.session.userId ?? null,
+          updatedBy: req.session.userId ?? null,
+          active: true,
+        })
+        .returning();
+      lessonRow = inserted;
+    }
+
+    const [updatedMsg] = await db
+      .update(schema.customerUploadChatMessagesTable)
+      .set({
+        appliedAt: new Date(),
+        appliedBy: req.session.userId ?? null,
+      })
+      .where(eq(schema.customerUploadChatMessagesTable.id, msg.id))
+      .returning();
+
+    // Audit trail for the admin "what touched this week" view.
+    await db.insert(schema.userAuditLogTable).values({
+      actorUserId: req.session.userId ?? null,
+      targetUserId: null,
+      targetEmail: null,
+      action: `chat_apply:${fix.kind}:${customer}:${weekStart}`,
+    });
+
+    res.json({
+      message: await serializeChatMessage(updatedMsg),
+      summary,
+      lesson: lessonRow ? await serializeLesson(lessonRow) : null,
+      reExtractSampleId,
+    });
+  },
+);
+
+weeksRouter.post(
+  "/weeks/:weekStart/customer-chat/:customer/messages/:messageId/dismiss",
+  async (req, res) => {
+    const weekStart = req.params.weekStart;
+    const customer = decodeURIComponent(req.params.customer ?? "").trim();
+    const messageId = parseInt(req.params.messageId, 10);
+    if (!isWeek(weekStart) || !customer || !Number.isFinite(messageId)) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const msg = await db.query.customerUploadChatMessagesTable.findFirst({
+      where: eq(schema.customerUploadChatMessagesTable.id, messageId),
+    });
+    if (!msg) {
+      res.status(404).json({ error: "Message not found" });
+      return;
+    }
+    if (msg.appliedAt || msg.dismissedAt) {
+      res.status(409).json({ error: "Already applied or dismissed" });
+      return;
+    }
+    const [updated] = await db
+      .update(schema.customerUploadChatMessagesTable)
+      .set({
+        dismissedAt: new Date(),
+        dismissedBy: req.session.userId ?? null,
+      })
+      .where(eq(schema.customerUploadChatMessagesTable.id, msg.id))
+      .returning();
+    res.json(await serializeChatMessage(updated));
+  },
+);
+
+weeksRouter.get(
+  "/customer-extraction-lessons/:customer",
+  async (req, res) => {
+    const customer = decodeURIComponent(req.params.customer ?? "").trim();
+    if (!customer) {
+      res.status(400).json({ error: "customer required" });
+      return;
+    }
+    const rows = await db
+      .select()
+      .from(schema.customerExtractionLessonsTable)
+      .where(
+        sql`lower(${schema.customerExtractionLessonsTable.customer}) = lower(${customer})`,
+      )
+      .orderBy(desc(schema.customerExtractionLessonsTable.createdAt));
+    const emails = await loadEmailsByIds(
+      rows.flatMap((l) => [l.createdBy, l.updatedBy]),
+    );
+    res.json(await Promise.all(rows.map((l) => serializeLesson(l, emails))));
+  },
+);
+
+weeksRouter.patch(
+  "/customer-extraction-lessons/:customer/:lessonId",
+  requireAdmin,
+  async (req, res) => {
+    const customer = decodeURIComponent(String(req.params.customer ?? "")).trim();
+    const lessonId = parseInt(String(req.params.lessonId), 10);
+    if (!customer || !Number.isFinite(lessonId)) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const existing = await db.query.customerExtractionLessonsTable.findFirst({
+      where: eq(schema.customerExtractionLessonsTable.id, lessonId),
+    });
+    if (!existing || existing.customer.toLowerCase() !== customer.toLowerCase()) {
+      res.status(404).json({ error: "Lesson not found" });
+      return;
+    }
+    const body = (req.body ?? {}) as {
+      lessonText?: unknown;
+      active?: unknown;
+    };
+    const patch: Record<string, unknown> = {
+      updatedBy: req.session.userId ?? null,
+    };
+    if (typeof body.lessonText === "string") {
+      const t = body.lessonText.trim();
+      if (t.length === 0 || t.length > 1000) {
+        res.status(400).json({ error: "lessonText must be 1–1000 chars" });
+        return;
+      }
+      patch.lessonText = t;
+    }
+    if (typeof body.active === "boolean") {
+      patch.active = body.active;
+    }
+    const [updated] = await db
+      .update(schema.customerExtractionLessonsTable)
+      .set(patch)
+      .where(eq(schema.customerExtractionLessonsTable.id, lessonId))
+      .returning();
+    res.json(await serializeLesson(updated));
+  },
+);
+
+weeksRouter.delete(
+  "/customer-extraction-lessons/:customer/:lessonId",
+  requireAdmin,
+  async (req, res) => {
+    const customer = decodeURIComponent(String(req.params.customer ?? "")).trim();
+    const lessonId = parseInt(String(req.params.lessonId), 10);
+    if (!customer || !Number.isFinite(lessonId)) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const existing = await db.query.customerExtractionLessonsTable.findFirst({
+      where: eq(schema.customerExtractionLessonsTable.id, lessonId),
+    });
+    if (!existing || existing.customer.toLowerCase() !== customer.toLowerCase()) {
+      res.status(404).json({ error: "Lesson not found" });
+      return;
+    }
+    await db
+      .delete(schema.customerExtractionLessonsTable)
+      .where(eq(schema.customerExtractionLessonsTable.id, lessonId));
+    res.status(204).end();
+  },
+);

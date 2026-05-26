@@ -3755,3 +3755,445 @@ export const UpsertCustomerTzPreferenceResponse = zod.object({
 export const DeleteCustomerTzPreferenceQueryParams = zod.object({
   customer: zod.coerce.string(),
 });
+
+/**
+ * @summary Fetch (or create) the chat thread for a {week, customer}, including all messages and the customer's active lessons.
+ */
+export const getCustomerUploadChatPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const GetCustomerUploadChatParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(getCustomerUploadChatPathWeekStartRegExp)
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
+  customer: zod.coerce.string(),
+});
+
+export const GetCustomerUploadChatResponse = zod.object({
+  chat: zod.object({
+    id: zod.number(),
+    weekStart: zod.coerce.date(),
+    customer: zod.string(),
+    createdAt: zod.coerce.date(),
+    createdByEmail: zod.string().nullish(),
+  }),
+  messages: zod.array(
+    zod.object({
+      id: zod.number(),
+      chatId: zod.number(),
+      role: zod.enum(["user", "assistant", "system"]),
+      content: zod.string(),
+      proposedFix: zod
+        .union([
+          zod.union([
+            zod.object({
+              kind: zod.enum(["addPunches"]),
+              punches: zod.array(
+                zod.object({
+                  kfiId: zod.string(),
+                  date: zod.string(),
+                  clockIn: zod.string(),
+                  clockOut: zod.string(),
+                  payType: zod
+                    .union([
+                      zod.literal("Reg"),
+                      zod.literal("OT"),
+                      zod.literal(null),
+                    ])
+                    .nullish(),
+                  notes: zod.string().nullish(),
+                }),
+              ),
+            }),
+            zod.object({
+              kind: zod.enum(["editPunch"]),
+              punchId: zod.number(),
+              clockIn: zod.string().nullish(),
+              clockOut: zod.string().nullish(),
+              date: zod.string().nullish(),
+              hours: zod.number().nullish(),
+            }),
+            zod.object({
+              kind: zod.enum(["deletePunch"]),
+              punchId: zod.number(),
+              reason: zod.string(),
+            }),
+            zod.object({
+              kind: zod.enum(["addDriverAlias"]),
+              nameOnDoc: zod.string(),
+              kfiId: zod.string(),
+            }),
+            zod.object({
+              kind: zod.enum(["reExtractWithHint"]),
+              hint: zod.string(),
+              sampleId: zod.number().nullish(),
+            }),
+          ]),
+          zod.null(),
+        ])
+        .optional(),
+      proposedLesson: zod.string().nullish(),
+      appliedAt: zod.coerce.date().nullish(),
+      appliedByEmail: zod.string().nullish(),
+      dismissedAt: zod.coerce.date().nullish(),
+      dismissedByEmail: zod.string().nullish(),
+      authorEmail: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+  lessons: zod.array(
+    zod.object({
+      id: zod.number(),
+      customer: zod.string(),
+      lessonText: zod.string(),
+      active: zod.boolean(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+      createdByEmail: zod.string().nullish(),
+      updatedByEmail: zod.string().nullish(),
+      createdFromChatMessageId: zod.number().nullish(),
+    }),
+  ),
+  customerPunchCount: zod.number(),
+  lastFileName: zod.string().nullable(),
+  lockedKfiIds: zod.array(zod.string()).optional(),
+});
+
+/**
+ * @summary Send a user message, run Claude tool loop, return the assistant reply (optionally with a proposed fix + lesson).
+ */
+export const postCustomerUploadChatMessagePathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const PostCustomerUploadChatMessageParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(postCustomerUploadChatMessagePathWeekStartRegExp)
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
+  customer: zod.coerce.string(),
+});
+
+export const postCustomerUploadChatMessageBodyContentMax = 4000;
+
+export const PostCustomerUploadChatMessageBody = zod.object({
+  content: zod.string().min(1).max(postCustomerUploadChatMessageBodyContentMax),
+});
+
+export const PostCustomerUploadChatMessageResponse = zod.object({
+  id: zod.number(),
+  chatId: zod.number(),
+  role: zod.enum(["user", "assistant", "system"]),
+  content: zod.string(),
+  proposedFix: zod
+    .union([
+      zod.union([
+        zod.object({
+          kind: zod.enum(["addPunches"]),
+          punches: zod.array(
+            zod.object({
+              kfiId: zod.string(),
+              date: zod.string(),
+              clockIn: zod.string(),
+              clockOut: zod.string(),
+              payType: zod
+                .union([
+                  zod.literal("Reg"),
+                  zod.literal("OT"),
+                  zod.literal(null),
+                ])
+                .nullish(),
+              notes: zod.string().nullish(),
+            }),
+          ),
+        }),
+        zod.object({
+          kind: zod.enum(["editPunch"]),
+          punchId: zod.number(),
+          clockIn: zod.string().nullish(),
+          clockOut: zod.string().nullish(),
+          date: zod.string().nullish(),
+          hours: zod.number().nullish(),
+        }),
+        zod.object({
+          kind: zod.enum(["deletePunch"]),
+          punchId: zod.number(),
+          reason: zod.string(),
+        }),
+        zod.object({
+          kind: zod.enum(["addDriverAlias"]),
+          nameOnDoc: zod.string(),
+          kfiId: zod.string(),
+        }),
+        zod.object({
+          kind: zod.enum(["reExtractWithHint"]),
+          hint: zod.string(),
+          sampleId: zod.number().nullish(),
+        }),
+      ]),
+      zod.null(),
+    ])
+    .optional(),
+  proposedLesson: zod.string().nullish(),
+  appliedAt: zod.coerce.date().nullish(),
+  appliedByEmail: zod.string().nullish(),
+  dismissedAt: zod.coerce.date().nullish(),
+  dismissedByEmail: zod.string().nullish(),
+  authorEmail: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Apply the proposed fix attached to this assistant message; optionally save the proposed lesson.
+ */
+export const applyCustomerUploadChatFixPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const ApplyCustomerUploadChatFixParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(applyCustomerUploadChatFixPathWeekStartRegExp)
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
+  customer: zod.coerce.string(),
+  messageId: zod.coerce.number(),
+});
+
+export const ApplyCustomerUploadChatFixBody = zod.object({
+  lessonText: zod
+    .string()
+    .nullish()
+    .describe(
+      "When set, save this text as a new active lesson for the customer. Use null to skip lesson save.",
+    ),
+});
+
+export const ApplyCustomerUploadChatFixResponse = zod.object({
+  message: zod.object({
+    id: zod.number(),
+    chatId: zod.number(),
+    role: zod.enum(["user", "assistant", "system"]),
+    content: zod.string(),
+    proposedFix: zod
+      .union([
+        zod.union([
+          zod.object({
+            kind: zod.enum(["addPunches"]),
+            punches: zod.array(
+              zod.object({
+                kfiId: zod.string(),
+                date: zod.string(),
+                clockIn: zod.string(),
+                clockOut: zod.string(),
+                payType: zod
+                  .union([
+                    zod.literal("Reg"),
+                    zod.literal("OT"),
+                    zod.literal(null),
+                  ])
+                  .nullish(),
+                notes: zod.string().nullish(),
+              }),
+            ),
+          }),
+          zod.object({
+            kind: zod.enum(["editPunch"]),
+            punchId: zod.number(),
+            clockIn: zod.string().nullish(),
+            clockOut: zod.string().nullish(),
+            date: zod.string().nullish(),
+            hours: zod.number().nullish(),
+          }),
+          zod.object({
+            kind: zod.enum(["deletePunch"]),
+            punchId: zod.number(),
+            reason: zod.string(),
+          }),
+          zod.object({
+            kind: zod.enum(["addDriverAlias"]),
+            nameOnDoc: zod.string(),
+            kfiId: zod.string(),
+          }),
+          zod.object({
+            kind: zod.enum(["reExtractWithHint"]),
+            hint: zod.string(),
+            sampleId: zod.number().nullish(),
+          }),
+        ]),
+        zod.null(),
+      ])
+      .optional(),
+    proposedLesson: zod.string().nullish(),
+    appliedAt: zod.coerce.date().nullish(),
+    appliedByEmail: zod.string().nullish(),
+    dismissedAt: zod.coerce.date().nullish(),
+    dismissedByEmail: zod.string().nullish(),
+    authorEmail: zod.string().nullish(),
+    createdAt: zod.coerce.date(),
+  }),
+  summary: zod.string(),
+  lesson: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        customer: zod.string(),
+        lessonText: zod.string(),
+        active: zod.boolean(),
+        createdAt: zod.coerce.date(),
+        updatedAt: zod.coerce.date(),
+        createdByEmail: zod.string().nullish(),
+        updatedByEmail: zod.string().nullish(),
+        createdFromChatMessageId: zod.number().nullish(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  reExtractSampleId: zod
+    .number()
+    .nullish()
+    .describe(
+      "When the proposed fix was reExtractWithHint and the server stashed a new sample, the sample id the frontend should pass to the existing extract preview UI.",
+    ),
+});
+
+/**
+ * @summary Dismiss the proposed fix on this assistant message without applying it.
+ */
+export const dismissCustomerUploadChatFixPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const DismissCustomerUploadChatFixParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(dismissCustomerUploadChatFixPathWeekStartRegExp)
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
+  customer: zod.coerce.string(),
+  messageId: zod.coerce.number(),
+});
+
+export const DismissCustomerUploadChatFixResponse = zod.object({
+  id: zod.number(),
+  chatId: zod.number(),
+  role: zod.enum(["user", "assistant", "system"]),
+  content: zod.string(),
+  proposedFix: zod
+    .union([
+      zod.union([
+        zod.object({
+          kind: zod.enum(["addPunches"]),
+          punches: zod.array(
+            zod.object({
+              kfiId: zod.string(),
+              date: zod.string(),
+              clockIn: zod.string(),
+              clockOut: zod.string(),
+              payType: zod
+                .union([
+                  zod.literal("Reg"),
+                  zod.literal("OT"),
+                  zod.literal(null),
+                ])
+                .nullish(),
+              notes: zod.string().nullish(),
+            }),
+          ),
+        }),
+        zod.object({
+          kind: zod.enum(["editPunch"]),
+          punchId: zod.number(),
+          clockIn: zod.string().nullish(),
+          clockOut: zod.string().nullish(),
+          date: zod.string().nullish(),
+          hours: zod.number().nullish(),
+        }),
+        zod.object({
+          kind: zod.enum(["deletePunch"]),
+          punchId: zod.number(),
+          reason: zod.string(),
+        }),
+        zod.object({
+          kind: zod.enum(["addDriverAlias"]),
+          nameOnDoc: zod.string(),
+          kfiId: zod.string(),
+        }),
+        zod.object({
+          kind: zod.enum(["reExtractWithHint"]),
+          hint: zod.string(),
+          sampleId: zod.number().nullish(),
+        }),
+      ]),
+      zod.null(),
+    ])
+    .optional(),
+  proposedLesson: zod.string().nullish(),
+  appliedAt: zod.coerce.date().nullish(),
+  appliedByEmail: zod.string().nullish(),
+  dismissedAt: zod.coerce.date().nullish(),
+  dismissedByEmail: zod.string().nullish(),
+  authorEmail: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary List active and archived extraction lessons for a customer (scoped per-customer).
+ */
+export const ListCustomerExtractionLessonsParams = zod.object({
+  customer: zod.coerce.string(),
+});
+
+export const ListCustomerExtractionLessonsResponseItem = zod.object({
+  id: zod.number(),
+  customer: zod.string(),
+  lessonText: zod.string(),
+  active: zod.boolean(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+  createdFromChatMessageId: zod.number().nullish(),
+});
+export const ListCustomerExtractionLessonsResponse = zod.array(
+  ListCustomerExtractionLessonsResponseItem,
+);
+
+/**
+ * @summary Edit a lesson's text or toggle active (admin-only).
+ */
+export const UpdateCustomerExtractionLessonParams = zod.object({
+  customer: zod.coerce.string(),
+  lessonId: zod.coerce.number(),
+});
+
+export const updateCustomerExtractionLessonBodyLessonTextMax = 1000;
+
+export const UpdateCustomerExtractionLessonBody = zod.object({
+  lessonText: zod
+    .string()
+    .min(1)
+    .max(updateCustomerExtractionLessonBodyLessonTextMax)
+    .nullish(),
+  active: zod.boolean().nullish(),
+});
+
+export const UpdateCustomerExtractionLessonResponse = zod.object({
+  id: zod.number(),
+  customer: zod.string(),
+  lessonText: zod.string(),
+  active: zod.boolean(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  createdByEmail: zod.string().nullish(),
+  updatedByEmail: zod.string().nullish(),
+  createdFromChatMessageId: zod.number().nullish(),
+});
+
+/**
+ * @summary Permanently delete a lesson (admin-only).
+ */
+export const DeleteCustomerExtractionLessonParams = zod.object({
+  customer: zod.coerce.string(),
+  lessonId: zod.coerce.number(),
+});

@@ -88,6 +88,14 @@ export interface AiExtractOptions {
    * omitted (or `uploadKey` is omitted), staging is disabled.
    */
   stageStore?: ChunkStageStore;
+  /**
+   * Task #406: per-customer "lessons learned from past dispatcher
+   * corrections" prepended to the extractor's system prompt. Route
+   * handler loads these from `customer_extraction_lessons` via
+   * `loadLessonsForPrompt(customer)` and threads them through. Empty
+   * or omitted = no lessons section is rendered.
+   */
+  lessons?: string[];
 }
 
 /** Result shape returned by `aiExtractRows`, extended with budget telemetry (Task #297). */
@@ -165,6 +173,19 @@ function isRealCalendarDate(y: number, m: number, d: number): boolean {
     dt.getUTCMonth() === m - 1 &&
     dt.getUTCDate() === d
   );
+}
+
+/**
+ * Task #405: body-line counter for the yield guard. Skips completely
+ * blank lines and whitespace-only lines (which `sheet_to_csv` emits for
+ * empty cells/rows, inflating the input-row count and false-tripping
+ * the guard on sparse workbooks).
+ */
+export function __chunkBodyLineCount(chunk: string): number {
+  const lines = chunk.split("\n");
+  // chunk shape: marker line, header line, then body lines.
+  const body = lines.slice(2);
+  return body.filter((ln) => ln.trim().replace(/,/g, "")).length;
 }
 
 export function normalizeIsoDate(input: unknown): string | null {
@@ -440,6 +461,7 @@ export function buildPrompt(
   weekEnd: string,
   roster?: RosterContext,
   provider?: string,
+  lessons?: string[],
 ) {
   // Claude gets a tailored prompt: concrete domain role, an inline JSON
   // schema example with a worked sample row, and an explicit
@@ -448,9 +470,11 @@ export function buildPrompt(
   // unchanged because Gemini enforces `responseSchema` natively — adding
   // an inline example actually hurts its JSON-only behaviour.
   if (provider === "claude") {
-    return buildClaudePrompt(customer, weekStart, weekEnd, roster);
+    return buildClaudePrompt(customer, weekStart, weekEnd, roster, lessons);
   }
+  const lessonsBlock = formatLessonsBlockInline(lessons);
   const lines = [
+    ...(lessonsBlock ? [lessonsBlock] : []),
     `You are extracting timecard punches from a payroll export uploaded for customer "${customer}".`,
     `The week being reconciled is ${weekStart} through ${weekEnd} (Sunday through Saturday). Only return rows whose date falls in that window.`,
     `For each punch row return:`,
@@ -501,13 +525,33 @@ export function buildPrompt(
  *     because Claude Sonnet's default chat habit is to fence structured
  *     output and that's what produced the first live-fire failure.
  */
+/**
+ * Task #406: format the per-customer lessons block. Lives here (not in
+ * the chat lessonsStore) so it can sit at the very top of the
+ * extractor's prompt without aiExtract.ts taking a dependency on the
+ * chat module. Callers thread the strings in via `opts.lessons`.
+ */
+function formatLessonsBlockInline(lessons?: string[]): string {
+  if (!lessons || lessons.length === 0) return "";
+  const out = [
+    `## Lessons learned from past dispatcher corrections`,
+    `Apply these rules before the general instructions below. Each line is a correction the dispatcher made on a previous upload from this customer; do not repeat the same mistake.`,
+  ];
+  for (const l of lessons) out.push(`- ${l}`);
+  out.push("");
+  return out.join("\n");
+}
+
 function buildClaudePrompt(
   customer: string,
   weekStart: string,
   weekEnd: string,
   roster?: RosterContext,
+  lessons?: string[],
 ): string {
+  const lessonsBlock = formatLessonsBlockInline(lessons);
   const lines: string[] = [
+    ...(lessonsBlock ? [lessonsBlock] : []),
     `You are a payroll-data extractor for a logistics dispatcher reconciling driver hours against customer-supplied timecards. Accuracy matters more than coverage — misrouted or invented punches cause real payroll errors that a human has to chase down on Monday morning.`,
     ``,
     `## What you are doing`,
@@ -948,22 +992,6 @@ export function __clearAiExtractStubs(): void {
 export function __aiExtractStubQueueLength(): number {
   return _aiStubQueue.length;
 }
-/**
- * @internal test seam — counts the "likely data" body lines in a
- * formatted chunk (the chunk shape `runChunkedXlsxExtract` builds:
- * marker line, header line, then body lines). Used by the
- * yield-floor guard's denominator so that comma-only/whitespace-only
- * spacer rows don't inflate it and force false-positive halve-and-
- * retries on legitimate sparse layouts (Task #405, architect review).
- */
-export function __chunkBodyLineCount(chunk: string): number {
-  const lines = chunk.split("\n");
-  let count = 0;
-  for (let i = 2; i < lines.length; i++) {
-    if (lines[i].replace(/[,\s]/g, "").length > 0) count++;
-  }
-  return count;
-}
 
 // Per-chunk model-call ceiling for the chunked xlsx path. Shorter than
 // the single-call 5-minute budget because each chunk is small; we still
@@ -1188,6 +1216,7 @@ async function runChunkedXlsxExtract(
   ) => void,
   uploadKey?: string,
   stageStore?: ChunkStageStore,
+  lessons?: string[],
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
   // Task #309: resume support. Load every previously-staged chunk for
   // this upload identity so the runner can short-circuit the model call
@@ -1279,7 +1308,7 @@ async function runChunkedXlsxExtract(
     const buildParts = (c: ModelClient): ContentPart[] => [
       {
         kind: "text",
-        text: buildPrompt(customer, weekStart, weekEnd, roster, c.name),
+        text: buildPrompt(customer, weekStart, weekEnd, roster, c.name, lessons),
         cacheable: true,
       },
       {
@@ -1344,6 +1373,7 @@ async function runChunkedXlsxExtract(
   // chunks 2-10 to complete their Gemini calls before Promise.all's
   // rejection bubbled out — wasted minutes and tokens.
   let aborted = false;
+
   // Task #405: per-chunk yield sanity check. The classic truncation
   // path (`result.truncated`) only fires when the JSON itself is
   // malformed (incomplete braces). The Burnett 5/17–5/23 incident
@@ -1357,9 +1387,7 @@ async function runChunkedXlsxExtract(
   // and routes them through the same halve-and-retry path.
   const YIELD_FLOOR_RATIO = 0.5;
   const YIELD_MIN_INPUT_ROWS = 10;
-  // Use the exported helper — see `__chunkBodyLineCount` for why we
-  // skip comma-only/whitespace-only spacer lines in the denominator.
-  const bodyLineCount = __chunkBodyLineCount;
+
   const handleChunkInner = async (
     idx: number,
   ): Promise<{ rows: AiExtractedRow[] }> => {
@@ -1373,11 +1401,7 @@ async function runChunkedXlsxExtract(
       `This is chunk ${idx + 1} of ${chunks.length}`,
     );
     if (aborted) return { rows: [] };
-    const inputRows = bodyLineCount(chunks[idx]);
-    // Exact-ratio comparison: `rows < floor(inputRows * 0.5)` is NOT
-    // equivalent to "< 50%" for odd inputRows — e.g. 5 / 11 = 45.45%
-    // but `5 < floor(5.5)=5` is false, leaving a silent-drop hole.
-    // `rows * 2 < inputRows` is exact integer math.
+    const inputRows = __chunkBodyLineCount(chunks[idx]);
     const underYield =
       !result.truncated &&
       inputRows >= YIELD_MIN_INPUT_ROWS &&
@@ -1430,10 +1454,7 @@ async function runChunkedXlsxExtract(
           `AI could not extract the full file — chunk ${idx + 1} still hit the response-size cap after one retry. Split the spreadsheet into two smaller files and re-upload.`,
         );
       }
-      const halfInputRows = bodyLineCount(halves[hIdx]);
-      // Same exact-ratio math as the initial-pass guard — see comment
-      // above. `hr.rows.length * 2 < halfInputRows` is the unbiased
-      // "< 50%" check.
+      const halfInputRows = __chunkBodyLineCount(halves[hIdx]);
       if (
         halfInputRows >= YIELD_MIN_INPUT_ROWS &&
         hr.rows.length * 2 < halfInputRows
@@ -1622,6 +1643,7 @@ export async function aiExtractRows(
     opts?.onChunkProgress,
     opts?.uploadKey,
     opts?.stageStore,
+    opts?.lessons,
   );
 }
 
@@ -1644,6 +1666,7 @@ async function aiExtractRowsImpl(
   ) => void,
   uploadKey?: string,
   stageStore?: ChunkStageStore,
+  lessons?: string[],
 ): Promise<AiExtractResult> {
   const overallStart = Date.now();
   // Wrap the rest of the function in try/catch so a budget trip or any
@@ -1666,6 +1689,7 @@ async function aiExtractRowsImpl(
       onChunkProgress,
       uploadKey,
       stageStore,
+      lessons,
     );
     const summary = budget.summary();
     logIngestDone(log, {
@@ -1719,6 +1743,7 @@ async function runExtraction(
   ) => void,
   uploadKey?: string,
   stageStore?: ChunkStageStore,
+  lessons?: string[],
 ): Promise<{ rows: AiExtractedRow[]; truncated: boolean; failedChunks: number }> {
   // Task #296: never let an observer throw bubble out and tank the
   // extract. Single-call / image / PDF paths emit a single final
@@ -1768,7 +1793,7 @@ async function runExtraction(
   // Claude→Gemini fallback path doesn't reuse the wrong-shaped prompt.
   const attachmentParts: ContentPart[] = [];
   const buildParts = (c: ModelClient): ContentPart[] => [
-    { kind: "text", text: buildPrompt(customer, weekStart, weekEnd, roster, c.name) },
+    { kind: "text", text: buildPrompt(customer, weekStart, weekEnd, roster, c.name, lessons) },
     ...attachmentParts,
   ];
 
@@ -1844,6 +1869,7 @@ async function runExtraction(
         onChunkProgress,
         uploadKey,
         stageStore,
+        lessons,
       );
     }
     attachmentParts.push({
@@ -2011,6 +2037,7 @@ async function runExtraction(
       onChunkProgress,
       uploadKey,
       stageStore,
+      lessons,
     );
   }
   // Single-call path completed without re-chunking — emit a final

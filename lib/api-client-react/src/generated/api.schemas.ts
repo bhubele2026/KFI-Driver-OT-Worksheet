@@ -1961,6 +1961,165 @@ export interface MarkCustomerInactiveBody {
   customer: string;
 }
 
+export interface CustomerUploadChat {
+  id: number;
+  weekStart: string;
+  customer: string;
+  createdAt: string;
+  /** @nullable */
+  createdByEmail?: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type ProposedAddPunchesEntryPayType =
+  | (typeof ProposedAddPunchesEntryPayType)[keyof typeof ProposedAddPunchesEntryPayType]
+  | null;
+
+export const ProposedAddPunchesEntryPayType = {
+  Reg: "Reg",
+  OT: "OT",
+} as const;
+
+export interface ProposedAddPunchesEntry {
+  kfiId: string;
+  date: string;
+  clockIn: string;
+  clockOut: string;
+  /** @nullable */
+  payType?: ProposedAddPunchesEntryPayType;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export type ProposedFix =
+  | {
+      kind: "addPunches";
+      punches: ProposedAddPunchesEntry[];
+    }
+  | {
+      kind: "editPunch";
+      punchId: number;
+      /** @nullable */
+      clockIn?: string | null;
+      /** @nullable */
+      clockOut?: string | null;
+      /** @nullable */
+      date?: string | null;
+      /** @nullable */
+      hours?: number | null;
+    }
+  | {
+      kind: "deletePunch";
+      punchId: number;
+      reason: string;
+    }
+  | {
+      kind: "addDriverAlias";
+      nameOnDoc: string;
+      kfiId: string;
+    }
+  | {
+      kind: "reExtractWithHint";
+      hint: string;
+      /** @nullable */
+      sampleId?: number | null;
+    };
+
+export type CustomerUploadChatMessageRole =
+  (typeof CustomerUploadChatMessageRole)[keyof typeof CustomerUploadChatMessageRole];
+
+export const CustomerUploadChatMessageRole = {
+  user: "user",
+  assistant: "assistant",
+  system: "system",
+} as const;
+
+export interface CustomerUploadChatMessage {
+  id: number;
+  chatId: number;
+  role: CustomerUploadChatMessageRole;
+  content: string;
+  proposedFix?: ProposedFix | null;
+  /** @nullable */
+  proposedLesson?: string | null;
+  /** @nullable */
+  appliedAt?: string | null;
+  /** @nullable */
+  appliedByEmail?: string | null;
+  /** @nullable */
+  dismissedAt?: string | null;
+  /** @nullable */
+  dismissedByEmail?: string | null;
+  /** @nullable */
+  authorEmail?: string | null;
+  createdAt: string;
+}
+
+export interface CustomerExtractionLesson {
+  id: number;
+  customer: string;
+  lessonText: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  createdByEmail?: string | null;
+  /** @nullable */
+  updatedByEmail?: string | null;
+  /** @nullable */
+  createdFromChatMessageId?: number | null;
+}
+
+export interface CustomerUploadChatThread {
+  chat: CustomerUploadChat;
+  messages: CustomerUploadChatMessage[];
+  lessons: CustomerExtractionLesson[];
+  customerPunchCount: number;
+  /** @nullable */
+  lastFileName: string | null;
+  lockedKfiIds?: string[];
+}
+
+export interface PostCustomerUploadChatMessageBody {
+  /**
+   * @minLength 1
+   * @maxLength 4000
+   */
+  content: string;
+}
+
+export interface ApplyCustomerUploadChatFixBody {
+  /**
+   * When set, save this text as a new active lesson for the customer. Use null to skip lesson save.
+   * @nullable
+   */
+  lessonText?: string | null;
+}
+
+export interface ApplyCustomerUploadChatFixResult {
+  message: CustomerUploadChatMessage;
+  summary: string;
+  lesson?: CustomerExtractionLesson | null;
+  /**
+   * When the proposed fix was reExtractWithHint and the server stashed a new sample, the sample id the frontend should pass to the existing extract preview UI.
+   * @nullable
+   */
+  reExtractSampleId?: number | null;
+}
+
+export interface UpdateCustomerExtractionLessonBody {
+  /**
+   * @minLength 1
+   * @maxLength 1000
+   * @nullable
+   */
+  lessonText?: string | null;
+  /** @nullable */
+  active?: boolean | null;
+}
+
 export type ListRateLimitEventTimeseriesParams = {
   /**
    * @minimum 1

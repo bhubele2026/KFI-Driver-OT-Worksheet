@@ -2108,6 +2108,170 @@ paths:
         "400": { description: customer is required }
         "403": { description: Supervisor or admin only }
 
+  /weeks/{weekStart}/customer-chat/{customer}:
+    get:
+      operationId: getCustomerUploadChat
+      tags: [ingest]
+      summary: Fetch (or create) the chat thread for a {week, customer}, including all messages and the customer's active lessons.
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - name: customer
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Chat thread with messages and active lessons.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomerUploadChatThread" }
+        "400": { description: Invalid week or customer }
+
+  /weeks/{weekStart}/customer-chat/{customer}/messages:
+    post:
+      operationId: postCustomerUploadChatMessage
+      tags: [ingest]
+      summary: Send a user message, run Claude tool loop, return the assistant reply (optionally with a proposed fix + lesson).
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - name: customer
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PostCustomerUploadChatMessageBody" }
+      responses:
+        "200":
+          description: Assistant reply persisted as a chat message.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomerUploadChatMessage" }
+        "400": { description: Invalid input or AI extraction unavailable }
+        "402": { description: IngestionBudget exceeded }
+
+  /weeks/{weekStart}/customer-chat/{customer}/messages/{messageId}/apply:
+    post:
+      operationId: applyCustomerUploadChatFix
+      tags: [ingest]
+      summary: Apply the proposed fix attached to this assistant message; optionally save the proposed lesson.
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - name: customer
+          in: path
+          required: true
+          schema: { type: string }
+        - name: messageId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApplyCustomerUploadChatFixBody" }
+      responses:
+        "200":
+          description: Applied. Returns the updated chat message and a summary of what changed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApplyCustomerUploadChatFixResult" }
+        "400": { description: Invalid input or proposed fix is malformed }
+        "404": { description: Message not found }
+        "409": { description: Already applied or already dismissed }
+        "423": { description: One or more affected driver-weeks is locked }
+
+  /weeks/{weekStart}/customer-chat/{customer}/messages/{messageId}/dismiss:
+    post:
+      operationId: dismissCustomerUploadChatFix
+      tags: [ingest]
+      summary: Dismiss the proposed fix on this assistant message without applying it.
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - name: customer
+          in: path
+          required: true
+          schema: { type: string }
+        - name: messageId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Dismissed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomerUploadChatMessage" }
+        "404": { description: Message not found }
+        "409": { description: Already applied or already dismissed }
+
+  /customer-extraction-lessons/{customer}:
+    get:
+      operationId: listCustomerExtractionLessons
+      tags: [ingest]
+      summary: List active and archived extraction lessons for a customer (scoped per-customer).
+      parameters:
+        - name: customer
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Lessons newest-first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CustomerExtractionLesson" }
+
+  /customer-extraction-lessons/{customer}/{lessonId}:
+    patch:
+      operationId: updateCustomerExtractionLesson
+      tags: [ingest]
+      summary: Edit a lesson's text or toggle active (admin-only).
+      parameters:
+        - name: customer
+          in: path
+          required: true
+          schema: { type: string }
+        - name: lessonId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateCustomerExtractionLessonBody" }
+      responses:
+        "200":
+          description: Updated lesson.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomerExtractionLesson" }
+        "400": { description: Invalid input }
+        "403": { description: Admin only }
+        "404": { description: Lesson not found }
+    delete:
+      operationId: deleteCustomerExtractionLesson
+      tags: [ingest]
+      summary: Permanently delete a lesson (admin-only).
+      parameters:
+        - name: customer
+          in: path
+          required: true
+          schema: { type: string }
+        - name: lessonId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: Deleted }
+        "403": { description: Admin only }
+        "404": { description: Lesson not found }
+
 components:
   parameters:
     WeekStart:
@@ -4317,3 +4481,161 @@ components:
       required: [customer]
       properties:
         customer: { type: string, minLength: 1 }
+
+    CustomerUploadChat:
+      type: object
+      required: [id, weekStart, customer, createdAt]
+      properties:
+        id: { type: integer }
+        weekStart: { type: string, format: date }
+        customer: { type: string }
+        createdAt: { type: string, format: date-time }
+        createdByEmail:
+          type: ["string", "null"]
+
+    ProposedAddPunchesEntry:
+      type: object
+      required: [kfiId, date, clockIn, clockOut]
+      properties:
+        kfiId: { type: string }
+        date: { type: string }
+        clockIn: { type: string }
+        clockOut: { type: string }
+        payType:
+          type: ["string", "null"]
+          enum: [Reg, OT, null]
+        notes:
+          type: ["string", "null"]
+
+    ProposedFix:
+      oneOf:
+        - type: object
+          required: [kind, punches]
+          properties:
+            kind: { type: string, enum: [addPunches] }
+            punches:
+              type: array
+              items: { $ref: "#/components/schemas/ProposedAddPunchesEntry" }
+        - type: object
+          required: [kind, punchId]
+          properties:
+            kind: { type: string, enum: [editPunch] }
+            punchId: { type: integer }
+            clockIn: { type: ["string", "null"] }
+            clockOut: { type: ["string", "null"] }
+            date: { type: ["string", "null"] }
+            hours: { type: ["number", "null"] }
+        - type: object
+          required: [kind, punchId, reason]
+          properties:
+            kind: { type: string, enum: [deletePunch] }
+            punchId: { type: integer }
+            reason: { type: string }
+        - type: object
+          required: [kind, nameOnDoc, kfiId]
+          properties:
+            kind: { type: string, enum: [addDriverAlias] }
+            nameOnDoc: { type: string }
+            kfiId: { type: string }
+        - type: object
+          required: [kind, hint]
+          properties:
+            kind: { type: string, enum: [reExtractWithHint] }
+            hint: { type: string }
+            sampleId: { type: ["integer", "null"] }
+
+    CustomerUploadChatMessage:
+      type: object
+      required: [id, chatId, role, content, createdAt]
+      properties:
+        id: { type: integer }
+        chatId: { type: integer }
+        role: { type: string, enum: [user, assistant, system] }
+        content: { type: string }
+        proposedFix:
+          oneOf:
+            - $ref: "#/components/schemas/ProposedFix"
+            - type: "null"
+        proposedLesson:
+          type: ["string", "null"]
+        appliedAt:
+          type: ["string", "null"]
+          format: date-time
+        appliedByEmail:
+          type: ["string", "null"]
+        dismissedAt:
+          type: ["string", "null"]
+          format: date-time
+        dismissedByEmail:
+          type: ["string", "null"]
+        authorEmail:
+          type: ["string", "null"]
+        createdAt: { type: string, format: date-time }
+
+    CustomerExtractionLesson:
+      type: object
+      required: [id, customer, lessonText, active, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        customer: { type: string }
+        lessonText: { type: string }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        createdByEmail:
+          type: ["string", "null"]
+        updatedByEmail:
+          type: ["string", "null"]
+        createdFromChatMessageId:
+          type: ["integer", "null"]
+
+    CustomerUploadChatThread:
+      type: object
+      required: [chat, messages, lessons, customerPunchCount, lastFileName]
+      properties:
+        chat: { $ref: "#/components/schemas/CustomerUploadChat" }
+        messages:
+          type: array
+          items: { $ref: "#/components/schemas/CustomerUploadChatMessage" }
+        lessons:
+          type: array
+          items: { $ref: "#/components/schemas/CustomerExtractionLesson" }
+        customerPunchCount: { type: integer }
+        lastFileName:
+          type: ["string", "null"]
+        lockedKfiIds:
+          type: array
+          items: { type: string }
+
+    PostCustomerUploadChatMessageBody:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, minLength: 1, maxLength: 4000 }
+
+    ApplyCustomerUploadChatFixBody:
+      type: object
+      properties:
+        lessonText:
+          type: ["string", "null"]
+          description: When set, save this text as a new active lesson for the customer. Use null to skip lesson save.
+
+    ApplyCustomerUploadChatFixResult:
+      type: object
+      required: [message, summary]
+      properties:
+        message: { $ref: "#/components/schemas/CustomerUploadChatMessage" }
+        summary: { type: string }
+        lesson:
+          oneOf:
+            - $ref: "#/components/schemas/CustomerExtractionLesson"
+            - type: "null"
+        reExtractSampleId:
+          type: ["integer", "null"]
+          description: When the proposed fix was reExtractWithHint and the server stashed a new sample, the sample id the frontend should pass to the existing extract preview UI.
+
+    UpdateCustomerExtractionLessonBody:
+      type: object
+      properties:
+        lessonText: { type: ["string", "null"], minLength: 1, maxLength: 1000 }
+        active: { type: ["boolean", "null"] }

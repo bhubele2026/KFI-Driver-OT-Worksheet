@@ -23,6 +23,8 @@ import type {
   AiExtractPreview,
   AiExtractSample,
   AllowedTimezones,
+  ApplyCustomerUploadChatFixBody,
+  ApplyCustomerUploadChatFixResult,
   AuthCredentials,
   BootAuditRow,
   ClearDriverCustomerOverrideParams,
@@ -42,10 +44,13 @@ import type {
   Customer,
   CustomerAliasAuditLogEntry,
   CustomerExtractPreview,
+  CustomerExtractionLesson,
   CustomerIgnoredExternal,
   CustomerNameAlias,
   CustomerNameAliasList,
   CustomerTzPreferenceList,
+  CustomerUploadChatMessage,
+  CustomerUploadChatThread,
   CustomerUploadStatus,
   DayHoursResult,
   DeleteCustomerTzPreferenceParams,
@@ -85,6 +90,7 @@ import type {
   PasswordResetLink,
   PasswordResetRequestResult,
   PinAiExtractSampleBody,
+  PostCustomerUploadChatMessageBody,
   PreviewPunchInput,
   PreviewPunchResult,
   PublicInvite,
@@ -120,6 +126,7 @@ import type {
   UpdateClockOffsetBody,
   UpdateConnecteamUserAliasBody,
   UpdateCustomerBody,
+  UpdateCustomerExtractionLessonBody,
   UpdateCustomerNameAliasBody,
   UpdateCustomerNameAliasParams,
   UpdateDriverIdAliasBody,
@@ -9923,4 +9930,763 @@ export const useDeleteCustomerTzPreference = <
   TContext
 > => {
   return useMutation(getDeleteCustomerTzPreferenceMutationOptions(options));
+};
+
+/**
+ * @summary Fetch (or create) the chat thread for a {week, customer}, including all messages and the customer's active lessons.
+ */
+export const getGetCustomerUploadChatUrl = (
+  weekStart: string,
+  customer: string,
+) => {
+  return `/api/weeks/${weekStart}/customer-chat/${customer}`;
+};
+
+export const getCustomerUploadChat = async (
+  weekStart: string,
+  customer: string,
+  options?: RequestInit,
+): Promise<CustomerUploadChatThread> => {
+  return customFetch<CustomerUploadChatThread>(
+    getGetCustomerUploadChatUrl(weekStart, customer),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetCustomerUploadChatQueryKey = (
+  weekStart: string,
+  customer: string,
+) => {
+  return [`/api/weeks/${weekStart}/customer-chat/${customer}`] as const;
+};
+
+export const getGetCustomerUploadChatQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCustomerUploadChat>>,
+  TError = ErrorType<void>,
+>(
+  weekStart: string,
+  customer: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCustomerUploadChat>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetCustomerUploadChatQueryKey(weekStart, customer);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCustomerUploadChat>>
+  > = ({ signal }) =>
+    getCustomerUploadChat(weekStart, customer, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!(weekStart && customer),
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCustomerUploadChat>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCustomerUploadChatQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCustomerUploadChat>>
+>;
+export type GetCustomerUploadChatQueryError = ErrorType<void>;
+
+/**
+ * @summary Fetch (or create) the chat thread for a {week, customer}, including all messages and the customer's active lessons.
+ */
+
+export function useGetCustomerUploadChat<
+  TData = Awaited<ReturnType<typeof getCustomerUploadChat>>,
+  TError = ErrorType<void>,
+>(
+  weekStart: string,
+  customer: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCustomerUploadChat>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCustomerUploadChatQueryOptions(
+    weekStart,
+    customer,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Send a user message, run Claude tool loop, return the assistant reply (optionally with a proposed fix + lesson).
+ */
+export const getPostCustomerUploadChatMessageUrl = (
+  weekStart: string,
+  customer: string,
+) => {
+  return `/api/weeks/${weekStart}/customer-chat/${customer}/messages`;
+};
+
+export const postCustomerUploadChatMessage = async (
+  weekStart: string,
+  customer: string,
+  postCustomerUploadChatMessageBody: PostCustomerUploadChatMessageBody,
+  options?: RequestInit,
+): Promise<CustomerUploadChatMessage> => {
+  return customFetch<CustomerUploadChatMessage>(
+    getPostCustomerUploadChatMessageUrl(weekStart, customer),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(postCustomerUploadChatMessageBody),
+    },
+  );
+};
+
+export const getPostCustomerUploadChatMessageMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postCustomerUploadChatMessage>>,
+    TError,
+    {
+      weekStart: string;
+      customer: string;
+      data: BodyType<PostCustomerUploadChatMessageBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postCustomerUploadChatMessage>>,
+  TError,
+  {
+    weekStart: string;
+    customer: string;
+    data: BodyType<PostCustomerUploadChatMessageBody>;
+  },
+  TContext
+> => {
+  const mutationKey = ["postCustomerUploadChatMessage"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postCustomerUploadChatMessage>>,
+    {
+      weekStart: string;
+      customer: string;
+      data: BodyType<PostCustomerUploadChatMessageBody>;
+    }
+  > = (props) => {
+    const { weekStart, customer, data } = props ?? {};
+
+    return postCustomerUploadChatMessage(
+      weekStart,
+      customer,
+      data,
+      requestOptions,
+    );
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostCustomerUploadChatMessageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof postCustomerUploadChatMessage>>
+>;
+export type PostCustomerUploadChatMessageMutationBody =
+  BodyType<PostCustomerUploadChatMessageBody>;
+export type PostCustomerUploadChatMessageMutationError = ErrorType<void>;
+
+/**
+ * @summary Send a user message, run Claude tool loop, return the assistant reply (optionally with a proposed fix + lesson).
+ */
+export const usePostCustomerUploadChatMessage = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postCustomerUploadChatMessage>>,
+    TError,
+    {
+      weekStart: string;
+      customer: string;
+      data: BodyType<PostCustomerUploadChatMessageBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof postCustomerUploadChatMessage>>,
+  TError,
+  {
+    weekStart: string;
+    customer: string;
+    data: BodyType<PostCustomerUploadChatMessageBody>;
+  },
+  TContext
+> => {
+  return useMutation(getPostCustomerUploadChatMessageMutationOptions(options));
+};
+
+/**
+ * @summary Apply the proposed fix attached to this assistant message; optionally save the proposed lesson.
+ */
+export const getApplyCustomerUploadChatFixUrl = (
+  weekStart: string,
+  customer: string,
+  messageId: number,
+) => {
+  return `/api/weeks/${weekStart}/customer-chat/${customer}/messages/${messageId}/apply`;
+};
+
+export const applyCustomerUploadChatFix = async (
+  weekStart: string,
+  customer: string,
+  messageId: number,
+  applyCustomerUploadChatFixBody: ApplyCustomerUploadChatFixBody,
+  options?: RequestInit,
+): Promise<ApplyCustomerUploadChatFixResult> => {
+  return customFetch<ApplyCustomerUploadChatFixResult>(
+    getApplyCustomerUploadChatFixUrl(weekStart, customer, messageId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(applyCustomerUploadChatFixBody),
+    },
+  );
+};
+
+export const getApplyCustomerUploadChatFixMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof applyCustomerUploadChatFix>>,
+    TError,
+    {
+      weekStart: string;
+      customer: string;
+      messageId: number;
+      data: BodyType<ApplyCustomerUploadChatFixBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof applyCustomerUploadChatFix>>,
+  TError,
+  {
+    weekStart: string;
+    customer: string;
+    messageId: number;
+    data: BodyType<ApplyCustomerUploadChatFixBody>;
+  },
+  TContext
+> => {
+  const mutationKey = ["applyCustomerUploadChatFix"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof applyCustomerUploadChatFix>>,
+    {
+      weekStart: string;
+      customer: string;
+      messageId: number;
+      data: BodyType<ApplyCustomerUploadChatFixBody>;
+    }
+  > = (props) => {
+    const { weekStart, customer, messageId, data } = props ?? {};
+
+    return applyCustomerUploadChatFix(
+      weekStart,
+      customer,
+      messageId,
+      data,
+      requestOptions,
+    );
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ApplyCustomerUploadChatFixMutationResult = NonNullable<
+  Awaited<ReturnType<typeof applyCustomerUploadChatFix>>
+>;
+export type ApplyCustomerUploadChatFixMutationBody =
+  BodyType<ApplyCustomerUploadChatFixBody>;
+export type ApplyCustomerUploadChatFixMutationError = ErrorType<void>;
+
+/**
+ * @summary Apply the proposed fix attached to this assistant message; optionally save the proposed lesson.
+ */
+export const useApplyCustomerUploadChatFix = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof applyCustomerUploadChatFix>>,
+    TError,
+    {
+      weekStart: string;
+      customer: string;
+      messageId: number;
+      data: BodyType<ApplyCustomerUploadChatFixBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof applyCustomerUploadChatFix>>,
+  TError,
+  {
+    weekStart: string;
+    customer: string;
+    messageId: number;
+    data: BodyType<ApplyCustomerUploadChatFixBody>;
+  },
+  TContext
+> => {
+  return useMutation(getApplyCustomerUploadChatFixMutationOptions(options));
+};
+
+/**
+ * @summary Dismiss the proposed fix on this assistant message without applying it.
+ */
+export const getDismissCustomerUploadChatFixUrl = (
+  weekStart: string,
+  customer: string,
+  messageId: number,
+) => {
+  return `/api/weeks/${weekStart}/customer-chat/${customer}/messages/${messageId}/dismiss`;
+};
+
+export const dismissCustomerUploadChatFix = async (
+  weekStart: string,
+  customer: string,
+  messageId: number,
+  options?: RequestInit,
+): Promise<CustomerUploadChatMessage> => {
+  return customFetch<CustomerUploadChatMessage>(
+    getDismissCustomerUploadChatFixUrl(weekStart, customer, messageId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getDismissCustomerUploadChatFixMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dismissCustomerUploadChatFix>>,
+    TError,
+    { weekStart: string; customer: string; messageId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof dismissCustomerUploadChatFix>>,
+  TError,
+  { weekStart: string; customer: string; messageId: number },
+  TContext
+> => {
+  const mutationKey = ["dismissCustomerUploadChatFix"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof dismissCustomerUploadChatFix>>,
+    { weekStart: string; customer: string; messageId: number }
+  > = (props) => {
+    const { weekStart, customer, messageId } = props ?? {};
+
+    return dismissCustomerUploadChatFix(
+      weekStart,
+      customer,
+      messageId,
+      requestOptions,
+    );
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DismissCustomerUploadChatFixMutationResult = NonNullable<
+  Awaited<ReturnType<typeof dismissCustomerUploadChatFix>>
+>;
+
+export type DismissCustomerUploadChatFixMutationError = ErrorType<void>;
+
+/**
+ * @summary Dismiss the proposed fix on this assistant message without applying it.
+ */
+export const useDismissCustomerUploadChatFix = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dismissCustomerUploadChatFix>>,
+    TError,
+    { weekStart: string; customer: string; messageId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof dismissCustomerUploadChatFix>>,
+  TError,
+  { weekStart: string; customer: string; messageId: number },
+  TContext
+> => {
+  return useMutation(getDismissCustomerUploadChatFixMutationOptions(options));
+};
+
+/**
+ * @summary List active and archived extraction lessons for a customer (scoped per-customer).
+ */
+export const getListCustomerExtractionLessonsUrl = (customer: string) => {
+  return `/api/customer-extraction-lessons/${customer}`;
+};
+
+export const listCustomerExtractionLessons = async (
+  customer: string,
+  options?: RequestInit,
+): Promise<CustomerExtractionLesson[]> => {
+  return customFetch<CustomerExtractionLesson[]>(
+    getListCustomerExtractionLessonsUrl(customer),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListCustomerExtractionLessonsQueryKey = (customer: string) => {
+  return [`/api/customer-extraction-lessons/${customer}`] as const;
+};
+
+export const getListCustomerExtractionLessonsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCustomerExtractionLessons>>,
+  TError = ErrorType<unknown>,
+>(
+  customer: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listCustomerExtractionLessons>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getListCustomerExtractionLessonsQueryKey(customer);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listCustomerExtractionLessons>>
+  > = ({ signal }) =>
+    listCustomerExtractionLessons(customer, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!customer,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCustomerExtractionLessons>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCustomerExtractionLessonsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCustomerExtractionLessons>>
+>;
+export type ListCustomerExtractionLessonsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List active and archived extraction lessons for a customer (scoped per-customer).
+ */
+
+export function useListCustomerExtractionLessons<
+  TData = Awaited<ReturnType<typeof listCustomerExtractionLessons>>,
+  TError = ErrorType<unknown>,
+>(
+  customer: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listCustomerExtractionLessons>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCustomerExtractionLessonsQueryOptions(
+    customer,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Edit a lesson's text or toggle active (admin-only).
+ */
+export const getUpdateCustomerExtractionLessonUrl = (
+  customer: string,
+  lessonId: number,
+) => {
+  return `/api/customer-extraction-lessons/${customer}/${lessonId}`;
+};
+
+export const updateCustomerExtractionLesson = async (
+  customer: string,
+  lessonId: number,
+  updateCustomerExtractionLessonBody: UpdateCustomerExtractionLessonBody,
+  options?: RequestInit,
+): Promise<CustomerExtractionLesson> => {
+  return customFetch<CustomerExtractionLesson>(
+    getUpdateCustomerExtractionLessonUrl(customer, lessonId),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(updateCustomerExtractionLessonBody),
+    },
+  );
+};
+
+export const getUpdateCustomerExtractionLessonMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCustomerExtractionLesson>>,
+    TError,
+    {
+      customer: string;
+      lessonId: number;
+      data: BodyType<UpdateCustomerExtractionLessonBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateCustomerExtractionLesson>>,
+  TError,
+  {
+    customer: string;
+    lessonId: number;
+    data: BodyType<UpdateCustomerExtractionLessonBody>;
+  },
+  TContext
+> => {
+  const mutationKey = ["updateCustomerExtractionLesson"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateCustomerExtractionLesson>>,
+    {
+      customer: string;
+      lessonId: number;
+      data: BodyType<UpdateCustomerExtractionLessonBody>;
+    }
+  > = (props) => {
+    const { customer, lessonId, data } = props ?? {};
+
+    return updateCustomerExtractionLesson(
+      customer,
+      lessonId,
+      data,
+      requestOptions,
+    );
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateCustomerExtractionLessonMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateCustomerExtractionLesson>>
+>;
+export type UpdateCustomerExtractionLessonMutationBody =
+  BodyType<UpdateCustomerExtractionLessonBody>;
+export type UpdateCustomerExtractionLessonMutationError = ErrorType<void>;
+
+/**
+ * @summary Edit a lesson's text or toggle active (admin-only).
+ */
+export const useUpdateCustomerExtractionLesson = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCustomerExtractionLesson>>,
+    TError,
+    {
+      customer: string;
+      lessonId: number;
+      data: BodyType<UpdateCustomerExtractionLessonBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateCustomerExtractionLesson>>,
+  TError,
+  {
+    customer: string;
+    lessonId: number;
+    data: BodyType<UpdateCustomerExtractionLessonBody>;
+  },
+  TContext
+> => {
+  return useMutation(getUpdateCustomerExtractionLessonMutationOptions(options));
+};
+
+/**
+ * @summary Permanently delete a lesson (admin-only).
+ */
+export const getDeleteCustomerExtractionLessonUrl = (
+  customer: string,
+  lessonId: number,
+) => {
+  return `/api/customer-extraction-lessons/${customer}/${lessonId}`;
+};
+
+export const deleteCustomerExtractionLesson = async (
+  customer: string,
+  lessonId: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(
+    getDeleteCustomerExtractionLessonUrl(customer, lessonId),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getDeleteCustomerExtractionLessonMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCustomerExtractionLesson>>,
+    TError,
+    { customer: string; lessonId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteCustomerExtractionLesson>>,
+  TError,
+  { customer: string; lessonId: number },
+  TContext
+> => {
+  const mutationKey = ["deleteCustomerExtractionLesson"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteCustomerExtractionLesson>>,
+    { customer: string; lessonId: number }
+  > = (props) => {
+    const { customer, lessonId } = props ?? {};
+
+    return deleteCustomerExtractionLesson(customer, lessonId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteCustomerExtractionLessonMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteCustomerExtractionLesson>>
+>;
+
+export type DeleteCustomerExtractionLessonMutationError = ErrorType<void>;
+
+/**
+ * @summary Permanently delete a lesson (admin-only).
+ */
+export const useDeleteCustomerExtractionLesson = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCustomerExtractionLesson>>,
+    TError,
+    { customer: string; lessonId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteCustomerExtractionLesson>>,
+  TError,
+  { customer: string; lessonId: number },
+  TContext
+> => {
+  return useMutation(getDeleteCustomerExtractionLessonMutationOptions(options));
 };

@@ -42,9 +42,11 @@ import {
   Lightbulb,
   FileQuestion,
   FolderUp,
+  MessageSquare,
   X,
 } from "lucide-react";
 import { NewCustomerDialog } from "@/components/new-customer-dialog";
+import { CustomerChatDrawer } from "@/components/customer-chat-drawer";
 import {
   CustomerPreviewDialog,
   type CustomerPreviewData,
@@ -458,6 +460,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const [rowState, setRowState] = useState<Record<string, RowState>>({});
   const [newOpen, setNewOpen] = useState(false);
+  const [chatCustomer, setChatCustomer] = useState<string | null>(null);
   const [newInitialFile, setNewInitialFile] = useState<File | null>(null);
   const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
   const [bulkRunning, setBulkRunning] = useState(false);
@@ -1927,6 +1930,17 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   {t("common.cancel")}
                 </Button>
               )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 shrink-0"
+                title={`Fix upload with chat · ${s.customer}`}
+                data-testid={`customer-chat-open-${s.customer}`}
+                onClick={() => setChatCustomer(s.customer)}
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span className="sr-only">Open chat</span>
+              </Button>
               {me?.isAdmin && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -1988,6 +2002,17 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         onOpenChange={setPreviewOpen}
         onConfirmed={invalidateAll}
       />
+      {chatCustomer && (
+        <CustomerChatDrawer
+          weekStart={weekStart}
+          customer={chatCustomer}
+          open={chatCustomer !== null}
+          onOpenChange={(o) => {
+            if (!o) setChatCustomer(null);
+          }}
+          onApplied={invalidateAll}
+        />
+      )}
     </Card>
   );
 }
