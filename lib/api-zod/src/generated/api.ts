@@ -1448,6 +1448,44 @@ export const RemoveDriverConnecteamTimeResponse = zod.object({
 });
 
 /**
+ * @summary Snapshot of the xlsx/AI-extract worker pool's load. The customer-file
+upload UI reads this just before submitting a parse so it can warn
+the dispatcher when their upload will queue behind other in-flight
+parses (Task #411). Returns zeros when the pool is disabled (sync
+inline fallback under tests / when the worker failed to spawn).
+
+ */
+export const getUploadQueueDepthResponseWorkersMin = 0;
+
+export const getUploadQueueDepthResponseInflightMin = 0;
+
+export const getUploadQueueDepthResponseQueuedMin = 0;
+
+export const GetUploadQueueDepthResponse = zod.object({
+  workers: zod
+    .number()
+    .min(getUploadQueueDepthResponseWorkersMin)
+    .describe("Number of worker threads the pool has spawned."),
+  inflight: zod
+    .number()
+    .min(getUploadQueueDepthResponseInflightMin)
+    .describe(
+      "Total tasks the pool is currently servicing across all workers.",
+    ),
+  queued: zod
+    .number()
+    .min(getUploadQueueDepthResponseQueuedMin)
+    .describe(
+      'Tasks submitted but waiting on a busy worker. Equal to\n`max(0, inflight - workers)`. The upload UI shows a\n\"server is busy\" notice when this is greater than zero.\n',
+    ),
+  disabled: zod
+    .boolean()
+    .describe(
+      "True when the worker pool is unavailable and the server is\nrunning parses synchronously inline (tsx tests, worker\nspawn failure). In that mode the other counts are always\nzero — there is no queue.\n",
+    ),
+});
+
+/**
  * @summary Parse a known-customer time export (xlsx/pdf, or a photo: jpg/png/heic/webp,
 max 15 MB; HEIC is transcoded to JPEG server-side) into preview rows WITHOUT
 writing anything. Image uploads route through Gemini AI extraction and persist

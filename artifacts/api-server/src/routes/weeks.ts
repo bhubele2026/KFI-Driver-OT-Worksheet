@@ -60,6 +60,7 @@ import {
   loadCustomers,
 } from "../lib/customersStore.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
+import { getXlsxWorkerPoolStats } from "../lib/parsers/xlsxWorkerPool.js";
 import { loadLessonsForPrompt, MAX_LESSON_CHARS } from "../lib/chat/lessonsStore.js";
 import { runChatTurn } from "../lib/chat/claudeChat.js";
 import { releaseIngestion } from "../lib/parsers/modelClient.js";
@@ -412,6 +413,15 @@ async function recordSkip(
       },
     });
 }
+
+// Task #411: cheap snapshot of the xlsx/AI-extract worker pool's load.
+// The customer-file upload UI reads this just before submitting a
+// parse so it can warn the dispatcher when their upload will queue
+// behind other in-flight parses. Open to any authenticated user
+// (every dispatcher who can upload needs to see this).
+weeksRouter.get("/upload-queue-depth", async (_req, res) => {
+  res.json(getXlsxWorkerPoolStats());
+});
 
 weeksRouter.get("/weeks", async (_req, res) => {
   const rows = await db

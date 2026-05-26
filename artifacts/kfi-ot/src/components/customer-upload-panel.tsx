@@ -10,6 +10,7 @@ import {
   getGetCustomerUploadStatusQueryKey,
   getGetWeekSummaryQueryKey,
   getListInactiveCustomersQueryKey,
+  getUploadQueueDepth,
 } from "@workspace/api-client-react";
 import {
   Select,
@@ -642,6 +643,37 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     return t("customerUpload.failedAgoHour", { count: hours });
   };
 
+  // Task #411: peek at the server's xlsx/AI-extract worker pool right
+  // before submitting an upload. We warn whenever the new upload will
+  // queue — either because there's already a backlog (`queued > 0`)
+  // OR because every worker is already busy (`inflight >= workers`),
+  // which is the original motivating case from the task description
+  // (2 workers busy + a 3rd upload → no existing queue yet, but the
+  // 3rd will queue the moment we POST). The toast is non-blocking and
+  // the call is awaited so the warning lands before the spinner
+  // starts; failures are swallowed since this is purely advisory.
+  const warnIfBusy = async () => {
+    try {
+      const stats = await getUploadQueueDepth();
+      if (stats.disabled) return;
+      const willQueue =
+        stats.queued > 0 ||
+        (stats.workers > 0 && stats.inflight >= stats.workers);
+      if (!willQueue) return;
+      // "Other uploads" = everything already in flight (queued ones
+      // are also waiting on a worker). When `inflight === 0` and we
+      // somehow still hit `willQueue` (shouldn't, but guard anyway)
+      // fall back to 1 so the message reads naturally.
+      const count = Math.max(1, stats.inflight);
+      toast({
+        title: t("customerUpload.serverBusyTitle"),
+        description: t("customerUpload.serverBusyDesc", { count }),
+      });
+    } catch {
+      /* advisory — ignore failures */
+    }
+  };
+
   const invalidateAll = () => {
     queryClient.invalidateQueries({
       queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
@@ -801,6 +833,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
     file: File,
     opts?: { force?: boolean; maxCalls?: number },
   ) => {
+    await warnIfBusy();
     cancelRowUpload(customer);
     const controller = new AbortController();
     rowAborts.current[customer] = controller;
@@ -1099,6 +1132,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
 
   const runBulk = async (files: File[]) => {
     if (files.length === 0) return;
+    await warnIfBusy();
     const initial: BulkItem[] = files.map((file) => {
       const customer = classifyFile(file);
       return {

@@ -1223,6 +1223,8 @@
     "unsupportedFileDesc": "Only .xlsx, .xls, .csv, .pdf, and image files (JPG, PNG, HEIC, WEBP) are accepted. \"{{name}}\" was skipped.",
     "bulkBusyTitle": "Upload already in progress",
     "bulkBusyDesc": "Wait for the current bulk upload to finish before dropping more files.",
+    "serverBusyTitle": "Server is busy",
+    "serverBusyDesc": "Server is busy with {{count}} other upload(s) — yours will start shortly.",
     "panelDescription": "Each customer's weekly export. Re-uploading replaces only that customer's imported rows; manual punches are kept.",
     "tzLabel": "Tz",
     "tzTitle": "Override the timezone applied to the next upload. 'Auto' uses the driver / customer / system default.",

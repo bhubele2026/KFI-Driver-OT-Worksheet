@@ -135,6 +135,7 @@ import type {
   UpdateDriverTimezoneInput,
   UpdateLanguageBody,
   UpdateUserBody,
+  UploadQueueDepth,
   UploadResult,
   UpsertCustomerTzPreferenceInput,
   User,
@@ -3873,6 +3874,91 @@ export const useRemoveDriverConnecteamTime = <
 > => {
   return useMutation(getRemoveDriverConnecteamTimeMutationOptions(options));
 };
+
+/**
+ * @summary Snapshot of the xlsx/AI-extract worker pool's load. The customer-file
+upload UI reads this just before submitting a parse so it can warn
+the dispatcher when their upload will queue behind other in-flight
+parses (Task #411). Returns zeros when the pool is disabled (sync
+inline fallback under tests / when the worker failed to spawn).
+
+ */
+export const getGetUploadQueueDepthUrl = () => {
+  return `/api/upload-queue-depth`;
+};
+
+export const getUploadQueueDepth = async (
+  options?: RequestInit,
+): Promise<UploadQueueDepth> => {
+  return customFetch<UploadQueueDepth>(getGetUploadQueueDepthUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetUploadQueueDepthQueryKey = () => {
+  return [`/api/upload-queue-depth`] as const;
+};
+
+export const getGetUploadQueueDepthQueryOptions = <
+  TData = Awaited<ReturnType<typeof getUploadQueueDepth>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getUploadQueueDepth>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetUploadQueueDepthQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getUploadQueueDepth>>
+  > = ({ signal }) => getUploadQueueDepth({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getUploadQueueDepth>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetUploadQueueDepthQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getUploadQueueDepth>>
+>;
+export type GetUploadQueueDepthQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Snapshot of the xlsx/AI-extract worker pool's load. The customer-file
+upload UI reads this just before submitting a parse so it can warn
+the dispatcher when their upload will queue behind other in-flight
+parses (Task #411). Returns zeros when the pool is disabled (sync
+inline fallback under tests / when the worker failed to spawn).
+
+ */
+
+export function useGetUploadQueueDepth<
+  TData = Awaited<ReturnType<typeof getUploadQueueDepth>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getUploadQueueDepth>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetUploadQueueDepthQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Parse a known-customer time export (xlsx/pdf, or a photo: jpg/png/heic/webp,

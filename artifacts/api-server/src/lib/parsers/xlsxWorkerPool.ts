@@ -192,6 +192,39 @@ export function xlsxToChunksAsync(
 }
 
 /**
+ * Snapshot of the xlsx worker pool's load (Task #411).
+ *
+ * `workers` is the number of worker threads the pool would spawn (or
+ * has spawned). `inflight` is the total number of tasks the pool is
+ * currently servicing across all slots. `queued` is the count of
+ * tasks that are waiting on a busy worker — i.e. submitted but not
+ * yet picked up because every slot already has at least one task
+ * running. The frontend uses `queued > 0` at submit time to warn the
+ * dispatcher that their upload will sit behind other parses.
+ *
+ * When the worker pool is disabled (sync inline fallback — tsx tests,
+ * worker spawn failed) we report zeros: every call runs synchronously
+ * so there is no queue depth to surface.
+ */
+export interface XlsxWorkerPoolStats {
+  workers: number;
+  inflight: number;
+  queued: number;
+  disabled: boolean;
+}
+
+export function getXlsxWorkerPoolStats(): XlsxWorkerPoolStats {
+  if (poolDisabled || !pool) {
+    return { workers: 0, inflight: 0, queued: 0, disabled: true };
+  }
+  let inflight = 0;
+  for (const s of pool) inflight += s.inflight;
+  const workers = pool.length;
+  const queued = Math.max(0, inflight - workers);
+  return { workers, inflight, queued, disabled: false };
+}
+
+/**
  * Test-only hook: shut the pool down and forget any pending work.
  * Not used by production code paths.
  */

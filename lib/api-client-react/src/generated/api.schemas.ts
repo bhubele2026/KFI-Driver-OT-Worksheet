@@ -9,6 +9,33 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface UploadQueueDepth {
+  /**
+   * Number of worker threads the pool has spawned.
+   * @minimum 0
+   */
+  workers: number;
+  /**
+   * Total tasks the pool is currently servicing across all workers.
+   * @minimum 0
+   */
+  inflight: number;
+  /**
+   * Tasks submitted but waiting on a busy worker. Equal to
+`max(0, inflight - workers)`. The upload UI shows a
+"server is busy" notice when this is greater than zero.
+
+   * @minimum 0
+   */
+  queued: number;
+  /** True when the worker pool is unavailable and the server is
+running parses synchronously inline (tsx tests, worker
+spawn failure). In that mode the other counts are always
+zero — there is no queue.
+ */
+  disabled: boolean;
+}
+
 export interface AuthCredentials {
   email: string;
   /** @minLength 8 */

@@ -828,6 +828,23 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ResetWeekLockedError" }
 
+  /upload-queue-depth:
+    get:
+      operationId: getUploadQueueDepth
+      tags: [ingest]
+      summary: |
+        Snapshot of the xlsx/AI-extract worker pool's load. The customer-file
+        upload UI reads this just before submitting a parse so it can warn
+        the dispatcher when their upload will queue behind other in-flight
+        parses (Task #411). Returns zeros when the pool is disabled (sync
+        inline fallback under tests / when the worker failed to spawn).
+      responses:
+        "200":
+          description: Current pool load
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadQueueDepth" }
+
   /weeks/{weekStart}/extract-customer-file:
     post:
       operationId: extractCustomerFile
@@ -2294,6 +2311,33 @@ components:
       required: [status]
       properties:
         status: { type: string }
+
+    UploadQueueDepth:
+      type: object
+      required: [workers, inflight, queued, disabled]
+      properties:
+        workers:
+          type: integer
+          minimum: 0
+          description: Number of worker threads the pool has spawned.
+        inflight:
+          type: integer
+          minimum: 0
+          description: Total tasks the pool is currently servicing across all workers.
+        queued:
+          type: integer
+          minimum: 0
+          description: |
+            Tasks submitted but waiting on a busy worker. Equal to
+            `max(0, inflight - workers)`. The upload UI shows a
+            "server is busy" notice when this is greater than zero.
+        disabled:
+          type: boolean
+          description: |
+            True when the worker pool is unavailable and the server is
+            running parses synchronously inline (tsx tests, worker
+            spawn failure). In that mode the other counts are always
+            zero — there is no queue.
 
     AuthCredentials:
       type: object

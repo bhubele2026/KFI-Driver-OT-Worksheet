@@ -25,6 +25,7 @@ import {
 } from "../aiExtract.js";
 import {
   detectXlsxBlockStructureAsync,
+  getXlsxWorkerPoolStats,
   xlsxToChunksAsync,
 } from "../xlsxWorkerPool.js";
 
@@ -87,6 +88,28 @@ test("xlsxToChunksAsync returns a Promise (not a sync-shaped value)", () => {
   const buf = makeFlatXlsx(5);
   const p = xlsxToChunksAsync(buf);
   assert.ok(p && typeof (p as Promise<unknown>).then === "function");
+});
+
+test("getXlsxWorkerPoolStats reports zeros when the pool is disabled (sync inline path)", () => {
+  // Under tsx the worker spawn is skipped, so this also exercises the
+  // disabled branch — which is exactly what the upload UI uses to
+  // decide whether the busy-warning is meaningful (a sync fallback
+  // has no queue and should never trigger a warning).
+  const stats = getXlsxWorkerPoolStats();
+  assert.equal(typeof stats.workers, "number");
+  assert.equal(typeof stats.inflight, "number");
+  assert.equal(typeof stats.queued, "number");
+  assert.equal(typeof stats.disabled, "boolean");
+  assert.ok(stats.queued >= 0);
+  assert.ok(stats.inflight >= 0);
+  if (stats.disabled) {
+    assert.equal(stats.workers, 0);
+    assert.equal(stats.inflight, 0);
+    assert.equal(stats.queued, 0);
+  } else {
+    // When the pool is live, `queued` is always max(0, inflight-workers).
+    assert.equal(stats.queued, Math.max(0, stats.inflight - stats.workers));
+  }
 });
 
 test("caller's Buffer is preserved across the worker dispatch", async () => {

@@ -179,6 +179,7 @@ export * from "./updateLanguageBody";
 export * from "./updateLanguageBodyPreferredLanguage";
 export * from "./updateUserBody";
 export * from "./updateUserBodyRole";
+export * from "./uploadQueueDepth";
 export * from "./uploadResult";
 export * from "./upsertCustomerTzPreferenceInput";
 export * from "./user";

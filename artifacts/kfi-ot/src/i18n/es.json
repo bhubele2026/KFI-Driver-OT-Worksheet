@@ -1223,6 +1223,8 @@
     "unsupportedFileDesc": "Solo se aceptan archivos .xlsx, .xls, .csv, .pdf e imágenes (JPG, PNG, HEIC, WEBP). Se omitió \"{{name}}\".",
     "bulkBusyTitle": "Subida ya en curso",
     "bulkBusyDesc": "Espere a que termine la subida masiva actual antes de soltar más archivos.",
+    "serverBusyTitle": "Servidor ocupado",
+    "serverBusyDesc": "El servidor está ocupado con {{count}} otra(s) subida(s) — la suya comenzará en breve.",
     "panelDescription": "La exportación semanal de cada cliente. Volver a subir reemplaza solo las filas importadas de ese cliente; los registros manuales se conservan.",
     "tzLabel": "Zona",
     "tzTitle": "Anular la zona horaria aplicada a la próxima subida. 'Auto' usa la predeterminada del conductor / cliente / sistema.",
