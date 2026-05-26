@@ -115,17 +115,19 @@ test("aiExtractRows merges per-chunk results on the chunked xlsx path", async ()
 
   __clearAiExtractStubs();
   try {
-    // Push one stub per chunk; merger should concatenate them in order.
+    // Push one stub per chunk; merger should concatenate them in
+    // order. Task #405: 80 rows per stub keeps us above the 50%
+    // silent-truncation yield floor (60 = 50% of 120 input rows).
     for (let i = 0; i < chunks.length; i++) {
-      __pushAiExtractStub([
-        {
+      __pushAiExtractStub(
+        Array.from({ length: 80 }, (_, j) => ({
           driverNameOnDoc: `chunk${i}-driver`,
-          badgeOrId: `B${i}`,
+          badgeOrId: `B${i}-${j}`,
           date: "2026-05-12",
           timeIn: "7:00 AM",
           timeOut: "3:00 PM",
-        },
-      ]);
+        })),
+      );
     }
     const merged = await aiExtractRows(
       "huge.xlsx",
@@ -134,9 +136,15 @@ test("aiExtractRows merges per-chunk results on the chunked xlsx path", async ()
       "2026-05-10",
       "2026-05-16",
     );
-    assert.equal(merged.rows.length, chunks.length);
+    assert.equal(merged.rows.length, chunks.length * 80);
+    // Each chunk's 80 badges must be present in the merged output;
+    // order across chunks is preserved by the worker pool's
+    // index-keyed results array.
     for (let i = 0; i < chunks.length; i++) {
-      assert.equal(merged.rows[i].badgeOrId, `B${i}`);
+      assert.ok(
+        merged.rows.some((r) => r.badgeOrId === `B${i}-0`),
+        `chunk ${i} (badge B${i}-0) must be in merged output`,
+      );
     }
   } finally {
     __clearAiExtractStubs();
@@ -151,9 +159,9 @@ test("aiExtractRows merges per-chunk results on the chunked xlsx path", async ()
  * dispatcher saw "3 drivers, 14 rows, 0 importable" with no warning.
  */
 test("row-count trigger forces chunking on row-dense small files (Task #264)", () => {
-  // 200 narrow rows: total CSV ~10 KB (well under 300k chars) but well
-  // above the 150-row trigger.
-  const rows = Array.from({ length: 200 }, (_, i) => ({
+  // 240 narrow rows: total CSV ~12 KB (well under 300k chars) but
+  // above the 200-row trigger (Task #405 bumped from 100 → 200).
+  const rows = Array.from({ length: 240 }, (_, i) => ({
     Name: `Driver ${i}`,
     Badge: `B${i}`,
     Date: "2026-05-12",
@@ -315,16 +323,20 @@ test("chunked path runs chunks in parallel, not sequentially (Task #267)", async
 
   __clearAiExtractStubs();
   try {
+    // Task #405: 80 rows per stub clears the 50% silent-truncation
+    // yield floor (60 = 50% of 120 input rows) so the parallel run
+    // doesn't dissolve into halve-and-retries that change the
+    // expected total.
     for (let i = 0; i < chunks.length; i++) {
-      __pushAiExtractStub([
-        {
+      __pushAiExtractStub(
+        Array.from({ length: 80 }, (_, j) => ({
           driverNameOnDoc: `parallel-${i}`,
-          badgeOrId: `P${i}`,
+          badgeOrId: `P${i}-${j}`,
           date: "2026-05-12",
           timeIn: "7:00 AM",
           timeOut: "3:00 PM",
-        },
-      ]);
+        })),
+      );
     }
     const out = await aiExtractRows(
       "parallel.xlsx",
@@ -333,7 +345,7 @@ test("chunked path runs chunks in parallel, not sequentially (Task #267)", async
       "2026-05-10",
       "2026-05-16",
     );
-    assert.equal(out.rows.length, chunks.length);
+    assert.equal(out.rows.length, chunks.length * 80);
   } finally {
     __clearAiExtractStubs();
   }
@@ -435,16 +447,18 @@ test("aiExtractRows records block-structured layout on the budget (Task #307)", 
     customer: "Adient",
   });
   try {
+    // Task #405: 50 rows per stub clears the 50% silent-truncation
+    // yield floor for block-structured chunks (50% of 60 = 30).
     for (let i = 0; i < chunks.length; i++) {
-      __pushAiExtractStub([
-        {
+      __pushAiExtractStub(
+        Array.from({ length: 50 }, (_, j) => ({
           driverNameOnDoc: `adient-${i}`,
-          badgeOrId: `A${i}`,
+          badgeOrId: `A${i}-${j}`,
           date: "2026-04-27",
           timeIn: "7:00 AM",
           timeOut: "3:00 PM",
-        },
-      ]);
+        })),
+      );
     }
     const out = await aiExtractRows(
       "Adient.xlsx",
@@ -489,16 +503,17 @@ test("ingest_done log payload includes blockStructured + rowsPerChunk (Task #307
     debug: () => {},
   } as unknown as Parameters<typeof aiExtractRows>[6];
   try {
+    // Task #405: clear the 50% silent-truncation yield floor (30 for block layouts).
     for (let i = 0; i < chunks.length; i++) {
-      __pushAiExtractStub([
-        {
+      __pushAiExtractStub(
+        Array.from({ length: 50 }, (_, j) => ({
           driverNameOnDoc: `adient-${i}`,
-          badgeOrId: `A${i}`,
+          badgeOrId: `A${i}-${j}`,
           date: "2026-04-27",
           timeIn: "7:00 AM",
           timeOut: "3:00 PM",
-        },
-      ]);
+        })),
+      );
     }
     await aiExtractRows(
       "Adient.xlsx",
@@ -539,16 +554,18 @@ test("aiExtractRows leaves flat layouts on the 120-row budget (Task #307)", asyn
     customer: "Penda",
   });
   try {
+    // Task #405: 80 rows per stub clears the 50% silent-truncation
+    // yield floor for flat layouts (60 = 50% of 120 input rows).
     for (let i = 0; i < chunks.length; i++) {
-      __pushAiExtractStub([
-        {
+      __pushAiExtractStub(
+        Array.from({ length: 80 }, (_, j) => ({
           driverNameOnDoc: `penda-${i}`,
-          badgeOrId: `P${i}`,
+          badgeOrId: `P${i}-${j}`,
           date: "2026-04-27",
           timeIn: "7:00 AM",
           timeOut: "3:00 PM",
-        },
-      ]);
+        })),
+      );
     }
     const out = await aiExtractRows(
       "Penda.xlsx",
@@ -737,16 +754,18 @@ test("ingest_done log payload includes maxCalls (Task #336)", async () => {
     debug: () => {},
   } as unknown as Parameters<typeof aiExtractRows>[6];
   try {
+    // Task #405: 80 rows per stub clears the 50% silent-truncation
+    // yield floor for flat layouts (60 = 50% of 120 input rows).
     for (let i = 0; i < chunks.length; i++) {
-      __pushAiExtractStub([
-        {
+      __pushAiExtractStub(
+        Array.from({ length: 80 }, (_, j) => ({
           driverNameOnDoc: `chunk-${i}`,
-          badgeOrId: `C${i}`,
+          badgeOrId: `C${i}-${j}`,
           date: "2026-05-12",
           timeIn: "7:00 AM",
           timeOut: "3:00 PM",
-        },
-      ]);
+        })),
+      );
     }
     await aiExtractRows(
       "flat.xlsx",

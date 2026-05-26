@@ -134,16 +134,20 @@ test("clean chunked run saves each chunk then clears staging on success (Task #3
   });
   __clearAiExtractStubs();
   try {
+    // Task #405: each stub must return enough rows to clear the
+    // 50% yield floor (chunks are 120 input lines → floor = 60),
+    // otherwise the new silent-truncation guard halves and retries
+    // and the staging assertions below see 2x rows per chunk.
     for (let i = 0; i < chunks.length; i++) {
-      __pushAiExtractStub([
-        {
+      __pushAiExtractStub(
+        Array.from({ length: 80 }, (_, j) => ({
           driverNameOnDoc: `chunk${i}`,
-          badgeOrId: `B${i}`,
+          badgeOrId: `B${i}-${j}`,
           date: "2026-05-12",
           timeIn: "7:00 AM",
           timeOut: "3:00 PM",
-        },
-      ]);
+        })),
+      );
     }
     const out = await aiExtractRows(
       "huge.xlsx",
@@ -156,7 +160,7 @@ test("clean chunked run saves each chunk then clears staging on success (Task #3
       undefined,
       { uploadKey, stageStore: store },
     );
-    assert.equal(out.rows.length, chunks.length);
+    assert.equal(out.rows.length, chunks.length * 80);
     assert.equal(
       store.saves.length,
       chunks.length,
@@ -202,16 +206,19 @@ test("failure mid-run leaves successful chunks staged; resume skips them and fin
     __pushAiExtractErrorStub(
       "AI extraction timed out after 120s on one chunk — retry in a moment.",
     );
+    // Task #405: 80 rows per stub clears the silent-truncation
+    // yield floor (60 = 50% of the 120-line chunk body) so the
+    // survivors aren't halve-and-retried into 2x rows per chunk.
     for (let i = 1; i < chunks.length; i++) {
-      __pushAiExtractStub([
-        {
+      __pushAiExtractStub(
+        Array.from({ length: 80 }, (_, j) => ({
           driverNameOnDoc: `survivor-${i}`,
-          badgeOrId: `S${i}`,
+          badgeOrId: `S${i}-${j}`,
           date: "2026-05-12",
           timeIn: "7:00 AM",
           timeOut: "3:00 PM",
-        },
-      ]);
+        })),
+      );
     }
     await assert.rejects(
       aiExtractRows(
@@ -264,15 +271,17 @@ test("failure mid-run leaves successful chunks staged; resume skips them and fin
     // the resumed rows (from the in-memory store) and the freshly-
     // extracted rows (from the new stubs) end up in the merged result.
     for (const idx of missingIndices) {
-      __pushAiExtractStub([
-        {
+      // Task #405: 80 rows per stub keeps the resumed-run stubs
+      // above the silent-truncation yield floor (50% of 120 = 60).
+      __pushAiExtractStub(
+        Array.from({ length: 80 }, (_, j) => ({
           driverNameOnDoc: `resume-${idx}`,
-          badgeOrId: `R${idx}`,
+          badgeOrId: `R${idx}-${j}`,
           date: "2026-05-12",
           timeIn: "7:00 AM",
           timeOut: "3:00 PM",
-        },
-      ]);
+        })),
+      );
     }
     const out = await aiExtractRows(
       "huge.xlsx",
@@ -285,19 +294,20 @@ test("failure mid-run leaves successful chunks staged; resume skips them and fin
       undefined,
       { uploadKey, stageStore: store },
     );
-    // Every chunk's row must be in the merged output (staged + resumed).
-    assert.equal(out.rows.length, chunks.length);
-    const badges = out.rows.map((r) => r.badgeOrId).sort();
+    // Every chunk's rows must be in the merged output (staged +
+    // resumed). 80 rows per chunk after the Task #405 stub bump.
+    assert.equal(out.rows.length, chunks.length * 80);
+    const badges = out.rows.map((r) => r.badgeOrId ?? "");
     for (const stagedIdx of stagedIndices) {
       assert.ok(
-        badges.includes(`S${stagedIdx}`),
-        `staged chunk ${stagedIdx} (badge S${stagedIdx}) must be in resumed output`,
+        badges.some((b) => b.startsWith(`S${stagedIdx}-`)),
+        `staged chunk ${stagedIdx} (badges S${stagedIdx}-*) must be in resumed output`,
       );
     }
     for (const missingIdx of missingIndices) {
       assert.ok(
-        badges.includes(`R${missingIdx}`),
-        `re-run chunk ${missingIdx} (badge R${missingIdx}) must be in merged output`,
+        badges.some((b) => b.startsWith(`R${missingIdx}-`)),
+        `re-run chunk ${missingIdx} (badges R${missingIdx}-*) must be in merged output`,
       );
     }
     assert.deepEqual(

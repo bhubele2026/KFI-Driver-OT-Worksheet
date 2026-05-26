@@ -262,7 +262,18 @@ export const XLSX_CHUNK_THRESHOLD_CHARS = 300_000;
 // and silently dropping ~95% of the rows. We now force chunking once
 // the workbook exceeds this many data rows regardless of total chars,
 // keeping each chunk's worst-case JSON output well under 32k tokens.
-export const XLSX_CHUNK_THRESHOLD_ROWS = 100;
+//
+// Task #405: bumped 100 -> 200. Burnett's weekly export (4 drivers × 6
+// days = ~24 real data rows) was crossing the old 100-row trigger
+// because `sheet_to_csv` keeps every comma-only / near-blank spacer
+// line the workbook contains, inflating the count. The unnecessary
+// 2-chunk split exposed a silent-drop bug where chunk 2 returned
+// cleanly-closed JSON with the trailing Saturday rows missing —
+// `truncated=false`, no halving retry, dispatcher unaware. Keeping
+// Burnett-sized files single-call avoids that class entirely; the
+// per-chunk yield sanity check in `runChunkedXlsxExtract` catches
+// the same failure mode for files that genuinely do need chunking.
+export const XLSX_CHUNK_THRESHOLD_ROWS = 200;
 // Rough rows-per-chunk target. The chunker measures by chars (so wide
 // columns produce smaller chunks than narrow ones) but caps row count
 // as a safety net for pathologically wide rows. Sized to keep each
@@ -931,6 +942,22 @@ export function __clearAiExtractStubs(): void {
 export function __aiExtractStubQueueLength(): number {
   return _aiStubQueue.length;
 }
+/**
+ * @internal test seam — counts the "likely data" body lines in a
+ * formatted chunk (the chunk shape `runChunkedXlsxExtract` builds:
+ * marker line, header line, then body lines). Used by the
+ * yield-floor guard's denominator so that comma-only/whitespace-only
+ * spacer rows don't inflate it and force false-positive halve-and-
+ * retries on legitimate sparse layouts (Task #405, architect review).
+ */
+export function __chunkBodyLineCount(chunk: string): number {
+  const lines = chunk.split("\n");
+  let count = 0;
+  for (let i = 2; i < lines.length; i++) {
+    if (lines[i].replace(/[,\s]/g, "").length > 0) count++;
+  }
+  return count;
+}
 
 // Per-chunk model-call ceiling for the chunked xlsx path. Shorter than
 // the single-call 5-minute budget because each chunk is small; we still
@@ -1311,6 +1338,22 @@ async function runChunkedXlsxExtract(
   // chunks 2-10 to complete their Gemini calls before Promise.all's
   // rejection bubbled out — wasted minutes and tokens.
   let aborted = false;
+  // Task #405: per-chunk yield sanity check. The classic truncation
+  // path (`result.truncated`) only fires when the JSON itself is
+  // malformed (incomplete braces). The Burnett 5/17–5/23 incident
+  // showed a silent variant: the model returned cleanly-closed JSON
+  // for a chunk but dropped the tail rows entirely — so `truncated`
+  // was `false`, no halving fired, and the importer wrote a partial
+  // set without warning. This guard flags chunks where the model
+  // returned fewer than 50% of the chunk's CSV body lines (and the
+  // chunk has at least 10 body lines, so trivially-small chunks
+  // don't false-trip on a couple of legitimate header/skip lines)
+  // and routes them through the same halve-and-retry path.
+  const YIELD_FLOOR_RATIO = 0.5;
+  const YIELD_MIN_INPUT_ROWS = 10;
+  // Use the exported helper — see `__chunkBodyLineCount` for why we
+  // skip comma-only/whitespace-only spacer lines in the denominator.
+  const bodyLineCount = __chunkBodyLineCount;
   const handleChunkInner = async (
     idx: number,
   ): Promise<{ rows: AiExtractedRow[] }> => {
@@ -1324,11 +1367,17 @@ async function runChunkedXlsxExtract(
       `This is chunk ${idx + 1} of ${chunks.length}`,
     );
     if (aborted) return { rows: [] };
-    if (!result.truncated) {
+    const inputRows = bodyLineCount(chunks[idx]);
+    const underYield =
+      !result.truncated &&
+      inputRows >= YIELD_MIN_INPUT_ROWS &&
+      result.rows.length < Math.floor(inputRows * YIELD_FLOOR_RATIO);
+    if (!result.truncated && !underYield) {
       return { rows: result.rows };
     }
-    // Truncation: chunk still exceeded the 32k output-token cap.
-    // Halve and retry the two halves in parallel exactly once.
+    // Either explicit truncation OR suspected silent-truncation
+    // (under-yield). Halve and retry the two halves in parallel
+    // exactly once.
     const halves = halveChunk(chunks[idx]);
     if (!halves) {
       aborted = true;
@@ -1336,10 +1385,24 @@ async function runChunkedXlsxExtract(
         `AI could not extract the full file — chunk ${idx + 1} of ${chunks.length} is too dense to split further. Split the spreadsheet into two smaller files and re-upload.`,
       );
     }
-    (log ?? logger).warn(
-      { customer, fileName, chunk: idx + 1 },
-      "AI chunk response truncated — halving and retrying",
-    );
+    if (underYield) {
+      (log ?? logger).warn(
+        {
+          customer,
+          fileName,
+          chunk: idx + 1,
+          inputRows,
+          outputRows: result.rows.length,
+          floorRatio: YIELD_FLOOR_RATIO,
+        },
+        "AI chunk yield below 50% — halving and retrying",
+      );
+    } else {
+      (log ?? logger).warn(
+        { customer, fileName, chunk: idx + 1 },
+        "AI chunk response truncated — halving and retrying",
+      );
+    }
     const halfResults = await Promise.all(
       halves.map((h, hIdx) =>
         runOne(
@@ -1349,11 +1412,22 @@ async function runChunkedXlsxExtract(
       ),
     );
     const collected: AiExtractedRow[] = [];
-    for (const hr of halfResults) {
+    for (let hIdx = 0; hIdx < halfResults.length; hIdx++) {
+      const hr = halfResults[hIdx];
       if (hr.truncated) {
         aborted = true;
         throw new Error(
           `AI could not extract the full file — chunk ${idx + 1} still hit the response-size cap after one retry. Split the spreadsheet into two smaller files and re-upload.`,
+        );
+      }
+      const halfInputRows = bodyLineCount(halves[hIdx]);
+      if (
+        halfInputRows >= YIELD_MIN_INPUT_ROWS &&
+        hr.rows.length < Math.floor(halfInputRows * YIELD_FLOOR_RATIO)
+      ) {
+        aborted = true;
+        throw new Error(
+          `AI extraction stopped: chunk ${idx + 1} of ${chunks.length} returned only ${hr.rows.length} rows for ${halfInputRows} input lines after one retry. Re-upload after splitting the spreadsheet by hand.`,
         );
       }
       for (const r of hr.rows) collected.push(r);
