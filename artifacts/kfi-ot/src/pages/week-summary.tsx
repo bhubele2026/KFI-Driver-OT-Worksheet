@@ -158,10 +158,23 @@ export default function WeekSummary() {
       a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0,
     );
   })();
+  // Task #401: dashboard navigates between drivers frequently; a 30s
+  // staleTime keeps the network panel quiet while still letting any
+  // explicit mutation (refresh, upload, edit) invalidate immediately.
   const { data: summary, isLoading, isError, error } =
-    useGetWeekSummary(weekStart);
+    useGetWeekSummary(weekStart, {
+      query: {
+        staleTime: 30_000,
+        queryKey: getGetWeekSummaryQueryKey(weekStart),
+      },
+    });
   const { data: uploadStatuses, isFetched: uploadStatusesFetched } =
-    useGetCustomerUploadStatus(weekStart);
+    useGetCustomerUploadStatus(weekStart, {
+      query: {
+        staleTime: 30_000,
+        queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
+      },
+    });
 
   const allDrivers = summary?.customers.flatMap((c) => c.drivers) ?? [];
   const reviewedCount = allDrivers.filter((d) => d.reviewed).length;

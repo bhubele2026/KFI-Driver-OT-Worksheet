@@ -102,7 +102,15 @@ function DriversList({
 }: ListProps) {
   const [, setLocation] = useLocation();
   const { t } = useTranslation();
-  const { data: summary } = useGetWeekSummary(weekStart);
+  // Task #401: 30s staleTime — the sidebar mounts on every driver-detail
+  // page; without this we re-fetched the same payload on every nav. Real
+  // mutations (refresh, reviewed-toggle, edit) still invalidate this key.
+  const { data: summary } = useGetWeekSummary(weekStart, {
+    query: {
+      staleTime: 30_000,
+      queryKey: getGetWeekSummaryQueryKey(weekStart),
+    },
+  });
   const { toast } = useToast();
   const qc = useQueryClient();
   const clearOverride = useClearDriverCustomerOverride();
@@ -432,7 +440,12 @@ interface FilterCountProps {
 
 function FilterCountBadge({ weekStart, search, chips }: FilterCountProps) {
   const { t } = useTranslation();
-  const { data: summary } = useGetWeekSummary(weekStart);
+  const { data: summary } = useGetWeekSummary(weekStart, {
+    query: {
+      staleTime: 30_000,
+      queryKey: getGetWeekSummaryQueryKey(weekStart),
+    },
+  });
   const needle = search.trim().toLowerCase();
   const filterActive = needle.length > 0 || chips.size > 0;
 

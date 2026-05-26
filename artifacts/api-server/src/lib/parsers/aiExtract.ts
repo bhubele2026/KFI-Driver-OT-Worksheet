@@ -887,6 +887,12 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
         items.push({ str: ti.str, transform: ti.transform });
       }
       pages.push(serializePdfTextItems(items));
+      // Task #401: yield to the event loop between pages so multi-page
+      // scanned PDFs don't stall concurrent API requests while we
+      // serialize text on the request thread.
+      if (p < doc.numPages) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
   } finally {
     await doc.destroy();

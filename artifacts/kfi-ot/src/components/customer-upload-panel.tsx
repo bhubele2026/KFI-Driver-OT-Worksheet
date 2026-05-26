@@ -439,7 +439,16 @@ type UploadResult =
 
 export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const { t } = useTranslation();
-  const { data: statuses } = useGetCustomerUploadStatus(weekStart);
+  // Task #401: 30s staleTime — the panel is rendered alongside the week
+  // summary and on every driver-detail page; the underlying endpoint
+  // hadn't changed across those mounts. Upload + re-upload mutations
+  // still invalidate this query so the warning row updates immediately.
+  const { data: statuses } = useGetCustomerUploadStatus(weekStart, {
+    query: {
+      staleTime: 30_000,
+      queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
+    },
+  });
   const { data: me } = useGetMe();
   const queryClient = useQueryClient();
   const { toast } = useToast();

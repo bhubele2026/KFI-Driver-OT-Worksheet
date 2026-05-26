@@ -1050,7 +1050,27 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
   }
   const { startDate, endDate } = await ensureWeek(weekStart);
   try {
-    const users = await fetchAllUsers();
+    // Task #401: fan these four out concurrently. They have no
+    // interdependencies — `fetchAllUsers()` hits Connecteam over the
+    // network (the slowest of the four), while the three DB reads are
+    // independent of each other and of the user list. Running them
+    // serially used to add ~150-300 ms to every refresh.
+    const [users, ctAliasRows, offsetRows, driverTzByKfi] = await Promise.all([
+      fetchAllUsers(),
+      db
+        .select({
+          ctUserId: schema.connecteamUserAliasesTable.ctUserId,
+          kfiId: schema.connecteamUserAliasesTable.kfiId,
+        })
+        .from(schema.connecteamUserAliasesTable),
+      db
+        .select({
+          clockId: schema.clockOffsetsTable.clockId,
+          hoursOffset: schema.clockOffsetsTable.hoursOffset,
+        })
+        .from(schema.clockOffsetsTable),
+      loadDriverTzMap(),
+    ]);
     if (users.length > 0) {
       await db
         .insert(schema.driversTable)
@@ -1077,26 +1097,10 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
         });
     }
     const ctUserIdToKfi = new Map(users.map((u) => [u.ctUserId, u.kfiId]));
-    const driverTzByKfi = await loadDriverTzMap();
-    // connecteam_user_aliases is the single source of truth — the legacy
-    // USER_ID_ALIASES_LD seed was lifted into the table by the Task #287
-    // seed-then-wipe migration.
-    const ctAliasRows = await db
-      .select({
-        ctUserId: schema.connecteamUserAliasesTable.ctUserId,
-        kfiId: schema.connecteamUserAliasesTable.kfiId,
-      })
-      .from(schema.connecteamUserAliasesTable);
+    // connecteam_user_aliases / clock_offsets / driverTz already loaded in
+    // the Promise.all above (Task #401); just shape them into lookup maps.
     const ctUserAliases = new Map<number, string>();
     for (const row of ctAliasRows) ctUserAliases.set(row.ctUserId, row.kfiId);
-    // Admin-managed per-clock raw-timestamp offsets (replaces the legacy
-    // hardcoded SHUSTER_CLOCK_IDS constant). Loaded once per refresh.
-    const offsetRows = await db
-      .select({
-        clockId: schema.clockOffsetsTable.clockId,
-        hoursOffset: schema.clockOffsetsTable.hoursOffset,
-      })
-      .from(schema.clockOffsetsTable);
     const clockOffsetsMs = new Map<number, number>();
     for (const row of offsetRows) {
       const id = Number(row.clockId);

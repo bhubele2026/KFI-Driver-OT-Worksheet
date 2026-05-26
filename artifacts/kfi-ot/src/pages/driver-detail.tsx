@@ -29,6 +29,7 @@ import {
   useRemoveDriverConnecteamTime,
   getGetDriverWeekQueryKey,
   getGetWeekSummaryQueryKey,
+  getGetCustomerUploadStatusQueryKey,
   getGetDriverWeekAuditQueryKey,
   getListDriverNotesQueryKey,
   useGetDriverPayrollProfile,
@@ -217,7 +218,15 @@ export default function DriverDetail() {
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useGetDriverWeek(weekStart, kfiId);
-  const { data: weekSummary } = useGetWeekSummary(weekStart);
+  // Task #401: 30s staleTime on the shared week summary keeps driver-to-
+  // driver navigation from re-fetching the same payload on every mount.
+  // Refresh / upload / edit mutations still invalidate this key explicitly.
+  const { data: weekSummary } = useGetWeekSummary(weekStart, {
+    query: {
+      staleTime: 30_000,
+      queryKey: getGetWeekSummaryQueryKey(weekStart),
+    },
+  });
   const { data: me } = useGetMe();
   useLiveUpdates({
     weekStart,
@@ -360,7 +369,12 @@ export default function DriverDetail() {
   // a shared helper) because the inputs are already in-scope on both
   // surfaces and the logic is short.
   const { data: uploadStatusesForReconcile, isFetched: uploadStatusesFetched } =
-    useGetCustomerUploadStatus(weekStart);
+    useGetCustomerUploadStatus(weekStart, {
+      query: {
+        staleTime: 30_000,
+        queryKey: getGetCustomerUploadStatusQueryKey(weekStart),
+      },
+    });
   const STALE_BASELINE_HOURS = 6;
   const allDriversForReconcile = useMemo(
     () => weekSummary?.customers.flatMap((c) => c.drivers) ?? [],

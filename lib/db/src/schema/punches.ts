@@ -55,6 +55,11 @@ export const punchesTable = pgTable(
   (t) => [
     index("punches_week_kfi_idx").on(t.weekStart, t.kfiId),
     index("punches_week_source_idx").on(t.weekStart, t.source),
+    // Task #401: dashboard groups punches per (week, customer) when
+    // rendering the week summary and the customer-files panel; without
+    // this index Postgres falls back to the (week, source) index plus a
+    // filter, which scans every Customer-source row for the week.
+    index("punches_week_customer_idx").on(t.weekStart, t.customer),
     uniqueIndex("punches_ct_key_idx").on(t.weekStart, t.ctExternalKey),
   ],
 );

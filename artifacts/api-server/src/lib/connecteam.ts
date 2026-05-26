@@ -291,10 +291,21 @@ export async function fetchPunchesForWeek(
     );
   }
 
-  for (const clock of clocks) {
-    const clockId = clock.id;
-    const url = `/time-clock/v1/time-clocks/${clockId}/time-activities?startDate=${startIso}&endDate=${endParam}&activityTypes=shift`;
-    let groups: Array<{ userId: number; shifts?: CtShift[] }> = [];
+  // Task #401: fan out per-clock fetches with a small concurrency cap
+  // (was a serial for-loop). Connecteam tolerates ~5 concurrent activity
+  // pulls comfortably; this cuts wall time on accounts with 10+ clocks
+  // from N*latency to N/CONCURRENCY*latency while keeping a sane ceiling
+  // on simultaneous outbound requests.
+  const CT_CLOCK_CONCURRENCY = 5;
+  type PerClockResult = {
+    clock: ConnecteamTimeClock;
+    groups: Array<{ userId: number; shifts?: CtShift[] }>;
+    error?: string;
+  };
+  const fetchOneClock = async (
+    clock: ConnecteamTimeClock,
+  ): Promise<PerClockResult> => {
+    const url = `/time-clock/v1/time-clocks/${clock.id}/time-activities?startDate=${startIso}&endDate=${endParam}&activityTypes=shift`;
     try {
       const data = (await fetchActivities(url)) as {
         data?: {
@@ -304,12 +315,35 @@ export async function fetchPunchesForWeek(
           }>;
         };
       };
-      groups = data?.data?.timeActivitiesByUsers ?? [];
+      return {
+        clock,
+        groups: data?.data?.timeActivitiesByUsers ?? [],
+      };
     } catch (err) {
+      return {
+        clock,
+        groups: [],
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  };
+  const clockResults: PerClockResult[] = new Array(clocks.length);
+  for (let i = 0; i < clocks.length; i += CT_CLOCK_CONCURRENCY) {
+    const slice = clocks.slice(i, i + CT_CLOCK_CONCURRENCY);
+    const settled = await Promise.all(slice.map(fetchOneClock));
+    for (let j = 0; j < settled.length; j++) {
+      clockResults[i + j] = settled[j];
+    }
+  }
+
+  for (const result of clockResults) {
+    const clock = result.clock;
+    const clockId = clock.id;
+    if (result.error !== undefined) {
       failures.push({
         clockId,
         clockName: clock.name,
-        error: err instanceof Error ? err.message : String(err),
+        error: result.error,
       });
       perClock.push({
         clockId,
@@ -319,6 +353,7 @@ export async function fetchPunchesForWeek(
       });
       continue;
     }
+    const groups = result.groups;
     const shiftFix = clockOffsetsMs.get(clockId) ?? 0;
     let clockShiftCount = 0;
     for (const g of groups) {
