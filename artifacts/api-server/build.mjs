@@ -20,6 +20,9 @@ async function buildAll() {
       // Task #403: bundled as a sibling worker so `xlsxWorkerPool.ts`
       // can spawn it as `./xlsxWorker.mjs` from the dist directory.
       path.resolve(artifactDir, "src/lib/parsers/xlsxWorker.ts"),
+      // Task #410: bundled as a sibling worker so `pdfWorkerPool.ts`
+      // can spawn it as `./pdfWorker.mjs` from the dist directory.
+      path.resolve(artifactDir, "src/lib/parsers/pdfWorker.ts"),
     ],
     platform: "node",
     bundle: true,

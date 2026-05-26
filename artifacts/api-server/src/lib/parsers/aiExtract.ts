@@ -31,6 +31,7 @@ import {
   detectXlsxBlockStructureAsync,
   xlsxToChunksAsync,
 } from "./xlsxWorkerPool.js";
+import { extractTextFromPdfAsync } from "./pdfWorkerPool.js";
 
 /**
  * Per-upload options bag for `aiExtractRows`. All fields optional; the
@@ -917,7 +918,7 @@ export function serializePdfTextItems(
   return emitted.join("\n");
 }
 
-async function extractTextFromPdf(buffer: Buffer): Promise<string> {
+export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   const mod = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const data = new Uint8Array(buffer);
   const doc = await mod.getDocument({
@@ -1812,7 +1813,7 @@ async function runExtraction(
       data: buffer.toString("base64"),
     });
   } else if (isPdf) {
-    const text = await extractTextFromPdf(buffer);
+    const text = await extractTextFromPdfAsync(buffer);
     if (text.trim().length > 50) {
       attachmentParts.push({
         kind: "text",
