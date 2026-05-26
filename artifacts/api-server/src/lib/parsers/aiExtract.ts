@@ -1368,10 +1368,14 @@ async function runChunkedXlsxExtract(
     );
     if (aborted) return { rows: [] };
     const inputRows = bodyLineCount(chunks[idx]);
+    // Exact-ratio comparison: `rows < floor(inputRows * 0.5)` is NOT
+    // equivalent to "< 50%" for odd inputRows — e.g. 5 / 11 = 45.45%
+    // but `5 < floor(5.5)=5` is false, leaving a silent-drop hole.
+    // `rows * 2 < inputRows` is exact integer math.
     const underYield =
       !result.truncated &&
       inputRows >= YIELD_MIN_INPUT_ROWS &&
-      result.rows.length < Math.floor(inputRows * YIELD_FLOOR_RATIO);
+      result.rows.length * 2 < inputRows;
     if (!result.truncated && !underYield) {
       return { rows: result.rows };
     }
@@ -1421,9 +1425,12 @@ async function runChunkedXlsxExtract(
         );
       }
       const halfInputRows = bodyLineCount(halves[hIdx]);
+      // Same exact-ratio math as the initial-pass guard — see comment
+      // above. `hr.rows.length * 2 < halfInputRows` is the unbiased
+      // "< 50%" check.
       if (
         halfInputRows >= YIELD_MIN_INPUT_ROWS &&
-        hr.rows.length < Math.floor(halfInputRows * YIELD_FLOOR_RATIO)
+        hr.rows.length * 2 < halfInputRows
       ) {
         aborted = true;
         throw new Error(

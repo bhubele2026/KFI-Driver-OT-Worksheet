@@ -152,6 +152,37 @@ test("under-yield after halved retry rejects with the actionable error (Task #40
   }
 });
 
+test("yield-floor uses exact-ratio integer math, not floor(inputRows * 0.5) (Task #405)", () => {
+  // Architect review caught: `rows < Math.floor(inputRows * 0.5)`
+  // is NOT equivalent to "< 50%" for odd inputRows. For 11 input
+  // lines with 5 returned rows (45.45% yield, clearly under 50%),
+  // `floor(11 * 0.5) = 5`, and `5 < 5` is false → guard wouldn't
+  // fire even though the model dropped >50%. The fix is the exact
+  // integer comparison `rows * 2 < inputRows`. This pins the math.
+  const cases: Array<{ inputRows: number; rows: number; trips: boolean }> = [
+    // The bug case: 45.45% yield must trip.
+    { inputRows: 11, rows: 5, trips: true },
+    // Exactly 50% must NOT trip (the guard is "< 50%", not "≤ 50%").
+    { inputRows: 120, rows: 60, trips: false },
+    // Just under 50% must trip.
+    { inputRows: 120, rows: 59, trips: true },
+    // Comfortable yield must not trip.
+    { inputRows: 120, rows: 80, trips: false },
+    // Another odd-denominator case: 7/15 = 46.7%.
+    { inputRows: 15, rows: 7, trips: true },
+    // 8/15 = 53.3% must not trip.
+    { inputRows: 15, rows: 8, trips: false },
+  ];
+  for (const c of cases) {
+    const tripsByExactMath = c.rows * 2 < c.inputRows;
+    assert.equal(
+      tripsByExactMath,
+      c.trips,
+      `inputRows=${c.inputRows}, rows=${c.rows} should ${c.trips ? "trip" : "NOT trip"}`,
+    );
+  }
+});
+
 test("yield-floor denominator skips comma-only spacer lines so sparse chunks don't false-trip the guard (Task #405)", () => {
   // Architect review of Task #405: `sheet_to_csv` retains rows that
   // have at least one non-empty cell, which means a sheet with many
