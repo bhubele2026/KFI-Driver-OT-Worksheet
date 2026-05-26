@@ -29,6 +29,17 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onApplied?: () => void;
+  /**
+   * Task #408: when the drawer is opened from an upload-failure
+   * affordance (preview dialog "Ask Claude", per-row error link,
+   * bulk-item error link), the caller passes a pre-composed first
+   * message that names the file and summarizes what went wrong so
+   * the dispatcher only has to click Send. Seeded into the textarea
+   * exactly once per open, and only when the input is still empty —
+   * we never clobber an in-progress draft. The chat thread itself
+   * is preserved across opens (same {week, customer} pair).
+   */
+  initialDraft?: string;
 }
 
 /**
@@ -38,10 +49,27 @@ interface Props {
  * structured proposed fix the dispatcher can Apply or Dismiss inline.
  */
 export function CustomerChatDrawer(props: Props) {
-  const { weekStart, customer, open, onOpenChange, onApplied } = props;
+  const { weekStart, customer, open, onOpenChange, onApplied, initialDraft } =
+    props;
   const queryClient = useQueryClient();
   const [input, setInput] = useState("");
   const listRef = useRef<HTMLDivElement | null>(null);
+  // Task #408: seed `input` from `initialDraft` once per open, and only
+  // when the textarea is still empty so we never clobber a dispatcher's
+  // in-progress draft. Reset on close so the next open re-evaluates.
+  const seededDraftRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      seededDraftRef.current = null;
+      return;
+    }
+    if (!initialDraft) return;
+    if (seededDraftRef.current === initialDraft) return;
+    if (input.trim() !== "") return;
+    setInput(initialDraft);
+    seededDraftRef.current = initialDraft;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialDraft]);
 
   const threadKey = useMemo(
     () => getGetCustomerUploadChatQueryKey(weekStart, customer),

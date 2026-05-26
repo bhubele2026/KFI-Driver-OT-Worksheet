@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { formatPersonName } from "@/lib/format-name";
-import { AlertCircle, Loader2, UploadCloud } from "lucide-react";
+import { AlertCircle, Loader2, MessageSquare, UploadCloud } from "lucide-react";
 
 const SKIP_PICK = "__skip__";
 const IGNORE_PICK = "__ignore__";
@@ -111,11 +111,19 @@ export function CustomerPreviewDialog({
   open,
   onOpenChange,
   onConfirmed,
+  onAskClaude,
 }: {
   preview: CustomerPreviewData | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirmed: () => void;
+  /**
+   * Task #408: when set, the footer renders an "Ask Claude" button
+   * that opens the per-customer chat drawer pre-loaded with file
+   * context. The host wires this to the same drawer used by the
+   * upload panel so the {week, customer} thread is reused.
+   */
+  onAskClaude?: () => void;
 }) {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -596,6 +604,18 @@ export function CustomerPreviewDialog({
               : ""}
           </div>
           <div className="flex gap-2">
+            {onAskClaude ? (
+              <Button
+                variant="outline"
+                onClick={onAskClaude}
+                disabled={confirmMutation.isPending}
+                data-testid="button-preview-ask-claude"
+                title={`Ask Claude about ${preview.fileName}`}
+              >
+                <MessageSquare className="mr-2 h-4 w-4" />
+                Ask Claude
+              </Button>
+            ) : null}
             <Button
               variant="outline"
               onClick={onCancel}

@@ -322,6 +322,62 @@ function errMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+// Task #408: build the pre-composed first chat message for the
+// "Ask Claude" affordances. Keeps the wording out of the JSX and
+// gives us one place to tune the prompts later. All copy is plain
+// English (matches the rest of the chat drawer surface, which is
+// not translated yet).
+function buildPreviewChatDraft(preview: CustomerPreviewData): string {
+  const lines: string[] = [
+    `I just uploaded \`${preview.fileName}\` for ${preview.customer} (week of ${preview.weekStart}) and the preview doesn't look right.`,
+  ];
+  lines.push(
+    `The extractor pulled ${preview.rows.length} row${preview.rows.length === 1 ? "" : "s"}.`,
+  );
+  if (preview.extractionTruncated) {
+    const failed = preview.failedChunks ?? 0;
+    lines.push(
+      failed > 0
+        ? `The AI response was truncated and ${failed} chunk${failed === 1 ? "" : "s"} failed — I think rows are missing.`
+        : "The AI response was truncated — I think rows are missing.",
+    );
+  }
+  if (preview.geminiFallbackUsed) {
+    lines.push(
+      "It fell back to the Gemini extractor (Claude was unreachable), so the rows may need a second look.",
+    );
+  }
+  if (preview.unmappedIds.length > 0) {
+    const sample = preview.unmappedIds
+      .slice(0, 5)
+      .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
+      .join(", ");
+    const more =
+      preview.unmappedIds.length > 5
+        ? ` and ${preview.unmappedIds.length - 5} more`
+        : "";
+    lines.push(
+      `${preview.unmappedIds.length} driver id${preview.unmappedIds.length === 1 ? "" : "s"} couldn't be mapped to a KFI driver: ${sample}${more}.`,
+    );
+  }
+  if (preview.rows.length === 0) {
+    lines.push("Zero rows came through — can you help figure out why?");
+  } else {
+    lines.push("Can you help figure out what went wrong?");
+  }
+  return lines.join(" ");
+}
+
+function buildErrorChatDraft(
+  customer: string,
+  weekStart: string,
+  fileName: string | null,
+  error: string,
+): string {
+  const fileFrag = fileName ? `\`${fileName}\`` : "the file";
+  return `I tried to upload ${fileFrag} for ${customer} (week of ${weekStart}) and it failed with: ${error}. Can you help me figure out what to do?`;
+}
+
 function looksLikeFormatDrift(error: string): boolean {
   const lower = error.toLowerCase();
   return (
@@ -461,6 +517,16 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
   const [rowState, setRowState] = useState<Record<string, RowState>>({});
   const [newOpen, setNewOpen] = useState(false);
   const [chatCustomer, setChatCustomer] = useState<string | null>(null);
+  // Task #408: when the chat drawer is opened from an upload-failure
+  // affordance (preview "Ask Claude" button, per-row error link,
+  // bulk-item error link), pass a pre-composed first message that
+  // names the file and summarizes what went wrong. Cleared when the
+  // drawer closes so the next manual open starts with an empty box.
+  const [chatInitialDraft, setChatInitialDraft] = useState<string | null>(null);
+  const openChatForCustomer = (customer: string, draft?: string | null) => {
+    setChatInitialDraft(draft ?? null);
+    setChatCustomer(customer);
+  };
   const [newInitialFile, setNewInitialFile] = useState<File | null>(null);
   const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
   const [bulkRunning, setBulkRunning] = useState(false);
@@ -872,6 +938,19 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           title: t("customerUpload.extractFailedTitle", { customer }),
           description: msg,
           variant: "destructive",
+          action: (
+            <ToastAction
+              altText={`Ask Claude about ${file.name}`}
+              onClick={() =>
+                openChatForCustomer(
+                  customer,
+                  buildErrorChatDraft(customer, weekStart, file.name, msg),
+                )
+              }
+            >
+              Ask Claude
+            </ToastAction>
+          ),
         });
       }
     } finally {
@@ -1544,10 +1623,35 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                     </div>
                     {isError && (
                       <div
-                        className="mt-1 text-destructive text-[11px] font-medium leading-snug"
+                        className="mt-1 text-destructive text-[11px] font-medium leading-snug flex flex-wrap items-center gap-1"
                         data-testid={`bulk-item-error-${idx}`}
                       >
-                        {item.error ?? t("customerUpload.uploadFailedFallback")}
+                        <span>
+                          {item.error ?? t("customerUpload.uploadFailedFallback")}
+                        </span>
+                        {item.customer && (
+                          <button
+                            type="button"
+                            className="ml-1 inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:no-underline text-foreground"
+                            data-testid={`bulk-item-ask-claude-${idx}`}
+                            onClick={() => {
+                              if (!item.customer) return;
+                              openChatForCustomer(
+                                item.customer,
+                                buildErrorChatDraft(
+                                  item.customer,
+                                  weekStart,
+                                  item.file.name,
+                                  item.error ??
+                                    t("customerUpload.uploadFailedFallback"),
+                                ),
+                              );
+                            }}
+                          >
+                            <MessageSquare className="h-3 w-3" />
+                            Ask Claude
+                          </button>
+                        )}
                       </div>
                     )}
                     {driftHint && (
@@ -1758,7 +1862,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 </div>
                 {showError && (
                   <div
-                    className={`mt-1 text-xs flex items-start gap-1 ${
+                    className={`mt-1 text-xs flex items-start gap-1 flex-wrap ${
                       isStaleFailure
                         ? "text-muted-foreground"
                         : "text-destructive"
@@ -1766,6 +1870,25 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   >
                     <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
                     <span>{lastError}</span>
+                    <button
+                      type="button"
+                      className="ml-1 inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:no-underline text-foreground"
+                      data-testid={`row-ask-claude-${s.customer}`}
+                      onClick={() =>
+                        openChatForCustomer(
+                          s.customer,
+                          buildErrorChatDraft(
+                            s.customer,
+                            weekStart,
+                            s.lastFileName ?? null,
+                            lastError ?? "",
+                          ),
+                        )
+                      }
+                    >
+                      <MessageSquare className="h-3 w-3" />
+                      Ask Claude
+                    </button>
                   </div>
                 )}
                 {st.capExceeded && st.retryFile && me?.isAdmin && (
@@ -2001,6 +2124,15 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
         open={previewOpen}
         onOpenChange={setPreviewOpen}
         onConfirmed={invalidateAll}
+        onAskClaude={
+          preview
+            ? () =>
+                openChatForCustomer(
+                  preview.customer,
+                  buildPreviewChatDraft(preview),
+                )
+            : undefined
+        }
       />
       {chatCustomer && (
         <CustomerChatDrawer
@@ -2008,9 +2140,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           customer={chatCustomer}
           open={chatCustomer !== null}
           onOpenChange={(o) => {
-            if (!o) setChatCustomer(null);
+            if (!o) {
+              setChatCustomer(null);
+              setChatInitialDraft(null);
+            }
           }}
           onApplied={invalidateAll}
+          initialDraft={chatInitialDraft ?? undefined}
         />
       )}
     </Card>
