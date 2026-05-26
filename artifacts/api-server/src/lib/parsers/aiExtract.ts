@@ -27,6 +27,10 @@ import {
   type IngestionPurpose,
 } from "./ingestionBudget.js";
 import type { ChunkStageStore } from "./aiExtractStage.js";
+import {
+  detectXlsxBlockStructureAsync,
+  xlsxToChunksAsync,
+} from "./xlsxWorkerPool.js";
 
 /**
  * Per-upload options bag for `aiExtractRows`. All fields optional; the
@@ -1840,12 +1844,12 @@ async function runExtraction(
     // the 120-row budget. Recorded on the budget so the
     // `ingest_done` log + `ingestion_runs` row carry the decision
     // through to the admin audit view.
-    const blockStructured = detectXlsxBlockStructure(buffer);
+    const blockStructured = await detectXlsxBlockStructureAsync(buffer);
     const rowsPerChunk = blockStructured
       ? XLSX_CHUNK_MAX_ROWS_BLOCK
       : XLSX_CHUNK_MAX_ROWS;
     budget.recordXlsxLayout({ blockStructured, rowsPerChunk });
-    const chunks = xlsxToChunks(buffer, log, { maxRowsPerChunk: rowsPerChunk });
+    const chunks = await xlsxToChunksAsync(buffer, { maxRowsPerChunk: rowsPerChunk });
     // Task #336: right-size the per-upload call ceiling from the
     // actual chunk count now that the chunker has decided how to
     // split this file. The single-chunk path below still gets the
@@ -2020,7 +2024,7 @@ async function runExtraction(
       { customer, fileName, salvagedRows: parsed.rows?.length ?? 0 },
       "single-call AI response truncated — re-extracting with forced chunking",
     );
-    const forcedChunks = xlsxToChunks(buffer, log, { forceChunkMaxRows: 100 });
+    const forcedChunks = await xlsxToChunksAsync(buffer, { forceChunkMaxRows: 100 });
     return runChunkedXlsxExtract(
       client,
       forcedChunks,

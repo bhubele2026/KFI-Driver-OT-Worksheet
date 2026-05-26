@@ -15,7 +15,12 @@ async function buildAll() {
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
-    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+    entryPoints: [
+      path.resolve(artifactDir, "src/index.ts"),
+      // Task #403: bundled as a sibling worker so `xlsxWorkerPool.ts`
+      // can spawn it as `./xlsxWorker.mjs` from the dist directory.
+      path.resolve(artifactDir, "src/lib/parsers/xlsxWorker.ts"),
+    ],
     platform: "node",
     bundle: true,
     format: "esm",
