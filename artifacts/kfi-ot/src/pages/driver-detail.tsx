@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation, useParams, Link } from "wouter";
 import {
   useGetDriverWeek,
@@ -80,6 +80,19 @@ import { useEditingLock } from "@/hooks/use-editing-lock";
 import { PayrollProfileCard } from "@/components/payroll-profile-card";
 
 const OT_THRESHOLD = 40;
+
+// Task #404: once a driver-week's punch table grows past this row count we
+// flip each TableRow to `content-visibility: auto`, which lets the browser
+// skip layout/paint for offscreen rows and keeps scrolling smooth on the
+// heaviest weeks. `contain-intrinsic-size` reserves ~40px per row so the
+// scrollbar geometry, deep-link anchors (`#punch-row-:id`), and
+// scroll-into-view all keep working without a flash. Small weeks render
+// the way they always have.
+const VIRTUAL_PUNCH_ROW_THRESHOLD = 40;
+const VIRTUAL_PUNCH_ROW_STYLE: CSSProperties = {
+  contentVisibility: "auto",
+  containIntrinsicSize: "0 40px",
+};
 
 /**
  * Whole-hour delta to apply to wall-clock punch strings when restamping a
@@ -2200,6 +2213,13 @@ export default function DriverDetail() {
                 {rows.map(({ p, after, isOt }) => {
                   const isEditing = editingPunchId === p.id;
                   const isDriver = p.source === "Driver";
+                  const heavyTable = rows.length > VIRTUAL_PUNCH_ROW_THRESHOLD;
+                  // Keep the currently-editing row eagerly painted so its
+                  // inputs/preview never get skipped while the dispatcher is
+                  // typing in it (defensive — the row should be onscreen
+                  // anyway).
+                  const rowStyle =
+                    heavyTable && !isEditing ? VIRTUAL_PUNCH_ROW_STYLE : undefined;
                   const remaining = OT_THRESHOLD - after;
                   // Source-driven faint bg wash on time cells: navy for Driver,
                   // teal for Customer. Subtle, but unmistakable at a glance and
@@ -2224,6 +2244,7 @@ export default function DriverDetail() {
                       data-flagged={
                         (p as { flagged?: boolean }).flagged ? "true" : undefined
                       }
+                      style={rowStyle}
                       className={cn(
                         isOt && "bg-warning/10 hover:bg-warning/15",
                         (p as { flagged?: boolean }).flagged &&

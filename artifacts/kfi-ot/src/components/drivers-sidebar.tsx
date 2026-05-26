@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import {
@@ -42,6 +42,17 @@ import { cn } from "@/lib/utils";
 import { formatPersonName } from "@/lib/format-name";
 
 type FilterChip = "unreviewed";
+
+// Task #404: once the roster grows past this many drivers we flip each
+// row's <li> to `content-visibility: auto`. Offscreen rows skip layout and
+// paint, keeping the sidebar scroll smooth even on huge weeks, while the
+// DOM (and every existing test selector / keyboard handler) stays exactly
+// where it was. Small weeks render the way they always have.
+const VIRTUAL_SIDEBAR_ROW_THRESHOLD = 50;
+const VIRTUAL_SIDEBAR_ROW_STYLE: CSSProperties = {
+  contentVisibility: "auto",
+  containIntrinsicSize: "0 28px",
+};
 
 interface SidebarProps {
   weekStart: string;
@@ -180,6 +191,15 @@ function DriversList({
   const needle = search.trim().toLowerCase();
   const filterActive = needle.length > 0 || chips.size > 0;
 
+  const totalDriverCount = useMemo(() => {
+    if (!summary?.customers) return 0;
+    let total = 0;
+    for (const group of summary.customers) total += group.drivers.length;
+    return total;
+  }, [summary?.customers]);
+  const heavyRoster = totalDriverCount > VIRTUAL_SIDEBAR_ROW_THRESHOLD;
+  const driverLiStyle = heavyRoster ? VIRTUAL_SIDEBAR_ROW_STYLE : undefined;
+
   const filteredGroups = useMemo(() => {
     if (!summary?.customers) return [];
     return summary.customers
@@ -252,7 +272,7 @@ function DriversList({
                 overrideSetAt?: string | null;
               }).overrideSetAt;
               return (
-                <li key={driver.kfiId}>
+                <li key={driver.kfiId} style={driverLiStyle}>
                   <div
                     role="button"
                     tabIndex={0}
