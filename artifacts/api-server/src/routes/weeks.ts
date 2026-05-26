@@ -3132,9 +3132,23 @@ weeksRouter.post(
             })),
           );
         }
-        // (5) Purge the stashed bytes inside the same tx as the commit.
+        // (5) Promote the stashed sample from "pending preview"
+        // (24h TTL) to "confirmed" (90d TTL), inside the same tx as
+        // the commit. We used to DELETE the row here, which left the
+        // per-customer chat with nothing to read on parser-imported
+        // uploads — by far the common case (Burnett etc.) — so the
+        // bot could only ask the dispatcher for clock times. Keeping
+        // the file lets `read_upload_file_rows` / `read_upload_file_raw`
+        // see exactly what was uploaded so the chat can find and fix
+        // what the parser missed. Mirrors the AI-confirm path's
+        // CONFIRMED_TTL_MS bump (`/confirm-new-customer`).
+        const CONFIRMED_TTL_MS = 90 * 24 * 60 * 60 * 1000;
         await tx
-          .delete(schema.aiExtractSamplesTable)
+          .update(schema.aiExtractSamplesTable)
+          .set({
+            confirmedAt: new Date(),
+            expiresAt: new Date(Date.now() + CONFIRMED_TTL_MS),
+          })
           .where(eq(schema.aiExtractSamplesTable.id, sample.id));
       });
     } catch (err) {

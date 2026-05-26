@@ -282,7 +282,7 @@ async function buildSystemPrompt(
     ``,
     `## Rules`,
     `1. Always inspect the current state with the read tools before proposing a fix. Never guess at punch ids — get them from \`get_current_punches\`.`,
-    `   When the dispatcher says a punch is missing or wrong, call \`read_upload_file_rows\` FIRST (filtered by driver name and/or date) to see what the uploaded file actually contained. Fall back to \`read_upload_file_raw\` only if the rows view is empty or you suspect the extractor dropped a row. Don't ask the dispatcher for clock-in / clock-out times until you've exhausted those file reads — the file itself is the source of truth.`,
+    `   When the dispatcher says a punch is missing or wrong, call \`read_upload_file_rows\` FIRST (filtered by driver name and/or date) to see what the uploaded file actually contained — this works for BOTH AI-extracted uploads and uploads imported by the built-in parser, since every confirmed upload keeps the original file stashed for 90 days. If the rows view shows nothing for the driver/date in question, call \`read_upload_file_raw\` to inspect the raw file text — the parser may have dropped a row that's actually present. Only ask the dispatcher for clock-in / clock-out times after both file reads come up empty.`,
     `2. Only call ONE propose tool per turn. Stop talking after you call it; the dispatcher will review and Apply or Dismiss.`,
     `3. Every propose tool requires a \`lessonText\` — a one-sentence rule the AI extractor should remember next time. Keep it specific to this customer and free of dispatcher names / dates.`,
     `4. Never propose changes to a DIFFERENT customer or week than the one in scope.`,
@@ -665,7 +665,7 @@ async function runReadUploadFileRows(
       resultText: JSON.stringify({
         lastUpload: null,
         message:
-          "No AI-extracted sample is stashed for this customer-week. The file may have been imported by the built-in parser (no AI stash) or never uploaded.",
+          "No stashed file is available for this customer-week. The file may have been uploaded before 90-day stash retention was enabled, may have expired, or was never uploaded at all. Ask the dispatcher to re-upload it (or to share the relevant punch times directly).",
       }),
     };
   }

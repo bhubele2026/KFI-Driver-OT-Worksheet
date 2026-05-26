@@ -217,7 +217,7 @@ test("read_upload_file_rows: no stashed sample → returns a clear message", asy
   const r = await callWithSample("read_upload_file_rows", {}, null);
   const body = JSON.parse(r.resultText);
   assert.equal(body.lastUpload, null);
-  assert.match(body.message, /No AI-extracted sample/);
+  assert.match(body.message, /No stashed file is available/);
 });
 
 test("read_upload_file_rows: returns resolved + pending rows from stash", async () => {
