@@ -1,5 +1,6 @@
 import { and, eq, sql, desc, asc } from "drizzle-orm";
 import type Anthropic from "@anthropic-ai/sdk";
+import * as XLSX from "xlsx";
 import { db, schema } from "../db.js";
 import { logger } from "../logger.js";
 import {
@@ -8,6 +9,10 @@ import {
 } from "../parsers/claude.js";
 import { loadLessonsForPrompt } from "./lessonsStore.js";
 import type { ProposedFix } from "@workspace/db/schema";
+import type {
+  StashedExtractedPunch,
+  PendingNamedRow,
+} from "@workspace/db/schema";
 
 /**
  * Task #406 (T003): the Claude chat tool layer.
@@ -30,6 +35,18 @@ const CHAT_MODEL = process.env.CLAUDE_CHAT_MODEL ?? DEFAULT_CLAUDE_MODEL;
 const MAX_TOOL_TURNS = 6;
 const MAX_OUTPUT_TOKENS = 2_048;
 const TURN_TIMEOUT_MS = 60_000;
+
+/**
+ * Task #419: per-chat-turn read budget for the file-read tools so a
+ * chat can't burn unbounded Claude input tokens replaying a 5 MB
+ * xlsx. Counted across `read_upload_file_rows` and
+ * `read_upload_file_raw` combined. Hitting either cap returns a
+ * clean error to Claude (it can still ask the dispatcher) instead of
+ * throwing the whole turn.
+ */
+const CHAT_FILE_READ_MAX_CALLS = 8;
+const CHAT_FILE_READ_MAX_BYTES = 200_000;
+const CHAT_FILE_READ_DEFAULT_MAX_BYTES = 50_000;
 
 export interface ChatTurnInput {
   weekStart: string;
@@ -64,6 +81,88 @@ interface ToolCallRecord {
 }
 
 /**
+ * Task #419: per-turn cache + read budget for the file-read tools.
+ * Created once at the top of `runChatTurn` and threaded through every
+ * `runTool` invocation so the sample row + raw text are loaded at
+ * most once per turn even if Claude calls both read tools.
+ */
+interface ChatToolCtx {
+  weekStart: string;
+  customer: string;
+  cache: ChatToolCache;
+  log?: { warn: (obj: Record<string, unknown>, msg: string) => void };
+}
+
+interface UploadSampleCache {
+  id: number;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedAt: Date;
+  fileBytes: Buffer;
+  extractedRows: StashedExtractedPunch[] | null;
+  pendingNamedRows: PendingNamedRow[] | null;
+}
+
+class ChatToolCache {
+  private samplePromise: Promise<UploadSampleCache | null> | null = null;
+  private rawTextPromise: Promise<string> | null = null;
+  callsUsed = 0;
+  bytesUsed = 0;
+
+  /**
+   * Test seam — unit tests pre-populate the sample so they don't
+   * need a live DB. Throws if a sample was already loaded.
+   */
+  preloadSample(sample: UploadSampleCache | null): void {
+    if (this.samplePromise) {
+      throw new Error("preloadSample called after sample was already loaded");
+    }
+    this.samplePromise = Promise.resolve(sample);
+  }
+
+  async getSample(ctx: { weekStart: string; customer: string }) {
+    if (!this.samplePromise) this.samplePromise = loadUploadSample(ctx);
+    return this.samplePromise;
+  }
+
+  async getRawText(ctx: { weekStart: string; customer: string }) {
+    if (!this.rawTextPromise) this.rawTextPromise = loadRawText(this, ctx);
+    return this.rawTextPromise;
+  }
+
+  /**
+   * Reserve one call slot before any DB or file work. Returns `null`
+   * when the call is allowed, or an error message when the per-turn
+   * call budget has been exhausted. Always called at tool entry — so
+   * no-sample / parse-error / over-budget paths all count, preventing
+   * a runaway loop from doing expensive work after the budget is
+   * already blown.
+   */
+  tryConsumeCall(): string | null {
+    if (this.callsUsed >= CHAT_FILE_READ_MAX_CALLS) {
+      return `File-read budget exhausted for this turn (max ${CHAT_FILE_READ_MAX_CALLS} reads). Ask the dispatcher for the specific punch times instead.`;
+    }
+    this.callsUsed += 1;
+    return null;
+  }
+
+  /**
+   * Charge a successful read against the byte budget. Called at the
+   * end of a tool with the size of the JSON payload being returned to
+   * Claude. Returns an error message if this read would push us over
+   * the per-turn byte cap.
+   */
+  tryConsumeBytes(byteCount: number): string | null {
+    if (this.bytesUsed + byteCount > CHAT_FILE_READ_MAX_BYTES) {
+      return `File-read byte budget exhausted for this turn (max ${CHAT_FILE_READ_MAX_BYTES.toLocaleString()} bytes returned). Narrow the filter (driverNameContains/date/kfiId) or ask the dispatcher.`;
+    }
+    this.bytesUsed += byteCount;
+    return null;
+  }
+}
+
+/**
  * Run one user-turn through Claude. The route is responsible for
  * persisting the user message BEFORE calling this (so the read tools
  * can see history) and for persisting the assistant reply AFTER.
@@ -72,6 +171,14 @@ export async function runChatTurn(input: ChatTurnInput): Promise<ChatTurnResult>
   const client = getClaudeClient(); // throws with a clear message if key missing.
   const tools = buildToolDefs();
   const system = await buildSystemPrompt(input.weekStart, input.customer);
+  // Task #419: per-turn cache so file-read tools load the sample row
+  // (and PDF/xlsx text serialization) at most once per turn.
+  const cache = new ChatToolCache();
+  const toolCtx: ChatToolCtx = {
+    weekStart: input.weekStart,
+    customer: input.customer,
+    cache,
+  };
 
   const messages: Anthropic.Messages.MessageParam[] = [];
   for (const h of input.history) {
@@ -120,7 +227,7 @@ export async function runChatTurn(input: ChatTurnInput): Promise<ChatTurnResult>
     const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
     for (const tu of toolUses) {
       toolCallCount++;
-      const handled = await runTool(tu, input);
+      const handled = await runTool(tu, toolCtx);
       if (handled.proposal) {
         // Latest propose-tool call wins if Claude calls more than one.
         proposedFix = handled.proposal.fix;
@@ -175,6 +282,7 @@ async function buildSystemPrompt(
     ``,
     `## Rules`,
     `1. Always inspect the current state with the read tools before proposing a fix. Never guess at punch ids — get them from \`get_current_punches\`.`,
+    `   When the dispatcher says a punch is missing or wrong, call \`read_upload_file_rows\` FIRST (filtered by driver name and/or date) to see what the uploaded file actually contained. Fall back to \`read_upload_file_raw\` only if the rows view is empty or you suspect the extractor dropped a row. Don't ask the dispatcher for clock-in / clock-out times until you've exhausted those file reads — the file itself is the source of truth.`,
     `2. Only call ONE propose tool per turn. Stop talking after you call it; the dispatcher will review and Apply or Dismiss.`,
     `3. Every propose tool requires a \`lessonText\` — a one-sentence rule the AI extractor should remember next time. Keep it specific to this customer and free of dispatcher names / dates.`,
     `4. Never propose changes to a DIFFERENT customer or week than the one in scope.`,
@@ -207,8 +315,45 @@ function buildToolDefs(): Anthropic.Messages.Tool[] {
     {
       name: "get_last_upload_file_info",
       description:
-        "Return metadata about the most recent customer-file upload for this customer-week (filename, mimeType, size, sampleId, uploadedAt). The actual file bytes are not exposed here — propose `re_extract_with_hint` with the sampleId if a re-extract is needed.",
+        "Return metadata about the most recent customer-file upload for this customer-week (filename, mimeType, size, sampleId, uploadedAt, whether stashed rows + raw bytes are available for reading).",
       input_schema: { type: "object", properties: {} },
+    },
+    {
+      name: "read_upload_file_rows",
+      description:
+        "Read the rows the AI extractor saw in the most recent uploaded customer file for this customer-week. Optional filters narrow the response — prefer narrow filters to keep the response small. Returns BOTH the rows that resolved to a kfiId AND the rows that were still pending (driver name on doc not yet aliased). Use this FIRST when the dispatcher says a punch is missing or wrong — the file itself is the source of truth, not the dispatcher's memory of it.",
+      input_schema: {
+        type: "object",
+        properties: {
+          driverNameContains: {
+            type: "string",
+            description:
+              "Case-insensitive substring match against the driver roster name (resolved rows) and the name-on-doc (pending rows).",
+          },
+          date: {
+            type: "string",
+            description: "YYYY-MM-DD date filter — only rows on that date.",
+          },
+          kfiId: {
+            type: "string",
+            description: "Exact kfiId filter on resolved rows.",
+          },
+        },
+      },
+    },
+    {
+      name: "read_upload_file_raw",
+      description:
+        "Read the original uploaded file's raw text (xlsx → CSV, pdf → extracted text). Scanned-image PDFs and image uploads have no extractable text and return a clear message saying so. Use this as a fallback when `read_upload_file_rows` is empty or you suspect the extractor dropped a row that's actually present in the file. Bounded by a per-turn budget — narrow the response with `maxBytes` (default 50_000) when possible.",
+      input_schema: {
+        type: "object",
+        properties: {
+          maxBytes: {
+            type: "integer",
+            description: `Optional cap on returned bytes (default ${CHAT_FILE_READ_DEFAULT_MAX_BYTES}, hard max ${CHAT_FILE_READ_MAX_BYTES}). The returned text is truncated to this many characters.`,
+          },
+        },
+      },
     },
     {
       name: "propose_add_punches",
@@ -307,7 +452,7 @@ interface ToolResultPayload {
 
 async function runTool(
   call: Anthropic.Messages.ToolUseBlock,
-  ctx: { weekStart: string; customer: string },
+  ctx: ChatToolCtx,
 ): Promise<ToolResultPayload> {
   const input = (call.input ?? {}) as Record<string, unknown>;
   try {
@@ -322,6 +467,10 @@ async function runTool(
       }
       case "get_last_upload_file_info":
         return { resultText: JSON.stringify(await loadLastUploadInfo(ctx)) };
+      case "read_upload_file_rows":
+        return await runReadUploadFileRows(input, ctx);
+      case "read_upload_file_raw":
+        return await runReadUploadFileRaw(input, ctx);
       case "propose_add_punches": {
         const punches = (input.punches as unknown[]) ?? [];
         const lessonText = String(input.lessonText ?? "").trim();
@@ -501,6 +650,278 @@ async function loadRoster(ctx: { customer: string }) {
   };
 }
 
+async function runReadUploadFileRows(
+  input: Record<string, unknown>,
+  ctx: ChatToolCtx,
+): Promise<ToolResultPayload> {
+  // Reserve a call slot BEFORE touching the DB so an over-budget
+  // loop can't keep paying for sample lookups (and the no-sample
+  // path below still counts against the call cap).
+  const callTripped = ctx.cache.tryConsumeCall();
+  if (callTripped) return { resultText: callTripped, isError: true };
+  const sample = await ctx.cache.getSample(ctx);
+  if (!sample) {
+    return {
+      resultText: JSON.stringify({
+        lastUpload: null,
+        message:
+          "No AI-extracted sample is stashed for this customer-week. The file may have been imported by the built-in parser (no AI stash) or never uploaded.",
+      }),
+    };
+  }
+  const driverNameContains = typeof input.driverNameContains === "string"
+    ? input.driverNameContains.trim().toLowerCase()
+    : "";
+  const date = typeof input.date === "string" ? input.date.trim() : "";
+  const kfiId = typeof input.kfiId === "string" ? input.kfiId.trim() : "";
+
+  // Build a kfiId → driver-name lookup for the resolved rows so the
+  // driverNameContains filter can match against the roster name.
+  // Only hit the DB when the filter is actually set — otherwise we
+  // don't need the names at all, and unit tests don't need a DB.
+  let nameByKfiId = new Map<string, string>();
+  if (driverNameContains) {
+    const rosterRows = await db
+      .select({
+        kfiId: schema.driversTable.kfiId,
+        name: schema.driversTable.name,
+      })
+      .from(schema.driversTable);
+    nameByKfiId = new Map(rosterRows.map((r) => [r.kfiId, r.name]));
+  }
+
+  const allResolved = sample.extractedRows ?? [];
+  const resolved = allResolved
+    .filter((r) => (!date || r.date === date))
+    .filter((r) => (!kfiId || r.kfiId === kfiId))
+    .filter((r) => {
+      if (!driverNameContains) return true;
+      const n = (nameByKfiId.get(r.kfiId) ?? "").toLowerCase();
+      return n.includes(driverNameContains);
+    })
+    .map((r) => ({
+      kfiId: r.kfiId,
+      driverName: nameByKfiId.get(r.kfiId) ?? null,
+      date: r.date,
+      clockIn: r.clockIn,
+      clockOut: r.clockOut,
+      hours: r.hours,
+      payType: r.payType,
+    }));
+
+  const allPending = sample.pendingNamedRows ?? [];
+  const pending = allPending
+    .filter((r) => (!date || r.date === date))
+    .filter((r) => {
+      if (!driverNameContains) return true;
+      return r.driverNameOnDoc.toLowerCase().includes(driverNameContains);
+    })
+    .map((r) => ({
+      driverNameOnDoc: r.driverNameOnDoc,
+      badgeOrId: r.badgeOrId,
+      date: r.date,
+      timeIn: r.timeIn,
+      timeOut: r.timeOut,
+      hours: r.hours,
+    }));
+
+  const payload = {
+    sampleId: sample.id,
+    fileName: sample.fileName,
+    resolvedRowsTotal: allResolved.length,
+    pendingRowsTotal: allPending.length,
+    resolvedRowsReturned: resolved.length,
+    pendingRowsReturned: pending.length,
+    filterUsed: { driverNameContains: driverNameContains || null, date: date || null, kfiId: kfiId || null },
+    resolvedRows: resolved,
+    pendingRows: pending,
+  };
+  const body = JSON.stringify(payload);
+  const tripped = ctx.cache.tryConsumeBytes(Buffer.byteLength(body, "utf8"));
+  if (tripped) {
+    return { resultText: tripped, isError: true };
+  }
+  return { resultText: body };
+}
+
+async function runReadUploadFileRaw(
+  input: Record<string, unknown>,
+  ctx: ChatToolCtx,
+): Promise<ToolResultPayload> {
+  // Reserve a call slot BEFORE doing any DB lookup or xlsx/pdf
+  // parsing — a malicious / extremely large file could otherwise be
+  // re-parsed on every loop iteration even after the budget is blown.
+  const callTripped = ctx.cache.tryConsumeCall();
+  if (callTripped) return { resultText: callTripped, isError: true };
+  const sample = await ctx.cache.getSample(ctx);
+  if (!sample) {
+    return {
+      resultText: JSON.stringify({
+        lastUpload: null,
+        message:
+          "No stashed file is available for this customer-week. Ask the dispatcher to share the relevant punch times directly.",
+      }),
+    };
+  }
+  const rawMax = Number(input.maxBytes);
+  const wanted =
+    Number.isInteger(rawMax) && rawMax > 0
+      ? Math.min(rawMax, CHAT_FILE_READ_MAX_BYTES)
+      : CHAT_FILE_READ_DEFAULT_MAX_BYTES;
+
+  let text: string;
+  try {
+    text = await ctx.cache.getRawText(ctx);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      resultText: JSON.stringify({
+        sampleId: sample.id,
+        fileName: sample.fileName,
+        mimeType: sample.mimeType,
+        text: null,
+        message: `Could not read file as text: ${msg}. The file may be a scanned image — ask the dispatcher for specific punch times.`,
+      }),
+    };
+  }
+
+  const truncated = text.length > wanted;
+  const slice = truncated ? text.slice(0, wanted) : text;
+  const payload = {
+    sampleId: sample.id,
+    fileName: sample.fileName,
+    mimeType: sample.mimeType,
+    totalChars: text.length,
+    returnedChars: slice.length,
+    truncated,
+    text: slice,
+  };
+  const body = JSON.stringify(payload);
+  const tripped = ctx.cache.tryConsumeBytes(Buffer.byteLength(body, "utf8"));
+  if (tripped) {
+    return { resultText: tripped, isError: true };
+  }
+  return { resultText: body };
+}
+
+async function loadUploadSample(ctx: {
+  weekStart: string;
+  customer: string;
+}): Promise<UploadSampleCache | null> {
+  const rows = await db
+    .select({
+      id: schema.aiExtractSamplesTable.id,
+      fileName: schema.aiExtractSamplesTable.fileName,
+      mimeType: schema.aiExtractSamplesTable.mimeType,
+      sizeBytes: schema.aiExtractSamplesTable.sizeBytes,
+      uploadedAt: schema.aiExtractSamplesTable.uploadedAt,
+      fileBytes: schema.aiExtractSamplesTable.fileBytes,
+      extractedRows: schema.aiExtractSamplesTable.extractedRows,
+      pendingNamedRows: schema.aiExtractSamplesTable.pendingNamedRows,
+    })
+    .from(schema.aiExtractSamplesTable)
+    .where(
+      and(
+        eq(schema.aiExtractSamplesTable.weekStart, ctx.weekStart),
+        sql`lower(${schema.aiExtractSamplesTable.customer}) = lower(${ctx.customer})`,
+      ),
+    )
+    .orderBy(desc(schema.aiExtractSamplesTable.uploadedAt))
+    .limit(1);
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: r.id,
+    fileName: r.fileName,
+    mimeType: r.mimeType,
+    sizeBytes: r.sizeBytes,
+    uploadedAt: r.uploadedAt as Date,
+    fileBytes: Buffer.isBuffer(r.fileBytes)
+      ? r.fileBytes
+      : Buffer.from(r.fileBytes as Uint8Array),
+    extractedRows: r.extractedRows ?? null,
+    pendingNamedRows: r.pendingNamedRows ?? null,
+  };
+}
+
+async function loadRawText(
+  cache: ChatToolCache,
+  ctx: { weekStart: string; customer: string },
+): Promise<string> {
+  const sample = await cache.getSample(ctx);
+  if (!sample) return "";
+  const name = sample.fileName.toLowerCase();
+  const mime = (sample.mimeType ?? "").toLowerCase();
+  // Treat as xlsx if the extension or mimetype says so.
+  const isXlsx =
+    name.endsWith(".xlsx") ||
+    name.endsWith(".xls") ||
+    mime.includes("spreadsheetml") ||
+    mime === "application/vnd.ms-excel";
+  // Bound the parsing work itself, not just the returned slice. We
+  // stop sheet/page iteration once we've gathered ~2x the per-turn
+  // byte cap so a 200-sheet xlsx or 500-page pdf can't pin the
+  // event loop. The caller still slices to its own maxBytes.
+  const PARSE_CHAR_CAP = CHAT_FILE_READ_MAX_BYTES * 2;
+  if (isXlsx) {
+    const wb = XLSX.read(sample.fileBytes, { type: "buffer" });
+    const parts: string[] = [];
+    let charsSoFar = 0;
+    for (const sheetName of wb.SheetNames) {
+      const ws = wb.Sheets[sheetName];
+      const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false });
+      if (csv.trim().length === 0) continue;
+      parts.push(`# Sheet: ${sheetName}\n${csv}`);
+      charsSoFar += csv.length;
+      if (charsSoFar >= PARSE_CHAR_CAP) break;
+    }
+    return parts.join("\n\n");
+  }
+  const isPdf = name.endsWith(".pdf") || mime === "application/pdf";
+  if (isPdf) {
+    // Lazy-load pdfjs so the chat path doesn't pay the parse cost
+    // until a Claude tool call actually asks for raw text.
+    const mod = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const data = new Uint8Array(sample.fileBytes);
+    const doc = await mod.getDocument({
+      data,
+    } as Parameters<typeof mod.getDocument>[0]).promise;
+    const pages: string[] = [];
+    let charsSoFar = 0;
+    try {
+      for (let p = 1; p <= doc.numPages; p++) {
+        const page = await doc.getPage(p);
+        const content = await page.getTextContent();
+        const items: string[] = [];
+        for (const it of content.items) {
+          if (typeof (it as { str?: unknown }).str === "string") {
+            items.push((it as { str: string }).str);
+          }
+        }
+        const pageText = items.join(" ");
+        pages.push(pageText);
+        charsSoFar += pageText.length;
+        if (charsSoFar >= PARSE_CHAR_CAP) break;
+        if (p < doc.numPages) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+      }
+    } finally {
+      await doc.destroy();
+    }
+    const joined = pages.join("\n\n").trim();
+    if (joined.length < 50) {
+      throw new Error(
+        "pdf has no extractable text (likely a scanned image)",
+      );
+    }
+    return joined;
+  }
+  throw new Error(
+    `unsupported file type for raw read (${sample.mimeType || sample.fileName}); only xlsx/xls/pdf are supported`,
+  );
+}
+
 async function loadLastUploadInfo(ctx: { weekStart: string; customer: string }) {
   const row = await db
     .select({
@@ -521,6 +942,14 @@ async function loadLastUploadInfo(ctx: { weekStart: string; customer: string }) 
     .limit(1);
   if (row.length === 0) return { lastUpload: null };
   const r = row[0];
+  const lower = (r.fileName ?? "").toLowerCase();
+  const mime = (r.mimeType ?? "").toLowerCase();
+  const isXlsx =
+    lower.endsWith(".xlsx") ||
+    lower.endsWith(".xls") ||
+    mime.includes("spreadsheetml") ||
+    mime === "application/vnd.ms-excel";
+  const isPdf = lower.endsWith(".pdf") || mime === "application/pdf";
   return {
     lastUpload: {
       sampleId: r.id,
@@ -528,6 +957,11 @@ async function loadLastUploadInfo(ctx: { weekStart: string; customer: string }) 
       mimeType: r.mimeType,
       sizeBytes: r.sizeBytes,
       uploadedAt: new Date(r.uploadedAt).toISOString(),
+      // Task #419: tell Claude which read tools will work for this
+      // sample. xlsx + text-bearing pdfs are readable as raw text;
+      // scanned-image pdfs throw a clear error on the raw path.
+      rawTextReadable: isXlsx || isPdf,
+      stashedRowsAvailable: true,
     },
   };
 }
@@ -539,5 +973,9 @@ export const _internals = {
   buildSystemPrompt,
   runTool,
   CHAT_MODEL,
+  ChatToolCache,
+  CHAT_FILE_READ_MAX_CALLS,
+  CHAT_FILE_READ_MAX_BYTES,
 };
+export type { UploadSampleCache };
 
