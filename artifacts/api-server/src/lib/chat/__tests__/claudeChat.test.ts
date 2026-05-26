@@ -268,18 +268,45 @@ test("read_upload_file_raw: returns CSV-serialized xlsx text within byte cap", a
   assert.match(body.text, /Smith.*2026-01-06.*7:00.*15:30/);
 });
 
+test("read_upload_file_raw: image uploads route through the OCR fallback (Task #421)", async () => {
+  // Stub the OCR seam so the test doesn't need a model client / API
+  // key. The chat path should call this with the image sample and
+  // return its transcription as if it were any other raw read.
+  const ocrCalls: string[] = [];
+  _internals.setOcrOverride(async (s) => {
+    ocrCalls.push(`${s.fileName}|${s.mimeType}`);
+    return "Driver Date In Out\nSmith 2026-01-06 7:00 15:30";
+  });
+  try {
+    const sample = makeSample({
+      fileName: "scan.jpg",
+      mimeType: "image/jpeg",
+      fileBytes: Buffer.from([0xff, 0xd8, 0xff]),
+    });
+    const r = await callWithSample("read_upload_file_raw", { maxBytes: 1000 }, sample);
+    const body = JSON.parse(r.resultText);
+    assert.equal(body.sampleId, sample.id);
+    assert.equal(body.mimeType, "image/jpeg");
+    assert.match(body.text, /Smith 2026-01-06 7:00 15:30/);
+    assert.equal(body.truncated, false);
+    assert.deepEqual(ocrCalls, ["scan.jpg|image/jpeg"]);
+  } finally {
+    _internals.setOcrOverride(null);
+  }
+});
+
 test("read_upload_file_raw: rejects unsupported file types with a clear error", async () => {
   const sample = makeSample({
-    fileName: "scan.jpg",
-    mimeType: "image/jpeg",
-    fileBytes: Buffer.from([0xff, 0xd8, 0xff]),
+    fileName: "notes.txt",
+    mimeType: "text/plain",
+    fileBytes: Buffer.from("hello"),
   });
   const r = await callWithSample("read_upload_file_raw", {}, sample);
   const body = JSON.parse(r.resultText);
   // No throw — returns a clean explanatory message so Claude can
   // pivot to asking the dispatcher.
   assert.equal(body.text, null);
-  assert.match(body.message, /scanned image|unsupported|extractable/i);
+  assert.match(body.message, /unsupported/i);
 });
 
 test("read budget caps total reads per turn", async () => {

@@ -7,6 +7,7 @@ import {
   getClaudeClient,
   DEFAULT_CLAUDE_MODEL,
 } from "../parsers/claude.js";
+import { getModelClient } from "../parsers/modelClient.js";
 import { loadLessonsForPrompt } from "./lessonsStore.js";
 import type { ProposedFix } from "@workspace/db/schema";
 import type {
@@ -344,7 +345,7 @@ function buildToolDefs(): Anthropic.Messages.Tool[] {
     {
       name: "read_upload_file_raw",
       description:
-        "Read the original uploaded file's raw text (xlsx → CSV, pdf → extracted text). Scanned-image PDFs and image uploads have no extractable text and return a clear message saying so. Use this as a fallback when `read_upload_file_rows` is empty or you suspect the extractor dropped a row that's actually present in the file. Bounded by a per-turn budget — narrow the response with `maxBytes` (default 50_000) when possible.",
+        "Read the original uploaded file's raw text (xlsx → CSV, text-bearing pdf → extracted text, scanned-image pdf / image upload → AI OCR transcription). Use this as a fallback when `read_upload_file_rows` is empty or you suspect the extractor dropped a row that's actually present in the file. Bounded by a per-turn budget — narrow the response with `maxBytes` (default 50_000) when possible.",
       input_schema: {
         type: "object",
         properties: {
@@ -858,6 +859,16 @@ async function loadRawText(
     name.endsWith(".xls") ||
     mime.includes("spreadsheetml") ||
     mime === "application/vnd.ms-excel";
+  const isImage =
+    mime.startsWith("image/") ||
+    /\.(jpg|jpeg|png|webp|gif|heic|heif)$/.test(name);
+  // Task #421: image uploads have no extractable text — route them
+  // through the AI extractor's OCR fallback (same model client the
+  // bulk extractor uses) so the chat can ground itself on photos /
+  // phone-snaps of timecards, not just xlsx + text-bearing PDFs.
+  if (isImage) {
+    return await ocrToText(sample);
+  }
   // Bound the parsing work itself, not just the returned slice. We
   // stop sheet/page iteration once we've gathered ~2x the per-turn
   // byte cap so a 200-sheet xlsx or 500-page pdf can't pin the
@@ -911,15 +922,83 @@ async function loadRawText(
     }
     const joined = pages.join("\n\n").trim();
     if (joined.length < 50) {
-      throw new Error(
-        "pdf has no extractable text (likely a scanned image)",
-      );
+      // Task #421: scanned-image PDF — pdfjs found no text. Reuse the
+      // AI extractor's OCR fallback (send the PDF as an inline-data
+      // attachment to the model) so the chat can still ground itself
+      // in the file.
+      return await ocrToText(sample);
     }
     return joined;
   }
   throw new Error(
-    `unsupported file type for raw read (${sample.mimeType || sample.fileName}); only xlsx/xls/pdf are supported`,
+    `unsupported file type for raw read (${sample.mimeType || sample.fileName}); only xlsx/xls/pdf/image are supported`,
   );
+}
+
+/**
+ * Task #421: OCR fallback for image uploads and scanned-image PDFs.
+ * Mirrors the bulk AI extractor's image / scanned-PDF lane in
+ * `aiExtract.ts` — we send the file as a single inline-data
+ * attachment and ask the model to transcribe text verbatim. The
+ * returned text is fed through the same per-turn byte budget as the
+ * xlsx / text-PDF paths.
+ *
+ * Override via `_internals.setOcrOverride` in tests so the unit
+ * suite doesn't need an API key.
+ */
+let _ocrOverride: ((s: UploadSampleCache) => Promise<string>) | null = null;
+
+function setOcrOverride(
+  fn: ((s: UploadSampleCache) => Promise<string>) | null,
+): void {
+  _ocrOverride = fn;
+}
+
+async function ocrToText(sample: UploadSampleCache): Promise<string> {
+  if (_ocrOverride) return _ocrOverride(sample);
+  const name = sample.fileName.toLowerCase();
+  const mime = (sample.mimeType ?? "").toLowerCase();
+  const isPdf = name.endsWith(".pdf") || mime === "application/pdf";
+  // Image media types Claude accepts; HEIC isn't in the allow-list, so
+  // fall through to JPEG (the bulk extractor transcodes HEIC → JPEG
+  // before reaching that path, but we have no transcoder here — best
+  // effort, the model will return an error string which the caller
+  // surfaces verbatim).
+  const allowedImage = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+  ]);
+  const inlineMime = isPdf
+    ? "application/pdf"
+    : allowedImage.has(mime)
+      ? mime
+      : "image/jpeg";
+  const client = await getModelClient();
+  const { text } = await client.generate({
+    parts: [
+      {
+        kind: "text",
+        text:
+          "Transcribe every piece of text visible in the attached " +
+          (isPdf ? "scanned PDF" : "image") +
+          " verbatim. Preserve row/column structure as plain text — " +
+          "use spaces or tabs between cells, one logical row per line. " +
+          "Do not summarise, do not add commentary, do not wrap in markdown. " +
+          "If the document is unreadable, reply with the single line " +
+          "`(no readable text)`.",
+      },
+      {
+        kind: "inlineData",
+        mimeType: inlineMime,
+        data: sample.fileBytes.toString("base64"),
+      },
+    ],
+    maxOutputTokens: 4096,
+    timeoutMs: 90_000,
+  });
+  return text.trim();
 }
 
 async function loadLastUploadInfo(ctx: { weekStart: string; customer: string }) {
@@ -950,6 +1029,9 @@ async function loadLastUploadInfo(ctx: { weekStart: string; customer: string }) 
     mime.includes("spreadsheetml") ||
     mime === "application/vnd.ms-excel";
   const isPdf = lower.endsWith(".pdf") || mime === "application/pdf";
+  const isImage =
+    mime.startsWith("image/") ||
+    /\.(jpg|jpeg|png|webp|gif|heic|heif)$/.test(lower);
   return {
     lastUpload: {
       sampleId: r.id,
@@ -957,10 +1039,11 @@ async function loadLastUploadInfo(ctx: { weekStart: string; customer: string }) 
       mimeType: r.mimeType,
       sizeBytes: r.sizeBytes,
       uploadedAt: new Date(r.uploadedAt).toISOString(),
-      // Task #419: tell Claude which read tools will work for this
-      // sample. xlsx + text-bearing pdfs are readable as raw text;
-      // scanned-image pdfs throw a clear error on the raw path.
-      rawTextReadable: isXlsx || isPdf,
+      // Task #419 + #421: tell Claude which read tools will work for
+      // this sample. xlsx + text-bearing PDFs come back as raw text;
+      // image uploads and scanned-image PDFs come back via the AI OCR
+      // fallback (same model client the bulk extractor uses).
+      rawTextReadable: isXlsx || isPdf || isImage,
       stashedRowsAvailable: true,
     },
   };
@@ -976,6 +1059,7 @@ export const _internals = {
   ChatToolCache,
   CHAT_FILE_READ_MAX_CALLS,
   CHAT_FILE_READ_MAX_BYTES,
+  setOcrOverride,
 };
 export type { UploadSampleCache };
 
