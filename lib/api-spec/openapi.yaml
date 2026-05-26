@@ -2211,7 +2211,11 @@ paths:
     get:
       operationId: listCustomerExtractionLessons
       tags: [ingest]
-      summary: List active and archived extraction lessons for a customer (scoped per-customer).
+      summary: List active and archived extraction lessons for a customer (admin-only).
+      description: |
+        Admin-only. Returns every lesson (active + inactive) plus a snapshot of
+        the active prompt-budget usage. Includes snippets of the originating
+        chat messages, so it is gated behind `requireAdmin`.
       parameters:
         - name: customer
           in: path
@@ -2219,12 +2223,11 @@ paths:
           schema: { type: string }
       responses:
         "200":
-          description: Lessons newest-first.
+          description: Lessons newest-first plus prompt-budget snapshot.
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/CustomerExtractionLesson" }
+              schema: { $ref: "#/components/schemas/CustomerExtractionLessonsList" }
+        "403": { description: Admin only }
 
   /customer-extraction-lessons/{customer}/{lessonId}:
     patch:
@@ -4588,6 +4591,29 @@ components:
           type: ["string", "null"]
         createdFromChatMessageId:
           type: ["integer", "null"]
+        sourceMessageContent:
+          type: ["string", "null"]
+          description: Snippet of the assistant chat message this lesson was saved from (truncated). Null when the source message is no longer available.
+        sourceMessageCreatedAt:
+          type: ["string", "null"]
+          format: date-time
+        sourceWeekStart:
+          type: ["string", "null"]
+          description: Week start (Sunday) of the chat the source message belonged to.
+
+    CustomerExtractionLessonsList:
+      type: object
+      required: [lessons, maxLessonChars, activeChars]
+      properties:
+        lessons:
+          type: array
+          items: { $ref: "#/components/schemas/CustomerExtractionLesson" }
+        maxLessonChars:
+          type: integer
+          description: Hard cap on combined active lesson text used in the AI prompt prefix.
+        activeChars:
+          type: integer
+          description: Sum of trimmed lesson text length (plus per-line overhead) across active lessons. Compare to maxLessonChars for the prompt-budget indicator.
 
     CustomerUploadChatThread:
       type: object

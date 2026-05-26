@@ -45,6 +45,7 @@ export * from "./customer";
 export * from "./customerAliasAuditLogEntry";
 export * from "./customerExtensionsItem";
 export * from "./customerExtractionLesson";
+export * from "./customerExtractionLessonsList";
 export * from "./customerExtractPreview";
 export * from "./customerExtractPreviewExtractSource";
 export * from "./customerExtractRow";

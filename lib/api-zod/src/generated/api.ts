@@ -3854,6 +3854,19 @@ export const GetCustomerUploadChatResponse = zod.object({
       createdByEmail: zod.string().nullish(),
       updatedByEmail: zod.string().nullish(),
       createdFromChatMessageId: zod.number().nullish(),
+      sourceMessageContent: zod
+        .string()
+        .nullish()
+        .describe(
+          "Snippet of the assistant chat message this lesson was saved from (truncated). Null when the source message is no longer available.",
+        ),
+      sourceMessageCreatedAt: zod.coerce.date().nullish(),
+      sourceWeekStart: zod
+        .string()
+        .nullish()
+        .describe(
+          "Week start (Sunday) of the chat the source message belonged to.",
+        ),
     }),
   ),
   customerPunchCount: zod.number(),
@@ -4046,6 +4059,19 @@ export const ApplyCustomerUploadChatFixResponse = zod.object({
         createdByEmail: zod.string().nullish(),
         updatedByEmail: zod.string().nullish(),
         createdFromChatMessageId: zod.number().nullish(),
+        sourceMessageContent: zod
+          .string()
+          .nullish()
+          .describe(
+            "Snippet of the assistant chat message this lesson was saved from (truncated). Null when the source message is no longer available.",
+          ),
+        sourceMessageCreatedAt: zod.coerce.date().nullish(),
+        sourceWeekStart: zod
+          .string()
+          .nullish()
+          .describe(
+            "Week start (Sunday) of the chat the source message belonged to.",
+          ),
       }),
       zod.null(),
     ])
@@ -4138,26 +4164,54 @@ export const DismissCustomerUploadChatFixResponse = zod.object({
 });
 
 /**
- * @summary List active and archived extraction lessons for a customer (scoped per-customer).
+ * Admin-only. Returns every lesson (active + inactive) plus a snapshot of
+the active prompt-budget usage. Includes snippets of the originating
+chat messages, so it is gated behind `requireAdmin`.
+
+ * @summary List active and archived extraction lessons for a customer (admin-only).
  */
 export const ListCustomerExtractionLessonsParams = zod.object({
   customer: zod.coerce.string(),
 });
 
-export const ListCustomerExtractionLessonsResponseItem = zod.object({
-  id: zod.number(),
-  customer: zod.string(),
-  lessonText: zod.string(),
-  active: zod.boolean(),
-  createdAt: zod.coerce.date(),
-  updatedAt: zod.coerce.date(),
-  createdByEmail: zod.string().nullish(),
-  updatedByEmail: zod.string().nullish(),
-  createdFromChatMessageId: zod.number().nullish(),
+export const ListCustomerExtractionLessonsResponse = zod.object({
+  lessons: zod.array(
+    zod.object({
+      id: zod.number(),
+      customer: zod.string(),
+      lessonText: zod.string(),
+      active: zod.boolean(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+      createdByEmail: zod.string().nullish(),
+      updatedByEmail: zod.string().nullish(),
+      createdFromChatMessageId: zod.number().nullish(),
+      sourceMessageContent: zod
+        .string()
+        .nullish()
+        .describe(
+          "Snippet of the assistant chat message this lesson was saved from (truncated). Null when the source message is no longer available.",
+        ),
+      sourceMessageCreatedAt: zod.coerce.date().nullish(),
+      sourceWeekStart: zod
+        .string()
+        .nullish()
+        .describe(
+          "Week start (Sunday) of the chat the source message belonged to.",
+        ),
+    }),
+  ),
+  maxLessonChars: zod
+    .number()
+    .describe(
+      "Hard cap on combined active lesson text used in the AI prompt prefix.",
+    ),
+  activeChars: zod
+    .number()
+    .describe(
+      "Sum of trimmed lesson text length (plus per-line overhead) across active lessons. Compare to maxLessonChars for the prompt-budget indicator.",
+    ),
 });
-export const ListCustomerExtractionLessonsResponse = zod.array(
-  ListCustomerExtractionLessonsResponseItem,
-);
 
 /**
  * @summary Edit a lesson's text or toggle active (admin-only).
@@ -4188,6 +4242,19 @@ export const UpdateCustomerExtractionLessonResponse = zod.object({
   createdByEmail: zod.string().nullish(),
   updatedByEmail: zod.string().nullish(),
   createdFromChatMessageId: zod.number().nullish(),
+  sourceMessageContent: zod
+    .string()
+    .nullish()
+    .describe(
+      "Snippet of the assistant chat message this lesson was saved from (truncated). Null when the source message is no longer available.",
+    ),
+  sourceMessageCreatedAt: zod.coerce.date().nullish(),
+  sourceWeekStart: zod
+    .string()
+    .nullish()
+    .describe(
+      "Week start (Sunday) of the chat the source message belonged to.",
+    ),
 });
 
 /**

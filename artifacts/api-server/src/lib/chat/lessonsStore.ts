@@ -19,7 +19,7 @@ import { getClaudeClient, DEFAULT_CLAUDE_MODEL } from "../parsers/claude.js";
  * source rows with a single archived-and-condensed entry; admins can
  * still review the originals in `/admin/customers/:id/lessons`.
  */
-const MAX_LESSON_CHARS = 6_000; // ~1.5k tokens; comfortably under our prompt budget.
+export const MAX_LESSON_CHARS = 6_000; // ~1.5k tokens; comfortably under our prompt budget.
 const CONDENSE_TIMEOUT_MS = 30_000;
 
 /**

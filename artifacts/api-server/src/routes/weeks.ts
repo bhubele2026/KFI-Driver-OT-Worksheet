@@ -60,7 +60,7 @@ import {
   loadCustomers,
 } from "../lib/customersStore.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
-import { loadLessonsForPrompt } from "../lib/chat/lessonsStore.js";
+import { loadLessonsForPrompt, MAX_LESSON_CHARS } from "../lib/chat/lessonsStore.js";
 import { runChatTurn } from "../lib/chat/claudeChat.js";
 import { releaseIngestion } from "../lib/parsers/modelClient.js";
 import {
@@ -8059,11 +8059,64 @@ async function serializeChatMessage(
   };
 }
 
+type LessonSourceInfo = {
+  content: string | null;
+  createdAt: string | null;
+  weekStart: string | null;
+};
+
+async function loadLessonSources(
+  messageIds: Array<number | null | undefined>,
+): Promise<Map<number, LessonSourceInfo>> {
+  const ids = [...new Set(messageIds.filter((x): x is number => typeof x === "number"))];
+  if (ids.length === 0) return new Map();
+  const rows = await db
+    .select({
+      id: schema.customerUploadChatMessagesTable.id,
+      content: schema.customerUploadChatMessagesTable.content,
+      createdAt: schema.customerUploadChatMessagesTable.createdAt,
+      weekStart: schema.customerUploadChatsTable.weekStart,
+    })
+    .from(schema.customerUploadChatMessagesTable)
+    .leftJoin(
+      schema.customerUploadChatsTable,
+      eq(
+        schema.customerUploadChatsTable.id,
+        schema.customerUploadChatMessagesTable.chatId,
+      ),
+    )
+    .where(
+      sql`${schema.customerUploadChatMessagesTable.id} IN (${sql.join(
+        ids.map((i) => sql`${i}`),
+        sql`, `,
+      )})`,
+    );
+  const out = new Map<number, LessonSourceInfo>();
+  for (const r of rows) {
+    const snippet = (r.content ?? "").trim();
+    out.set(r.id, {
+      content: snippet.length > 280 ? `${snippet.slice(0, 280)}…` : snippet,
+      createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+      weekStart: r.weekStart ?? null,
+    });
+  }
+  return out;
+}
+
 async function serializeLesson(
   l: typeof schema.customerExtractionLessonsTable.$inferSelect,
   emails?: Map<number, string>,
+  sources?: Map<number, LessonSourceInfo>,
 ): Promise<Record<string, unknown>> {
   const e = emails ?? (await loadEmailsByIds([l.createdBy, l.updatedBy]));
+  const src =
+    l.createdFromChatMessageId && sources
+      ? sources.get(l.createdFromChatMessageId) ?? null
+      : l.createdFromChatMessageId
+        ? (await loadLessonSources([l.createdFromChatMessageId])).get(
+            l.createdFromChatMessageId,
+          ) ?? null
+        : null;
   return {
     id: l.id,
     customer: l.customer,
@@ -8074,6 +8127,9 @@ async function serializeLesson(
     createdByEmail: l.createdBy ? e.get(l.createdBy) ?? null : null,
     updatedByEmail: l.updatedBy ? e.get(l.updatedBy) ?? null : null,
     createdFromChatMessageId: l.createdFromChatMessageId ?? null,
+    sourceMessageContent: src?.content ?? null,
+    sourceMessageCreatedAt: src?.createdAt ?? null,
+    sourceWeekStart: src?.weekStart ?? null,
   };
 }
 
@@ -8532,8 +8588,12 @@ weeksRouter.post(
 
 weeksRouter.get(
   "/customer-extraction-lessons/:customer",
+  requireAdmin,
   async (req, res) => {
-    const customer = decodeURIComponent(req.params.customer ?? "").trim();
+    const rawCustomer = req.params.customer;
+    const customer = decodeURIComponent(
+      typeof rawCustomer === "string" ? rawCustomer : "",
+    ).trim();
     if (!customer) {
       res.status(400).json({ error: "customer required" });
       return;
@@ -8548,7 +8608,19 @@ weeksRouter.get(
     const emails = await loadEmailsByIds(
       rows.flatMap((l) => [l.createdBy, l.updatedBy]),
     );
-    res.json(await Promise.all(rows.map((l) => serializeLesson(l, emails))));
+    const sources = await loadLessonSources(
+      rows.map((l) => l.createdFromChatMessageId),
+    );
+    const activeChars = rows
+      .filter((l) => l.active)
+      .reduce((sum, l) => sum + l.lessonText.trim().length + 2, 0);
+    res.json({
+      lessons: await Promise.all(
+        rows.map((l) => serializeLesson(l, emails, sources)),
+      ),
+      maxLessonChars: MAX_LESSON_CHARS,
+      activeChars,
+    });
   },
 );
 
@@ -8592,6 +8664,23 @@ weeksRouter.patch(
       .set(patch)
       .where(eq(schema.customerExtractionLessonsTable.id, lessonId))
       .returning();
+    // Audit: distinguish text edits from active toggles so the admin
+    // history is meaningful.
+    const auditParts: string[] = [];
+    if (typeof patch.lessonText === "string" && patch.lessonText !== existing.lessonText) {
+      auditParts.push("edit_text");
+    }
+    if (typeof patch.active === "boolean" && patch.active !== existing.active) {
+      auditParts.push(patch.active ? "reactivate" : "deactivate");
+    }
+    if (auditParts.length > 0) {
+      await db.insert(schema.userAuditLogTable).values({
+        actorUserId: req.session.userId ?? null,
+        targetUserId: null,
+        targetEmail: null,
+        action: `lesson_${auditParts.join("+")}:${customer}:#${lessonId}`,
+      });
+    }
     res.json(await serializeLesson(updated));
   },
 );
@@ -8616,6 +8705,12 @@ weeksRouter.delete(
     await db
       .delete(schema.customerExtractionLessonsTable)
       .where(eq(schema.customerExtractionLessonsTable.id, lessonId));
+    await db.insert(schema.userAuditLogTable).values({
+      actorUserId: req.session.userId ?? null,
+      targetUserId: null,
+      targetEmail: null,
+      action: `lesson_delete:${customer}:#${lessonId}`,
+    });
     res.status(204).end();
   },
 );

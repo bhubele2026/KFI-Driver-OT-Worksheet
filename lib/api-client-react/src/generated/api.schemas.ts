@@ -2070,6 +2070,26 @@ export interface CustomerExtractionLesson {
   updatedByEmail?: string | null;
   /** @nullable */
   createdFromChatMessageId?: number | null;
+  /**
+   * Snippet of the assistant chat message this lesson was saved from (truncated). Null when the source message is no longer available.
+   * @nullable
+   */
+  sourceMessageContent?: string | null;
+  /** @nullable */
+  sourceMessageCreatedAt?: string | null;
+  /**
+   * Week start (Sunday) of the chat the source message belonged to.
+   * @nullable
+   */
+  sourceWeekStart?: string | null;
+}
+
+export interface CustomerExtractionLessonsList {
+  lessons: CustomerExtractionLesson[];
+  /** Hard cap on combined active lesson text used in the AI prompt prefix. */
+  maxLessonChars: number;
+  /** Sum of trimmed lesson text length (plus per-line overhead) across active lessons. Compare to maxLessonChars for the prompt-budget indicator. */
+  activeChars: number;
 }
 
 export interface CustomerUploadChatThread {

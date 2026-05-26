@@ -18,6 +18,7 @@ import AdminUsers from "@/pages/admin-users";
 import AdminAiSamples from "@/pages/admin-ai-samples";
 import AdminCustomerAliases from "@/pages/admin-customer-aliases";
 import AdminCustomers from "@/pages/admin-customers";
+import AdminCustomerLessons from "@/pages/admin-customer-lessons";
 import AdminInactiveCustomers from "@/pages/admin-inactive-customers";
 import AdminDriverIdAliases from "@/pages/admin-driver-id-aliases";
 import AdminDriverCustomerOverrides from "@/pages/admin-driver-customer-overrides";
@@ -115,6 +116,10 @@ function Router() {
         <Route path="/admin/ai-samples" component={AdminAiSamples} />
         <Route path="/admin/customer-aliases" component={AdminCustomerAliases} />
         <Route path="/admin/customers" component={AdminCustomers} />
+        <Route
+          path="/admin/customers/:id/lessons"
+          component={AdminCustomerLessons}
+        />
         <Route path="/admin/inactive-customers" component={AdminInactiveCustomers} />
         <Route path="/admin/driver-id-aliases" component={AdminDriverIdAliases} />
         <Route

@@ -24,7 +24,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { Logo } from "@/components/logo";
 
 const EXTENSION_CHOICES: Array<"xlsx" | "pdf"> = ["xlsx", "pdf"];
@@ -363,6 +363,17 @@ export default function AdminCustomers() {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2 justify-end">
+                            <Link href={`/admin/customers/${c.id}/lessons`}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="Review AI-learned lessons"
+                                data-testid={`customer-lessons-${c.id}`}
+                              >
+                                <BookOpen className="h-3 w-3 mr-1" />
+                                Lessons
+                              </Button>
+                            </Link>
                             <Button
                               size="sm"
                               variant="default"

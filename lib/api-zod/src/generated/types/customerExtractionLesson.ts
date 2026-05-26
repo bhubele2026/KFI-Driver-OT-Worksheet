@@ -19,4 +19,16 @@ export interface CustomerExtractionLesson {
   updatedByEmail?: string | null;
   /** @nullable */
   createdFromChatMessageId?: number | null;
+  /**
+   * Snippet of the assistant chat message this lesson was saved from (truncated). Null when the source message is no longer available.
+   * @nullable
+   */
+  sourceMessageContent?: string | null;
+  /** @nullable */
+  sourceMessageCreatedAt?: Date | null;
+  /**
+   * Week start (Sunday) of the chat the source message belonged to.
+   * @nullable
+   */
+  sourceWeekStart?: string | null;
 }

@@ -45,6 +45,7 @@ import type {
   CustomerAliasAuditLogEntry,
   CustomerExtractPreview,
   CustomerExtractionLesson,
+  CustomerExtractionLessonsList,
   CustomerIgnoredExternal,
   CustomerNameAlias,
   CustomerNameAliasList,
@@ -10385,7 +10386,11 @@ export const useDismissCustomerUploadChatFix = <
 };
 
 /**
- * @summary List active and archived extraction lessons for a customer (scoped per-customer).
+ * Admin-only. Returns every lesson (active + inactive) plus a snapshot of
+the active prompt-budget usage. Includes snippets of the originating
+chat messages, so it is gated behind `requireAdmin`.
+
+ * @summary List active and archived extraction lessons for a customer (admin-only).
  */
 export const getListCustomerExtractionLessonsUrl = (customer: string) => {
   return `/api/customer-extraction-lessons/${customer}`;
@@ -10394,8 +10399,8 @@ export const getListCustomerExtractionLessonsUrl = (customer: string) => {
 export const listCustomerExtractionLessons = async (
   customer: string,
   options?: RequestInit,
-): Promise<CustomerExtractionLesson[]> => {
-  return customFetch<CustomerExtractionLesson[]>(
+): Promise<CustomerExtractionLessonsList> => {
+  return customFetch<CustomerExtractionLessonsList>(
     getListCustomerExtractionLessonsUrl(customer),
     {
       ...options,
@@ -10410,7 +10415,7 @@ export const getListCustomerExtractionLessonsQueryKey = (customer: string) => {
 
 export const getListCustomerExtractionLessonsQueryOptions = <
   TData = Awaited<ReturnType<typeof listCustomerExtractionLessons>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   customer: string,
   options?: {
@@ -10448,15 +10453,15 @@ export const getListCustomerExtractionLessonsQueryOptions = <
 export type ListCustomerExtractionLessonsQueryResult = NonNullable<
   Awaited<ReturnType<typeof listCustomerExtractionLessons>>
 >;
-export type ListCustomerExtractionLessonsQueryError = ErrorType<unknown>;
+export type ListCustomerExtractionLessonsQueryError = ErrorType<void>;
 
 /**
- * @summary List active and archived extraction lessons for a customer (scoped per-customer).
+ * @summary List active and archived extraction lessons for a customer (admin-only).
  */
 
 export function useListCustomerExtractionLessons<
   TData = Awaited<ReturnType<typeof listCustomerExtractionLessons>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   customer: string,
   options?: {
