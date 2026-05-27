@@ -202,6 +202,61 @@ test.beforeAll(async () => {
       JSON.stringify(fileEvidence),
     ],
   );
+
+  // Task #436: a second assistant turn whose evidence carries the
+  // `droppedRows` diagnostics the EvidenceAccumulator would have built
+  // when the assistant asked `read_upload_file_rows` and the stashed
+  // sample also returned rows the parser had dropped (e.g. a row whose
+  // name didn't match any driver, and a row whose date fell outside
+  // the week). The chat UI renders these as the "Rows the parser
+  // dropped (N)" sub-table inside the evidence block.
+  const droppedFix = {
+    kind: "addPunches",
+    punches: [],
+  };
+  const droppedEvidence = {
+    sampleId,
+    fileName: FILE_NAME,
+    resolvedRows: [],
+    pendingRows: [],
+    droppedRows: [
+      {
+        reason: "no_driver_match",
+        detail: "Name 'Q. Ghost' not found in roster",
+        rawRow: {
+          driverNameOnDoc: `Q. Ghost ${SUFFIX}`,
+          badgeOrId: "999",
+          date: PUNCH_DATE,
+          timeIn: "6:00 AM",
+          timeOut: "2:00 PM",
+          hours: 8,
+        },
+      },
+      {
+        reason: "outside_week",
+        detail: "Row date 2031-05-04 is before week start 2031-05-11",
+        rawRow: {
+          driverNameOnDoc: DRIVER_NAME,
+          badgeOrId: null,
+          date: "2031-05-04",
+          timeIn: "7:30 AM",
+          timeOut: "3:00 PM",
+          hours: 7.5,
+        },
+      },
+    ],
+  };
+  await pool.query(
+    `INSERT INTO customer_upload_chat_messages
+       (chat_id, role, content, proposed_fix, file_evidence)
+     VALUES ($1, 'assistant', $2, $3::jsonb, $4::jsonb)`,
+    [
+      chatId,
+      `Two rows in the file weren't imported — one didn't match a driver and one was outside this week.`,
+      JSON.stringify(droppedFix),
+      JSON.stringify(droppedEvidence),
+    ],
+  );
 });
 
 test.afterAll(async () => {
@@ -226,7 +281,11 @@ test("Evidence from file block renders the resolved and pending rows", async ({
 
   // Drawer fetches the seeded thread; the assistant proposed-fix card
   // renders the FileEvidenceBlock right under the JSON preview.
-  const evidence = drawer.getByTestId("chat-file-evidence");
+  // First evidence block belongs to the first seeded assistant turn
+  // (resolved + pending rows). The second test in this file covers the
+  // second seeded turn (dropped rows only), so scope to `.first()` to
+  // avoid matching both blocks.
+  const evidence = drawer.getByTestId("chat-file-evidence").first();
   await expect(evidence).toBeVisible({ timeout: 15_000 });
   await expect(evidence).toContainText("Evidence from file");
   await expect(evidence).toContainText("2 rows");
@@ -264,4 +323,49 @@ test("Evidence from file block renders the resolved and pending rows", async ({
   await expect(
     evidence.getByTestId("chat-file-evidence-resolved"),
   ).toBeVisible();
+});
+
+test("Dropped-rows sub-table renders the per-row drop diagnostics", async ({
+  page,
+}) => {
+  await signInAsDispatcher(page);
+  await page.goto(`/weeks/${WEEK_START}`);
+
+  const openChat = page.getByTestId(`customer-chat-open-${CUSTOMER}`);
+  await expect(openChat).toBeVisible({ timeout: 30_000 });
+  await openChat.click();
+
+  const drawer = page.getByTestId("customer-chat-drawer");
+  await expect(drawer).toBeVisible();
+
+  // The second seeded assistant turn carries an evidence payload with
+  // only droppedRows — find that specific block by scoping to the
+  // evidence node that contains the dropped sub-table.
+  const droppedTable = drawer
+    .getByTestId("chat-file-evidence-dropped")
+    .first();
+  await expect(droppedTable).toBeVisible({ timeout: 15_000 });
+
+  // Caption advertises the count (2 dropped rows seeded above).
+  const evidenceBlock = drawer
+    .locator('[data-testid="chat-file-evidence"]', {
+      has: page.getByTestId("chat-file-evidence-dropped"),
+    })
+    .first();
+  await expect(evidenceBlock).toContainText("Rows the parser dropped (2)");
+
+  // Row 1: no_driver_match — ghost name + reason.
+  await expect(droppedTable).toContainText(`Q. Ghost ${SUFFIX}`);
+  await expect(droppedTable).toContainText("999");
+  await expect(droppedTable).toContainText("no_driver_match");
+  await expect(droppedTable).toContainText(
+    "Name 'Q. Ghost' not found in roster",
+  );
+
+  // Row 2: outside_week — out-of-week date + reason.
+  await expect(droppedTable).toContainText("2031-05-04");
+  await expect(droppedTable).toContainText("outside_week");
+  await expect(droppedTable).toContainText(
+    "Row date 2031-05-04 is before week start 2031-05-11",
+  );
 });
