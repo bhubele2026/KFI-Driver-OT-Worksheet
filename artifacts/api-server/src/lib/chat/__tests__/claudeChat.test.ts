@@ -215,6 +215,105 @@ test("propose_re_extract_with_hint: hint+lesson required, sampleId optional", as
   assert.equal(bad.isError, true);
 });
 
+function makeLookupData(): import("../claudeChat.js").LookupDriverData {
+  return {
+    drivers: [
+      { kfiId: "100", name: "Alice Smith" },
+      { kfiId: "101", name: "Bob Jones" },
+      { kfiId: "102", name: "Carol Smith" },
+      { kfiId: "103", name: "Dan Smith" },
+      { kfiId: "104", name: "Erin Smithfield" },
+      { kfiId: "105", name: "Frank Smithers" },
+      { kfiId: "106", name: "Gail Brown" },
+    ],
+    customerAliases: [
+      { kfiId: "106", nameOnDoc: "G. Brown" },
+      { kfiId: "106", nameOnDoc: "Smithy" },
+    ],
+    idAliases: [
+      { kfiId: "101", externalId: "BJ-42" },
+      { kfiId: "100", externalId: "A-100" },
+    ],
+  };
+}
+
+test("lookup_driver: substring on driver name returns the right driver", async () => {
+  _internals.setLookupDriverDataOverride(() => makeLookupData());
+  try {
+    const r = await call("lookup_driver", { nameOrBadge: "alice" });
+    const body = JSON.parse(r.resultText);
+    assert.equal(body.matches.length, 1);
+    assert.equal(body.matches[0].kfiId, "100");
+    assert.equal(body.matches[0].name, "Alice Smith");
+    assert.deepEqual(body.matches[0].badges, ["A-100"]);
+    assert.deepEqual(body.matches[0].aliasesForCustomer, []);
+  } finally {
+    _internals.setLookupDriverDataOverride(null);
+  }
+});
+
+test("lookup_driver: exact badge match returns the right driver first", async () => {
+  _internals.setLookupDriverDataOverride(() => makeLookupData());
+  try {
+    const r = await call("lookup_driver", { nameOrBadge: "bj-42" });
+    const body = JSON.parse(r.resultText);
+    assert.ok(body.matches.length >= 1);
+    assert.equal(body.matches[0].kfiId, "101");
+    assert.equal(body.matches[0].name, "Bob Jones");
+    assert.deepEqual(body.matches[0].badges, ["BJ-42"]);
+  } finally {
+    _internals.setLookupDriverDataOverride(null);
+  }
+});
+
+test("lookup_driver: customer-scoped alias substring resolves to the aliased driver", async () => {
+  _internals.setLookupDriverDataOverride(() => makeLookupData());
+  try {
+    // "Smithy" is an alias for Gail Brown (kfi 106) under the scoped
+    // customer — it must resolve to 106, not to any of the literal
+    // "Smith" drivers.
+    const r = await call("lookup_driver", { nameOrBadge: "smithy" });
+    const body = JSON.parse(r.resultText);
+    const hit = body.matches.find((m: { kfiId: string }) => m.kfiId === "106");
+    assert.ok(hit, "expected Gail Brown via alias 'Smithy'");
+    assert.deepEqual(hit.aliasesForCustomer, ["G. Brown", "Smithy"]);
+  } finally {
+    _internals.setLookupDriverDataOverride(null);
+  }
+});
+
+test("lookup_driver: no match returns an empty matches array (not an error)", async () => {
+  _internals.setLookupDriverDataOverride(() => makeLookupData());
+  try {
+    const r = await call("lookup_driver", { nameOrBadge: "zzzzzz" });
+    assert.equal(r.isError, undefined);
+    const body = JSON.parse(r.resultText);
+    assert.deepEqual(body, { matches: [] });
+  } finally {
+    _internals.setLookupDriverDataOverride(null);
+  }
+});
+
+test("lookup_driver: caps results at 5", async () => {
+  _internals.setLookupDriverDataOverride(() => makeLookupData());
+  try {
+    // "smith" appears in 5 driver names AND in the "Smithy" alias for
+    // kfi 106 — six total candidates; the cap must hold the response
+    // at five.
+    const r = await call("lookup_driver", { nameOrBadge: "smith" });
+    const body = JSON.parse(r.resultText);
+    assert.equal(body.matches.length, _internals.LOOKUP_DRIVER_MAX_RESULTS);
+    assert.equal(body.matches.length, 5);
+  } finally {
+    _internals.setLookupDriverDataOverride(null);
+  }
+});
+
+test("lookup_driver: missing nameOrBadge returns an error", async () => {
+  const r = await call("lookup_driver", { nameOrBadge: "   " });
+  assert.equal(r.isError, true);
+});
+
 test("unknown tool name returns an error result", async () => {
   const r = await call("propose_buy_lunch", { lessonText: "x" });
   assert.equal(r.isError, true);

@@ -395,7 +395,7 @@ async function buildSystemPrompt(
     `- The whole extraction came back garbled and you can see the right answer → propose re-extracting with a textual hint and a saved lesson.`,
     ``,
     `## Rules`,
-    `1. Always inspect the current state with the read tools before proposing a fix. Never guess at punch ids — get them from \`get_current_punches\`.`,
+    `1. Always inspect the current state with the read tools before proposing a fix. Never guess at punch ids — get them from \`get_current_punches\`. Use \`lookup_driver\` for single-name resolution; only call \`get_driver_roster\` when you need to scan the whole list.`,
     `   When the dispatcher says a punch is missing or wrong, call \`read_upload_file_rows\` FIRST (filtered by driver name and/or date) to see what the uploaded file actually contained — this works for BOTH AI-extracted uploads and uploads imported by the built-in parser, since every confirmed upload keeps the original file stashed for 90 days. If the rows view shows nothing for the driver/date in question, call \`read_upload_file_raw\` to inspect the raw file text — the parser may have dropped a row that's actually present. Only ask the dispatcher for clock-in / clock-out times after both file reads come up empty.`,
     `2. Only call ONE propose tool per turn. Stop talking after you call it; the dispatcher will review and Apply or Dismiss.`,
     `3. Every propose tool requires a \`lessonText\` — a one-sentence rule the AI extractor should remember next time. Keep it specific to this customer and free of dispatcher names / dates.`,
@@ -417,8 +417,29 @@ function buildToolDefs(): Anthropic.Messages.Tool[] {
     {
       name: "get_driver_roster",
       description:
-        "Return the KFI driver roster (id, name, badge ids, customer aliases) so you can match a name-on-doc to a kfiId.",
+        "Return the KFI driver roster (id, name, badge ids, customer aliases) so you can match a name-on-doc to a kfiId. Use `lookup_driver` for single-name resolution; only call this when you actually need to scan the whole list.",
       input_schema: { type: "object", properties: {} },
+    },
+    {
+      name: "lookup_driver",
+      description:
+        "Resolve a single driver by name or badge/external id. Returns up to 5 candidate matches (exact matches on kfiId / badge first, then case-insensitive substring matches on driver name and on this customer's saved aliases). When `customer` is omitted it defaults to the chat's customer scope. Prefer this over `get_driver_roster` whenever you already know roughly who you're looking for.",
+      input_schema: {
+        type: "object",
+        properties: {
+          nameOrBadge: {
+            type: "string",
+            description:
+              "Driver name fragment, full name, kfiId, or any badge/external id known for the driver. Case-insensitive.",
+          },
+          customer: {
+            type: "string",
+            description:
+              "Optional override for the alias-lookup customer scope; defaults to the chat's current customer.",
+          },
+        },
+        required: ["nameOrBadge"],
+      },
     },
     {
       name: "get_existing_lessons",
@@ -575,6 +596,22 @@ async function runTool(
         return { resultText: JSON.stringify(await loadCurrentPunches(ctx)) };
       case "get_driver_roster":
         return { resultText: JSON.stringify(await loadRoster(ctx)) };
+      case "lookup_driver": {
+        const nameOrBadge = String(input.nameOrBadge ?? "").trim();
+        if (!nameOrBadge) {
+          return { resultText: "nameOrBadge is required", isError: true };
+        }
+        const customer =
+          typeof input.customer === "string" && input.customer.trim()
+            ? input.customer.trim()
+            : ctx.customer;
+        const data = await loadLookupDriverData(customer);
+        return {
+          resultText: JSON.stringify(
+            lookupDriverMatches({ nameOrBadge, customer }, data),
+          ),
+        };
+      }
       case "get_existing_lessons": {
         const lessons = await loadLessonsForPrompt(ctx.customer);
         return { resultText: JSON.stringify({ lessons }) };
@@ -1132,6 +1169,126 @@ async function ocrToText(sample: UploadSampleCache): Promise<string> {
   return text.trim();
 }
 
+interface LookupDriverData {
+  drivers: Array<{ kfiId: string; name: string }>;
+  customerAliases: Array<{ kfiId: string; nameOnDoc: string }>;
+  idAliases: Array<{ kfiId: string; externalId: string }>;
+}
+
+interface LookupDriverMatch {
+  kfiId: string;
+  name: string;
+  aliasesForCustomer: string[];
+  badges: string[];
+}
+
+const LOOKUP_DRIVER_MAX_RESULTS = 5;
+
+let _lookupDriverDataOverride:
+  | ((customer: string) => Promise<LookupDriverData> | LookupDriverData)
+  | null = null;
+
+function setLookupDriverDataOverride(
+  fn:
+    | ((customer: string) => Promise<LookupDriverData> | LookupDriverData)
+    | null,
+): void {
+  _lookupDriverDataOverride = fn;
+}
+
+async function loadLookupDriverData(
+  customer: string,
+): Promise<LookupDriverData> {
+  if (_lookupDriverDataOverride) {
+    return await _lookupDriverDataOverride(customer);
+  }
+  const [drivers, customerAliases, idAliases] = await Promise.all([
+    db
+      .select({
+        kfiId: schema.driversTable.kfiId,
+        name: schema.driversTable.name,
+      })
+      .from(schema.driversTable),
+    db
+      .select({
+        kfiId: schema.customerNameAliasesTable.kfiId,
+        nameOnDoc: schema.customerNameAliasesTable.nameOnDoc,
+      })
+      .from(schema.customerNameAliasesTable)
+      .where(
+        sql`lower(${schema.customerNameAliasesTable.customer}) = lower(${customer})`,
+      ),
+    db
+      .select({
+        kfiId: schema.driverIdAliasesTable.kfiId,
+        externalId: schema.driverIdAliasesTable.externalId,
+      })
+      .from(schema.driverIdAliasesTable),
+  ]);
+  return { drivers, customerAliases, idAliases };
+}
+
+function lookupDriverMatches(
+  input: { nameOrBadge: string; customer: string },
+  data: LookupDriverData,
+): { matches: LookupDriverMatch[] } {
+  const needle = input.nameOrBadge.trim();
+  if (!needle) return { matches: [] };
+  const needleLower = needle.toLowerCase();
+
+  // Index aliases + badges by kfiId for fast lookup per candidate.
+  const aliasesByKfiId = new Map<string, string[]>();
+  for (const a of data.customerAliases) {
+    const existing = aliasesByKfiId.get(a.kfiId) ?? [];
+    existing.push(a.nameOnDoc);
+    aliasesByKfiId.set(a.kfiId, existing);
+  }
+  const badgesByKfiId = new Map<string, string[]>();
+  for (const b of data.idAliases) {
+    const existing = badgesByKfiId.get(b.kfiId) ?? [];
+    existing.push(b.externalId);
+    badgesByKfiId.set(b.kfiId, existing);
+  }
+
+  // rank: 0 = exact (kfiId or badge exact-ci), 1 = substring on name/alias.
+  type Scored = { match: LookupDriverMatch; rank: number };
+  const scored: Scored[] = [];
+  for (const d of data.drivers) {
+    const aliasesForCustomer = aliasesByKfiId.get(d.kfiId) ?? [];
+    const badges = badgesByKfiId.get(d.kfiId) ?? [];
+
+    const exactKfi = d.kfiId.toLowerCase() === needleLower;
+    const exactBadge = badges.some((b) => b.toLowerCase() === needleLower);
+    const isExact = exactKfi || exactBadge;
+
+    let isSubstring = false;
+    if (!isExact) {
+      if (d.name.toLowerCase().includes(needleLower)) {
+        isSubstring = true;
+      } else if (
+        aliasesForCustomer.some((a) => a.toLowerCase().includes(needleLower))
+      ) {
+        isSubstring = true;
+      }
+    }
+
+    if (!isExact && !isSubstring) continue;
+    scored.push({
+      match: { kfiId: d.kfiId, name: d.name, aliasesForCustomer, badges },
+      rank: isExact ? 0 : 1,
+    });
+  }
+
+  scored.sort((a, b) => {
+    if (a.rank !== b.rank) return a.rank - b.rank;
+    return a.match.name.localeCompare(b.match.name);
+  });
+
+  return {
+    matches: scored.slice(0, LOOKUP_DRIVER_MAX_RESULTS).map((s) => s.match),
+  };
+}
+
 async function loadLastUploadInfo(ctx: { weekStart: string; customer: string }) {
   const row = await db
     .select({
@@ -1192,6 +1349,10 @@ export const _internals = {
   CHAT_FILE_READ_MAX_CALLS,
   CHAT_FILE_READ_MAX_BYTES,
   setOcrOverride,
+  setLookupDriverDataOverride,
+  lookupDriverMatches,
+  LOOKUP_DRIVER_MAX_RESULTS,
 };
+export type { LookupDriverData, LookupDriverMatch };
 export type { UploadSampleCache };
 
