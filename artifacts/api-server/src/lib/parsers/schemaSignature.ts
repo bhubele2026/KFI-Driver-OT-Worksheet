@@ -73,14 +73,27 @@ function computeXlsxSignature(buffer: Buffer): string | null {
   }
   if (!headerRow) return null;
 
-  const norm = headerRow
+  // Normalize each header cell (trim, lowercase, collapse whitespace)
+  // and DROP empty cells before sorting alphabetically. The sort is the
+  // key resilience step: vendors routinely shuffle column order
+  // week-to-week (e.g. swap "Hours" and "Date" positions, append a new
+  // "Cost Center" column) without actually changing the data shape. The
+  // generic role reader matches roles by column NAME via the cached
+  // `columnRoles` map, not by column index, so order is irrelevant to
+  // whether the cached recipe still works — sorting here just keeps the
+  // signature stable against those cosmetic shuffles. Empty-cell drop
+  // similarly protects against a vendor adding/removing a blank
+  // separator column between data columns.
+  const cells = headerRow
     .map((c) =>
       c == null
         ? ""
         : String(c).trim().toLowerCase().replace(/\s+/g, " "),
     )
-    .join("|");
-  if (!norm.replace(/\|/g, "")) return null;
+    .filter((c) => c.length > 0)
+    .sort();
+  if (cells.length === 0) return null;
+  const norm = cells.join("|");
   return createHash("sha256").update(norm).digest("hex");
 }
 
