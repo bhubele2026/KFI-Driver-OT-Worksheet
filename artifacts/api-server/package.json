@@ -9,7 +9,8 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test 'src/lib/**/__tests__/*.test.ts' 'src/routes/__tests__/*.test.ts'"
+    "test": "node --import tsx --test 'src/lib/**/__tests__/*.test.ts' 'src/routes/__tests__/*.test.ts'",
+    "backfill-dropped-rows": "tsx ./src/scripts/backfillDroppedRows.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
