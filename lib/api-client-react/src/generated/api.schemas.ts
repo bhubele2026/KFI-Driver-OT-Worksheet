@@ -1224,6 +1224,40 @@ export const CustomerExtractPreviewExtractSource = {
   ai: "ai",
 } as const;
 
+export type ChatFileEvidenceDroppedRowReason =
+  (typeof ChatFileEvidenceDroppedRowReason)[keyof typeof ChatFileEvidenceDroppedRowReason];
+
+export const ChatFileEvidenceDroppedRowReason = {
+  no_driver_match: "no_driver_match",
+  not_a_driver_alias: "not_a_driver_alias",
+  outside_week: "outside_week",
+  duplicate_collapsed: "duplicate_collapsed",
+  extraction_failed: "extraction_failed",
+  unknown: "unknown",
+} as const;
+
+export type ChatFileEvidenceDroppedRowRawRow = {
+  /** @nullable */
+  driverNameOnDoc: string | null;
+  /** @nullable */
+  badgeOrId: string | null;
+  /** @nullable */
+  date: string | null;
+  /** @nullable */
+  timeIn: string | null;
+  /** @nullable */
+  timeOut: string | null;
+  /** @nullable */
+  hours: number | null;
+};
+
+export interface ChatFileEvidenceDroppedRow {
+  reason: ChatFileEvidenceDroppedRowReason;
+  /** @nullable */
+  detail: string | null;
+  rawRow: ChatFileEvidenceDroppedRowRawRow;
+}
+
 export interface CustomerExtractPreview {
   customer: string;
   fileName: string;
@@ -1291,6 +1325,17 @@ the dispatcher knows the re-upload is intentional and
 isn't a regression.
  */
   sameAsLastImport?: boolean;
+  /** Task #435: per-row drop diagnostics for every row the
+extractor saw but couldn't turn into a punch (excluding
+anything already surfaced via `unmappedIds` /
+`autoIgnoredIds`). Each entry has a typed `reason`
+(`no_driver_match`, `outside_week`, `extraction_failed`,
+…), a human-readable `detail`, and a snapshot of the raw
+row. The preview dialog buckets these by reason so the
+dispatcher can fix obvious problems (missing alias, wrong
+week, …) BEFORE confirming the upload.
+ */
+  droppedRows?: ChatFileEvidenceDroppedRow[];
 }
 
 export type ConfirmCustomerFileInputMapNewAliasesItem = {
@@ -2087,40 +2132,6 @@ export interface ChatFileEvidenceRawSnippet {
   returnedChars: number;
   truncated: boolean;
   snippet: string;
-}
-
-export type ChatFileEvidenceDroppedRowReason =
-  (typeof ChatFileEvidenceDroppedRowReason)[keyof typeof ChatFileEvidenceDroppedRowReason];
-
-export const ChatFileEvidenceDroppedRowReason = {
-  no_driver_match: "no_driver_match",
-  not_a_driver_alias: "not_a_driver_alias",
-  outside_week: "outside_week",
-  duplicate_collapsed: "duplicate_collapsed",
-  extraction_failed: "extraction_failed",
-  unknown: "unknown",
-} as const;
-
-export type ChatFileEvidenceDroppedRowRawRow = {
-  /** @nullable */
-  driverNameOnDoc: string | null;
-  /** @nullable */
-  badgeOrId: string | null;
-  /** @nullable */
-  date: string | null;
-  /** @nullable */
-  timeIn: string | null;
-  /** @nullable */
-  timeOut: string | null;
-  /** @nullable */
-  hours: number | null;
-};
-
-export interface ChatFileEvidenceDroppedRow {
-  reason: ChatFileEvidenceDroppedRowReason;
-  /** @nullable */
-  detail: string | null;
-  rawRow: ChatFileEvidenceDroppedRowRawRow;
 }
 
 export interface ChatFileEvidence {

@@ -1648,6 +1648,32 @@ export const ExtractCustomerFileResponse = zod.object({
     .describe(
       "True when the uploaded file's SHA-256 matches the most\nrecent successful import for this (week, customer) AND\nthe caller passed `?force=1` so the server kept extracting\ninstead of short-circuiting with `skipped: true`. Set only\non the per-row Re-upload path (Task #358) — the bulk\nupload path still skips identical bytes without ever\nreaching this flag. The preview dialog uses it to render a\nneutral \"matches the last import you confirmed\" note so\nthe dispatcher knows the re-upload is intentional and\nisn't a regression.\n",
     ),
+  droppedRows: zod
+    .array(
+      zod.object({
+        reason: zod.enum([
+          "no_driver_match",
+          "not_a_driver_alias",
+          "outside_week",
+          "duplicate_collapsed",
+          "extraction_failed",
+          "unknown",
+        ]),
+        detail: zod.string().nullable(),
+        rawRow: zod.object({
+          driverNameOnDoc: zod.string().nullable(),
+          badgeOrId: zod.string().nullable(),
+          date: zod.string().nullable(),
+          timeIn: zod.string().nullable(),
+          timeOut: zod.string().nullable(),
+          hours: zod.number().nullable(),
+        }),
+      }),
+    )
+    .optional()
+    .describe(
+      "Task #435: per-row drop diagnostics for every row the\nextractor saw but couldn't turn into a punch (excluding\nanything already surfaced via `unmappedIds` \/\n`autoIgnoredIds`). Each entry has a typed `reason`\n(`no_driver_match`, `outside_week`, `extraction_failed`,\n…), a human-readable `detail`, and a snapshot of the raw\nrow. The preview dialog buckets these by reason so the\ndispatcher can fix obvious problems (missing alias, wrong\nweek, …) BEFORE confirming the upload.\n",
+    ),
 });
 
 /**

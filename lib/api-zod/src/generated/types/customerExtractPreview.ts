@@ -5,6 +5,7 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { ChatFileEvidenceDroppedRow } from "./chatFileEvidenceDroppedRow";
 import type { CustomerExtractPreviewExtractSource } from "./customerExtractPreviewExtractSource";
 import type { CustomerExtractRow } from "./customerExtractRow";
 import type { UnmappedId } from "./unmappedId";
@@ -76,4 +77,15 @@ the dispatcher knows the re-upload is intentional and
 isn't a regression.
  */
   sameAsLastImport?: boolean;
+  /** Task #435: per-row drop diagnostics for every row the
+extractor saw but couldn't turn into a punch (excluding
+anything already surfaced via `unmappedIds` /
+`autoIgnoredIds`). Each entry has a typed `reason`
+(`no_driver_match`, `outside_week`, `extraction_failed`,
+…), a human-readable `detail`, and a snapshot of the raw
+row. The preview dialog buckets these by reason so the
+dispatcher can fix obvious problems (missing alias, wrong
+week, …) BEFORE confirming the upload.
+ */
+  droppedRows?: ChatFileEvidenceDroppedRow[];
 }

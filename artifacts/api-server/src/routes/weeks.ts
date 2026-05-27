@@ -2510,6 +2510,7 @@ weeksRouter.post(
       failedChunks: result.diagnostics?.failedChunks ?? 0,
       geminiFallbackUsed,
       sameAsLastImport,
+      droppedRows: result.droppedRows ?? [],
     });
   },
 );

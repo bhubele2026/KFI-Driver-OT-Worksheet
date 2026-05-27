@@ -98,7 +98,46 @@ export interface CustomerPreviewData {
    * still short-circuited with `skipped: true`.
    */
   sameAsLastImport?: boolean;
+  /**
+   * Task #435: per-row drop diagnostics for every row the extractor
+   * saw but couldn't turn into a punch. Rendered in the dialog as a
+   * "Dropped" breakdown grouped by typed reason so the dispatcher
+   * can fix obvious problems (missing alias, wrong week, …) BEFORE
+   * confirming the upload.
+   */
+  droppedRows?: CustomerPreviewDroppedRow[];
 }
+
+export interface CustomerPreviewDroppedRow {
+  reason:
+    | "no_driver_match"
+    | "not_a_driver_alias"
+    | "outside_week"
+    | "duplicate_collapsed"
+    | "extraction_failed"
+    | "unknown";
+  detail: string | null;
+  rawRow: {
+    driverNameOnDoc: string | null;
+    badgeOrId: string | null;
+    date: string | null;
+    timeIn: string | null;
+    timeOut: string | null;
+    hours: number | null;
+  };
+}
+
+const DROP_REASON_LABEL: Record<
+  CustomerPreviewDroppedRow["reason"],
+  string
+> = {
+  no_driver_match: "no driver match",
+  not_a_driver_alias: "marked not a driver",
+  outside_week: "outside this week",
+  duplicate_collapsed: "duplicate (collapsed)",
+  extraction_failed: "extraction failed",
+  unknown: "other",
+};
 
 function errMessage(err: unknown, fallback: string): string {
   if (err instanceof Error) return err.message;
@@ -139,6 +178,12 @@ export function CustomerPreviewDialog({
   // Per-unmapped-id dispatcher pick: kfiId, or SKIP_PICK to leave dropped,
   // or "" before they've chosen. Resets when a new preview arrives.
   const [picks, setPicks] = useState<Record<string, string>>({});
+  // Task #435: which drop-reason buckets are expanded inline. The
+  // breakdown is collapsed by default to keep the dialog scannable;
+  // clicking a reason expands the matching raw rows underneath.
+  const [openDropReasons, setOpenDropReasons] = useState<
+    Set<CustomerPreviewDroppedRow["reason"]>
+  >(new Set());
 
   // Reset exclusions when a new preview arrives. Pre-fill each unmapped id's
   // picker: when the server returned a high-confidence fuzzy suggestion
@@ -148,6 +193,7 @@ export function CustomerPreviewDialog({
   // choose a real driver, never the other way around.
   useEffect(() => {
     setExcluded(new Set());
+    setOpenDropReasons(new Set());
     if (!preview) {
       setPicks({});
       return;
@@ -544,6 +590,20 @@ export function CustomerPreviewDialog({
               ) : null}
             </div>
           )}
+          {preview.droppedRows && preview.droppedRows.length > 0 ? (
+            <DroppedBreakdown
+              rows={preview.droppedRows}
+              open={openDropReasons}
+              onToggle={(reason) =>
+                setOpenDropReasons((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(reason)) next.delete(reason);
+                  else next.add(reason);
+                  return next;
+                })
+              }
+            />
+          ) : null}
           {preview.autoIgnoredIds && preview.autoIgnoredIds.length > 0 ? (
             <div
               className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground"
@@ -643,6 +703,113 @@ export function CustomerPreviewDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function DroppedBreakdown({
+  rows,
+  open,
+  onToggle,
+}: {
+  rows: CustomerPreviewDroppedRow[];
+  open: Set<CustomerPreviewDroppedRow["reason"]>;
+  onToggle: (reason: CustomerPreviewDroppedRow["reason"]) => void;
+}) {
+  // Bucket rows by typed reason while preserving server order so the
+  // breakdown numbers line up with the rows displayed when expanded.
+  const groups = useMemo(() => {
+    const byReason = new Map<
+      CustomerPreviewDroppedRow["reason"],
+      CustomerPreviewDroppedRow[]
+    >();
+    for (const r of rows) {
+      const arr = byReason.get(r.reason) ?? [];
+      arr.push(r);
+      byReason.set(r.reason, arr);
+    }
+    return [...byReason.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [rows]);
+  const summary = groups
+    .map(([reason, items]) => `${items.length} ${DROP_REASON_LABEL[reason]}`)
+    .join(", ");
+  return (
+    <div
+      className="rounded-md border border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 space-y-1.5"
+      data-testid="text-dropped-breakdown"
+    >
+      <div className="flex items-start gap-2">
+        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+        <span>
+          <span className="font-medium">
+            {rows.length} row{rows.length === 1 ? "" : "s"} dropped:
+          </span>{" "}
+          {summary}. Fix obvious problems (missing alias, wrong week, …)
+          before confirming.
+        </span>
+      </div>
+      <div className="space-y-1">
+        {groups.map(([reason, items]) => {
+          const isOpen = open.has(reason);
+          return (
+            <div key={reason}>
+              <button
+                type="button"
+                onClick={() => onToggle(reason)}
+                className="text-[11px] underline-offset-2 hover:underline font-mono"
+                data-testid={`button-drop-reason-${reason}`}
+                aria-expanded={isOpen}
+              >
+                {isOpen ? "▾" : "▸"} {DROP_REASON_LABEL[reason]} ({items.length})
+              </button>
+              {isOpen ? (
+                <div
+                  className="mt-1 ml-3 rounded border border-amber-500/20 bg-background/60 overflow-hidden"
+                  data-testid={`rows-drop-reason-${reason}`}
+                >
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-muted/40 text-muted-foreground">
+                      <tr>
+                        <th className="text-left px-2 py-1 font-medium">Name</th>
+                        <th className="text-left px-2 py-1 font-medium">Badge</th>
+                        <th className="text-left px-2 py-1 font-medium">Date</th>
+                        <th className="text-left px-2 py-1 font-medium">In</th>
+                        <th className="text-left px-2 py-1 font-medium">Out</th>
+                        <th className="text-left px-2 py-1 font-medium">Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((r, i) => (
+                        <tr
+                          key={i}
+                          className="border-t border-amber-500/10 font-mono"
+                        >
+                          <td className="px-2 py-1">
+                            {r.rawRow.driverNameOnDoc ?? "—"}
+                          </td>
+                          <td className="px-2 py-1">
+                            {r.rawRow.badgeOrId ?? "—"}
+                          </td>
+                          <td className="px-2 py-1">{r.rawRow.date ?? "—"}</td>
+                          <td className="px-2 py-1">
+                            {r.rawRow.timeIn ?? "—"}
+                          </td>
+                          <td className="px-2 py-1">
+                            {r.rawRow.timeOut ?? "—"}
+                          </td>
+                          <td className="px-2 py-1 font-sans">
+                            {r.detail ?? "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
