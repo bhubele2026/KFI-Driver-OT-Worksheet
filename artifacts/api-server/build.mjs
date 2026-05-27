@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
 import { rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -15,15 +16,23 @@ async function buildAll() {
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
-    entryPoints: [
-      path.resolve(artifactDir, "src/index.ts"),
+    // Task #440: object-form entryPoints flattens the worker bundles to
+    // `dist/xlsxWorker.mjs` / `dist/pdfWorker.mjs` (siblings of
+    // `dist/index.mjs`). With the array form esbuild auto-detects
+    // `outbase` as the common parent (`src/`) and emits the workers at
+    // `dist/lib/parsers/xlsxWorker.mjs`, while the runtime resolvers in
+    // `xlsxWorkerPool.ts` / `pdfWorkerPool.ts` look for them as
+    // siblings of the bundled entrypoint — causing MODULE_NOT_FOUND on
+    // every xlsx/AI-PDF upload in built dist.
+    entryPoints: {
+      index: path.resolve(artifactDir, "src/index.ts"),
       // Task #403: bundled as a sibling worker so `xlsxWorkerPool.ts`
       // can spawn it as `./xlsxWorker.mjs` from the dist directory.
-      path.resolve(artifactDir, "src/lib/parsers/xlsxWorker.ts"),
+      xlsxWorker: path.resolve(artifactDir, "src/lib/parsers/xlsxWorker.ts"),
       // Task #410: bundled as a sibling worker so `pdfWorkerPool.ts`
       // can spawn it as `./pdfWorker.mjs` from the dist directory.
-      path.resolve(artifactDir, "src/lib/parsers/pdfWorker.ts"),
-    ],
+      pdfWorker: path.resolve(artifactDir, "src/lib/parsers/pdfWorker.ts"),
+    },
     platform: "node",
     bundle: true,
     format: "esm",
@@ -133,6 +142,32 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
+
+  // Task #440: post-build sanity check. The runtime worker pools
+  // (`xlsxWorkerPool.ts` / `pdfWorkerPool.ts`) resolve their workers as
+  // siblings of the bundled `dist/index.mjs` via
+  // `new URL("./xlsxWorker.mjs", import.meta.url)`. If esbuild ever
+  // stops emitting them there (entry-point rename, outbase change,
+  // accidental array-form regression), every xlsx/AI-PDF upload in
+  // built dist crashes with MODULE_NOT_FOUND. Fail the build loudly
+  // here instead of waiting for a production upload to find out.
+  const required = [
+    path.join(distDir, "index.mjs"),
+    path.join(distDir, "xlsxWorker.mjs"),
+    path.join(distDir, "pdfWorker.mjs"),
+  ];
+  const missing = required.filter((p) => !existsSync(p));
+  if (missing.length > 0) {
+    throw new Error(
+      `build.mjs: expected worker bundles missing from dist after esbuild:\n` +
+        missing
+          .map((p) => `  - ${path.relative(artifactDir, p)}`)
+          .join("\n") +
+        `\nThe runtime resolvers in xlsxWorkerPool.ts / pdfWorkerPool.ts ` +
+        `expect these as siblings of index.mjs. Check the esbuild ` +
+        `entryPoints config (must be object form, not array).`,
+    );
+  }
 }
 
 buildAll().catch((err) => {
