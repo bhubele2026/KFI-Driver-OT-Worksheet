@@ -4632,6 +4632,32 @@ components:
         truncated: { type: boolean }
         snippet: { type: string }
 
+    ChatFileEvidenceDroppedRow:
+      type: object
+      required: [reason, detail, rawRow]
+      properties:
+        reason:
+          type: string
+          enum:
+            - no_driver_match
+            - not_a_driver_alias
+            - outside_week
+            - duplicate_collapsed
+            - extraction_failed
+            - unknown
+        detail:
+          type: ["string", "null"]
+        rawRow:
+          type: object
+          required: [driverNameOnDoc, badgeOrId, date, timeIn, timeOut, hours]
+          properties:
+            driverNameOnDoc: { type: ["string", "null"] }
+            badgeOrId: { type: ["string", "null"] }
+            date: { type: ["string", "null"] }
+            timeIn: { type: ["string", "null"] }
+            timeOut: { type: ["string", "null"] }
+            hours: { type: ["number", "null"] }
+
     ChatFileEvidence:
       type: object
       required: [sampleId, fileName, resolvedRows, pendingRows]
@@ -4647,6 +4673,9 @@ components:
         rawSnippets:
           type: array
           items: { $ref: "#/components/schemas/ChatFileEvidenceRawSnippet" }
+        droppedRows:
+          type: array
+          items: { $ref: "#/components/schemas/ChatFileEvidenceDroppedRow" }
 
     CustomerUploadChatMessage:
       type: object

@@ -3911,6 +3911,29 @@ export const GetCustomerUploadChatResponse = zod.object({
                 }),
               )
               .optional(),
+            droppedRows: zod
+              .array(
+                zod.object({
+                  reason: zod.enum([
+                    "no_driver_match",
+                    "not_a_driver_alias",
+                    "outside_week",
+                    "duplicate_collapsed",
+                    "extraction_failed",
+                    "unknown",
+                  ]),
+                  detail: zod.string().nullable(),
+                  rawRow: zod.object({
+                    driverNameOnDoc: zod.string().nullable(),
+                    badgeOrId: zod.string().nullable(),
+                    date: zod.string().nullable(),
+                    timeIn: zod.string().nullable(),
+                    timeOut: zod.string().nullable(),
+                    hours: zod.number().nullable(),
+                  }),
+                }),
+              )
+              .optional(),
           }),
           zod.null(),
         ])
@@ -4068,6 +4091,29 @@ export const PostCustomerUploadChatMessageResponse = zod.object({
             }),
           )
           .optional(),
+        droppedRows: zod
+          .array(
+            zod.object({
+              reason: zod.enum([
+                "no_driver_match",
+                "not_a_driver_alias",
+                "outside_week",
+                "duplicate_collapsed",
+                "extraction_failed",
+                "unknown",
+              ]),
+              detail: zod.string().nullable(),
+              rawRow: zod.object({
+                driverNameOnDoc: zod.string().nullable(),
+                badgeOrId: zod.string().nullable(),
+                date: zod.string().nullable(),
+                timeIn: zod.string().nullable(),
+                timeOut: zod.string().nullable(),
+                hours: zod.number().nullable(),
+              }),
+            }),
+          )
+          .optional(),
       }),
       zod.null(),
     ])
@@ -4196,6 +4242,29 @@ export const ApplyCustomerUploadChatFixResponse = zod.object({
                 returnedChars: zod.number(),
                 truncated: zod.boolean(),
                 snippet: zod.string(),
+              }),
+            )
+            .optional(),
+          droppedRows: zod
+            .array(
+              zod.object({
+                reason: zod.enum([
+                  "no_driver_match",
+                  "not_a_driver_alias",
+                  "outside_week",
+                  "duplicate_collapsed",
+                  "extraction_failed",
+                  "unknown",
+                ]),
+                detail: zod.string().nullable(),
+                rawRow: zod.object({
+                  driverNameOnDoc: zod.string().nullable(),
+                  badgeOrId: zod.string().nullable(),
+                  date: zod.string().nullable(),
+                  timeIn: zod.string().nullable(),
+                  timeOut: zod.string().nullable(),
+                  hours: zod.number().nullable(),
+                }),
               }),
             )
             .optional(),
@@ -4354,6 +4423,29 @@ export const DismissCustomerUploadChatFixResponse = zod.object({
               returnedChars: zod.number(),
               truncated: zod.boolean(),
               snippet: zod.string(),
+            }),
+          )
+          .optional(),
+        droppedRows: zod
+          .array(
+            zod.object({
+              reason: zod.enum([
+                "no_driver_match",
+                "not_a_driver_alias",
+                "outside_week",
+                "duplicate_collapsed",
+                "extraction_failed",
+                "unknown",
+              ]),
+              detail: zod.string().nullable(),
+              rawRow: zod.object({
+                driverNameOnDoc: zod.string().nullable(),
+                badgeOrId: zod.string().nullable(),
+                date: zod.string().nullable(),
+                timeIn: zod.string().nullable(),
+                timeOut: zod.string().nullable(),
+                hours: zod.number().nullable(),
+              }),
             }),
           )
           .optional(),

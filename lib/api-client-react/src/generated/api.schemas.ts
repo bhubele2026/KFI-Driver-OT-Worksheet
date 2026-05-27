@@ -2089,12 +2089,47 @@ export interface ChatFileEvidenceRawSnippet {
   snippet: string;
 }
 
+export type ChatFileEvidenceDroppedRowReason =
+  (typeof ChatFileEvidenceDroppedRowReason)[keyof typeof ChatFileEvidenceDroppedRowReason];
+
+export const ChatFileEvidenceDroppedRowReason = {
+  no_driver_match: "no_driver_match",
+  not_a_driver_alias: "not_a_driver_alias",
+  outside_week: "outside_week",
+  duplicate_collapsed: "duplicate_collapsed",
+  extraction_failed: "extraction_failed",
+  unknown: "unknown",
+} as const;
+
+export type ChatFileEvidenceDroppedRowRawRow = {
+  /** @nullable */
+  driverNameOnDoc: string | null;
+  /** @nullable */
+  badgeOrId: string | null;
+  /** @nullable */
+  date: string | null;
+  /** @nullable */
+  timeIn: string | null;
+  /** @nullable */
+  timeOut: string | null;
+  /** @nullable */
+  hours: number | null;
+};
+
+export interface ChatFileEvidenceDroppedRow {
+  reason: ChatFileEvidenceDroppedRowReason;
+  /** @nullable */
+  detail: string | null;
+  rawRow: ChatFileEvidenceDroppedRowRawRow;
+}
+
 export interface ChatFileEvidence {
   sampleId: number;
   fileName: string;
   resolvedRows: ChatFileEvidenceResolvedRow[];
   pendingRows: ChatFileEvidencePendingRow[];
   rawSnippets?: ChatFileEvidenceRawSnippet[];
+  droppedRows?: ChatFileEvidenceDroppedRow[];
 }
 
 export type CustomerUploadChatMessageRole =

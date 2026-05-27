@@ -2376,6 +2376,11 @@ weeksRouter.post(
           origin === "ai" && result.pendingNamedRows
             ? result.pendingNamedRows
             : null,
+        // Task #427: per-row drop diagnostics. Stashed for both the
+        // cache lane and the AI lane so the per-customer Claude chat
+        // can answer "why didn't row X land?" via
+        // `read_upload_file_rows` without re-running extraction.
+        droppedRows: result.droppedRows ?? null,
       })
       .returning({ id: schema.aiExtractSamplesTable.id });
 

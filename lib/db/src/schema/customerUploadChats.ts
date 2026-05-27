@@ -142,6 +142,34 @@ export type FileEvidence = {
     truncated: boolean;
     snippet: string;
   }>;
+  /**
+   * Task #427: per-row drop diagnostics the assistant pulled from
+   * the stashed extraction via `read_upload_file_rows`. Each entry
+   * carries a typed `reason` (no_driver_match / not_a_driver_alias /
+   * outside_week / duplicate_collapsed / extraction_failed / unknown),
+   * an optional human-readable detail, and the raw row snapshot the
+   * extractor saw. Surfaced alongside the proposed-fix card so the
+   * dispatcher can see WHY a row didn't land without re-opening the
+   * spreadsheet.
+   */
+  droppedRows?: Array<{
+    reason:
+      | "no_driver_match"
+      | "not_a_driver_alias"
+      | "outside_week"
+      | "duplicate_collapsed"
+      | "extraction_failed"
+      | "unknown";
+    detail: string | null;
+    rawRow: {
+      driverNameOnDoc: string | null;
+      badgeOrId: string | null;
+      date: string | null;
+      timeIn: string | null;
+      timeOut: string | null;
+      hours: number | null;
+    };
+  }>;
 };
 
 export const customerUploadChatMessagesTable = pgTable(

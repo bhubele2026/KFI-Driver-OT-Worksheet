@@ -13,6 +13,7 @@ import type { ProposedFix, FileEvidence } from "@workspace/db/schema";
 import type {
   StashedExtractedPunch,
   PendingNamedRow,
+  StashedDroppedRow,
 } from "@workspace/db/schema";
 
 /**
@@ -127,18 +128,22 @@ type RawSnippetEntry = NonNullable<FileEvidence["rawSnippets"]>[number];
  */
 const RAW_SNIPPET_PERSIST_CHARS = 500;
 
+type DroppedRowEntry = NonNullable<FileEvidence["droppedRows"]>[number];
+
 class EvidenceAccumulator {
   private sampleId: number | null = null;
   private fileName = "";
   private resolved = new Map<string, FileEvidence["resolvedRows"][number]>();
   private pending = new Map<string, FileEvidence["pendingRows"][number]>();
   private rawSnippets = new Map<string, RawSnippetEntry>();
+  private dropped = new Map<string, DroppedRowEntry>();
 
   record(
     sampleId: number,
     fileName: string,
     resolvedRows: FileEvidence["resolvedRows"],
     pendingRows: FileEvidence["pendingRows"],
+    droppedRows: DroppedRowEntry[] = [],
   ): void {
     this.sampleId = sampleId;
     this.fileName = fileName;
@@ -149,6 +154,19 @@ class EvidenceAccumulator {
     for (const r of pendingRows) {
       const key = `${r.driverNameOnDoc}|${r.date}|${r.timeIn ?? ""}|${r.timeOut ?? ""}`;
       if (!this.pending.has(key)) this.pending.set(key, r);
+    }
+    for (const d of droppedRows) {
+      const r = d.rawRow;
+      const key = [
+        d.reason,
+        r.driverNameOnDoc ?? "",
+        r.badgeOrId ?? "",
+        r.date ?? "",
+        r.timeIn ?? "",
+        r.timeOut ?? "",
+        d.detail ?? "",
+      ].join("|");
+      if (!this.dropped.has(key)) this.dropped.set(key, d);
     }
   }
 
@@ -188,7 +206,8 @@ class EvidenceAccumulator {
     if (
       this.resolved.size === 0 &&
       this.pending.size === 0 &&
-      this.rawSnippets.size === 0
+      this.rawSnippets.size === 0 &&
+      this.dropped.size === 0
     )
       return null;
     const out: FileEvidence = {
@@ -199,6 +218,9 @@ class EvidenceAccumulator {
     };
     if (this.rawSnippets.size > 0) {
       out.rawSnippets = [...this.rawSnippets.values()];
+    }
+    if (this.dropped.size > 0) {
+      out.droppedRows = [...this.dropped.values()];
     }
     return out;
   }
@@ -213,6 +235,7 @@ interface UploadSampleCache {
   fileBytes: Buffer;
   extractedRows: StashedExtractedPunch[] | null;
   pendingNamedRows: PendingNamedRow[] | null;
+  droppedRows: StashedDroppedRow[] | null;
 }
 
 class ChatToolCache {
@@ -399,8 +422,8 @@ async function buildSystemPrompt(
     ``,
     `## Investigation first — no asking before reading`,
     `Tools are the source of truth. The dispatcher's memory is not. Before you ask ANY question:`,
-    `1. Call \`read_upload_file_rows\` filtered by driver name and/or date to see what the uploaded file actually contained for the case in question. This works for BOTH AI-extracted uploads and uploads imported by the built-in parser — every confirmed upload keeps the original file stashed for 90 days.`,
-    `2. If rows come back empty, call \`read_upload_file_raw\` to inspect the raw file text — the parser may have dropped a row that's actually present.`,
+    `1. Call \`read_upload_file_rows\` filtered by driver name and/or date to see what the uploaded file actually contained for the case in question. This works for BOTH AI-extracted uploads and uploads imported by the built-in parser — every confirmed upload keeps the original file stashed for 90 days. The response has THREE arrays: \`resolvedRows\` (landed punches), \`pendingRows\` (awaiting dispatcher alias pick), and \`droppedRows\` (typed reasons: \`no_driver_match\`, \`not_a_driver_alias\`, \`outside_week\`, \`duplicate_collapsed\`, \`extraction_failed\`, \`unknown\`). Check all three before deciding the file is silent on a driver/date — a row in \`droppedRows\` with reason \`no_driver_match\` means the file DOES have the punch but no roster entry matched; the fix is usually an alias.`,
+    `2. If all three arrays come back empty for that filter, call \`read_upload_file_raw\` to inspect the raw file text — the parser may have dropped a row that's actually present.`,
     `3. Call \`get_current_punches\` for what's already saved in the system. Never guess punch ids; read them.`,
     `You may ONLY ask the dispatcher for clock times, badge IDs, dates, or driver names after BOTH \`read_upload_file_rows\` AND \`read_upload_file_raw\` have returned nothing useful for the case. Asking before reading is a bug.`,
     ``,
@@ -902,16 +925,42 @@ async function runReadUploadFileRows(
       hours: r.hours,
     }));
 
+  // Task #427: drop-reason diagnostics. Apply the same filter the
+  // caller asked for so e.g. "rows for Smith on 2026-05-12" can
+  // surface a `no_driver_match` entry that explains why the row
+  // didn't land. kfiId can't match here (dropped rows by definition
+  // weren't resolved to a kfiId), so the kfiId filter is ignored
+  // for this bucket.
+  const allDropped = sample.droppedRows ?? [];
+  const droppedFiltered = allDropped
+    .filter((d) => {
+      if (!date) return true;
+      return d.rawRow.date === date;
+    })
+    .filter((d) => {
+      if (!driverNameContains) return true;
+      const n = (d.rawRow.driverNameOnDoc ?? "").toLowerCase();
+      return n.includes(driverNameContains);
+    });
+  const dropped = droppedFiltered.map((d) => ({
+    reason: d.reason,
+    detail: d.detail,
+    rawRow: d.rawRow,
+  }));
+
   const payload = {
     sampleId: sample.id,
     fileName: sample.fileName,
     resolvedRowsTotal: allResolved.length,
     pendingRowsTotal: allPending.length,
+    droppedRowsTotal: allDropped.length,
     resolvedRowsReturned: resolved.length,
     pendingRowsReturned: pending.length,
+    droppedRowsReturned: dropped.length,
     filterUsed: { driverNameContains: driverNameContains || null, date: date || null, kfiId: kfiId || null },
     resolvedRows: resolved,
     pendingRows: pending,
+    droppedRows: dropped,
   };
   const body = JSON.stringify(payload);
   const tripped = ctx.cache.tryConsumeBytes(Buffer.byteLength(body, "utf8"));
@@ -923,7 +972,7 @@ async function runReadUploadFileRows(
   // after the byte-budget check passes — over-budget reads are not
   // surfaced to Claude and so shouldn't be surfaced to the dispatcher
   // either.
-  ctx.evidence.record(sample.id, sample.fileName, resolved, pending);
+  ctx.evidence.record(sample.id, sample.fileName, resolved, pending, dropped);
   return { resultText: body };
 }
 
@@ -1013,6 +1062,7 @@ async function loadUploadSample(ctx: {
       fileBytes: schema.aiExtractSamplesTable.fileBytes,
       extractedRows: schema.aiExtractSamplesTable.extractedRows,
       pendingNamedRows: schema.aiExtractSamplesTable.pendingNamedRows,
+      droppedRows: schema.aiExtractSamplesTable.droppedRows,
     })
     .from(schema.aiExtractSamplesTable)
     .where(
@@ -1036,6 +1086,7 @@ async function loadUploadSample(ctx: {
       : Buffer.from(r.fileBytes as Uint8Array),
     extractedRows: r.extractedRows ?? null,
     pendingNamedRows: r.pendingNamedRows ?? null,
+    droppedRows: r.droppedRows ?? null,
   };
 }
 

@@ -94,6 +94,7 @@ function makeSample(
         hours: 8.5,
       },
     ],
+    droppedRows: null,
     ...overrides,
   };
 }
@@ -417,6 +418,104 @@ test("evidence accumulator stays null when no rows are returned", async () => {
     ctx,
   );
   assert.equal(ctx.evidence.build(), null);
+});
+
+test("read_upload_file_rows: surfaces droppedRows with typed reasons (Task #427)", async () => {
+  const sample = makeSample({
+    droppedRows: [
+      {
+        reason: "no_driver_match",
+        detail: "name 'Bob Q.' not in roster and no alias hit",
+        rawRow: {
+          driverNameOnDoc: "Bob Q.",
+          badgeOrId: null,
+          date: "2026-01-06",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+          hours: 8,
+        },
+      },
+      {
+        reason: "outside_week",
+        detail: "date 2026-02-01 outside 2026-01-04..2026-01-10",
+        rawRow: {
+          driverNameOnDoc: "Smith",
+          badgeOrId: null,
+          date: "2026-02-01",
+          timeIn: null,
+          timeOut: null,
+          hours: null,
+        },
+      },
+    ],
+  });
+  // Unfiltered: both dropped rows are returned.
+  const all = await callWithSample("read_upload_file_rows", {}, sample);
+  const allBody = JSON.parse(all.resultText);
+  assert.equal(allBody.droppedRowsTotal, 2);
+  assert.equal(allBody.droppedRowsReturned, 2);
+  assert.equal(allBody.droppedRows[0].reason, "no_driver_match");
+  assert.ok(allBody.droppedRows[0].rawRow.timeIn === "7:00 AM");
+
+  // Filter by date: only the matching dropped row comes back, but the
+  // total still reflects the underlying stash.
+  const filtered = await callWithSample(
+    "read_upload_file_rows",
+    { date: "2026-01-06" },
+    sample,
+  );
+  const fBody = JSON.parse(filtered.resultText);
+  assert.equal(fBody.droppedRowsTotal, 2);
+  assert.equal(fBody.droppedRowsReturned, 1);
+  assert.equal(fBody.droppedRows[0].rawRow.driverNameOnDoc, "Bob Q.");
+
+  // Filter by driverNameContains is case-insensitive on driverNameOnDoc.
+  const byName = await callWithSample(
+    "read_upload_file_rows",
+    { driverNameContains: "smith" },
+    sample,
+  );
+  const nBody = JSON.parse(byName.resultText);
+  assert.equal(nBody.droppedRowsReturned, 1);
+  assert.equal(nBody.droppedRows[0].reason, "outside_week");
+});
+
+test("evidence accumulator dedupes dropped rows across repeated reads (Task #427)", async () => {
+  const sample = makeSample({
+    droppedRows: [
+      {
+        reason: "no_driver_match",
+        detail: "name 'Bob Q.' not in roster",
+        rawRow: {
+          driverNameOnDoc: "Bob Q.",
+          badgeOrId: null,
+          date: "2026-01-06",
+          timeIn: "7:00 AM",
+          timeOut: "3:00 PM",
+          hours: 8,
+        },
+      },
+    ],
+  });
+  const cache = new _internals.ChatToolCache();
+  cache.preloadSample(sample);
+  const ctx = makeCtx(cache);
+  for (let i = 0; i < 3; i++) {
+    await _internals.runTool(
+      {
+        type: "tool_use",
+        id: `tu_drop_${i}`,
+        name: "read_upload_file_rows",
+        input: { date: "2026-01-06" },
+      } as unknown as Parameters<typeof _internals.runTool>[0],
+      ctx,
+    );
+  }
+  const built = ctx.evidence.build();
+  assert.ok(built, "evidence accumulator should have content");
+  assert.ok(built!.droppedRows, "droppedRows should be surfaced");
+  assert.equal(built!.droppedRows!.length, 1, "duplicate drops collapse to one");
+  assert.equal(built!.droppedRows![0].reason, "no_driver_match");
 });
 
 test("read_upload_file_rows: date + kfiId filters narrow the response", async () => {

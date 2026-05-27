@@ -43,6 +43,36 @@ export interface PendingNamedRow {
   hours: number | null;
 }
 
+/**
+ * Task #427: per-row drop diagnostics persisted alongside the
+ * stashed AI extraction. Mirrors `DroppedRow` in
+ * `artifacts/api-server/src/lib/parsers/types.ts` but kept duplicated
+ * here so the schema package stays self-contained (no cross-artifact
+ * imports). Surfaced to the dispatcher chat via
+ * `read_upload_file_rows` so Claude can explain WHY a row didn't
+ * land without re-running extraction.
+ */
+export type StashedDroppedReason =
+  | "no_driver_match"
+  | "not_a_driver_alias"
+  | "outside_week"
+  | "duplicate_collapsed"
+  | "extraction_failed"
+  | "unknown";
+
+export interface StashedDroppedRow {
+  reason: StashedDroppedReason;
+  detail: string | null;
+  rawRow: {
+    driverNameOnDoc: string | null;
+    badgeOrId: string | null;
+    date: string | null;
+    timeIn: string | null;
+    timeOut: string | null;
+    hours: number | null;
+  };
+}
+
 // Stashed copy of every AI-extracted customer file so an engineer can use it
 // as a fixture when promoting the customer to a deterministic parser.
 //
@@ -73,6 +103,7 @@ export const aiExtractSamplesTable = pgTable(
     pinned: boolean("pinned").notNull().default(false),
     extractedRows: jsonb("extracted_rows").$type<StashedExtractedPunch[]>(),
     pendingNamedRows: jsonb("pending_named_rows").$type<PendingNamedRow[]>(),
+    droppedRows: jsonb("dropped_rows").$type<StashedDroppedRow[]>(),
   },
   (t) => [
     index("ai_extract_samples_customer_idx").on(t.customer),

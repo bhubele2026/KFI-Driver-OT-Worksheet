@@ -6,7 +6,7 @@ import type {
   ParsedPunch,
   PendingNamedRowOut,
 } from "./types.js";
-import { UnmappedIdAccumulator } from "./types.js";
+import { UnmappedIdAccumulator, DroppedRowAccumulator } from "./types.js";
 import {
   aiExtractRows,
   normalizeIsoDate,
@@ -222,14 +222,42 @@ export async function extractImageForKnownCustomer(args: {
   let invalidDateCount = 0;
   let outOfWindowCount = 0;
   const inWindow: AiExtractedRow[] = [];
+  // Task #427: track every per-row drop the AI lane sees with a
+  // typed reason so the chat can answer "why didn't row X land?"
+  // without re-running extraction.
+  const dropped = new DroppedRowAccumulator();
   for (const r of rawRows) {
     const iso = normalizeIsoDate(r.date);
     if (!iso) {
       invalidDateCount++;
+      dropped.add({
+        reason: "extraction_failed",
+        detail: `AI returned unparseable date ${JSON.stringify(r.date ?? null)}`,
+        rawRow: {
+          driverNameOnDoc: r.driverNameOnDoc ?? null,
+          badgeOrId: (r.badgeOrId ?? "").trim() || null,
+          date: r.date ?? null,
+          timeIn: r.timeIn ?? null,
+          timeOut: r.timeOut ?? null,
+          hours: typeof r.hours === "number" ? r.hours : null,
+        },
+      });
       continue;
     }
     if (iso < weekStart || iso > weekEnd) {
       outOfWindowCount++;
+      dropped.add({
+        reason: "outside_week",
+        detail: `date ${iso} is outside ${weekStart}..${weekEnd}`,
+        rawRow: {
+          driverNameOnDoc: r.driverNameOnDoc ?? null,
+          badgeOrId: (r.badgeOrId ?? "").trim() || null,
+          date: iso,
+          timeIn: r.timeIn ?? null,
+          timeOut: r.timeOut ?? null,
+          hours: typeof r.hours === "number" ? r.hours : null,
+        },
+      });
       continue;
     }
     inWindow.push({ ...r, date: iso });
@@ -292,6 +320,18 @@ export async function extractImageForKnownCustomer(args: {
     const punch = toParsedPunch(r, kfiId, customer);
     if (!punch) {
       invalidTimeCount++;
+      dropped.add({
+        reason: "extraction_failed",
+        detail: "unparseable in/out time or hours <= 0",
+        rawRow: {
+          driverNameOnDoc: r.driverNameOnDoc ?? null,
+          badgeOrId: (r.badgeOrId ?? "").trim() || null,
+          date: r.date,
+          timeIn: r.timeIn ?? null,
+          timeOut: r.timeOut ?? null,
+          hours: typeof r.hours === "number" ? r.hours : null,
+        },
+      });
       continue;
     }
     punches.push(punch);
@@ -311,12 +351,43 @@ export async function extractImageForKnownCustomer(args: {
       "AI extract accepted zero punches",
     );
   }
+  // Task #427: gap-inference catch-all. The per-row drop sites above
+  // cover invalid-date / outside-week / unparseable-time, and the
+  // pendingNamedRows bucket covers unmapped drivers. Anything left
+  // (e.g. AI dedupe collapsing identical pay-category rows in
+  // aiExtractRows) shows up as a positive residual between rawRows
+  // and (accepted + pending + bucketed drops). Surface those as
+  // typed `unknown` entries so the chat can flag a genuine blind
+  // spot instead of silently swallowing them.
+  const accounted =
+    invalidDateCount +
+    outOfWindowCount +
+    invalidTimeCount +
+    punches.length +
+    pendingNamedRows.length;
+  const residual = rawRows.length - accounted;
+  for (let i = 0; i < residual; i++) {
+    dropped.add({
+      reason: "unknown",
+      detail:
+        "residual drop inferred from rawRowCount vs (accepted + pending + bucketed); likely collapsed by AI dedupe",
+      rawRow: {
+        driverNameOnDoc: null,
+        badgeOrId: null,
+        date: null,
+        timeIn: null,
+        timeOut: null,
+        hours: null,
+      },
+    });
+  }
   return {
     customer,
     punches,
     unmappedIds: unmapped.toArray(),
     diagnostics,
     pendingNamedRows,
+    droppedRows: dropped.toArray(),
     aiBudgetSummary,
   };
 }

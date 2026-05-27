@@ -5,6 +5,7 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { ChatFileEvidenceDroppedRow } from "./chatFileEvidenceDroppedRow";
 import type { ChatFileEvidencePendingRow } from "./chatFileEvidencePendingRow";
 import type { ChatFileEvidenceRawSnippet } from "./chatFileEvidenceRawSnippet";
 import type { ChatFileEvidenceResolvedRow } from "./chatFileEvidenceResolvedRow";
@@ -15,4 +16,5 @@ export interface ChatFileEvidence {
   resolvedRows: ChatFileEvidenceResolvedRow[];
   pendingRows: ChatFileEvidencePendingRow[];
   rawSnippets?: ChatFileEvidenceRawSnippet[];
+  droppedRows?: ChatFileEvidenceDroppedRow[];
 }

@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
-import { UnmappedIdAccumulator } from "./types.js";
-import type { ParseResult, ParsedPunch } from "./types.js";
+import { UnmappedIdAccumulator, DroppedRowAccumulator } from "./types.js";
+import type { DroppedRow, ParseResult, ParsedPunch } from "./types.js";
 import { extractPdfLinesByPage } from "./schemaSignature.js";
 import { isBadgeMatchTrustworthy } from "./fuzzy.js";
 
@@ -151,17 +151,74 @@ export function readWithRoles(
     defval: null,
   });
   const unmapped = new UnmappedIdAccumulator();
+  const dropped = new DroppedRowAccumulator();
   const punches: ParsedPunch[] = [];
   for (const row of rows) {
     if (!Array.isArray(row)) continue;
     const rawBadge = cellToString(row[columnRoles.badge]);
     if (!rawBadge) continue;
-    const dateIso = normalizeDate(row[columnRoles.date]);
-    if (!dateIso) continue;
-    if (dateIso < weekStart || dateIso > weekEnd) continue;
-    const clockIn = normalizeTime(row[columnRoles.timeIn], dateIso);
-    const clockOut = normalizeTime(row[columnRoles.timeOut], dateIso);
-    if (!clockIn || !clockOut) continue;
+    // Read any name early so a drop entry can carry it as context.
+    let sampleName: string | null = null;
+    if (columnRoles.name != null) {
+      const raw = cellToString(row[columnRoles.name]).trim();
+      if (raw) sampleName = raw;
+    }
+    const earlyName = sampleName;
+    const rawDateCell = row[columnRoles.date];
+    const rawInCell = row[columnRoles.timeIn];
+    const rawOutCell = row[columnRoles.timeOut];
+    const dateIso = normalizeDate(rawDateCell);
+    if (!dateIso) {
+      dropped.add({
+        reason: "extraction_failed",
+        detail: `unparseable date cell ${JSON.stringify(rawDateCell ?? null)}`,
+        rawRow: {
+          driverNameOnDoc: earlyName,
+          badgeOrId: rawBadge,
+          date: rawDateCell == null ? null : String(rawDateCell),
+          timeIn: rawInCell == null ? null : String(rawInCell),
+          timeOut: rawOutCell == null ? null : String(rawOutCell),
+          hours: null,
+        },
+      });
+      continue;
+    }
+    if (dateIso < weekStart || dateIso > weekEnd) {
+      dropped.add({
+        reason: "outside_week",
+        detail: `date ${dateIso} is outside ${weekStart}..${weekEnd}`,
+        rawRow: {
+          driverNameOnDoc: earlyName,
+          badgeOrId: rawBadge,
+          date: dateIso,
+          timeIn: rawInCell == null ? null : String(rawInCell),
+          timeOut: rawOutCell == null ? null : String(rawOutCell),
+          hours: null,
+        },
+      });
+      continue;
+    }
+    const clockIn = normalizeTime(rawInCell, dateIso);
+    const clockOut = normalizeTime(rawOutCell, dateIso);
+    if (!clockIn || !clockOut) {
+      dropped.add({
+        reason: "extraction_failed",
+        detail: !clockIn && !clockOut
+          ? "missing both clock-in and clock-out"
+          : !clockIn
+            ? "missing or unparseable clock-in"
+            : "missing or unparseable clock-out",
+        rawRow: {
+          driverNameOnDoc: earlyName,
+          badgeOrId: rawBadge,
+          date: dateIso,
+          timeIn: rawInCell == null ? null : String(rawInCell),
+          timeOut: rawOutCell == null ? null : String(rawOutCell),
+          hours: null,
+        },
+      });
+      continue;
+    }
     // Resolve badge → kfiId. Aliases take precedence (a customer's
     // external employee number remapped to a KFI driver); otherwise
     // fall through to the badge itself if it's already a real
@@ -169,18 +226,7 @@ export function readWithRoles(
     // which accepts kfiSet.has(badge) as a self-mapping so files
     // that ship driver kfi_ids in the badge column don't need a
     // dummy alias per driver).
-    // Carry the driver name through when the cached recipe knows
-    // which column held it (Task #338). Older recipes written before
-    // the name column was tracked simply fall back to null and the
-    // panel renders "(no name on doc)" until the next AI re-run
-    // rewrites the recipe with the column included. Read it up-front
-    // so the Task #363 collision guard can compare against the
-    // candidate driver's name on file.
-    let sampleName: string | null = null;
-    if (columnRoles.name != null) {
-      const raw = cellToString(row[columnRoles.name]).trim();
-      if (raw) sampleName = raw;
-    }
+    // sampleName already read above so a drop entry can carry it.
     const aliased = idMap[rawBadge];
     let mapped: string | null = null;
     if (aliased && kfiSet.has(aliased)) mapped = aliased;
@@ -206,6 +252,20 @@ export function readWithRoles(
     }
     if (!mapped) {
       unmapped.add(rawBadge, sampleName);
+      dropped.add({
+        reason: "no_driver_match",
+        detail: `badge ${rawBadge} not in roster${
+          sampleName ? ` (name on doc: ${sampleName})` : ""
+        }`,
+        rawRow: {
+          driverNameOnDoc: sampleName,
+          badgeOrId: rawBadge,
+          date: dateIso,
+          timeIn: clockIn,
+          timeOut: clockOut,
+          hours: null,
+        },
+      });
       continue;
     }
     let hours: number | null = null;
@@ -214,7 +274,21 @@ export function readWithRoles(
       if (!isNaN(h) && h > 0) hours = Math.round(h * 100) / 100;
     }
     if (hours == null) hours = diffHours(clockIn, clockOut);
-    if (hours <= 0) continue;
+    if (hours <= 0) {
+      dropped.add({
+        reason: "extraction_failed",
+        detail: `computed hours <= 0 (clockIn=${clockIn}, clockOut=${clockOut})`,
+        rawRow: {
+          driverNameOnDoc: earlyName,
+          badgeOrId: rawBadge,
+          date: dateIso,
+          timeIn: clockIn,
+          timeOut: clockOut,
+          hours,
+        },
+      });
+      continue;
+    }
     punches.push({
       kfiId: mapped,
       customer,
@@ -225,7 +299,12 @@ export function readWithRoles(
       payType: "Reg",
     });
   }
-  return { customer, punches, unmappedIds: unmapped.toArray() };
+  return {
+    customer,
+    punches,
+    unmappedIds: unmapped.toArray(),
+    droppedRows: dropped.toArray(),
+  };
 }
 
 /* ============================================================
@@ -371,6 +450,7 @@ export async function readPdfWithRoles(
   }
 
   const unmapped = new UnmappedIdAccumulator();
+  const dropped = new DroppedRowAccumulator();
   const punches: ParsedPunch[] = [];
   const fallbackYear =
     columnRoles.fallbackYear ?? parseInt(weekStart.slice(0, 4));
@@ -423,6 +503,20 @@ export async function readPdfWithRoles(
           currentKfiId = null;
           currentMapped = false;
           unmapped.add(currentRawBadge, currentSampleName);
+          dropped.add({
+            reason: "no_driver_match",
+            detail: `badge ${currentRawBadge} not in roster${
+              currentSampleName ? ` (name on doc: ${currentSampleName})` : ""
+            }`,
+            rawRow: {
+              driverNameOnDoc: currentSampleName,
+              badgeOrId: currentRawBadge,
+              date: lastSeenDate,
+              timeIn: null,
+              timeOut: null,
+              hours: null,
+            },
+          });
         }
         continue;
       }
@@ -438,16 +532,72 @@ export async function readPdfWithRoles(
       if (!dMatch) continue;
       const inRaw = (dMatch[1] ?? "").trim();
       const outRaw = (dMatch[2] ?? "").trim();
-      if (!inRaw || !outRaw) continue;
+      if (!inRaw || !outRaw) {
+        dropped.add({
+          reason: "extraction_failed",
+          detail: "data row matched but in/out times empty",
+          rawRow: {
+            driverNameOnDoc: currentSampleName,
+            badgeOrId: currentRawBadge,
+            date: lineDate ?? lastSeenDate,
+            timeIn: inRaw || null,
+            timeOut: outRaw || null,
+            hours: null,
+          },
+        });
+        continue;
+      }
 
       // Try date on this line first, otherwise the most recent line.
       const dateIso = lineDate ?? lastSeenDate;
-      if (!dateIso) continue;
-      if (dateIso < weekStart || dateIso > weekEnd) continue;
+      if (!dateIso) {
+        dropped.add({
+          reason: "extraction_failed",
+          detail: "no date found on data row or any recent line",
+          rawRow: {
+            driverNameOnDoc: currentSampleName,
+            badgeOrId: currentRawBadge,
+            date: null,
+            timeIn: inRaw,
+            timeOut: outRaw,
+            hours: null,
+          },
+        });
+        continue;
+      }
+      if (dateIso < weekStart || dateIso > weekEnd) {
+        dropped.add({
+          reason: "outside_week",
+          detail: `date ${dateIso} is outside ${weekStart}..${weekEnd}`,
+          rawRow: {
+            driverNameOnDoc: currentSampleName,
+            badgeOrId: currentRawBadge,
+            date: dateIso,
+            timeIn: inRaw,
+            timeOut: outRaw,
+            hours: null,
+          },
+        });
+        continue;
+      }
 
       const clockIn = normalizeTimeStr(inRaw, dateIso);
       const clockOut = normalizeTimeStr(outRaw, dateIso);
-      if (!clockIn || !clockOut) continue;
+      if (!clockIn || !clockOut) {
+        dropped.add({
+          reason: "extraction_failed",
+          detail: "unparseable in/out time string",
+          rawRow: {
+            driverNameOnDoc: currentSampleName,
+            badgeOrId: currentRawBadge,
+            date: dateIso,
+            timeIn: inRaw,
+            timeOut: outRaw,
+            hours: null,
+          },
+        });
+        continue;
+      }
 
       let hours: number | null = null;
       const hoursRaw = (dMatch[3] ?? "").trim();
@@ -456,7 +606,21 @@ export async function readPdfWithRoles(
         if (!isNaN(h) && h > 0 && h < 25) hours = Math.round(h * 100) / 100;
       }
       if (hours == null) hours = diffHours(clockIn, clockOut);
-      if (!(hours > 0)) continue;
+      if (!(hours > 0)) {
+        dropped.add({
+          reason: "extraction_failed",
+          detail: `computed hours <= 0 (in=${clockIn}, out=${clockOut})`,
+          rawRow: {
+            driverNameOnDoc: currentSampleName,
+            badgeOrId: currentRawBadge,
+            date: dateIso,
+            timeIn: clockIn,
+            timeOut: clockOut,
+            hours,
+          },
+        });
+        continue;
+      }
 
       punches.push({
         kfiId: currentKfiId,
@@ -470,5 +634,10 @@ export async function readPdfWithRoles(
     }
   }
 
-  return { customer, punches, unmappedIds: unmapped.toArray() };
+  return {
+    customer,
+    punches,
+    unmappedIds: unmapped.toArray(),
+    droppedRows: dropped.toArray(),
+  };
 }

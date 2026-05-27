@@ -454,10 +454,12 @@ function ChatMessage(props: {
  */
 function FileEvidenceBlock({ evidence }: { evidence: ChatFileEvidence }) {
   const rawSnippets = evidence.rawSnippets ?? [];
+  const droppedRows = evidence.droppedRows ?? [];
   const total =
     evidence.resolvedRows.length +
     evidence.pendingRows.length +
-    rawSnippets.length;
+    rawSnippets.length +
+    droppedRows.length;
   const [open, setOpen] = useState(total <= 3);
   return (
     <div
@@ -511,6 +513,22 @@ function FileEvidenceBlock({ evidence }: { evidence: ChatFileEvidence }) {
                 r.hours == null ? "—" : r.hours.toString(),
               ])}
               testId="chat-file-evidence-pending"
+            />
+          )}
+          {droppedRows.length > 0 && (
+            <EvidenceTable
+              caption={`Rows the parser dropped (${droppedRows.length})`}
+              headers={["Name", "Badge", "Date", "In", "Out", "Reason", "Detail"]}
+              rows={droppedRows.map((d) => [
+                d.rawRow.driverNameOnDoc ?? "—",
+                d.rawRow.badgeOrId ?? "—",
+                d.rawRow.date ?? "—",
+                d.rawRow.timeIn ?? "—",
+                d.rawRow.timeOut ?? "—",
+                d.reason,
+                d.detail ?? "—",
+              ])}
+              testId="chat-file-evidence-dropped"
             />
           )}
           {rawSnippets.map((snip, i) => (

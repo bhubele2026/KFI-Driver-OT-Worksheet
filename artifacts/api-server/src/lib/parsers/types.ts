@@ -142,4 +142,88 @@ export interface ParseResult {
    * badge IDs, which are already in `unmappedIds`).
    */
   pendingNamedRows?: PendingNamedRowOut[];
+  /**
+   * Task #427: per-row drop diagnostics. Every row the extractor saw but
+   * could not turn into a punch (and that isn't already surfaced via
+   * `unmappedIds` or `pendingNamedRows`) lands here with a typed
+   * `reason`, an optional human-readable `detail`, and a snapshot of
+   * whatever raw fields the extractor could see. Surfaced to the chat
+   * via `read_upload_file_rows` so Claude can explain WHY a row failed
+   * to land instead of asking the dispatcher.
+   */
+  droppedRows?: DroppedRow[];
+}
+
+/**
+ * Task #427: bucketed reasons a row the extractor saw never landed
+ * as a punch.
+ *
+ * - `no_driver_match` — badge / employee id not in roster and no
+ *   alias maps it to a known KFI driver.
+ * - `not_a_driver_alias` — name-on-doc maps to the sentinel "not a
+ *   driver" alias (the dispatcher explicitly told us to ignore it).
+ * - `outside_week` — the parsed date fell outside the requested
+ *   payroll-week window.
+ * - `duplicate_collapsed` — folded into another row by the AI-lane
+ *   pay-category dedupe.
+ * - `extraction_failed` — parser saw a row but couldn't read it
+ *   (malformed date, missing clock times, schema mismatch).
+ * - `unknown` — residual / gap-inferred drop with no other bucket
+ *   match. Reserved for genuine "we have no idea" so the chat can
+ *   spot real blind spots.
+ */
+export type DroppedRowReason =
+  | "no_driver_match"
+  | "not_a_driver_alias"
+  | "outside_week"
+  | "duplicate_collapsed"
+  | "extraction_failed"
+  | "unknown";
+
+/**
+ * Snapshot of a row the extractor saw but dropped. Field shape is
+ * intentionally the same as a pending-named row so the UI / chat can
+ * render them with one renderer. Every field is optional because
+ * different drop sites have different visibility into the raw row
+ * (e.g. an outside-week row in the AI lane has every field; a
+ * gap-inferred `unknown` drop may have none).
+ */
+export interface DroppedRow {
+  reason: DroppedRowReason;
+  /** Human-readable nuance, e.g. "badge 2004792 not in roster". */
+  detail: string | null;
+  rawRow: {
+    driverNameOnDoc: string | null;
+    badgeOrId: string | null;
+    date: string | null;
+    timeIn: string | null;
+    timeOut: string | null;
+    hours: number | null;
+  };
+}
+
+/**
+ * Tiny collector parsers thread through their row loop. `add` keeps
+ * one entry per (reason, raw-row-identity) pair so a runaway loop
+ * doesn't blow up the JSON payload.
+ */
+export class DroppedRowAccumulator {
+  private rows = new Map<string, DroppedRow>();
+
+  add(entry: DroppedRow): void {
+    const r = entry.rawRow;
+    const key = [
+      entry.reason,
+      r.driverNameOnDoc ?? "",
+      r.badgeOrId ?? "",
+      r.date ?? "",
+      r.timeIn ?? "",
+      r.timeOut ?? "",
+    ].join("|");
+    if (!this.rows.has(key)) this.rows.set(key, entry);
+  }
+
+  toArray(): DroppedRow[] {
+    return [...this.rows.values()];
+  }
 }
