@@ -6,3 +6,9 @@ id = "j5GyUzCqPvFU0B47LwgWI"
 uri = "file://artifacts/mockup-sandbox/src/components/mockups/kfi-redesign/REFERENCE.md"
 type = "text"
 title = "Driver Detail — Shared Structural Reference"
+
+[[outputs]]
+id = "8D-cBQxzXZV-lQvrUZqcg"
+uri = "file://exports/kfi-upload-code.tar.gz"
+type = "unspecified"
+title = "KFI upload code bundle (.tar.gz)"
