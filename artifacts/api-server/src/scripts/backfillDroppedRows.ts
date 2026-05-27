@@ -107,7 +107,7 @@ async function recomputeDroppedRows(args: {
   // produces nothing useful.
   if (!isImage) {
     try {
-      const schemaHit = await lookupSchema(customer, fileName, buffer, false);
+      const schemaHit = await lookupSchema(customer, fileName, buffer, false, log);
       if (schemaHit.kind === "cache") {
         const parsed =
           schemaHit.format === "pdf"

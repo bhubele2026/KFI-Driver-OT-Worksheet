@@ -37,6 +37,7 @@ export async function lookupSchema(
   fileName: string,
   buffer: Buffer,
   isImage: boolean,
+  log?: { info: (obj: object, msg: string) => void },
 ): Promise<SchemaLookupResult> {
   const lower = fileName.toLowerCase();
   const format: "xlsx" | "pdf" | null = isImage
@@ -63,6 +64,22 @@ export async function lookupSchema(
     );
 
   const hit = rows.find((r) => r.columnRoles);
+  // Task #441: emit one `schema_lookup` line per upload so we can tell
+  // from logs whether the cache hit, missed (signature changed or no
+  // row yet), and which (customer, format) pair was looked up.
+  // signature_prefix is the first 8 chars only — enough to correlate
+  // with the schema_cache_write line for the same upload, without
+  // dumping the full sha256.
+  const kind: "cache" | "miss" = hit && hit.columnRoles ? "cache" : "miss";
+  log?.info(
+    {
+      customer,
+      format,
+      signature_prefix: signature.slice(0, 8),
+      kind,
+    },
+    "schema_lookup",
+  );
   if (hit && hit.columnRoles) {
     return {
       kind: "cache",

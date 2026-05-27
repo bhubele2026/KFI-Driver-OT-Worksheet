@@ -1253,6 +1253,8 @@
     "notUploaded": "Not uploaded",
     "latestFileImported": "Latest file already imported",
     "latestFileImportedTitle": "Your most recent upload for this customer was identical to the file already imported, so it was skipped. Use Re-upload to force a fresh import anyway.",
+    "cachedLayoutBadge": "Cached layout",
+    "cachedLayoutBadgeTitle": "A previous AI upload's column layout is saved. The next upload that matches that layout will skip the AI re-read.",
     "aiBadge_one": "AI · {{count}} week",
     "aiBadge_other": "AI · {{count}} weeks",
     "aiBadgeTitle": "AI-imported. {{aliases}} saved driver alias(es). Click to view stashed samples.",

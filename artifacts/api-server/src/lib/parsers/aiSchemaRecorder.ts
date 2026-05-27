@@ -607,12 +607,42 @@ export async function recordAiSchemaIfPossible(args: {
   buffer: Buffer;
   aiResult: ParseResult;
   weekStart: string;
-  log: { warn: (obj: object, msg: string) => void };
+  log: {
+    warn: (obj: object, msg: string) => void;
+    info: (obj: object, msg: string) => void;
+  };
 }): Promise<boolean> {
   const { customer, fileName, log } = args;
+  // Task #441: emit one `schema_cache_write` line per upload regardless
+  // of outcome so we can tell from logs whether the AI run produced an
+  // upsert, deleted a stale row, or skipped entirely (and why). The
+  // signature_prefix correlates with the matching schema_lookup line
+  // earlier in the same request.
+  const logWrite = async (
+    action: "upsert" | "delete-stale" | "skip",
+    extra: {
+      format?: "xlsx" | "pdf";
+      signature?: string;
+      reason?: string;
+    },
+  ) => {
+    log.info(
+      {
+        customer,
+        format: extra.format ?? null,
+        signature_prefix: extra.signature ? extra.signature.slice(0, 8) : null,
+        action,
+        ...(extra.reason ? { reason: extra.reason } : {}),
+      },
+      "schema_cache_write",
+    );
+  };
   try {
     const mutation = await deriveSchemaCacheMutation(args);
-    if (mutation.action === "skip") return false;
+    if (mutation.action === "skip") {
+      await logWrite("skip", { reason: mutation.reason });
+      return false;
+    }
     if (mutation.action === "upsert") {
       await db
         .insert(schema.customerColumnSchemasTable)
@@ -635,6 +665,10 @@ export async function recordAiSchemaIfPossible(args: {
             source: "ai",
           },
         });
+      await logWrite("upsert", {
+        format: mutation.format,
+        signature: mutation.signature,
+      });
       return true;
     }
     // delete-stale
@@ -645,6 +679,10 @@ export async function recordAiSchemaIfPossible(args: {
             AND format = ${mutation.format}
             AND source = 'ai'`,
     );
+    await logWrite("delete-stale", {
+      format: mutation.format,
+      signature: mutation.signature,
+    });
     return false;
   } catch (err) {
     log.warn({ err, customer, fileName }, "recordAiSchemaIfPossible failed");

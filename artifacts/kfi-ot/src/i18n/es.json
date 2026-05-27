@@ -1253,6 +1253,8 @@
     "notUploaded": "Sin subir",
     "latestFileImported": "Último archivo ya importado",
     "latestFileImportedTitle": "Su subida más reciente para este cliente fue idéntica al archivo ya importado, por eso se omitió. Use Volver a subir para forzar una importación nueva.",
+    "cachedLayoutBadge": "Plantilla guardada",
+    "cachedLayoutBadgeTitle": "Se guardó la estructura de columnas de una subida anterior con IA. La próxima subida que coincida con esa estructura omitirá la lectura con IA.",
     "aiBadge_one": "IA · {{count}} semana",
     "aiBadge_other": "IA · {{count}} semanas",
     "aiBadgeTitle": "Importado por IA. {{aliases}} alias de conductor guardado(s). Haga clic para ver las muestras almacenadas.",

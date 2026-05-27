@@ -1841,6 +1841,11 @@ export const GetCustomerUploadStatusResponseItem = zod.object({
     .describe(
       "Number of saved driver-name aliases for this customer in `customer_name_aliases`. A growing count is a strong signal that the customer is a recurring weekly run rather than a one-off, and is a good prompt to promote the AI flow to a deterministic parser.",
     ),
+  hasCachedLayout: zod
+    .boolean()
+    .describe(
+      'True when this customer has at least one saved AI-discovered\ncolumn-layout row in `customer_column_schemas`. The next\nupload whose header signature matches a saved layout will\nskip the AI re-read and run the deterministic role reader\ninstead. Surfaced to the dispatcher as a subtle \"Cached\nlayout\" badge on the customer upload row.\n',
+    ),
   lastUploadAt: zod.coerce.date().nullish(),
   lastFileName: zod.string().nullish(),
   lastAttemptAt: zod.coerce

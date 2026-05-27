@@ -1850,6 +1850,16 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       {t("customerUpload.latestFileImported")}
                     </Badge>
                   )}
+                  {s.hasCachedLayout && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] text-muted-foreground border-muted-foreground/30"
+                      title={t("customerUpload.cachedLayoutBadgeTitle")}
+                      data-testid={`badge-cached-layout-${s.customer}`}
+                    >
+                      {t("customerUpload.cachedLayoutBadge")}
+                    </Badge>
+                  )}
                   {s.isAiImported &&
                     (me?.isAdmin ? (
                       <Link

@@ -2036,6 +2036,7 @@ weeksRouter.post(
           fileName,
           req.file.buffer,
           isImage,
+          req.log,
         );
 
     if (schemaHit.kind === "cache") {
@@ -3308,6 +3309,23 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
   const aliasCountByCustomer = new Map(
     aliasRows.map((r) => [r.customer, r.aliasCount ?? 0]),
   );
+  // Task #441: per-customer "has at least one saved AI schema" lookup
+  // so the dispatcher can tell at a glance which rows will skip the AI
+  // re-read on the next upload. Grouped by lowercase customer to match
+  // the case-insensitive cache lookup in `lookupSchema`. Only `source =
+  // 'ai'` rows count — legacy / seed rows aren't relevant to the badge.
+  const cachedLayoutRows = await db
+    .select({
+      customerLower: sql<string>`lower(${schema.customerColumnSchemasTable.customer})`,
+    })
+    .from(schema.customerColumnSchemasTable)
+    .where(eq(schema.customerColumnSchemasTable.source, "ai"))
+    .groupBy(sql`lower(${schema.customerColumnSchemasTable.customer})`);
+  const cachedLayoutByLower = new Set(
+    cachedLayoutRows.map((r) => r.customerLower),
+  );
+  const hasCachedLayoutFor = (name: string): boolean =>
+    cachedLayoutByLower.has(name.toLowerCase());
   const tzPrefRows = await db
     .select({
       customer: schema.customerTzPreferencesTable.customer,
@@ -3395,6 +3413,7 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       isAiImported: false,
       aiImportWeekCount: aiWeekCountByCustomer.get(c.displayName) ?? 0,
       aliasCount: aliasCountByCustomer.get(c.displayName) ?? 0,
+      hasCachedLayout: hasCachedLayoutFor(c.displayName),
       preferredDispTz: prefFor(c.displayName),
     };
   });
@@ -3475,6 +3494,7 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       isAiImported: hasAiHistory,
       aiImportWeekCount: aiWeeks,
       aliasCount: aliases,
+      hasCachedLayout: hasCachedLayoutFor(name),
       preferredDispTz: prefFor(name),
     };
   });
