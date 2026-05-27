@@ -29,9 +29,11 @@ import {
 } from "@workspace/api-client-react";
 import type {
   CustomerUploadChatMessage,
+  CustomerUploadChatThread,
   ProposedFix,
   ChatFileEvidence,
 } from "@workspace/api-client-react";
+import { dedupeChatMessages } from "@/lib/chatDedupe";
 
 interface Props {
   weekStart: string;
@@ -91,9 +93,49 @@ export function CustomerChatDrawer(props: Props) {
     { query: { enabled: open, queryKey: threadKey } },
   );
 
+  // Task #428: optimistic-update path so the typed user turn renders
+  // instantly and never duplicates when a concurrent invalidation
+  // refetches the thread mid-flight. We write a negative-id sentinel
+  // into the cache from `onMutate`; rendering passes the merged list
+  // through `dedupeChatMessages` so when the server echo lands the
+  // optimistic row is collapsed into the real one.
   const postMessage = usePostCustomerUploadChatMessage({
     mutation: {
-      onSuccess: () => {
+      onMutate: async (vars) => {
+        await queryClient.cancelQueries({ queryKey: threadKey });
+        const previous =
+          queryClient.getQueryData<CustomerUploadChatThread>(threadKey);
+        if (previous) {
+          const tempId = -Date.now();
+          const optimistic: CustomerUploadChatMessage = {
+            id: tempId,
+            chatId: previous.chat?.id ?? 0,
+            role: "user",
+            content: vars.data.content,
+            createdAt: new Date().toISOString(),
+            proposedFix: null,
+            proposedLesson: null,
+            fileEvidence: null,
+            appliedAt: null,
+            appliedByEmail: null,
+            dismissedAt: null,
+            dismissedByEmail: null,
+            authorEmail: null,
+          };
+          queryClient.setQueryData<CustomerUploadChatThread>(threadKey, {
+            ...previous,
+            messages: [...previous.messages, optimistic],
+          });
+        }
+        return { previous };
+      },
+      onError: (_err, _vars, ctx) => {
+        const previous = (ctx as { previous?: CustomerUploadChatThread } | undefined)?.previous;
+        if (previous) {
+          queryClient.setQueryData(threadKey, previous);
+        }
+      },
+      onSettled: () => {
         void queryClient.invalidateQueries({ queryKey: threadKey });
       },
     },
@@ -119,9 +161,19 @@ export function CustomerChatDrawer(props: Props) {
     }
   }, [data?.messages.length]);
 
-  const messages = data?.messages ?? [];
+  const messages = useMemo(
+    () => dedupeChatMessages(data?.messages ?? []),
+    [data?.messages],
+  );
   const lessons = data?.lessons ?? [];
   const lockedKfiIds = data?.lockedKfiIds ?? [];
+  // Task #428: show the "Claude is thinking…" indicator as a tail item
+  // inside the messages list (not as a sibling block below it), so the
+  // visual order stays stable while the assistant turn is in flight.
+  const showThinkingTail =
+    postMessage.isPending &&
+    messages.length > 0 &&
+    messages[messages.length - 1].role === "user";
 
   const handleSend = () => {
     const trimmed = input.trim();
@@ -211,10 +263,15 @@ export function CustomerChatDrawer(props: Props) {
               }
             />
           ))}
-          {postMessage.isPending && (
-            <div className="text-xs text-muted-foreground italic flex items-center gap-2">
-              <Loader2 className="h-3 w-3 animate-spin" /> Claude is
-              thinking…
+          {showThinkingTail && (
+            <div
+              className="flex justify-start"
+              data-testid="customer-chat-thinking"
+            >
+              <div className="max-w-[85%] rounded-lg px-3 py-2 bg-muted text-xs text-muted-foreground italic flex items-center gap-2">
+                <Loader2 className="h-3 w-3 animate-spin" /> Claude is
+                thinking…
+              </div>
             </div>
           )}
         </div>
