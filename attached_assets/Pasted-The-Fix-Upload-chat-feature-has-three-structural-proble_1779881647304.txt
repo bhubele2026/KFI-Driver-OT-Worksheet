@@ -1,0 +1,23 @@
+The "Fix Upload" chat feature has three structural problems that need addressing before it's useful. Not tone-tuning — capabilities and architecture.
+1. Source-file read tool is missing. Right now the assistant says "the file was imported by the built-in parser, I can't read the original file data" and asks the dispatcher for clock-in/clock-out times. The dispatcher doesn't know — they uploaded the file precisely because they don't want to manually enter punches. The chat needs a read_source_file(uploadId, driver?, date?) tool that opens the stored file bytes (xlsx, pdf, image) and returns matching rows. Both the AI-extracted path AND the built-in-parser path stash file bytes — the chat should reach those bytes regardless of which extraction path was used.
+2. Extraction-sample read tool is missing. When something is "missing," the answer is usually one of: (a) row was extracted but dropped because no driver matched, (b) row was extracted but routed to a "not a driver" alias, (c) row wasn't extracted at all because the AI missed it, (d) row was on a different date than expected (week boundary / timezone). Each has a different fix. The chat needs read_extraction_sample(uploadId) returning the full extracted rows + the diagnostics about what was kept vs. dropped. Then the assistant can say "the May 23rd punch IS in the file but was dropped because [reason]" instead of asking the dispatcher to retype the times.
+3. Write tools must be scoped and explicit. Don't give the chat raw SQL. Give it discrete tools:
+
+add_punch(driverId, customerId, date, clockIn, clockOut) — safe insert with validation
+delete_punch(punchId) — single delete with confirmation
+update_punch(punchId, fields) — narrow edits
+re_extract_upload(uploadId) — re-run extraction on the original bytes
+lookup_driver(nameOrBadge, customer) — match against roster
+
+Each tool has guards (week scope, customer scope, audit log entry). The model decides which to call; the tool layer keeps it safe.
+Two additional bugs visible in the current implementation:
+a) The user message renders twice — same prompt appears above two assistant responses. Either the user message is being re-injected or the assistant's response causes a re-render that duplicates it. Look at the chat history reducer.
+b) The tone is wrong for the use case. The assistant should sound like a competent coworker doing investigation, not a customer-service bot collecting form data. Compare:
+BAD: "I'll help you fix the missing time for Willie Medina on the 23rd. Let me first check the current state of the punches and the driver roster."
+GOOD: "Looking at Burnett G's upload from 5/26... Willie Medina (2004792) has 5/18-22 but no 5/23. Checking the source file now."
+Fewer announcements of intent, more investigation. Get the system prompt right: "You are debugging a payroll timesheet import. Be terse. Don't ask the user for information you can look up. Use tools first; ask questions only when tools don't cover the gap."
+What to do first: Build the read_source_file and read_extraction_sample tools. Without those two, the chat will keep asking the user for data that already exists in the system, and no amount of prompt tuning will fix that.
+
+One thing to verify before sending
+Reread my message above with one question: does Replit have access to the source file bytes for both the built-in-parser path AND the AI-extract path? My answer assumes yes (you mentioned fileBytes being on disk in earlier conversations about #352). If the built-in-parser path doesn't stash bytes the way the AI path does, that itself is the first bug to fix — bytes need to be retained for every upload, regardless of which extractor handles it. Otherwise the debugging chat can never read the source file for built-in-parser customers like Burnett G.
+Worth asking Replit to confirm that as the first sub-task.
