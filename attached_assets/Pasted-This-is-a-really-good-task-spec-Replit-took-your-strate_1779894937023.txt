@@ -1,0 +1,50 @@
+This is a really good task spec. Replit took your strategic conversation and turned it into a tight, scoped piece of work that answers the right question first. A few specific reactions, then your reply.
+What's right
+
+The whole document is shaped correctly. Scope, done-criteria, out-of-scope, steps. No code yet, no migration, no UI churn — exactly what a prototype should be.
+The verdict-timing decision in the preamble ("AI path synchronous inside extract; parser path synchronous post-commit") is a clean architectural call. Different paths, different timing, both pragmatic. Importantly: it means the AI path's verdict gates dispatcher confirm (high leverage) while the parser path's verdict surfaces post-commit (lower stakes, but still visible on the attempts row).
+Commentator-only for v1, explicitly recorded. This is the right call and I'm glad they captured it in writing. The discipline of "no upgraded resolver until ≥2 months of thumbs data" is exactly the right gate. Otherwise every future bug becomes a temptation to expand scope.
+Step 1 (parser-path stash audit) as a half-day deliverable. This is the single most important thing in the whole prototype — it determines whether Phase 1 ships as "uploads" or "AI uploads only." Doing it first means Phase 1's scope is honest before any plumbing gets built.
+At least 1 known-bad upload in the sample set. Catching real misses is the test that matters. If the analysis only flags things on clean uploads, the badge is decorative.
+No production access for the script. Right call. Prototypes leak into prod constantly when the boundary isn't explicit.
+
+Two small things to push back on
+1. The grading rubric needs more structure than "useful / noisy / wrong / missed-something."
+Those four labels conflate two different axes: was the verdict correct (right finding identified) AND was it useful (the dispatcher would have acted on it). A finding can be technically correct but operationally useless ("upload contains 199 punches" — yes, true, who cares). And a finding can be useful but slightly wrong ("hours look high for Driver X" when actually it's Driver Y).
+Recommend a 2×2 instead:
+Acted-worthySkippedCorrectTrue positive — verdict caught real issue dispatcher would have acted onNoise — verdict was true but didn't matterWrongFalse positive that would have misled dispatcherHarmless wrong
+Plus a separate field: "Did Claude miss anything the dispatcher caught manually?" (false negatives).
+That gives you four labels per finding (with a missed-things tally separate). A prompt is good when most findings are true-positive-acted and there are few misses.
+2. Five or six finding kinds is suspiciously specific. What are they?
+Replit says "Keep the schema deliberately small for v1 — five or six finding kinds at most." That's the right discipline but the contents of those five-six finding kinds aren't specified, and they should be before the prompt is written. Otherwise the prototype produces freeform findings and the grading session devolves into "is this what we meant?"
+Worth pinning down upfront. Off the top of my head, here are five kinds worth proposing:
+
+extraction_completeness — Did extraction get everything from the source file, or were rows dropped? Examples: "5 rows in source file not in preview"
+roster_match_quality — Are the badge→driver matches likely right? "3 badges auto-matched, 1 may need review"
+hours_anomaly — Per-driver totals vs. historical pattern. "Driver X at 47h, normally 38-42"
+missing_or_new_driver — Drivers expected but missing, or new badges never seen before. "Driver Y absent from this week's upload, was present last 4 weeks"
+structural_concern — File-level oddities. "File spans 8 days, expected 7"; "Customer name in file doesn't match selected customer"
+
+Pin these to the spec before the prompt gets written, otherwise every retry of the prototype includes prompt drift on top of prompt iteration.
+What to send Replit
+
+Spec is approved. Land it as written, with two small adds before you start the work:
+1. Tighten the grading rubric (Step 5). Instead of "useful / noisy / wrong / missed-something" as flat labels, use a 2×2 of correctness × actionability:
+
+True positive, acted-worthy (the win condition)
+True positive, noise (correct but didn't matter — dispatcher would have ignored)
+False positive, misleading (would have wasted dispatcher time)
+False positive, harmless (wrong but obvious)
+
+Plus a separate count per upload of "things dispatcher would have caught manually that Claude missed" (false negatives — the most important quality signal). Without this split, "useful" and "noisy" get conflated and we can't tell whether the prompt needs to be more selective or more accurate.
+2. Pin down the finding kinds in Step 2 before drafting the prompt. "Five or six kinds" is the right discipline, but the actual list shouldn't be invented during prompt drafting. Propose these five for v1 (modify if you see better):
+
+extraction_completeness — rows in source file not in preview
+roster_match_quality — confidence of badge→driver matches
+hours_anomaly — per-driver totals vs. historical pattern (if we have history; skip if first upload)
+missing_or_new_driver — drivers expected but absent, or unfamiliar badges
+structural_concern — file-level oddities (date range, customer mismatch, header changes)
+
+Pinning these now means the prototype iterates on prompt quality, not on schema shape. If a finding doesn't fit one of these five kinds, the answer is "drop it" not "add a kind." We can expand the schema in Phase 1 if real findings keep appearing that don't fit.
+Everything else in the spec is right as written. Run Step 1 first (parser-path audit) since it determines Phase 1 scope. Then 2, then 3, then 4, then we sit together for 5. Block out an hour for the grading session.
+One scheduling note: don't run grading remotely. Sit together, share the verdict file and the source uploads side by side, walk one at a time. Calibrating on what "useful" means in our context is the actual deliverable of the grading session, not just labeling 10 verdicts. That requires real-time discussion
