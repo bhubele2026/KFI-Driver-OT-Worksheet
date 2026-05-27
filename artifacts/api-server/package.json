@@ -10,7 +10,8 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test 'src/lib/**/__tests__/*.test.ts' 'src/routes/__tests__/*.test.ts'",
-    "backfill-dropped-rows": "tsx ./src/scripts/backfillDroppedRows.ts"
+    "backfill-dropped-rows": "tsx ./src/scripts/backfillDroppedRows.ts",
+    "prototype-upload-analysis": "tsx ./src/scripts/prototypeUploadAnalysis.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
@@ -34,7 +35,8 @@
     "pg": "^8.20.0",
     "pino": "^9",
     "pino-http": "^10",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",

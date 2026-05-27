@@ -168,7 +168,7 @@ importers:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.96.0
-        version: 0.96.0(zod@4.3.6)
+        version: 0.96.0(zod@3.25.76)
       '@google/genai':
         specifier: ^1.52.0
         version: 1.52.0
@@ -232,6 +232,9 @@ importers:
       xlsx:
         specifier: ^0.18.5
         version: 0.18.5
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
     devDependencies:
       '@types/bcryptjs':
         specifier: ^3.0.0
@@ -3793,12 +3796,12 @@ packages:
 
 snapshots:
 
-  '@anthropic-ai/sdk@0.96.0(zod@4.3.6)':
+  '@anthropic-ai/sdk@0.96.0(zod@3.25.76)':
     dependencies:
       json-schema-to-ts: 3.1.1
       standardwebhooks: 1.0.0
     optionalDependencies:
-      zod: 4.3.6
+      zod: 3.25.76
 
   '@babel/code-frame@7.29.0':
     dependencies:

@@ -12,3 +12,9 @@ id = "8D-cBQxzXZV-lQvrUZqcg"
 uri = "file://exports/kfi-upload-code.tar.gz"
 type = "unspecified"
 title = "KFI upload code bundle (.tar.gz)"
+
+[[outputs]]
+id = "zIrQEMdRkgDIdOdmR4P9S"
+uri = "file://.local/prototype/parser-path-stash-audit.md"
+type = "text"
+title = "Parser-path stash audit"
