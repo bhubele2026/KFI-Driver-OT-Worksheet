@@ -865,7 +865,7 @@ async function runReadUploadFileRows(
       resultText: JSON.stringify({
         lastUpload: null,
         message:
-          "No stashed file is available for this customer-week. The file may have been uploaded before 90-day stash retention was enabled, may have expired, or was never uploaded at all. Ask the dispatcher to re-upload it (or to share the relevant punch times directly).",
+          "No source file is recoverable for this upload — either it was confirmed before retention was enabled, the retention record was already purged, or no file was ever uploaded for this customer-week. Ask the dispatcher to re-upload the original file to make this debuggable.",
       }),
     };
   }
@@ -991,7 +991,7 @@ async function runReadUploadFileRaw(
       resultText: JSON.stringify({
         lastUpload: null,
         message:
-          "No stashed file is available for this customer-week. Ask the dispatcher to share the relevant punch times directly.",
+          "No source file is recoverable for this upload — either it was confirmed before retention was enabled, the retention record was already purged, or no file was ever uploaded for this customer-week. Ask the dispatcher to re-upload the original file to make this debuggable.",
       }),
     };
   }
