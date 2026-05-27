@@ -621,6 +621,84 @@ test("over-budget raw read does NOT invoke the parser (DoS guard)", async () => 
   assert.equal(parserInvoked, false, "parser must not be invoked once the call budget is blown");
 });
 
+test("buildSystemPrompt: no customer-service preambles (Task #426)", async () => {
+  const prompt = await _internals.buildSystemPrompt("2026-01-04", "Burnett");
+  // The body of the prompt — i.e., the text outside the BAD example
+  // and the explicit banned-phrasings enumeration — must never
+  // instruct or model the banned phrasings as something to do. Strip:
+  //   - lines beginning with the markdown quote marker (">") — the
+  //     BAD example block,
+  //   - lines beginning with `- "` — the banned-openings bullet list.
+  const nonExampleBody = prompt
+    .split("\n")
+    .filter((line) => {
+      const t = line.trimStart();
+      return !t.startsWith(">") && !t.startsWith('- "');
+    })
+    .join("\n");
+  assert.doesNotMatch(
+    nonExampleBody,
+    /I'?ll help|Let me help|Let me look|Let me check|I'?d be happy|happy to help/i,
+    "system prompt body must not contain customer-service phrasings",
+  );
+  // The BAD/GOOD example pair must be present so the model has a
+  // pattern to match against.
+  assert.match(prompt, /BAD/);
+  assert.match(prompt, /GOOD/);
+  // Investigation-first rule must be the first major section.
+  const investigationIdx = prompt.indexOf("Investigation first");
+  const outputRulesIdx = prompt.indexOf("Output rules");
+  assert.ok(investigationIdx > 0, "expected an 'Investigation first' section");
+  assert.ok(
+    investigationIdx < outputRulesIdx,
+    "investigation rules must come before output rules",
+  );
+});
+
+test("runChatTurn: assistant text does not start with a customer-service preamble (Task #426)", async () => {
+  // Drive the tool loop with a stubbed Anthropic client that returns a
+  // single end_turn text block — exactly what we want the model to do
+  // when it has finished its investigation. The test asserts the
+  // returned `assistantText` is passed through verbatim (no wrapper
+  // code prepends "I'll help…" / "Let me…") and matches the terse
+  // voice the new prompt demands.
+  const stubReply =
+    "Burnett file for 2026-01-04 has one Willie Medina row on the 23rd: 6:00 AM – 2:30 PM, 8.5 hrs.";
+  const stub = {
+    messages: {
+      create: async () => ({
+        id: "msg_stub",
+        type: "message",
+        role: "assistant",
+        model: "stub",
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+        content: [{ type: "text", text: stubReply }],
+      }),
+    },
+  };
+  _internals.setClaudeClientOverride(stub as unknown as Parameters<typeof _internals.setClaudeClientOverride>[0]);
+  try {
+    const { runChatTurn } = await import("../claudeChat.js");
+    const result = await runChatTurn({
+      weekStart: "2026-01-04",
+      customer: "Burnett",
+      history: [],
+      userMessage: "Burnett's file missed Willie Medina on the 23rd",
+    });
+    const trimmed = result.assistantText.trim();
+    assert.equal(trimmed, stubReply, "assistantText is passed through unchanged");
+    assert.doesNotMatch(
+      trimmed,
+      /^(I'?ll\b|Let me\b|I'?d be happy|happy to help|Sure[!,]|Of course|Got it)/i,
+      "assistantText must not start with a customer-service preamble",
+    );
+  } finally {
+    _internals.setClaudeClientOverride(null);
+  }
+});
+
 test("no-sample read still counts against the call budget", async () => {
   const cache = new _internals.ChatToolCache();
   cache.preloadSample(null);
