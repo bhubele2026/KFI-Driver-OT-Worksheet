@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ChatFileEvidencePendingRow } from "./chatFileEvidencePendingRow";
+import type { ChatFileEvidenceRawSnippet } from "./chatFileEvidenceRawSnippet";
 import type { ChatFileEvidenceResolvedRow } from "./chatFileEvidenceResolvedRow";
 
 export interface ChatFileEvidence {
@@ -13,4 +14,5 @@ export interface ChatFileEvidence {
   fileName: string;
   resolvedRows: ChatFileEvidenceResolvedRow[];
   pendingRows: ChatFileEvidencePendingRow[];
+  rawSnippets?: ChatFileEvidenceRawSnippet[];
 }

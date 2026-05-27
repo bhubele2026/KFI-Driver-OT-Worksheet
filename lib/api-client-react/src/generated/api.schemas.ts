@@ -2080,11 +2080,21 @@ export interface ChatFileEvidencePendingRow {
   hours?: number | null;
 }
 
+export interface ChatFileEvidenceRawSnippet {
+  sampleId: number;
+  fileName: string;
+  totalChars: number;
+  returnedChars: number;
+  truncated: boolean;
+  snippet: string;
+}
+
 export interface ChatFileEvidence {
   sampleId: number;
   fileName: string;
   resolvedRows: ChatFileEvidenceResolvedRow[];
   pendingRows: ChatFileEvidencePendingRow[];
+  rawSnippets?: ChatFileEvidenceRawSnippet[];
 }
 
 export type CustomerUploadChatMessageRole =

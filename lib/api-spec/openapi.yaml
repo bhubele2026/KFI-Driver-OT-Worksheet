@@ -4621,6 +4621,17 @@ components:
         hours:
           type: ["number", "null"]
 
+    ChatFileEvidenceRawSnippet:
+      type: object
+      required: [sampleId, fileName, totalChars, returnedChars, truncated, snippet]
+      properties:
+        sampleId: { type: integer }
+        fileName: { type: string }
+        totalChars: { type: integer }
+        returnedChars: { type: integer }
+        truncated: { type: boolean }
+        snippet: { type: string }
+
     ChatFileEvidence:
       type: object
       required: [sampleId, fileName, resolvedRows, pendingRows]
@@ -4633,6 +4644,9 @@ components:
         pendingRows:
           type: array
           items: { $ref: "#/components/schemas/ChatFileEvidencePendingRow" }
+        rawSnippets:
+          type: array
+          items: { $ref: "#/components/schemas/ChatFileEvidenceRawSnippet" }
 
     CustomerUploadChatMessage:
       type: object

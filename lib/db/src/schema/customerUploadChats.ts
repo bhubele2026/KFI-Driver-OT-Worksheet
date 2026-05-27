@@ -104,6 +104,15 @@ export type ProposedFix =
  * Rows are de-duplicated across multiple tool calls within the same
  * turn — a runaway loop calling the same filter five times only
  * persists the rows once.
+ *
+ * Task #424: when the assistant falls back to `read_upload_file_raw`
+ * (xlsx → CSV, text-bearing PDF, OCR transcription), the returned
+ * slice is also captured here as a `rawSnippets` entry (file name,
+ * total/returned chars, first ~500 chars) so the dispatcher can see
+ * exactly what raw text the assistant grounded its proposal on.
+ * De-duplicated across multiple raw-reads within the same turn by
+ * (sampleId, snippet) so repeated reads of the same prefix collapse
+ * to a single entry.
  */
 export type FileEvidence = {
   sampleId: number;
@@ -124,6 +133,14 @@ export type FileEvidence = {
     timeIn: string | null;
     timeOut: string | null;
     hours: number | null;
+  }>;
+  rawSnippets?: Array<{
+    sampleId: number;
+    fileName: string;
+    totalChars: number;
+    returnedChars: number;
+    truncated: boolean;
+    snippet: string;
   }>;
 };
 

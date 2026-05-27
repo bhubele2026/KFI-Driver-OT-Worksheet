@@ -396,7 +396,11 @@ function ChatMessage(props: {
  * otherwise to keep long lists from dominating the chat.
  */
 function FileEvidenceBlock({ evidence }: { evidence: ChatFileEvidence }) {
-  const total = evidence.resolvedRows.length + evidence.pendingRows.length;
+  const rawSnippets = evidence.rawSnippets ?? [];
+  const total =
+    evidence.resolvedRows.length +
+    evidence.pendingRows.length +
+    rawSnippets.length;
   const [open, setOpen] = useState(total <= 3);
   return (
     <div
@@ -452,7 +456,51 @@ function FileEvidenceBlock({ evidence }: { evidence: ChatFileEvidence }) {
               testId="chat-file-evidence-pending"
             />
           )}
+          {rawSnippets.map((snip, i) => (
+            <RawSnippetSection key={`${snip.sampleId}-${i}`} snippet={snip} />
+          ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Task #424: collapsible "Raw snippet" sub-block rendered when the
+ * assistant fell back to `read_upload_file_raw` (xlsx CSV / PDF text /
+ * OCR transcription). Shows file name, returned/total char counts,
+ * and the first ~500 chars of what the assistant actually read. Each
+ * raw read in the turn gets its own collapsible row.
+ */
+function RawSnippetSection({
+  snippet,
+}: {
+  snippet: NonNullable<ChatFileEvidence["rawSnippets"]>[number];
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div data-testid="chat-file-evidence-raw">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 w-full text-left text-[10px] uppercase tracking-wide text-muted-foreground hover:text-primary"
+        data-testid="chat-file-evidence-raw-toggle"
+      >
+        {open ? (
+          <ChevronDown className="h-3 w-3 shrink-0" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0" />
+        )}
+        <span>
+          Raw snippet ({snippet.returnedChars.toLocaleString()} of{" "}
+          {snippet.totalChars.toLocaleString()} chars
+          {snippet.truncated ? ", truncated" : ""})
+        </span>
+      </button>
+      {open && (
+        <pre className="mt-1 font-mono text-[10px] whitespace-pre-wrap break-words bg-background/60 rounded p-1.5 max-h-48 overflow-auto">
+          {snippet.snippet}
+        </pre>
       )}
     </div>
   );

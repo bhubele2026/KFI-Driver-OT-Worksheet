@@ -71,10 +71,11 @@ export interface ChatTurnResult {
   /** The lesson text Claude attached to the proposed fix, if any. */
   proposedLesson: string | null;
   /**
-   * Task #420: rows the assistant read from the uploaded file via
-   * `read_upload_file_rows` during this turn, surfaced to the
-   * dispatcher as a collapsible evidence block beside the proposed
-   * fix. `null` when no file-row read happened (or the file was
+   * Task #420 / #424: evidence pulled from the uploaded file during
+   * this turn — rows the assistant read via `read_upload_file_rows`
+   * AND raw-text slices it read via `read_upload_file_raw` — surfaced
+   * to the dispatcher as a collapsible evidence block beside the
+   * proposed fix. `null` when no file read happened (or the file was
    * unavailable / over-budget).
    */
   fileEvidence: FileEvidence | null;
@@ -115,11 +116,23 @@ interface ChatToolCtx {
  * same filter five times only ever appears as a single row to the
  * dispatcher.
  */
+type RawSnippetEntry = NonNullable<FileEvidence["rawSnippets"]>[number];
+
+/**
+ * Task #424: cap the persisted raw-snippet text per read. Claude can
+ * read up to 50 KB of raw file text per call, but the dispatcher only
+ * needs the first ~500 chars to sanity-check what the assistant
+ * grounded its proposal on — so we trim before stashing on the
+ * assistant message row to keep the JSONB column slim.
+ */
+const RAW_SNIPPET_PERSIST_CHARS = 500;
+
 class EvidenceAccumulator {
   private sampleId: number | null = null;
   private fileName = "";
   private resolved = new Map<string, FileEvidence["resolvedRows"][number]>();
   private pending = new Map<string, FileEvidence["pendingRows"][number]>();
+  private rawSnippets = new Map<string, RawSnippetEntry>();
 
   record(
     sampleId: number,
@@ -139,15 +152,55 @@ class EvidenceAccumulator {
     }
   }
 
+  /**
+   * Task #424: stash a `read_upload_file_raw` slice for the dispatcher.
+   * Dedupes by (sampleId, persisted-snippet) so repeated raw reads
+   * with the same prefix collapse to a single entry.
+   */
+  recordRaw(
+    sampleId: number,
+    fileName: string,
+    totalChars: number,
+    returnedChars: number,
+    truncated: boolean,
+    text: string,
+  ): void {
+    this.sampleId = sampleId;
+    this.fileName = fileName;
+    const snippet =
+      text.length > RAW_SNIPPET_PERSIST_CHARS
+        ? text.slice(0, RAW_SNIPPET_PERSIST_CHARS)
+        : text;
+    const key = `${sampleId}|${snippet}`;
+    if (this.rawSnippets.has(key)) return;
+    this.rawSnippets.set(key, {
+      sampleId,
+      fileName,
+      totalChars,
+      returnedChars,
+      truncated: truncated || text.length > RAW_SNIPPET_PERSIST_CHARS,
+      snippet,
+    });
+  }
+
   build(): FileEvidence | null {
     if (this.sampleId === null) return null;
-    if (this.resolved.size === 0 && this.pending.size === 0) return null;
-    return {
+    if (
+      this.resolved.size === 0 &&
+      this.pending.size === 0 &&
+      this.rawSnippets.size === 0
+    )
+      return null;
+    const out: FileEvidence = {
       sampleId: this.sampleId,
       fileName: this.fileName,
       resolvedRows: [...this.resolved.values()],
       pendingRows: [...this.pending.values()],
     };
+    if (this.rawSnippets.size > 0) {
+      out.rawSnippets = [...this.rawSnippets.values()];
+    }
+    return out;
   }
 }
 
@@ -868,6 +921,18 @@ async function runReadUploadFileRaw(
   if (tripped) {
     return { resultText: tripped, isError: true };
   }
+  // Task #424: stash the slice we returned to Claude so the dispatcher
+  // can see it on the proposed-fix card. Recorded only after the
+  // byte-budget check passes — over-budget reads aren't surfaced to
+  // Claude and so shouldn't be surfaced to the dispatcher either.
+  ctx.evidence.recordRaw(
+    sample.id,
+    sample.fileName,
+    text.length,
+    slice.length,
+    truncated,
+    slice,
+  );
   return { resultText: body };
 }
 

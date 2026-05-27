@@ -379,6 +379,73 @@ test("read_upload_file_raw: image uploads route through the OCR fallback (Task #
   }
 });
 
+test("read_upload_file_raw: records de-duplicated raw-snippet evidence (Task #424)", async () => {
+  // Build a small xlsx so two raw reads return the same prefix. The
+  // accumulator should collapse them into a single rawSnippets entry
+  // with the file name, total/returned char counts, and the first
+  // ~500 chars of what Claude actually saw.
+  const XLSX = await import("xlsx");
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([
+    ["Driver", "Date", "In", "Out"],
+    ["Smith", "2026-01-06", "7:00", "15:30"],
+    ["Jones", "2026-01-07", "8:00", "16:30"],
+  ]);
+  XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const sample = makeSample({ fileBytes: buf });
+  const cache = new _internals.ChatToolCache();
+  cache.preloadSample(sample);
+  const ctx = makeCtx(cache);
+
+  for (const id of ["raw_1", "raw_2"]) {
+    await _internals.runTool(
+      {
+        type: "tool_use",
+        id,
+        name: "read_upload_file_raw",
+        input: { maxBytes: 1000 },
+      } as unknown as Parameters<typeof _internals.runTool>[0],
+      ctx,
+    );
+  }
+  const built = ctx.evidence.build();
+  assert.ok(built, "expected evidence to be populated by raw read");
+  assert.equal(built!.sampleId, sample.id);
+  assert.equal(built!.fileName, sample.fileName);
+  assert.equal(built!.resolvedRows.length, 0);
+  assert.equal(built!.pendingRows.length, 0);
+  assert.ok(built!.rawSnippets, "expected rawSnippets array");
+  assert.equal(
+    built!.rawSnippets!.length,
+    1,
+    "two reads with identical prefix collapse to one entry",
+  );
+  const snip = built!.rawSnippets![0];
+  assert.equal(snip.sampleId, sample.id);
+  assert.equal(snip.fileName, sample.fileName);
+  assert.ok(snip.totalChars > 0);
+  assert.ok(snip.returnedChars > 0);
+  assert.ok(snip.snippet.length <= 500);
+  assert.match(snip.snippet, /Smith/);
+});
+
+test("read_upload_file_raw: no rawSnippet evidence when sample is missing (Task #424)", async () => {
+  const cache = new _internals.ChatToolCache();
+  cache.preloadSample(null);
+  const ctx = makeCtx(cache);
+  await _internals.runTool(
+    {
+      type: "tool_use",
+      id: "raw_no_sample",
+      name: "read_upload_file_raw",
+      input: {},
+    } as unknown as Parameters<typeof _internals.runTool>[0],
+    ctx,
+  );
+  assert.equal(ctx.evidence.build(), null);
+});
+
 test("read_upload_file_raw: rejects unsupported file types with a clear error", async () => {
   const sample = makeSample({
     fileName: "notes.txt",

@@ -20,6 +20,7 @@ export * from "./bootAuditRow";
 export * from "./bootAuditRowOutcome";
 export * from "./chatFileEvidence";
 export * from "./chatFileEvidencePendingRow";
+export * from "./chatFileEvidenceRawSnippet";
 export * from "./chatFileEvidenceResolvedRow";
 export * from "./check";
 export * from "./checkLevel";

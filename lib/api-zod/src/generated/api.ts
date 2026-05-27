@@ -3899,6 +3899,18 @@ export const GetCustomerUploadChatResponse = zod.object({
                 hours: zod.number().nullish(),
               }),
             ),
+            rawSnippets: zod
+              .array(
+                zod.object({
+                  sampleId: zod.number(),
+                  fileName: zod.string(),
+                  totalChars: zod.number(),
+                  returnedChars: zod.number(),
+                  truncated: zod.boolean(),
+                  snippet: zod.string(),
+                }),
+              )
+              .optional(),
           }),
           zod.null(),
         ])
@@ -4044,6 +4056,18 @@ export const PostCustomerUploadChatMessageResponse = zod.object({
             hours: zod.number().nullish(),
           }),
         ),
+        rawSnippets: zod
+          .array(
+            zod.object({
+              sampleId: zod.number(),
+              fileName: zod.string(),
+              totalChars: zod.number(),
+              returnedChars: zod.number(),
+              truncated: zod.boolean(),
+              snippet: zod.string(),
+            }),
+          )
+          .optional(),
       }),
       zod.null(),
     ])
@@ -4163,6 +4187,18 @@ export const ApplyCustomerUploadChatFixResponse = zod.object({
               hours: zod.number().nullish(),
             }),
           ),
+          rawSnippets: zod
+            .array(
+              zod.object({
+                sampleId: zod.number(),
+                fileName: zod.string(),
+                totalChars: zod.number(),
+                returnedChars: zod.number(),
+                truncated: zod.boolean(),
+                snippet: zod.string(),
+              }),
+            )
+            .optional(),
         }),
         zod.null(),
       ])
@@ -4309,6 +4345,18 @@ export const DismissCustomerUploadChatFixResponse = zod.object({
             hours: zod.number().nullish(),
           }),
         ),
+        rawSnippets: zod
+          .array(
+            zod.object({
+              sampleId: zod.number(),
+              fileName: zod.string(),
+              totalChars: zod.number(),
+              returnedChars: zod.number(),
+              truncated: zod.boolean(),
+              snippet: zod.string(),
+            }),
+          )
+          .optional(),
       }),
       zod.null(),
     ])
