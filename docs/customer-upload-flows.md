@@ -184,3 +184,46 @@ AI-only rows. Both transitions write a `user_audit_log` row
 (`customer-inactive` / `customer-reactivate`) in the same transaction as the
 state change. Routes: admin-only `GET / POST / DELETE
 /customer-active-state` (DELETE takes `?customer=`).
+
+## In-product upload reviewer (Task #446)
+
+Every confirmed customer-file upload — both deterministic-parser and AI
+lanes — kicks off a Claude analysis pass that scores the resulting punches
+and writes a verdict row to `upload_analysis_verdicts` (FK to
+`ai_extract_samples.id`, plus `customer`, `weekStart`, `lane`
+(`parser` | `ai`), `verdict` (`ok` | `warn` | `fail` | `error`),
+`summary`, structured `findings` jsonb, `promptVersion`, token counts,
+`costUsd`, `durationMs`, `toolCalls`, `errMsg`, `triggeredBy`).
+
+The pass is gated by `UPLOAD_ANALYSIS_ENABLED=1` on the API server —
+when unset, the confirm route still completes normally and the
+fire-and-forget `scheduleUploadAnalysis()` call is a logged no-op.
+The Claude tool-loop and per-finding contract are reused verbatim from
+`artifacts/api-server/src/lib/uploadAnalysis/contract.ts`
+(FINDING_KINDS, VERDICTS, SEVERITY, LANES, `verdictPayloadSchema`,
+`PROMPT_VERSION`).
+
+Persistence is one verdict row per sample — the `sample_id` unique index
+makes re-runs an upsert (the route's "Re-run review" path overwrites the
+prior row, history-free). Verdict selection for the dashboard anchors on
+the **latest confirmed sample per (weekStart, customer)** from
+`ai_extract_samples` and then joins to its single verdict row, so an older
+upload whose analysis finishes late can never overwrite the signal for a
+newer upload. The out-of-order completion contract is pinned by
+`artifacts/api-server/src/lib/uploadAnalysis/__tests__/runAnalysis.test.ts`.
+
+The latest verdict per (customer, weekStart) rides along on
+`GET /weeks/:weekStart/customer-uploads` as `latestUploadAnalysis`
+(sampleId, verdict, lane, summary, findingCount, worstSeverity,
+createdAt, promptVersion, errMsg). The customer-files panel renders a
+colored pill — emerald `ok`, amber `warn`, destructive `fail`, muted
+`error` — that opens a dialog fetching the full verdict from
+`GET /weeks/:weekStart/upload-analyses/:sampleId` and lists findings
+grouped by severity with structured evidence (driver, kfiId, date,
+rowIds, note).
+
+Deterministic coverage lives in
+`artifacts/api-server/src/lib/uploadAnalysis/__tests__/runAnalysis.test.ts`
+(DB-gated; uses `_setClientFactoryForTests` to stub Anthropic) — it
+locks in clean-verdict persistence, the validation-error path, and
+that the env flag actually gates the schedule wrapper.

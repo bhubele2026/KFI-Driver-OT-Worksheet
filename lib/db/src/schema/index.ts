@@ -32,3 +32,4 @@ export * from "./quarantinedPunches";
 export * from "./dataMutationAudit";
 export * from "./customerUploadChats";
 export * from "./customerExtractionLessons";
+export * from "./uploadAnalysisVerdicts";

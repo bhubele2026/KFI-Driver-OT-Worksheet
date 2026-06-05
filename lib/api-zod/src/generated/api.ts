@@ -1914,10 +1914,91 @@ export const GetCustomerUploadStatusResponseItem = zod.object({
     .describe(
       "Saved per-customer display-tz preference (`customer_tz_preferences.display_tz`). Pre-selects the timezone picker on this customer's upload dialog. Null when no preference is set.",
     ),
+  latestUploadAnalysis: zod
+    .union([
+      zod.object({
+        sampleId: zod.number(),
+        verdict: zod
+          .enum(["ok", "warn", "fail", "error"])
+          .describe(
+            'Reviewer outcome. `ok`\/`warn`\/`fail` mirror the Claude-emitted\nverdict. `error` means the reviewer failed (timeout, validation\nfailure, sample missing) — the dispatcher should treat it as\n\"no signal\" rather than a real finding.\n',
+          ),
+        lane: zod.enum(["ai", "parser"]),
+        summary: zod.string(),
+        findingCount: zod.number(),
+        worstSeverity: zod
+          .union([zod.enum(["info", "warn", "fail"]), zod.null()])
+          .optional(),
+        createdAt: zod.coerce.date(),
+        promptVersion: zod.string(),
+        errMsg: zod.string().nullish(),
+      }),
+      zod.null(),
+    ])
+    .optional()
+    .describe(
+      "Most recent Claude-reviewer verdict on this customer's most\nrecent confirmed upload for this week. Null when the reviewer\nis disabled, has not yet run, or no upload has been confirmed\nfor this (week, customer) pair.\n",
+    ),
 });
 export const GetCustomerUploadStatusResponse = zod.array(
   GetCustomerUploadStatusResponseItem,
 );
+
+/**
+ * @summary Full Claude-reviewer verdict (summary + findings) for a confirmed upload sample
+ */
+export const getUploadAnalysisVerdictPathWeekStartRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+
+export const GetUploadAnalysisVerdictParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .regex(getUploadAnalysisVerdictPathWeekStartRegExp)
+    .describe("Week start date (Sunday) in YYYY-MM-DD"),
+  sampleId: zod.coerce.number(),
+});
+
+export const GetUploadAnalysisVerdictResponse = zod.object({
+  id: zod.number(),
+  sampleId: zod.number(),
+  customer: zod.string(),
+  weekStart: zod.string(),
+  fileName: zod.string(),
+  lane: zod.enum(["ai", "parser"]),
+  verdict: zod.enum(["ok", "warn", "fail", "error"]),
+  summary: zod.string(),
+  findings: zod.array(
+    zod.object({
+      kind: zod.enum([
+        "extraction_completeness",
+        "roster_match_quality",
+        "hours_anomaly",
+        "missing_or_new_driver",
+        "structural_concern",
+      ]),
+      severity: zod.enum(["info", "warn", "fail"]),
+      message: zod.string(),
+      evidence: zod
+        .object({
+          rowIds: zod.array(zod.union([zod.string(), zod.number()])).optional(),
+          driver: zod.string().optional(),
+          date: zod.string().optional(),
+          kfiId: zod.string().optional(),
+          note: zod.string().optional(),
+        })
+        .optional(),
+    }),
+  ),
+  promptVersion: zod.string(),
+  inputTokens: zod.number().optional(),
+  outputTokens: zod.number().optional(),
+  costUsd: zod.number().optional(),
+  durationMs: zod.number().optional(),
+  toolCalls: zod.number().optional(),
+  errMsg: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+});
 
 /**
  * @summary AI-extract punch rows from an unknown customer file (preview only — nothing persisted). Body is `multipart/form-data` with fields `file` and `customer`; the frontend builds the FormData manually.

@@ -1128,6 +1128,49 @@ unknown id belongs to without opening the file.
   unmappedIds: UnmappedId[];
 }
 
+/**
+ * Reviewer outcome. `ok`/`warn`/`fail` mirror the Claude-emitted
+verdict. `error` means the reviewer failed (timeout, validation
+failure, sample missing) — the dispatcher should treat it as
+"no signal" rather than a real finding.
+
+ */
+export type UploadAnalysisSummaryVerdict =
+  (typeof UploadAnalysisSummaryVerdict)[keyof typeof UploadAnalysisSummaryVerdict];
+
+export const UploadAnalysisSummaryVerdict = {
+  ok: "ok",
+  warn: "warn",
+  fail: "fail",
+  error: "error",
+} as const;
+
+export type UploadAnalysisSummaryLane =
+  (typeof UploadAnalysisSummaryLane)[keyof typeof UploadAnalysisSummaryLane];
+
+export const UploadAnalysisSummaryLane = {
+  ai: "ai",
+  parser: "parser",
+} as const;
+
+export interface UploadAnalysisSummary {
+  sampleId: number;
+  /** Reviewer outcome. `ok`/`warn`/`fail` mirror the Claude-emitted
+verdict. `error` means the reviewer failed (timeout, validation
+failure, sample missing) — the dispatcher should treat it as
+"no signal" rather than a real finding.
+ */
+  verdict: UploadAnalysisSummaryVerdict;
+  lane: UploadAnalysisSummaryLane;
+  summary: string;
+  findingCount: number;
+  worstSeverity?: "info" | "warn" | "fail" | null;
+  createdAt: string;
+  promptVersion: string;
+  /** @nullable */
+  errMsg?: string | null;
+}
+
 export interface CustomerUploadStatus {
   customer: string;
   extensions: string[];
@@ -1197,6 +1240,12 @@ was clean.
    * @nullable
    */
   preferredDispTz: string | null;
+  /** Most recent Claude-reviewer verdict on this customer's most
+recent confirmed upload for this week. Null when the reviewer
+is disabled, has not yet run, or no upload has been confirmed
+for this (week, customer) pair.
+ */
+  latestUploadAnalysis?: UploadAnalysisSummary | null;
 }
 
 export interface CustomerExtractRow {
@@ -2263,6 +2312,80 @@ export interface UpdateCustomerExtractionLessonBody {
   lessonText?: string | null;
   /** @nullable */
   active?: boolean | null;
+}
+
+export type UploadAnalysisFindingKind =
+  (typeof UploadAnalysisFindingKind)[keyof typeof UploadAnalysisFindingKind];
+
+export const UploadAnalysisFindingKind = {
+  extraction_completeness: "extraction_completeness",
+  roster_match_quality: "roster_match_quality",
+  hours_anomaly: "hours_anomaly",
+  missing_or_new_driver: "missing_or_new_driver",
+  structural_concern: "structural_concern",
+} as const;
+
+export type UploadAnalysisFindingSeverity =
+  (typeof UploadAnalysisFindingSeverity)[keyof typeof UploadAnalysisFindingSeverity];
+
+export const UploadAnalysisFindingSeverity = {
+  info: "info",
+  warn: "warn",
+  fail: "fail",
+} as const;
+
+export type UploadAnalysisFindingEvidence = {
+  rowIds?: (string | number)[];
+  driver?: string;
+  date?: string;
+  kfiId?: string;
+  note?: string;
+};
+
+export interface UploadAnalysisFinding {
+  kind: UploadAnalysisFindingKind;
+  severity: UploadAnalysisFindingSeverity;
+  message: string;
+  evidence?: UploadAnalysisFindingEvidence;
+}
+
+export type UploadAnalysisVerdictLane =
+  (typeof UploadAnalysisVerdictLane)[keyof typeof UploadAnalysisVerdictLane];
+
+export const UploadAnalysisVerdictLane = {
+  ai: "ai",
+  parser: "parser",
+} as const;
+
+export type UploadAnalysisVerdictVerdict =
+  (typeof UploadAnalysisVerdictVerdict)[keyof typeof UploadAnalysisVerdictVerdict];
+
+export const UploadAnalysisVerdictVerdict = {
+  ok: "ok",
+  warn: "warn",
+  fail: "fail",
+  error: "error",
+} as const;
+
+export interface UploadAnalysisVerdict {
+  id: number;
+  sampleId: number;
+  customer: string;
+  weekStart: string;
+  fileName: string;
+  lane: UploadAnalysisVerdictLane;
+  verdict: UploadAnalysisVerdictVerdict;
+  summary: string;
+  findings: UploadAnalysisFinding[];
+  promptVersion: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+  durationMs?: number;
+  toolCalls?: number;
+  /** @nullable */
+  errMsg?: string | null;
+  createdAt: string;
 }
 
 export type ListRateLimitEventTimeseriesParams = {

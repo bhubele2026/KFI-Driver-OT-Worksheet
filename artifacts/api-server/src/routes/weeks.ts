@@ -63,6 +63,7 @@ import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { getXlsxWorkerPoolStats } from "../lib/parsers/xlsxWorkerPool.js";
 import { loadLessonsForPrompt, MAX_LESSON_CHARS } from "../lib/chat/lessonsStore.js";
 import { runChatTurn } from "../lib/chat/claudeChat.js";
+import { scheduleUploadAnalysis } from "../lib/uploadAnalysis/runAnalysis.js";
 import { releaseIngestion } from "../lib/parsers/modelClient.js";
 import {
   publishExtractProgress,
@@ -3213,6 +3214,20 @@ weeksRouter.post(
       customer: result.customer,
       actor: actorRef(req),
     });
+    // Task #446: kick off the in-product upload-reviewer pass. Lane is
+    // derived from the stashed sample shape — pendingNamedRows is non-null
+    // only on the AI lane. Fire-and-forget; env-gated by
+    // UPLOAD_ANALYSIS_ENABLED so confirm latency is unchanged.
+    const verdictLane: "ai" | "parser" =
+      sample.pendingNamedRows !== null ? "ai" : "parser";
+    scheduleUploadAnalysis({
+      sampleId: sample.id,
+      customer: result.customer,
+      weekStart: startDate,
+      fileName,
+      lane: verdictLane,
+      triggeredBy: req.session.userId ?? null,
+    });
     res.json({
       customer: result.customer,
       fileName,
@@ -3326,6 +3341,95 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
   );
   const hasCachedLayoutFor = (name: string): boolean =>
     cachedLayoutByLower.has(name.toLowerCase());
+  // Task #446: load the latest Claude-reviewer verdict per (customer)
+  // for this week. We join through the stashed sample so we pick the
+  // verdict tied to the most recent confirmed upload for the week,
+  // not the most recent verdict globally. DISTINCT ON keeps one row per
+  // customer (case-insensitive) — the newest by createdAt.
+  const verdictRows: Array<{
+    customer: string;
+    sampleId: number;
+    verdict: string;
+    lane: string;
+    summary: string;
+    findingCount: number;
+    worstSeverity: string | null;
+    createdAt: Date;
+    promptVersion: string;
+    errMsg: string | null;
+  }> = await db.execute(sql`
+    WITH latest_sample AS (
+      SELECT DISTINCT ON (lower(customer))
+        id, customer
+      FROM ai_extract_samples
+      WHERE week_start = ${weekStart}
+        AND confirmed_at IS NOT NULL
+      ORDER BY lower(customer), confirmed_at DESC, id DESC
+    )
+    SELECT
+      ls.customer AS customer,
+      v.sample_id AS "sampleId",
+      v.verdict AS verdict,
+      v.lane AS lane,
+      v.summary AS summary,
+      jsonb_array_length(v.findings) AS "findingCount",
+      (
+        SELECT CASE max(rank)
+                 WHEN 3 THEN 'fail'
+                 WHEN 2 THEN 'warn'
+                 WHEN 1 THEN 'info'
+                 ELSE NULL
+               END
+        FROM (
+          SELECT CASE jsonb_extract_path_text(f.value, 'severity')
+                   WHEN 'fail' THEN 3
+                   WHEN 'warn' THEN 2
+                   WHEN 'info' THEN 1
+                   ELSE 0
+                 END AS rank
+          FROM jsonb_array_elements(v.findings) AS f
+        ) s
+      ) AS "worstSeverity",
+      v.created_at AS "createdAt",
+      v.prompt_version AS "promptVersion",
+      v.err_msg AS "errMsg"
+    FROM latest_sample ls
+    JOIN upload_analysis_verdicts v ON v.sample_id = ls.id
+  `).then((r: { rows: unknown[] }) => r.rows as typeof verdictRows);
+  const verdictByCustomerLower = new Map<string, (typeof verdictRows)[number]>();
+  for (const v of verdictRows) {
+    verdictByCustomerLower.set(v.customer.toLowerCase(), v);
+  }
+  const verdictFor = (
+    name: string,
+  ): {
+    sampleId: number;
+    verdict: string;
+    lane: string;
+    summary: string;
+    findingCount: number;
+    worstSeverity: string | null;
+    createdAt: string;
+    promptVersion: string;
+    errMsg: string | null;
+  } | null => {
+    const v = verdictByCustomerLower.get(name.toLowerCase());
+    if (!v) return null;
+    const sev = v.worstSeverity;
+    const worst: "info" | "warn" | "fail" | null =
+      sev === "fail" || sev === "warn" || sev === "info" ? sev : null;
+    return {
+      sampleId: v.sampleId,
+      verdict: v.verdict,
+      lane: v.lane,
+      summary: v.summary,
+      findingCount: Number(v.findingCount ?? 0),
+      worstSeverity: worst,
+      createdAt: new Date(v.createdAt).toISOString(),
+      promptVersion: v.promptVersion,
+      errMsg: v.errMsg,
+    };
+  };
   const tzPrefRows = await db
     .select({
       customer: schema.customerTzPreferencesTable.customer,
@@ -3415,6 +3519,7 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       aliasCount: aliasCountByCustomer.get(c.displayName) ?? 0,
       hasCachedLayout: hasCachedLayoutFor(c.displayName),
       preferredDispTz: prefFor(c.displayName),
+      latestUploadAnalysis: verdictFor(c.displayName),
     };
   });
   // Append any non-known customers so the dispatcher always has a row to
@@ -3496,10 +3601,65 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
       aliasCount: aliases,
       hasCachedLayout: hasCachedLayoutFor(name),
       preferredDispTz: prefFor(name),
+      latestUploadAnalysis: verdictFor(name),
     };
   });
   res.json([...out, ...aiOnly]);
 });
+
+// Task #446: full Claude-reviewer verdict (summary + findings) for one
+// confirmed upload sample. The dashboard hits this when the dispatcher
+// clicks the verdict pill so the row payload stays small.
+weeksRouter.get(
+  "/weeks/:weekStart/upload-analyses/:sampleId",
+  async (req, res) => {
+    const weekStart = String(req.params.weekStart ?? "");
+    if (!isWeek(weekStart)) {
+      res.status(400).json({ error: "Invalid week" });
+      return;
+    }
+    const sampleId = Number.parseInt(String(req.params.sampleId ?? ""), 10);
+    if (!Number.isFinite(sampleId)) {
+      res.status(400).json({ error: "Invalid sampleId" });
+      return;
+    }
+    const rows = await db
+      .select()
+      .from(schema.uploadAnalysisVerdictsTable)
+      .where(
+        and(
+          eq(schema.uploadAnalysisVerdictsTable.sampleId, sampleId),
+          eq(schema.uploadAnalysisVerdictsTable.weekStart, weekStart),
+        ),
+      )
+      .orderBy(desc(schema.uploadAnalysisVerdictsTable.createdAt))
+      .limit(1);
+    const r = rows[0];
+    if (!r) {
+      res.status(404).json({ error: "No verdict recorded for this sample" });
+      return;
+    }
+    res.json({
+      id: r.id,
+      sampleId: r.sampleId,
+      customer: r.customer,
+      weekStart: r.weekStart,
+      fileName: r.fileName,
+      lane: r.lane,
+      verdict: r.verdict,
+      summary: r.summary,
+      findings: Array.isArray(r.findings) ? r.findings : [],
+      promptVersion: r.promptVersion,
+      inputTokens: r.inputTokens,
+      outputTokens: r.outputTokens,
+      costUsd: r.costUsd,
+      durationMs: r.durationMs,
+      toolCalls: r.toolCalls,
+      errMsg: r.errMsg,
+      createdAt: (r.createdAt as Date).toISOString(),
+    });
+  },
+);
 
 // Helper: load the set of customer names currently marked inactive, lowercased
 // for case-insensitive comparisons. Used both by /customer-uploads (to filter

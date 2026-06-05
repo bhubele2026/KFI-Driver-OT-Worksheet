@@ -135,6 +135,7 @@ import type {
   UpdateDriverTimezoneInput,
   UpdateLanguageBody,
   UpdateUserBody,
+  UploadAnalysisVerdict,
   UploadQueueDepth,
   UploadResult,
   UpsertCustomerTzPreferenceInput,
@@ -4354,6 +4355,115 @@ export function useGetCustomerUploadStatus<
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetCustomerUploadStatusQueryOptions(
     weekStart,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Full Claude-reviewer verdict (summary + findings) for a confirmed upload sample
+ */
+export const getGetUploadAnalysisVerdictUrl = (
+  weekStart: string,
+  sampleId: number,
+) => {
+  return `/api/weeks/${weekStart}/upload-analyses/${sampleId}`;
+};
+
+export const getUploadAnalysisVerdict = async (
+  weekStart: string,
+  sampleId: number,
+  options?: RequestInit,
+): Promise<UploadAnalysisVerdict> => {
+  return customFetch<UploadAnalysisVerdict>(
+    getGetUploadAnalysisVerdictUrl(weekStart, sampleId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetUploadAnalysisVerdictQueryKey = (
+  weekStart: string,
+  sampleId: number,
+) => {
+  return [`/api/weeks/${weekStart}/upload-analyses/${sampleId}`] as const;
+};
+
+export const getGetUploadAnalysisVerdictQueryOptions = <
+  TData = Awaited<ReturnType<typeof getUploadAnalysisVerdict>>,
+  TError = ErrorType<void>,
+>(
+  weekStart: string,
+  sampleId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getUploadAnalysisVerdict>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetUploadAnalysisVerdictQueryKey(weekStart, sampleId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getUploadAnalysisVerdict>>
+  > = ({ signal }) =>
+    getUploadAnalysisVerdict(weekStart, sampleId, {
+      signal,
+      ...requestOptions,
+    });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!(weekStart && sampleId),
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getUploadAnalysisVerdict>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetUploadAnalysisVerdictQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getUploadAnalysisVerdict>>
+>;
+export type GetUploadAnalysisVerdictQueryError = ErrorType<void>;
+
+/**
+ * @summary Full Claude-reviewer verdict (summary + findings) for a confirmed upload sample
+ */
+
+export function useGetUploadAnalysisVerdict<
+  TData = Awaited<ReturnType<typeof getUploadAnalysisVerdict>>,
+  TError = ErrorType<void>,
+>(
+  weekStart: string,
+  sampleId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getUploadAnalysisVerdict>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetUploadAnalysisVerdictQueryOptions(
+    weekStart,
+    sampleId,
     options,
   );
 

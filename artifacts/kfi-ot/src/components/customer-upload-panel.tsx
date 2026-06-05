@@ -52,6 +52,7 @@ import {
   CustomerPreviewDialog,
   type CustomerPreviewData,
 } from "@/components/customer-preview-dialog";
+import { UploadAnalysisPill } from "@/components/upload-analysis-pill";
 
 // Task #296: mint a per-upload progress token the server can key the
 // in-process progress tracker by. Uses `crypto.randomUUID()` when
@@ -1888,6 +1889,13 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                         {t("customerUpload.aiBadge", { count: s.aiImportWeekCount })}
                       </Badge>
                     ))}
+                  {s.latestUploadAnalysis && (
+                    <UploadAnalysisPill
+                      weekStart={weekStart}
+                      customer={s.customer}
+                      summary={s.latestUploadAnalysis}
+                    />
+                  )}
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                     {t("customerUpload.anyFile")}
                   </span>

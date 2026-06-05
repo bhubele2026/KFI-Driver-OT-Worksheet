@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { UnmappedId } from "./unmappedId";
+import type { UploadAnalysisSummary } from "./uploadAnalysisSummary";
 
 export interface CustomerUploadStatus {
   customer: string;
@@ -76,4 +77,10 @@ was clean.
    * @nullable
    */
   preferredDispTz: string | null;
+  /** Most recent Claude-reviewer verdict on this customer's most
+recent confirmed upload for this week. Null when the reviewer
+is disabled, has not yet run, or no upload has been confirmed
+for this (week, customer) pair.
+ */
+  latestUploadAnalysis?: UploadAnalysisSummary | null;
 }

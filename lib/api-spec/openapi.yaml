@@ -937,6 +937,25 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/CustomerUploadStatus" }
 
+  /weeks/{weekStart}/upload-analyses/{sampleId}:
+    get:
+      operationId: getUploadAnalysisVerdict
+      tags: [ingest]
+      summary: Full Claude-reviewer verdict (summary + findings) for a confirmed upload sample
+      parameters:
+        - $ref: "#/components/parameters/WeekStart"
+        - name: sampleId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Verdict with full findings list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadAnalysisVerdict" }
+        "404": { description: No verdict recorded for this sample }
+
   /weeks/{weekStart}/extract-new-customer:
     post:
       operationId: extractNewCustomerFile
@@ -3632,6 +3651,15 @@ components:
         preferredDispTz:
           type: ["string", "null"]
           description: Saved per-customer display-tz preference (`customer_tz_preferences.display_tz`). Pre-selects the timezone picker on this customer's upload dialog. Null when no preference is set.
+        latestUploadAnalysis:
+          oneOf:
+            - { $ref: "#/components/schemas/UploadAnalysisSummary" }
+            - { type: "null" }
+          description: |
+            Most recent Claude-reviewer verdict on this customer's most
+            recent confirmed upload for this week. Null when the reviewer
+            is disabled, has not yet run, or no upload has been confirmed
+            for this (week, customer) pair.
 
     CustomerExtractRow:
       type: object
@@ -4821,3 +4849,103 @@ components:
       properties:
         lessonText: { type: ["string", "null"], minLength: 1, maxLength: 1000 }
         active: { type: ["boolean", "null"] }
+
+    UploadAnalysisFinding:
+      type: object
+      required: [kind, severity, message]
+      properties:
+        kind:
+          type: string
+          enum:
+            - extraction_completeness
+            - roster_match_quality
+            - hours_anomaly
+            - missing_or_new_driver
+            - structural_concern
+        severity:
+          type: string
+          enum: [info, warn, fail]
+        message:
+          type: string
+        evidence:
+          type: object
+          properties:
+            rowIds:
+              type: array
+              items:
+                oneOf:
+                  - { type: string }
+                  - { type: number }
+            driver: { type: string }
+            date: { type: string }
+            kfiId: { type: string }
+            note: { type: string }
+
+    UploadAnalysisSummary:
+      type: object
+      required: [sampleId, verdict, lane, summary, findingCount, createdAt, promptVersion]
+      properties:
+        sampleId: { type: integer }
+        verdict:
+          type: string
+          enum: [ok, warn, fail, error]
+          description: |
+            Reviewer outcome. `ok`/`warn`/`fail` mirror the Claude-emitted
+            verdict. `error` means the reviewer failed (timeout, validation
+            failure, sample missing) — the dispatcher should treat it as
+            "no signal" rather than a real finding.
+        lane:
+          type: string
+          enum: [ai, parser]
+        summary: { type: string }
+        findingCount: { type: integer }
+        worstSeverity:
+          oneOf:
+            - { type: string, enum: [info, warn, fail] }
+            - { type: "null" }
+        createdAt: { type: string, format: date-time }
+        promptVersion: { type: string }
+        errMsg:
+          type: ["string", "null"]
+
+    UploadAnalysisVerdict:
+      type: object
+      required:
+        [
+          id,
+          sampleId,
+          customer,
+          weekStart,
+          fileName,
+          lane,
+          verdict,
+          summary,
+          findings,
+          promptVersion,
+          createdAt,
+        ]
+      properties:
+        id: { type: integer }
+        sampleId: { type: integer }
+        customer: { type: string }
+        weekStart: { type: string }
+        fileName: { type: string }
+        lane:
+          type: string
+          enum: [ai, parser]
+        verdict:
+          type: string
+          enum: [ok, warn, fail, error]
+        summary: { type: string }
+        findings:
+          type: array
+          items: { $ref: "#/components/schemas/UploadAnalysisFinding" }
+        promptVersion: { type: string }
+        inputTokens: { type: integer }
+        outputTokens: { type: integer }
+        costUsd: { type: number }
+        durationMs: { type: integer }
+        toolCalls: { type: integer }
+        errMsg:
+          type: ["string", "null"]
+        createdAt: { type: string, format: date-time }
