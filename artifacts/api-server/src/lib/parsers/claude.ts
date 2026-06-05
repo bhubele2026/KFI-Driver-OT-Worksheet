@@ -16,8 +16,12 @@ export function getClaudeClient(): Anthropic {
   return _client;
 }
 
-/** Default Claude model used for customer-file extraction. Overridable via env. */
-export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-5";
+/**
+ * Default Claude model for customer-file extraction and the per-customer
+ * chat. Defaults to Opus; overridable per-feature via `CLAUDE_EXTRACT_MODEL`
+ * / `CLAUDE_CHAT_MODEL`.
+ */
+export const DEFAULT_CLAUDE_MODEL = "claude-opus-4-8";
 
 /**
  * Default Claude model used for the per-upload reviewer (Task #446). Runs

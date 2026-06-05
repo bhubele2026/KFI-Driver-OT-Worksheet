@@ -8,9 +8,13 @@ description: How per-feature Claude models are selected, and the pricing-row cou
 Each Claude-backed feature picks its own model via its own env override, defaulting
 to a constant in `artifacts/api-server/src/lib/parsers/claude.ts`:
 
-- Extractor → `CLAUDE_EXTRACT_MODEL` ?? `DEFAULT_CLAUDE_MODEL` (Sonnet).
-- Chat → `CLAUDE_CHAT_MODEL` ?? `DEFAULT_CLAUDE_MODEL` (Sonnet).
+- Extractor → `CLAUDE_EXTRACT_MODEL` ?? `DEFAULT_CLAUDE_MODEL` (Opus).
+- Chat → `CLAUDE_CHAT_MODEL` ?? `DEFAULT_CLAUDE_MODEL` (Opus).
 - Upload reviewer → `CLAUDE_ANALYSIS_MODEL` ?? `DEFAULT_CLAUDE_ANALYSIS_MODEL` (Opus).
+
+(Both default constants live in `parsers/claude.ts` and currently both
+resolve to `claude-opus-4-8`; kept separate so the reviewer can diverge from
+extraction/chat without a code change.)
 
 **Rule:** when you point any of these at a new model string, add a matching row to
 `PRICING` in `artifacts/api-server/src/lib/parsers/pricing.ts`. `costUsd()` is what
