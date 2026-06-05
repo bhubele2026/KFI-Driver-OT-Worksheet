@@ -35,6 +35,11 @@ import type {
   ConnecteamClocksAudit,
   ConnecteamUserAlias,
   ConnecteamUserAliasList,
+  CopilotConversationDetail,
+  CopilotConversationList,
+  CopilotConversationTurn,
+  CopilotMessageEnvelope,
+  CopilotTurnRequest,
   CreateClockOffsetBody,
   CreateConnecteamUserAliasBody,
   CreateCustomerBody,
@@ -10890,4 +10895,526 @@ export const useDeleteCustomerExtractionLesson = <
   TContext
 > => {
   return useMutation(getDeleteCustomerExtractionLessonMutationOptions(options));
+};
+
+/**
+ * @summary List the signed-in user's copilot conversations (newest first).
+ */
+export const getListCopilotConversationsUrl = () => {
+  return `/api/copilot/conversations`;
+};
+
+export const listCopilotConversations = async (
+  options?: RequestInit,
+): Promise<CopilotConversationList> => {
+  return customFetch<CopilotConversationList>(
+    getListCopilotConversationsUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListCopilotConversationsQueryKey = () => {
+  return [`/api/copilot/conversations`] as const;
+};
+
+export const getListCopilotConversationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCopilotConversations>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCopilotConversations>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListCopilotConversationsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listCopilotConversations>>
+  > = ({ signal }) => listCopilotConversations({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCopilotConversations>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCopilotConversationsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCopilotConversations>>
+>;
+export type ListCopilotConversationsQueryError = ErrorType<void>;
+
+/**
+ * @summary List the signed-in user's copilot conversations (newest first).
+ */
+
+export function useListCopilotConversations<
+  TData = Awaited<ReturnType<typeof listCopilotConversations>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCopilotConversations>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCopilotConversationsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Start a new copilot conversation and run the first turn.
+ */
+export const getStartCopilotConversationUrl = () => {
+  return `/api/copilot/conversations`;
+};
+
+export const startCopilotConversation = async (
+  copilotTurnRequest: CopilotTurnRequest,
+  options?: RequestInit,
+): Promise<CopilotConversationTurn> => {
+  return customFetch<CopilotConversationTurn>(
+    getStartCopilotConversationUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(copilotTurnRequest),
+    },
+  );
+};
+
+export const getStartCopilotConversationMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startCopilotConversation>>,
+    TError,
+    { data: BodyType<CopilotTurnRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof startCopilotConversation>>,
+  TError,
+  { data: BodyType<CopilotTurnRequest> },
+  TContext
+> => {
+  const mutationKey = ["startCopilotConversation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof startCopilotConversation>>,
+    { data: BodyType<CopilotTurnRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return startCopilotConversation(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StartCopilotConversationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof startCopilotConversation>>
+>;
+export type StartCopilotConversationMutationBody = BodyType<CopilotTurnRequest>;
+export type StartCopilotConversationMutationError = ErrorType<void>;
+
+/**
+ * @summary Start a new copilot conversation and run the first turn.
+ */
+export const useStartCopilotConversation = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startCopilotConversation>>,
+    TError,
+    { data: BodyType<CopilotTurnRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof startCopilotConversation>>,
+  TError,
+  { data: BodyType<CopilotTurnRequest> },
+  TContext
+> => {
+  return useMutation(getStartCopilotConversationMutationOptions(options));
+};
+
+/**
+ * @summary Fetch a conversation and its full message history.
+ */
+export const getGetCopilotConversationUrl = (id: number) => {
+  return `/api/copilot/conversations/${id}`;
+};
+
+export const getCopilotConversation = async (
+  id: number,
+  options?: RequestInit,
+): Promise<CopilotConversationDetail> => {
+  return customFetch<CopilotConversationDetail>(
+    getGetCopilotConversationUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetCopilotConversationQueryKey = (id: number) => {
+  return [`/api/copilot/conversations/${id}`] as const;
+};
+
+export const getGetCopilotConversationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCopilotConversation>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCopilotConversation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetCopilotConversationQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCopilotConversation>>
+  > = ({ signal }) => getCopilotConversation(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCopilotConversation>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCopilotConversationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCopilotConversation>>
+>;
+export type GetCopilotConversationQueryError = ErrorType<void>;
+
+/**
+ * @summary Fetch a conversation and its full message history.
+ */
+
+export function useGetCopilotConversation<
+  TData = Awaited<ReturnType<typeof getCopilotConversation>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCopilotConversation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCopilotConversationQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Send a message to an existing conversation and run a turn.
+ */
+export const getSendCopilotMessageUrl = (id: number) => {
+  return `/api/copilot/conversations/${id}/messages`;
+};
+
+export const sendCopilotMessage = async (
+  id: number,
+  copilotTurnRequest: CopilotTurnRequest,
+  options?: RequestInit,
+): Promise<CopilotMessageEnvelope> => {
+  return customFetch<CopilotMessageEnvelope>(getSendCopilotMessageUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(copilotTurnRequest),
+  });
+};
+
+export const getSendCopilotMessageMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendCopilotMessage>>,
+    TError,
+    { id: number; data: BodyType<CopilotTurnRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendCopilotMessage>>,
+  TError,
+  { id: number; data: BodyType<CopilotTurnRequest> },
+  TContext
+> => {
+  const mutationKey = ["sendCopilotMessage"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendCopilotMessage>>,
+    { id: number; data: BodyType<CopilotTurnRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return sendCopilotMessage(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendCopilotMessageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendCopilotMessage>>
+>;
+export type SendCopilotMessageMutationBody = BodyType<CopilotTurnRequest>;
+export type SendCopilotMessageMutationError = ErrorType<void>;
+
+/**
+ * @summary Send a message to an existing conversation and run a turn.
+ */
+export const useSendCopilotMessage = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendCopilotMessage>>,
+    TError,
+    { id: number; data: BodyType<CopilotTurnRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendCopilotMessage>>,
+  TError,
+  { id: number; data: BodyType<CopilotTurnRequest> },
+  TContext
+> => {
+  return useMutation(getSendCopilotMessageMutationOptions(options));
+};
+
+/**
+ * @summary Confirm and execute a pending action proposed by the assistant.
+ */
+export const getConfirmCopilotActionUrl = (id: number, messageId: number) => {
+  return `/api/copilot/conversations/${id}/messages/${messageId}/confirm`;
+};
+
+export const confirmCopilotAction = async (
+  id: number,
+  messageId: number,
+  options?: RequestInit,
+): Promise<CopilotMessageEnvelope> => {
+  return customFetch<CopilotMessageEnvelope>(
+    getConfirmCopilotActionUrl(id, messageId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getConfirmCopilotActionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmCopilotAction>>,
+    TError,
+    { id: number; messageId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof confirmCopilotAction>>,
+  TError,
+  { id: number; messageId: number },
+  TContext
+> => {
+  const mutationKey = ["confirmCopilotAction"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof confirmCopilotAction>>,
+    { id: number; messageId: number }
+  > = (props) => {
+    const { id, messageId } = props ?? {};
+
+    return confirmCopilotAction(id, messageId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ConfirmCopilotActionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof confirmCopilotAction>>
+>;
+
+export type ConfirmCopilotActionMutationError = ErrorType<void>;
+
+/**
+ * @summary Confirm and execute a pending action proposed by the assistant.
+ */
+export const useConfirmCopilotAction = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmCopilotAction>>,
+    TError,
+    { id: number; messageId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof confirmCopilotAction>>,
+  TError,
+  { id: number; messageId: number },
+  TContext
+> => {
+  return useMutation(getConfirmCopilotActionMutationOptions(options));
+};
+
+/**
+ * @summary Cancel a pending action without executing it.
+ */
+export const getCancelCopilotActionUrl = (id: number, messageId: number) => {
+  return `/api/copilot/conversations/${id}/messages/${messageId}/cancel`;
+};
+
+export const cancelCopilotAction = async (
+  id: number,
+  messageId: number,
+  options?: RequestInit,
+): Promise<CopilotMessageEnvelope> => {
+  return customFetch<CopilotMessageEnvelope>(
+    getCancelCopilotActionUrl(id, messageId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getCancelCopilotActionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelCopilotAction>>,
+    TError,
+    { id: number; messageId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof cancelCopilotAction>>,
+  TError,
+  { id: number; messageId: number },
+  TContext
+> => {
+  const mutationKey = ["cancelCopilotAction"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof cancelCopilotAction>>,
+    { id: number; messageId: number }
+  > = (props) => {
+    const { id, messageId } = props ?? {};
+
+    return cancelCopilotAction(id, messageId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CancelCopilotActionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof cancelCopilotAction>>
+>;
+
+export type CancelCopilotActionMutationError = ErrorType<void>;
+
+/**
+ * @summary Cancel a pending action without executing it.
+ */
+export const useCancelCopilotAction = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelCopilotAction>>,
+    TError,
+    { id: number; messageId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof cancelCopilotAction>>,
+  TError,
+  { id: number; messageId: number },
+  TContext
+> => {
+  return useMutation(getCancelCopilotActionMutationOptions(options));
 };

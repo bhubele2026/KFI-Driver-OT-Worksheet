@@ -2388,6 +2388,138 @@ export interface UploadAnalysisVerdict {
   createdAt: string;
 }
 
+export interface CopilotContext {
+  /** @nullable */
+  weekStart?: string | null;
+  /** @nullable */
+  kfiId?: string | null;
+}
+
+export interface CopilotTurnRequest {
+  message: string;
+  context?: CopilotContext;
+}
+
+export type CopilotToolStepInput = { [key: string]: unknown };
+
+export interface CopilotToolStep {
+  tool: string;
+  input?: CopilotToolStepInput;
+  ok: boolean;
+  mutating: boolean;
+  summary: string;
+  status?: number;
+}
+
+export type CopilotPendingCallMethod =
+  (typeof CopilotPendingCallMethod)[keyof typeof CopilotPendingCallMethod];
+
+export const CopilotPendingCallMethod = {
+  POST: "POST",
+  PUT: "PUT",
+  PATCH: "PATCH",
+  DELETE: "DELETE",
+} as const;
+
+export interface CopilotPendingCall {
+  method: CopilotPendingCallMethod;
+  path: string;
+  body?: unknown;
+  label: string;
+}
+
+export interface CopilotPendingAction {
+  kind: string;
+  title: string;
+  summary: string[];
+  calls: CopilotPendingCall[];
+}
+
+export interface CopilotActionResultItem {
+  label: string;
+  status: number;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface CopilotActionResult {
+  ok: boolean;
+  results: CopilotActionResultItem[];
+}
+
+export type CopilotMessageRole =
+  (typeof CopilotMessageRole)[keyof typeof CopilotMessageRole];
+
+export const CopilotMessageRole = {
+  user: "user",
+  assistant: "assistant",
+} as const;
+
+/**
+ * @nullable
+ */
+export type CopilotMessageActionStatus =
+  | (typeof CopilotMessageActionStatus)[keyof typeof CopilotMessageActionStatus]
+  | null;
+
+export const CopilotMessageActionStatus = {
+  pending: "pending",
+  executed: "executed",
+  cancelled: "cancelled",
+  failed: "failed",
+} as const;
+
+export interface CopilotMessage {
+  id: number;
+  conversationId: number;
+  role: CopilotMessageRole;
+  content: string;
+  toolSteps?: CopilotToolStep[] | null;
+  pendingAction?: CopilotPendingAction | null;
+  /** @nullable */
+  actionStatus?: CopilotMessageActionStatus;
+  actionResult?: CopilotActionResult | null;
+  /** @nullable */
+  model?: string | null;
+  /** @nullable */
+  inputTokens?: number | null;
+  /** @nullable */
+  outputTokens?: number | null;
+  /** @nullable */
+  costUsd?: number | null;
+  createdAt: string;
+}
+
+export interface CopilotConversation {
+  id: number;
+  /** @nullable */
+  title: string | null;
+  /** @nullable */
+  weekStart?: string | null;
+  /** @nullable */
+  kfiId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CopilotConversationList {
+  conversations: CopilotConversation[];
+}
+
+export interface CopilotConversationDetail {
+  conversation: CopilotConversation;
+  messages: CopilotMessage[];
+}
+
+export interface CopilotConversationTurn {
+  conversation: CopilotConversation;
+  message: CopilotMessage;
+}
+
+export interface CopilotMessageEnvelope {
+  message: CopilotMessage;
+}
+
 export type ListRateLimitEventTimeseriesParams = {
   /**
    * @minimum 1

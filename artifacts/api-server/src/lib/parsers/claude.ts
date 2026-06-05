@@ -32,6 +32,14 @@ export const DEFAULT_CLAUDE_MODEL = "claude-opus-4-8";
 export const DEFAULT_CLAUDE_ANALYSIS_MODEL = "claude-opus-4-8";
 
 /**
+ * Default Claude model for the global Worksheet Copilot (Task #451) — an
+ * agentic, app-wide assistant that reads and mutates the worksheet. It runs
+ * multi-step tool loops and drives real payroll changes, so it defaults to
+ * the most-capable Opus model. Overridable via `CLAUDE_COPILOT_MODEL`.
+ */
+export const DEFAULT_CLAUDE_COPILOT_MODEL = "claude-opus-4-8";
+
+/**
  * Convert our provider-agnostic `ContentPart[]` into the message-content
  * shape Anthropic's SDK expects. Claude accepts inline base64 images and
  * a `document` block for PDFs — both are exercised here so the existing

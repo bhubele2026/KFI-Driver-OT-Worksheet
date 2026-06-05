@@ -30,6 +30,7 @@ import AdminRealtime from "@/pages/admin-realtime";
 import AdminTimezones from "@/pages/admin-timezones";
 import WeekSummary from "@/pages/week-summary";
 import DriverDetail from "@/pages/driver-detail";
+import { CopilotDrawer } from "@/components/copilot-drawer";
 
 const queryClient = new QueryClient();
 
@@ -100,7 +101,12 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     return <Redirect to="/" />;
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {user && <CopilotDrawer />}
+    </>
+  );
 }
 
 function Router() {

@@ -453,6 +453,21 @@ weeksRouter.get("/weeks", async (_req, res) => {
   );
 });
 
+// Global driver roster. No OpenAPI contract — used by the Worksheet Copilot
+// (Task #451) via loopback to resolve names → kfiId; the UI reads drivers
+// from week summaries instead.
+weeksRouter.get("/drivers", requireAuth, async (_req, res) => {
+  const rows = await db
+    .select({
+      kfiId: schema.driversTable.kfiId,
+      name: schema.driversTable.name,
+      customer: schema.driversTable.customer,
+    })
+    .from(schema.driversTable)
+    .orderBy(schema.driversTable.name);
+  res.json(rows);
+});
+
 weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
   const weekStart = req.params.weekStart;
   if (!isWeek(weekStart)) {

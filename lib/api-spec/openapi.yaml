@@ -14,6 +14,7 @@ tags:
   - name: drivers
   - name: punches
   - name: ingest
+  - name: copilot
 paths:
   /healthz:
     get:
@@ -2310,6 +2311,128 @@ paths:
         "204": { description: Deleted }
         "403": { description: Admin only }
         "404": { description: Lesson not found }
+
+  /copilot/conversations:
+    get:
+      operationId: listCopilotConversations
+      tags: [copilot]
+      summary: List the signed-in user's copilot conversations (newest first).
+      responses:
+        "200":
+          description: Conversations
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CopilotConversationList" }
+        "401": { description: Authentication required }
+    post:
+      operationId: startCopilotConversation
+      tags: [copilot]
+      summary: Start a new copilot conversation and run the first turn.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CopilotTurnRequest" }
+      responses:
+        "200":
+          description: Conversation created and first assistant turn
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CopilotConversationTurn" }
+        "400": { description: Invalid input }
+        "401": { description: Authentication required }
+
+  /copilot/conversations/{id}:
+    get:
+      operationId: getCopilotConversation
+      tags: [copilot]
+      summary: Fetch a conversation and its full message history.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Conversation with messages
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CopilotConversationDetail" }
+        "401": { description: Authentication required }
+        "404": { description: Conversation not found }
+
+  /copilot/conversations/{id}/messages:
+    post:
+      operationId: sendCopilotMessage
+      tags: [copilot]
+      summary: Send a message to an existing conversation and run a turn.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CopilotTurnRequest" }
+      responses:
+        "200":
+          description: Assistant turn
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CopilotMessageEnvelope" }
+        "400": { description: Invalid input }
+        "401": { description: Authentication required }
+        "404": { description: Conversation not found }
+
+  /copilot/conversations/{id}/messages/{messageId}/confirm:
+    post:
+      operationId: confirmCopilotAction
+      tags: [copilot]
+      summary: Confirm and execute a pending action proposed by the assistant.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: messageId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Action executed; follow-up assistant message
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CopilotMessageEnvelope" }
+        "401": { description: Authentication required }
+        "404": { description: Pending action not found }
+        "409": { description: Action no longer pending }
+
+  /copilot/conversations/{id}/messages/{messageId}/cancel:
+    post:
+      operationId: cancelCopilotAction
+      tags: [copilot]
+      summary: Cancel a pending action without executing it.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: messageId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Action cancelled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CopilotMessageEnvelope" }
+        "401": { description: Authentication required }
+        "404": { description: Pending action not found }
+        "409": { description: Action no longer pending }
 
 components:
   parameters:
@@ -4949,3 +5072,151 @@ components:
         errMsg:
           type: ["string", "null"]
         createdAt: { type: string, format: date-time }
+
+    CopilotContext:
+      type: object
+      properties:
+        weekStart:
+          type: ["string", "null"]
+        kfiId:
+          type: ["string", "null"]
+
+    CopilotTurnRequest:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+        context: { $ref: "#/components/schemas/CopilotContext" }
+
+    CopilotToolStep:
+      type: object
+      required: [tool, ok, mutating, summary]
+      properties:
+        tool: { type: string }
+        input: { type: object, additionalProperties: true }
+        ok: { type: boolean }
+        mutating: { type: boolean }
+        summary: { type: string }
+        status: { type: integer }
+
+    CopilotPendingCall:
+      type: object
+      required: [method, path, label]
+      properties:
+        method:
+          type: string
+          enum: [POST, PUT, PATCH, DELETE]
+        path: { type: string }
+        body: {}
+        label: { type: string }
+
+    CopilotPendingAction:
+      type: object
+      required: [kind, title, summary, calls]
+      properties:
+        kind: { type: string }
+        title: { type: string }
+        summary:
+          type: array
+          items: { type: string }
+        calls:
+          type: array
+          items: { $ref: "#/components/schemas/CopilotPendingCall" }
+
+    CopilotActionResultItem:
+      type: object
+      required: [label, status, ok]
+      properties:
+        label: { type: string }
+        status: { type: integer }
+        ok: { type: boolean }
+        detail: { type: string }
+
+    CopilotActionResult:
+      type: object
+      required: [ok, results]
+      properties:
+        ok: { type: boolean }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/CopilotActionResultItem" }
+
+    CopilotMessage:
+      type: object
+      required: [id, conversationId, role, content, createdAt]
+      properties:
+        id: { type: integer }
+        conversationId: { type: integer }
+        role:
+          type: string
+          enum: [user, assistant]
+        content: { type: string }
+        toolSteps:
+          oneOf:
+            - type: array
+              items: { $ref: "#/components/schemas/CopilotToolStep" }
+            - { type: "null" }
+        pendingAction:
+          oneOf:
+            - { $ref: "#/components/schemas/CopilotPendingAction" }
+            - { type: "null" }
+        actionStatus:
+          type: ["string", "null"]
+          enum: [pending, executed, cancelled, failed, null]
+        actionResult:
+          oneOf:
+            - { $ref: "#/components/schemas/CopilotActionResult" }
+            - { type: "null" }
+        model:
+          type: ["string", "null"]
+        inputTokens:
+          type: ["integer", "null"]
+        outputTokens:
+          type: ["integer", "null"]
+        costUsd:
+          type: ["number", "null"]
+        createdAt: { type: string, format: date-time }
+
+    CopilotConversation:
+      type: object
+      required: [id, title, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        title:
+          type: ["string", "null"]
+        weekStart:
+          type: ["string", "null"]
+        kfiId:
+          type: ["string", "null"]
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    CopilotConversationList:
+      type: object
+      required: [conversations]
+      properties:
+        conversations:
+          type: array
+          items: { $ref: "#/components/schemas/CopilotConversation" }
+
+    CopilotConversationDetail:
+      type: object
+      required: [conversation, messages]
+      properties:
+        conversation: { $ref: "#/components/schemas/CopilotConversation" }
+        messages:
+          type: array
+          items: { $ref: "#/components/schemas/CopilotMessage" }
+
+    CopilotConversationTurn:
+      type: object
+      required: [conversation, message]
+      properties:
+        conversation: { $ref: "#/components/schemas/CopilotConversation" }
+        message: { $ref: "#/components/schemas/CopilotMessage" }
+
+    CopilotMessageEnvelope:
+      type: object
+      required: [message]
+      properties:
+        message: { $ref: "#/components/schemas/CopilotMessage" }

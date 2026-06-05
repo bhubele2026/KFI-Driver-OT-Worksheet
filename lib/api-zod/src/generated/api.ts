@@ -4674,3 +4674,450 @@ export const DeleteCustomerExtractionLessonParams = zod.object({
   customer: zod.coerce.string(),
   lessonId: zod.coerce.number(),
 });
+
+/**
+ * @summary List the signed-in user's copilot conversations (newest first).
+ */
+export const ListCopilotConversationsResponse = zod.object({
+  conversations: zod.array(
+    zod.object({
+      id: zod.number(),
+      title: zod.string().nullable(),
+      weekStart: zod.string().nullish(),
+      kfiId: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Start a new copilot conversation and run the first turn.
+ */
+export const StartCopilotConversationBody = zod.object({
+  message: zod.string(),
+  context: zod
+    .object({
+      weekStart: zod.string().nullish(),
+      kfiId: zod.string().nullish(),
+    })
+    .optional(),
+});
+
+export const StartCopilotConversationResponse = zod.object({
+  conversation: zod.object({
+    id: zod.number(),
+    title: zod.string().nullable(),
+    weekStart: zod.string().nullish(),
+    kfiId: zod.string().nullish(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  }),
+  message: zod.object({
+    id: zod.number(),
+    conversationId: zod.number(),
+    role: zod.enum(["user", "assistant"]),
+    content: zod.string(),
+    toolSteps: zod
+      .union([
+        zod.array(
+          zod.object({
+            tool: zod.string(),
+            input: zod.record(zod.string(), zod.unknown()).optional(),
+            ok: zod.boolean(),
+            mutating: zod.boolean(),
+            summary: zod.string(),
+            status: zod.number().optional(),
+          }),
+        ),
+        zod.null(),
+      ])
+      .optional(),
+    pendingAction: zod
+      .union([
+        zod.object({
+          kind: zod.string(),
+          title: zod.string(),
+          summary: zod.array(zod.string()),
+          calls: zod.array(
+            zod.object({
+              method: zod.enum(["POST", "PUT", "PATCH", "DELETE"]),
+              path: zod.string(),
+              body: zod.unknown().optional(),
+              label: zod.string(),
+            }),
+          ),
+        }),
+        zod.null(),
+      ])
+      .optional(),
+    actionStatus: zod
+      .union([
+        zod.literal("pending"),
+        zod.literal("executed"),
+        zod.literal("cancelled"),
+        zod.literal("failed"),
+        zod.literal(null),
+      ])
+      .nullish(),
+    actionResult: zod
+      .union([
+        zod.object({
+          ok: zod.boolean(),
+          results: zod.array(
+            zod.object({
+              label: zod.string(),
+              status: zod.number(),
+              ok: zod.boolean(),
+              detail: zod.string().optional(),
+            }),
+          ),
+        }),
+        zod.null(),
+      ])
+      .optional(),
+    model: zod.string().nullish(),
+    inputTokens: zod.number().nullish(),
+    outputTokens: zod.number().nullish(),
+    costUsd: zod.number().nullish(),
+    createdAt: zod.coerce.date(),
+  }),
+});
+
+/**
+ * @summary Fetch a conversation and its full message history.
+ */
+export const GetCopilotConversationParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetCopilotConversationResponse = zod.object({
+  conversation: zod.object({
+    id: zod.number(),
+    title: zod.string().nullable(),
+    weekStart: zod.string().nullish(),
+    kfiId: zod.string().nullish(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  }),
+  messages: zod.array(
+    zod.object({
+      id: zod.number(),
+      conversationId: zod.number(),
+      role: zod.enum(["user", "assistant"]),
+      content: zod.string(),
+      toolSteps: zod
+        .union([
+          zod.array(
+            zod.object({
+              tool: zod.string(),
+              input: zod.record(zod.string(), zod.unknown()).optional(),
+              ok: zod.boolean(),
+              mutating: zod.boolean(),
+              summary: zod.string(),
+              status: zod.number().optional(),
+            }),
+          ),
+          zod.null(),
+        ])
+        .optional(),
+      pendingAction: zod
+        .union([
+          zod.object({
+            kind: zod.string(),
+            title: zod.string(),
+            summary: zod.array(zod.string()),
+            calls: zod.array(
+              zod.object({
+                method: zod.enum(["POST", "PUT", "PATCH", "DELETE"]),
+                path: zod.string(),
+                body: zod.unknown().optional(),
+                label: zod.string(),
+              }),
+            ),
+          }),
+          zod.null(),
+        ])
+        .optional(),
+      actionStatus: zod
+        .union([
+          zod.literal("pending"),
+          zod.literal("executed"),
+          zod.literal("cancelled"),
+          zod.literal("failed"),
+          zod.literal(null),
+        ])
+        .nullish(),
+      actionResult: zod
+        .union([
+          zod.object({
+            ok: zod.boolean(),
+            results: zod.array(
+              zod.object({
+                label: zod.string(),
+                status: zod.number(),
+                ok: zod.boolean(),
+                detail: zod.string().optional(),
+              }),
+            ),
+          }),
+          zod.null(),
+        ])
+        .optional(),
+      model: zod.string().nullish(),
+      inputTokens: zod.number().nullish(),
+      outputTokens: zod.number().nullish(),
+      costUsd: zod.number().nullish(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Send a message to an existing conversation and run a turn.
+ */
+export const SendCopilotMessageParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const SendCopilotMessageBody = zod.object({
+  message: zod.string(),
+  context: zod
+    .object({
+      weekStart: zod.string().nullish(),
+      kfiId: zod.string().nullish(),
+    })
+    .optional(),
+});
+
+export const SendCopilotMessageResponse = zod.object({
+  message: zod.object({
+    id: zod.number(),
+    conversationId: zod.number(),
+    role: zod.enum(["user", "assistant"]),
+    content: zod.string(),
+    toolSteps: zod
+      .union([
+        zod.array(
+          zod.object({
+            tool: zod.string(),
+            input: zod.record(zod.string(), zod.unknown()).optional(),
+            ok: zod.boolean(),
+            mutating: zod.boolean(),
+            summary: zod.string(),
+            status: zod.number().optional(),
+          }),
+        ),
+        zod.null(),
+      ])
+      .optional(),
+    pendingAction: zod
+      .union([
+        zod.object({
+          kind: zod.string(),
+          title: zod.string(),
+          summary: zod.array(zod.string()),
+          calls: zod.array(
+            zod.object({
+              method: zod.enum(["POST", "PUT", "PATCH", "DELETE"]),
+              path: zod.string(),
+              body: zod.unknown().optional(),
+              label: zod.string(),
+            }),
+          ),
+        }),
+        zod.null(),
+      ])
+      .optional(),
+    actionStatus: zod
+      .union([
+        zod.literal("pending"),
+        zod.literal("executed"),
+        zod.literal("cancelled"),
+        zod.literal("failed"),
+        zod.literal(null),
+      ])
+      .nullish(),
+    actionResult: zod
+      .union([
+        zod.object({
+          ok: zod.boolean(),
+          results: zod.array(
+            zod.object({
+              label: zod.string(),
+              status: zod.number(),
+              ok: zod.boolean(),
+              detail: zod.string().optional(),
+            }),
+          ),
+        }),
+        zod.null(),
+      ])
+      .optional(),
+    model: zod.string().nullish(),
+    inputTokens: zod.number().nullish(),
+    outputTokens: zod.number().nullish(),
+    costUsd: zod.number().nullish(),
+    createdAt: zod.coerce.date(),
+  }),
+});
+
+/**
+ * @summary Confirm and execute a pending action proposed by the assistant.
+ */
+export const ConfirmCopilotActionParams = zod.object({
+  id: zod.coerce.number(),
+  messageId: zod.coerce.number(),
+});
+
+export const ConfirmCopilotActionResponse = zod.object({
+  message: zod.object({
+    id: zod.number(),
+    conversationId: zod.number(),
+    role: zod.enum(["user", "assistant"]),
+    content: zod.string(),
+    toolSteps: zod
+      .union([
+        zod.array(
+          zod.object({
+            tool: zod.string(),
+            input: zod.record(zod.string(), zod.unknown()).optional(),
+            ok: zod.boolean(),
+            mutating: zod.boolean(),
+            summary: zod.string(),
+            status: zod.number().optional(),
+          }),
+        ),
+        zod.null(),
+      ])
+      .optional(),
+    pendingAction: zod
+      .union([
+        zod.object({
+          kind: zod.string(),
+          title: zod.string(),
+          summary: zod.array(zod.string()),
+          calls: zod.array(
+            zod.object({
+              method: zod.enum(["POST", "PUT", "PATCH", "DELETE"]),
+              path: zod.string(),
+              body: zod.unknown().optional(),
+              label: zod.string(),
+            }),
+          ),
+        }),
+        zod.null(),
+      ])
+      .optional(),
+    actionStatus: zod
+      .union([
+        zod.literal("pending"),
+        zod.literal("executed"),
+        zod.literal("cancelled"),
+        zod.literal("failed"),
+        zod.literal(null),
+      ])
+      .nullish(),
+    actionResult: zod
+      .union([
+        zod.object({
+          ok: zod.boolean(),
+          results: zod.array(
+            zod.object({
+              label: zod.string(),
+              status: zod.number(),
+              ok: zod.boolean(),
+              detail: zod.string().optional(),
+            }),
+          ),
+        }),
+        zod.null(),
+      ])
+      .optional(),
+    model: zod.string().nullish(),
+    inputTokens: zod.number().nullish(),
+    outputTokens: zod.number().nullish(),
+    costUsd: zod.number().nullish(),
+    createdAt: zod.coerce.date(),
+  }),
+});
+
+/**
+ * @summary Cancel a pending action without executing it.
+ */
+export const CancelCopilotActionParams = zod.object({
+  id: zod.coerce.number(),
+  messageId: zod.coerce.number(),
+});
+
+export const CancelCopilotActionResponse = zod.object({
+  message: zod.object({
+    id: zod.number(),
+    conversationId: zod.number(),
+    role: zod.enum(["user", "assistant"]),
+    content: zod.string(),
+    toolSteps: zod
+      .union([
+        zod.array(
+          zod.object({
+            tool: zod.string(),
+            input: zod.record(zod.string(), zod.unknown()).optional(),
+            ok: zod.boolean(),
+            mutating: zod.boolean(),
+            summary: zod.string(),
+            status: zod.number().optional(),
+          }),
+        ),
+        zod.null(),
+      ])
+      .optional(),
+    pendingAction: zod
+      .union([
+        zod.object({
+          kind: zod.string(),
+          title: zod.string(),
+          summary: zod.array(zod.string()),
+          calls: zod.array(
+            zod.object({
+              method: zod.enum(["POST", "PUT", "PATCH", "DELETE"]),
+              path: zod.string(),
+              body: zod.unknown().optional(),
+              label: zod.string(),
+            }),
+          ),
+        }),
+        zod.null(),
+      ])
+      .optional(),
+    actionStatus: zod
+      .union([
+        zod.literal("pending"),
+        zod.literal("executed"),
+        zod.literal("cancelled"),
+        zod.literal("failed"),
+        zod.literal(null),
+      ])
+      .nullish(),
+    actionResult: zod
+      .union([
+        zod.object({
+          ok: zod.boolean(),
+          results: zod.array(
+            zod.object({
+              label: zod.string(),
+              status: zod.number(),
+              ok: zod.boolean(),
+              detail: zod.string().optional(),
+            }),
+          ),
+        }),
+        zod.null(),
+      ])
+      .optional(),
+    model: zod.string().nullish(),
+    inputTokens: zod.number().nullish(),
+    outputTokens: zod.number().nullish(),
+    costUsd: zod.number().nullish(),
+    createdAt: zod.coerce.date(),
+  }),
+});

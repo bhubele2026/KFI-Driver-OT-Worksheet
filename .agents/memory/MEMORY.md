@@ -1,1 +1,1 @@
-- [Claude model config & pricing](claude-model-config.md) — per-feature Claude model env overrides; adding a model means adding a pricing.ts row or cost tracking silently lies.
+- [Copilot agentic loop](copilot-agentic-loop.md) — Worksheet Copilot safety rails, loopback reuse, and how to run its tests (node:test+tsx, not vitest).
