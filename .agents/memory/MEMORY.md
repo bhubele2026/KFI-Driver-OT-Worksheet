@@ -1,0 +1,1 @@
+- [Claude model config & pricing](claude-model-config.md) — per-feature Claude model env overrides; adding a model means adding a pricing.ts row or cost tracking silently lies.

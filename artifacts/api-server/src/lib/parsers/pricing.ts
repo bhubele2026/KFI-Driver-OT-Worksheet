@@ -16,6 +16,11 @@ export interface ModelPricing {
 const PRICING: Record<string, ModelPricing> = {
   // Anthropic Claude Sonnet 4.5 — $3 / $15 per 1M (input/output).
   "claude-sonnet-4-5": { inputPerMillion: 3, outputPerMillion: 15 },
+  // Anthropic Claude Opus — $15 / $75 per 1M (input/output). Used by the
+  // per-upload reviewer (Task #446); list-price snapshot, update here if
+  // Anthropic changes Opus pricing.
+  "claude-opus-4-8": { inputPerMillion: 15, outputPerMillion: 75 },
+  "claude-opus-4-1": { inputPerMillion: 15, outputPerMillion: 75 },
   // Google Gemini 2.5 Flash — $0.30 / $2.50 per 1M (input/output).
   "gemini-2.5-flash": { inputPerMillion: 0.3, outputPerMillion: 2.5 },
 };
@@ -24,7 +29,7 @@ const PRICING: Record<string, ModelPricing> = {
 // `claude-sonnet-4-6` rollout before this table is updated). Picks the
 // more expensive Claude row so we'd rather over-estimate than silently
 // under-bill the upload's budget bucket.
-const FALLBACK_PRICING: ModelPricing = PRICING["claude-sonnet-4-5"];
+const FALLBACK_PRICING: ModelPricing = PRICING["claude-opus-4-8"];
 
 export function getPricing(model: string): ModelPricing {
   return PRICING[model] ?? FALLBACK_PRICING;

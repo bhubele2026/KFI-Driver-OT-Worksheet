@@ -20,6 +20,14 @@ export function getClaudeClient(): Anthropic {
 export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-5";
 
 /**
+ * Default Claude model used for the per-upload reviewer (Task #446). Runs
+ * at most once per confirmed upload, so it defaults to the most-capable
+ * Opus model for the sharpest verdict. Overridable via
+ * `CLAUDE_ANALYSIS_MODEL`.
+ */
+export const DEFAULT_CLAUDE_ANALYSIS_MODEL = "claude-opus-4-8";
+
+/**
  * Convert our provider-agnostic `ContentPart[]` into the message-content
  * shape Anthropic's SDK expects. Claude accepts inline base64 images and
  * a `document` block for PDFs — both are exercised here so the existing

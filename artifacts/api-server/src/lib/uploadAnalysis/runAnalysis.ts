@@ -2,7 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { and, count, eq, sql } from "drizzle-orm";
 import { db, schema } from "../db.js";
 import { logger } from "../logger.js";
-import { getClaudeClient, DEFAULT_CLAUDE_MODEL } from "../parsers/claude.js";
+import { getClaudeClient, DEFAULT_CLAUDE_ANALYSIS_MODEL } from "../parsers/claude.js";
 import { _internals as chatInternals } from "../chat/claudeChat.js";
 import { costUsd } from "../parsers/pricing.js";
 import {
@@ -39,6 +39,15 @@ export interface RunAnalysisResult {
 const MAX_TURNS = 8;
 const MAX_OUTPUT_TOKENS = 2048;
 const PER_CALL_TIMEOUT_MS = 90_000;
+
+// The upload reviewer runs on the most-capable model by default (Opus),
+// since a sharp verdict is the whole point of the feature and it runs at
+// most once per confirmed upload. Overridable via `CLAUDE_ANALYSIS_MODEL`
+// so prod can switch models without a code change — mirrors how the chat
+// (`CLAUDE_CHAT_MODEL`) and extractor (`CLAUDE_EXTRACT_MODEL`) each read
+// their own override.
+const ANALYSIS_MODEL =
+  process.env.CLAUDE_ANALYSIS_MODEL ?? DEFAULT_CLAUDE_ANALYSIS_MODEL;
 
 type AnthropicLike = Pick<Anthropic, "messages">;
 
@@ -131,7 +140,7 @@ async function persistVerdict(a: PersistArgs): Promise<number> {
     promptVersion: PROMPT_VERSION,
     inputTokens: a.inputTokens,
     outputTokens: a.outputTokens,
-    costUsd: costUsd(DEFAULT_CLAUDE_MODEL, a.inputTokens, a.outputTokens),
+    costUsd: costUsd(ANALYSIS_MODEL, a.inputTokens, a.outputTokens),
     durationMs: a.durationMs,
     toolCalls: a.toolCalls,
     errMsg: a.errMsg,
@@ -259,7 +268,7 @@ export async function runUploadAnalysis(
       const forceSubmit = turn === MAX_TURNS - 1;
       const response = await client.messages.create(
         {
-          model: DEFAULT_CLAUDE_MODEL,
+          model: ANALYSIS_MODEL,
           max_tokens: MAX_OUTPUT_TOKENS,
           system,
           tools,
