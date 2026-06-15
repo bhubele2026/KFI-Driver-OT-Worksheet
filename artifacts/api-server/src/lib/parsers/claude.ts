@@ -131,14 +131,16 @@ export class ClaudeModelClient implements ModelClient {
       {
         model: this.model,
         max_tokens: Math.min(opts.maxOutputTokens, 32768),
-        // System reinforces the prompt's "strictly NDJSON" instruction
-        // (Task #308) — one JSON object per line, no fences, no prose.
-        // The per-line parser tolerates blank lines so a stray trailing
-        // newline isn't fatal, but anything else (preamble, markdown,
-        // commentary) leaks into the parseFailedLines counter and shows
-        // up in the per-chunk telemetry log.
+        // System reinforces the user prompt's output contract: a single
+        // JSON object `{ "rows": [ {...}, ... ] }`. This MUST match
+        // `buildPrompt`'s "Output format" section and `parseOrSalvage`,
+        // which only understands that wrapped-object shape. (Do NOT ask
+        // for NDJSON / one-object-per-line here: the parser reads the
+        // first bare object as the whole payload, finds no `rows` key,
+        // and silently yields 0 rows — which is exactly how the Opus
+        // switch surfaced as "parsed 0 punches" across every upload.)
         system:
-          "You are a payroll-data extractor for a logistics dispatcher. You read customer-supplied timecard documents (spreadsheets, PDFs, photos) and return NDJSON: one JSON object per line, separated by single newlines. Each line is a complete `{...}` object — never wrap the stream in an array, never wrap any line in markdown fences, never add prose, preamble, or commentary before, between, or after the lines. Accuracy matters more than coverage — do not invent rows, drivers, dates, or times that are not in the document.",
+          "You are a payroll-data extractor for a logistics dispatcher. You read customer-supplied timecard documents (spreadsheets, PDFs, photos) and return a single JSON object of the shape `{ \"rows\": [ {...}, {...} ] }` — every extracted punch is one object inside the `rows` array. Return only that JSON object: never wrap it in markdown fences, never add prose, preamble, or commentary before or after it. Accuracy matters more than coverage — do not invent rows, drivers, dates, or times that are not in the document.",
         messages: [{ role: "user", content }],
       },
       { timeout: opts.timeoutMs },
