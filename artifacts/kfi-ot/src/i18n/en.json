@@ -1260,7 +1260,7 @@
     "aiBadgeTitle": "AI-imported. {{aliases}} saved driver alias(es). Click to view stashed samples.",
     "aiBadgeTitleNoAdmin": "AI-imported. {{aliases}} saved driver alias(es).",
     "anyFile": "Any file",
-    "noUploadYet": "No upload yet for this week",
+    "noUploadYet": "Not uploaded",
     "unknownBadges_one": "Unknown badge",
     "unknownBadges_other": "Unknown badges",
     "mapIdsAdmin": "Click an id to add a driver mapping.",

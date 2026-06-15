@@ -1452,9 +1452,6 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           <h3 className="font-display font-semibold text-base">
             {t("customerPanel.title")}
           </h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {t("customerUpload.panelDescription")}
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
@@ -1896,9 +1893,6 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                       summary={s.latestUploadAnalysis}
                     />
                   )}
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    {t("customerUpload.anyFile")}
-                  </span>
                 </div>
                 <div className="text-xs text-muted-foreground font-mono mt-0.5 truncate">
                   {s.lastUploadAt || s.lastAttemptAt ? (
