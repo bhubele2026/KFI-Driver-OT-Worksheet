@@ -1000,8 +1000,11 @@ export function __aiExtractStubQueueLength(): number {
 
 // Per-chunk model-call ceiling for the chunked xlsx path. Shorter than
 // the single-call 5-minute budget because each chunk is small; we still
-// cap total wall-clock by stopping early if any chunk exceeds this.
-const XLSX_CHUNK_TIMEOUT_MS = 120_000;
+// cap total wall-clock by stopping early if any chunk exceeds this. Set
+// to 180s (was 120s) so a single chunk that runs slow under load gets
+// room to finish or hit a clean retry, rather than tripping the timeout
+// and failing the whole upload.
+const XLSX_CHUNK_TIMEOUT_MS = 180_000;
 
 /**
  * Per-call structured log entry. Emitted at info-level for every real

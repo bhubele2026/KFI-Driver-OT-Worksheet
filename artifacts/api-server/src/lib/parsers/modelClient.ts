@@ -393,6 +393,20 @@ class LeakyBucketPacer implements TokenPacer {
 }
 
 const _pacersByProvider = new Map<string, TokenPacer>();
+
+/**
+ * Parse the CLAUDE_ITPM_PACER override. Falls back to `fallback` for
+ * unset / non-numeric / non-positive values so a typo in a Replit
+ * Secret can never silently stall extraction with a tiny (or zero)
+ * bucket.
+ */
+function parsePacerCapacity(raw: string | undefined, fallback: number): number {
+  if (raw == null || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
 function noopPacer(): TokenPacer {
   return {
     acquire: async () => 0,
@@ -411,9 +425,16 @@ export function getTokenPacer(providerName: string): TokenPacer {
   const cached = _pacersByProvider.get(key);
   if (cached) return cached;
   if (key === "claude") {
-    // 25k tokens / 60s — 5k headroom below the documented 30k tier-1
-    // ceiling. Override only via the test seam below.
-    const p = new LeakyBucketPacer(25_000, 60_000);
+    // Input-tokens/min pacer. The old 25k value was tuned for the
+    // Sonnet 4.x tier-1 ceiling (30k ITPM). Extraction now runs on
+    // Opus 4.8, whose tier-1 ITPM ceiling is 500k — ~16x higher — so
+    // 25k was throttling big multi-chunk uploads to ~5% of available
+    // throughput. Default to 400k (safely under the 500k tier-1 Opus
+    // ceiling, with headroom; cache_read tokens don't count toward
+    // ITPM at all, so real consumption is lower still). Override via
+    // CLAUDE_ITPM_PACER to go higher on tier 2+ (Opus tier-2 = 2M).
+    const cap = parsePacerCapacity(process.env.CLAUDE_ITPM_PACER, 400_000);
+    const p = new LeakyBucketPacer(cap, 60_000);
     _pacersByProvider.set(key, p);
     return p;
   }

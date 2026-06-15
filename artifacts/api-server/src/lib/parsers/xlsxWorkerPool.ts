@@ -48,7 +48,11 @@ type WorkerSlot = {
   inflight: number;
 };
 
-const POOL_MAX = Math.max(1, Math.min(2, (os.cpus()?.length ?? 2) - 1));
+// At least 2 parallel parse workers (the old Math.min(2, cpus-1) dropped
+// to 1 on a 2-core Replit box), scaling up to 4 on larger hosts. Parsing
+// is bursty and CPU-bound, so a handful of workers clears a multi-chunk
+// upload's parse queue without starving request handling.
+const POOL_MAX = Math.max(2, Math.min(4, (os.cpus()?.length ?? 2) - 1));
 
 let pool: WorkerSlot[] | null = null;
 const pending = new Map<number, Pending>();
