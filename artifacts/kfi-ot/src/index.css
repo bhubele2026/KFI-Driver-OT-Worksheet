@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=Geist+Mono:wght@100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..800;1,14..32,300..800&family=Geist+Mono:wght@100..900&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -70,78 +70,82 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* LIGHT MODE — Soft Clinical (graduated from canvas mockup #396) */
+/* LIGHT MODE — KFI Workforce Deployment corporate (navy / white / steel) */
 :root {
-  --button-outline: rgba(47, 59, 54, .08);
-  --badge-outline: rgba(47, 59, 54, .04);
+  --button-outline: rgba(25, 36, 63, .10);
+  --badge-outline: rgba(25, 36, 63, .05);
 
   --opaque-button-border-intensity: -8;
 
-  --elevate-1: rgba(47, 59, 54, .03);
-  --elevate-2: rgba(47, 59, 54, .07);
+  --elevate-1: rgba(25, 36, 63, .03);
+  --elevate-2: rgba(25, 36, 63, .07);
 
-  --background: 156 13% 97%;          /* #F6F8F7 pale sage paper */
-  --foreground: 155 11% 21%;          /* #2F3B36 deep sage ink */
+  --background: 210 33% 98%;          /* #F7F9FC cool white canvas */
+  --foreground: 222 44% 17%;          /* #19243F navy ink */
 
-  --border: 156 9% 91%;               /* #E6EBE9 hairline sage */
-  --input: 156 9% 91%;
-  --ring: 152 18% 56%;                /* #7CA38F sage accent */
+  --border: 214 28% 90%;              /* #DEE4ED cool hairline */
+  --input: 214 28% 90%;
+  --ring: 221 45% 38%;                /* steel-navy focus ring */
 
   --card: 0 0% 100%;                  /* pure white panels */
-  --card-foreground: 155 11% 21%;
-  --card-border: 156 9% 91%;
+  --card-foreground: 222 44% 17%;
+  --card-border: 214 28% 91%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 155 11% 21%;
-  --popover-border: 156 9% 91%;
+  --popover-foreground: 222 44% 17%;
+  --popover-border: 214 28% 91%;
 
-  --primary: 155 11% 21%;             /* #2F3B36 deep ink CTAs */
+  --primary: 222 46% 24%;             /* #21305C KFI navy CTAs */
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 150 19% 95%;           /* #ECF2EE soft sage block */
-  --secondary-foreground: 155 11% 21%;
+  --secondary: 214 32% 94%;           /* #E9EEF6 cool block */
+  --secondary-foreground: 222 44% 20%;
 
-  --muted: 180 12% 99%;               /* #FBFDFD card subhead bg */
-  --muted-foreground: 158 8% 45%;     /* #6A7C75 secondary text */
+  --muted: 210 33% 97%;               /* #F4F7FB card subhead bg */
+  --muted-foreground: 218 16% 45%;    /* #636C82 cool gray text */
 
-  --accent: 138 18% 91%;              /* #E0EBE3 sage highlight */
-  --accent-foreground: 155 11% 21%;
+  --accent: 214 45% 92%;              /* #E3EBF7 steel highlight */
+  --accent-foreground: 222 46% 24%;
 
-  --destructive: 0 30% 50%;           /* #AA5555 muted brick */
+  --destructive: 0 63% 47%;           /* #C42E2E professional red */
   --destructive-foreground: 0 0% 100%;
 
-  --warning: 36 47% 44%;              /* #A67D3A muted ochre */
+  --warning: 35 85% 45%;              /* #D5862A amber */
   --warning-foreground: 0 0% 100%;
 
-  --sidebar: 180 12% 99%;             /* #FCFDFD light rail (was navy) */
-  --sidebar-foreground: 155 11% 21%;
-  --sidebar-border: 156 9% 91%;
-  --sidebar-primary: 152 18% 56%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 138 18% 91%;
-  --sidebar-accent-foreground: 155 11% 21%;
-  --sidebar-ring: 152 18% 56%;
+  --sidebar: 222 46% 22%;             /* #1E2C50 KFI navy brand bar (matches logo) */
+  --sidebar-foreground: 210 40% 98%;  /* near-white on navy */
+  --sidebar-border: 222 32% 32%;      /* subtle navy hairline */
+  --sidebar-primary: 205 90% 64%;     /* bright steel-blue accent on navy */
+  --sidebar-primary-foreground: 222 47% 11%;
+  --sidebar-accent: 222 38% 28%;      /* navy hover */
+  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-ring: 205 90% 64%;
 
-  --chart-1: 152 18% 56%;             /* sage accent */
-  --chart-2: 36 47% 44%;              /* ochre warning */
-  --chart-3: 155 11% 21%;             /* deep ink */
-  --chart-4: 0 30% 50%;               /* brick destructive */
-  --chart-5: 158 8% 45%;              /* mid-sage */
+  --chart-1: 221 45% 40%;             /* steel-navy */
+  --chart-2: 200 78% 44%;             /* cyan-blue */
+  --chart-3: 222 46% 24%;             /* deep navy */
+  --chart-4: 35 85% 45%;              /* amber */
+  --chart-5: 0 63% 50%;               /* red */
 
-  --app-font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
-  --app-font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --app-font-sans: 'Inter', system-ui, sans-serif;
+  --app-font-display: 'Inter', system-ui, sans-serif;
   --app-font-mono: 'Geist Mono', ui-monospace, monospace;
 
-  --radius: 0.5rem;
+  /* Sharp corporate corners — flattened from the old 0.5rem rounding. */
+  --radius: 0.25rem;
 
-  --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-sm: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-md: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 2px 4px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-lg: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 4px 6px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 8px 10px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-2xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  /* Flat by default — definition comes from 1px hairline borders, not
+     shadows. Only popovers/dialogs/dropdowns (lg/xl/2xl) get a faint
+     lift so floating layers read as separate from the page. */
+  --shadow-2xs: 0px 0px 0px 0px hsl(222 44% 17% / 0.00);
+  --shadow-xs: 0px 0px 0px 0px hsl(222 44% 17% / 0.00);
+  --shadow-sm: 0px 1px 0px 0px hsl(222 44% 17% / 0.03);
+  --shadow: 0px 1px 0px 0px hsl(222 44% 17% / 0.04);
+  --shadow-md: 0px 1px 2px 0px hsl(222 44% 17% / 0.05);
+  --shadow-lg: 0px 4px 12px -3px hsl(222 44% 17% / 0.10);
+  --shadow-xl: 0px 8px 22px -5px hsl(222 44% 17% / 0.12);
+  --shadow-2xl: 0px 14px 32px -6px hsl(222 44% 17% / 0.16);
 
   --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);

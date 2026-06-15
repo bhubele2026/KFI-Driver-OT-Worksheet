@@ -1225,7 +1225,7 @@
     "bulkBusyDesc": "Wait for the current bulk upload to finish before dropping more files.",
     "serverBusyTitle": "Server is busy",
     "serverBusyDesc": "Server is busy with {{count}} other upload(s) — yours will start shortly.",
-    "panelDescription": "Each customer's weekly export. Re-uploading replaces only that customer's imported rows; manual punches are kept.",
+    "panelDescription": "Each customer's weekly timesheet — re-uploads replace only that customer's rows.",
     "tzLabel": "Tz",
     "tzTitle": "Override the timezone applied to the next upload. 'Auto' uses the driver / customer / system default.",
     "tzAuto": "Auto (per driver/customer)",
@@ -1238,7 +1238,7 @@
     "importedUnknownBadges_one": "{{imported}} imported · {{unknown}} unknown badge",
     "importedUnknownBadges_other": "{{imported}} imported · {{unknown}} unknown badges",
     "alreadyUpToDate": "Already up to date",
-    "formatDriftHint": "Probably a format change — open the file directly and compare it against the last working upload before retrying.",
+    "formatDriftHint": "Likely a format change — compare with the last working file before retrying.",
     "notKnownCustomer": "Not a known customer — use the new-customer flow to map it.",
     "dropToUploadAs": "Drop to upload as {{customer}}",
     "punches_one": "{{count}} punch",
@@ -1266,7 +1266,7 @@
     "mapIdsAdmin": "Click an id to add a driver mapping.",
     "mapIdsUser": "Ask an admin to add the missing driver mapping.",
     "reading": "Reading… {{elapsed}}s",
-    "readingHint": "First-time AI read can take a few minutes — next upload of this format will be instant.",
+    "readingHint": "First read of a new format takes a minute; repeat uploads are instant.",
     "readingChunk": "Chunk {{current}} of {{total}}",
     "readingChunkResumed": "Resumed {{resumed}} of {{total}} chunks — re-running {{remaining}}",
     "uploadButton": "Upload",
@@ -1276,7 +1276,7 @@
     "rowActionsTitle": "Row actions for {{customer}}",
     "markInactive": "Mark inactive (hide from this panel)",
     "dropZoneTitle": "Drop customer files to upload",
-    "dropZoneSubtitle": ".xlsx, .pdf, or photos (JPG/PNG/HEIC) — anything else is skipped"
+    "dropZoneSubtitle": ".xlsx, .pdf, or photos"
   },
   "customerPreview": {
     "reviewTitle": "Review {{customer}} upload",

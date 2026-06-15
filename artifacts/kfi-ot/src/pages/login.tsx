@@ -48,13 +48,15 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted/30 p-4">
+    <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted p-4">
       <div className="w-full max-w-sm">
         <div className="flex justify-end mb-2">
           <LanguageToggle />
         </div>
-        <Logo variant="auth" />
-        <Card className="shadow-lg border-border/50">
+        <Card className="overflow-hidden border-border shadow-lg">
+        <div className="bg-sidebar flex items-center justify-center px-6 py-6">
+          <Logo className="h-10" />
+        </div>
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold tracking-tight font-display">{t("login.title")}</CardTitle>
           <CardDescription>{t("login.description")}</CardDescription>

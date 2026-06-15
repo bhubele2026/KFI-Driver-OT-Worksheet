@@ -413,15 +413,12 @@ export default function WeekSummary() {
           />
           <Link
             href="/"
-            className="flex items-center gap-2.5 no-underline"
-            title={`KFI Staffing — ${t("header.appTitle")}`}
+            className="flex items-center no-underline"
+            title="KFI Workforce Deployment"
           >
             <Logo />
-            <span className="hidden lg:inline text-[11px] uppercase tracking-[0.18em] text-sidebar-foreground/60 font-display">
-              {t("header.appTitle")}
-            </span>
           </Link>
-          <div className="h-5 w-px bg-sidebar-border/60" />
+          <div className="h-6 w-px bg-sidebar-border/60" />
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -457,16 +454,12 @@ export default function WeekSummary() {
                 ))}
               </SelectContent>
             </Select>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-sidebar-foreground/60">
-                {t("header.jumpTo")}
-              </span>
-              <Input
-                type="date"
-                className="w-36 h-8 bg-sidebar-accent border-sidebar-accent-border text-sidebar-accent-foreground font-mono text-sm dark:[color-scheme:dark]"
-                onChange={handleCustomWeekChange}
-              />
-            </div>
+            <Input
+              type="date"
+              title={t("header.jumpTo")}
+              className="w-36 h-8 bg-sidebar-accent border-sidebar-accent-border text-sidebar-accent-foreground font-mono text-sm dark:[color-scheme:dark]"
+              onChange={handleCustomWeekChange}
+            />
           </div>
         </div>
 
@@ -494,7 +487,7 @@ export default function WeekSummary() {
           onToggle={toggleSidebar}
         />
 
-        <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-x-hidden relative">
+        <main className="flex-1 px-5 py-5 max-w-[1700px] mx-auto w-full space-y-5 overflow-x-hidden relative">
           {lastRefreshIssues &&
             (lastRefreshIssues.unresolved.length > 0 ||
               lastRefreshIssues.failures.length > 0) && (
