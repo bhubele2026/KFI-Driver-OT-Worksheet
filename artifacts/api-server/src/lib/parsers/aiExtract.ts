@@ -1332,25 +1332,34 @@ async function runChunkedXlsxExtract(
     // its intended payload size and ate the entire token budget across
     // retries before failing. Log the structured warning first so the
     // dispatcher's error has a corresponding trace in the API log.
+    //
+    // Measure ONLY the per-chunk payload (the non-cacheable parts: the
+    // CSV body + its wrapper), NOT the cacheable prefix. The prefix
+    // (rules + roster + schema example) is a byte-identical ~constant
+    // shared by every chunk, so folding it into the ratio made the
+    // small tail chunk (e.g. 10 rows) falsely trip: 6.8k prefix / 10
+    // rows = 681 chars/row even though the chunk itself is fine. A
+    // genuinely ballooned chunk balloons the payload, which is exactly
+    // what this measures, so the Task #297 case is still caught.
     const assignedRowCount = Math.max(1, chunk.split("\n").length - 2);
-    const promptChars = buildParts(client).reduce(
-      (n, p) => n + (p.kind === "text" ? p.text.length : 0),
+    const payloadChars = buildParts(client).reduce(
+      (n, p) => n + (p.kind === "text" && !p.cacheable ? p.text.length : 0),
       0,
     );
-    if (promptChars > assignedRowCount * 500) {
+    if (payloadChars > assignedRowCount * 500) {
       (log ?? logger).warn(
         {
           customer,
           fileName,
           label,
-          promptChars,
+          payloadChars,
           assignedRowCount,
-          ratio: Math.round(promptChars / assignedRowCount),
+          ratio: Math.round(payloadChars / assignedRowCount),
         },
         "AI chunk payload exceeds safety ratio (chars-per-row > 500) — refusing to send",
       );
       throw new Error(
-        `AI extraction stopped: chunk "${label}" prompt is ${promptChars} chars for only ${assignedRowCount} rows. The chunker produced a malformed split — re-upload after splitting the spreadsheet by hand.`,
+        `AI extraction stopped: chunk "${label}" payload is ${payloadChars} chars for only ${assignedRowCount} rows. The chunker produced a malformed split — re-upload after splitting the spreadsheet by hand.`,
       );
     }
     const { rows, truncated } = await callModelForChunk(
