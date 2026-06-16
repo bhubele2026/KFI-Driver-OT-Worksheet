@@ -1205,18 +1205,24 @@ export default function DriverDetail() {
             className="inline-flex items-center gap-2"
             data-testid="status-tristate"
           >
-            <Checkbox
-              id="reviewed"
-              checked={driverStatus === "good"}
-              onCheckedChange={(v) => setStatus(v ? "good" : null)}
+            <button
+              type="button"
+              onClick={() =>
+                setStatus(driverStatus === "good" ? null : "good")
+              }
               disabled={driverLocked || setReviewed.isPending}
-              data-testid="checkbox-status-good"
+              data-testid="button-status-good"
               aria-label={t("driverDetail.markGoodAria")}
-            />
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-sidebar-foreground">
-              <CheckIcon className="h-3.5 w-3.5 text-emerald-500" />
-              {t("driverDetail.good")}
-            </span>
+              title={t("driverDetail.good")}
+              className={cn(
+                "px-2.5 py-1 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                driverStatus === "good"
+                  ? "bg-emerald-600 text-white border-emerald-700"
+                  : "bg-sidebar-accent/40 hover:bg-sidebar-accent text-sidebar-foreground border-sidebar-border/60",
+              )}
+            >
+              <CheckIcon className="h-3.5 w-3.5" /> {t("driverDetail.good")}
+            </button>
             <button
               type="button"
               onClick={() =>
@@ -1226,7 +1232,7 @@ export default function DriverDetail() {
               data-testid="button-status-bad"
               title={t("driverDetail.markBadTitleShort")}
               className={cn(
-                "px-2.5 py-1 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border transition-colors",
+                "px-2.5 py-1 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
                 driverStatus === "bad"
                   ? "bg-rose-600 text-white border-rose-700"
                   : "bg-sidebar-accent/40 hover:bg-sidebar-accent text-sidebar-foreground border-sidebar-border/60",

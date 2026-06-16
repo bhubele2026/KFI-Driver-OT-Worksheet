@@ -10,7 +10,17 @@ import { useToast } from "@/hooks/use-toast";
 import { setLanguage, type SupportedLocale } from "@/i18n";
 import { cn } from "@/lib/utils";
 
-export function LanguageToggle({ className }: { className?: string }) {
+export function LanguageToggle({
+  className,
+  tone = "navy",
+}: {
+  className?: string;
+  // "navy" = on the navy header/sidebar (default); "light" = on a white/
+  // light surface (e.g. the login page), where the navy-tuned sidebar tokens
+  // render near-invisible. The rebrand (98c0e59) flipped sidebar-foreground to
+  // near-white, which washed this control out on the login page.
+  tone?: "navy" | "light";
+}) {
   const { i18n, t } = useTranslation();
   const { data: me } = useGetMe();
   const update = useUpdateMyLanguage();
@@ -43,10 +53,25 @@ export function LanguageToggle({ className }: { className?: string }) {
     );
   };
 
+  const onLight = tone === "light";
+  const btnCls = (active: boolean) =>
+    cn(
+      "h-6 px-2 rounded-sm text-xs font-mono",
+      active
+        ? onLight
+          ? "bg-primary text-primary-foreground"
+          : "bg-sidebar-accent text-sidebar-accent-foreground"
+        : onLight
+          ? "text-muted-foreground hover:text-foreground"
+          : "text-sidebar-foreground/70 hover:text-sidebar-accent-foreground",
+    );
   return (
     <div
       className={cn(
-        "inline-flex items-center rounded-md border border-sidebar-border/60 bg-sidebar-accent/30 p-0.5 text-xs font-mono",
+        "inline-flex items-center rounded-md border p-0.5 text-xs font-mono",
+        onLight
+          ? "border-border bg-background"
+          : "border-sidebar-border/60 bg-sidebar-accent/30",
         className,
       )}
       role="group"
@@ -60,12 +85,7 @@ export function LanguageToggle({ className }: { className?: string }) {
         onClick={() => choose("en")}
         aria-pressed={current === "en"}
         data-testid="language-toggle-en"
-        className={cn(
-          "h-6 px-2 rounded-sm text-xs font-mono",
-          current === "en"
-            ? "bg-sidebar-accent text-sidebar-accent-foreground"
-            : "text-sidebar-foreground/70 hover:text-sidebar-accent-foreground",
-        )}
+        className={btnCls(current === "en")}
       >
         EN
       </Button>
@@ -76,12 +96,7 @@ export function LanguageToggle({ className }: { className?: string }) {
         onClick={() => choose("es")}
         aria-pressed={current === "es"}
         data-testid="language-toggle-es"
-        className={cn(
-          "h-6 px-2 rounded-sm text-xs font-mono",
-          current === "es"
-            ? "bg-sidebar-accent text-sidebar-accent-foreground"
-            : "text-sidebar-foreground/70 hover:text-sidebar-accent-foreground",
-        )}
+        className={btnCls(current === "es")}
       >
         ES
       </Button>

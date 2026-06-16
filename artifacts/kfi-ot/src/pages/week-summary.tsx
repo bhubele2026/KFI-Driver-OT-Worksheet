@@ -457,7 +457,7 @@ export default function WeekSummary() {
             <Input
               type="date"
               title={t("header.jumpTo")}
-              className="w-36 h-8 bg-sidebar-accent border-sidebar-accent-border text-sidebar-accent-foreground font-mono text-sm dark:[color-scheme:dark]"
+              className="w-36 h-8 bg-sidebar-accent border-sidebar-accent-border text-sidebar-accent-foreground font-mono text-sm [color-scheme:dark]"
               onChange={handleCustomWeekChange}
             />
           </div>
