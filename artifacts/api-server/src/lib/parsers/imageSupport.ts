@@ -513,9 +513,22 @@ function toParsedPunch(
   kfiId: string,
   customer: string,
 ): ParsedPunch | null {
-  const clockIn = (r.timeIn ?? "").trim();
-  const clockOut = (r.timeOut ?? "").trim();
-  let hours = typeof r.hours === "number" && r.hours > 0 ? r.hours : 0;
+  // Some customer exports carry a full ISO datetime in the time columns
+  // ("2026-06-07 05:40:19"); strip a leading date so we keep just the
+  // wall-clock portion (and don't double-prefix the date in fmtDT below).
+  const stripDatePrefix = (s: string) =>
+    s.replace(/^\d{4}[-/]\d{1,2}[-/]\d{1,2}[\sT]+/, "").trim();
+  const clockIn = stripDatePrefix((r.timeIn ?? "").trim());
+  const clockOut = stripDatePrefix((r.timeOut ?? "").trim());
+  // Hours may arrive as a number OR a numeric string ("12.35") depending on
+  // what the model emits — accept both so a stringy value isn't treated as 0.
+  const rawHours =
+    typeof r.hours === "number"
+      ? r.hours
+      : typeof r.hours === "string"
+        ? parseFloat(r.hours)
+        : NaN;
+  let hours = Number.isFinite(rawHours) && rawHours > 0 ? rawHours : 0;
   if (!hours && clockIn && clockOut) {
     // Robust regex-based parse first; fall back to `new Date(...)` for
     // anything exotic (e.g. ISO datetimes Claude occasionally pastes
@@ -537,7 +550,22 @@ function toParsedPunch(
     }
   }
   if (!(hours > 0)) return null;
-  if (!clockIn || !clockOut) return null;
+  // Prefer the real clock times when they parse. But some customer exports
+  // (e.g. Penda) occasionally hand us a row with a valid Hours value and
+  // blank / unparseable in/out times — the "Choncoa, Ashley M" rows arrived
+  // with 12.35h and no times and were silently discarded. Don't throw away
+  // real paid hours: synthesize self-consistent nominal times from the date
+  // + hours (clockOut − clockIn == hours) so the punch stores and reconciles
+  // by total hours.
+  let inClock = clockIn;
+  let outClock = clockOut;
+  if (parseClockToMin(inClock) == null || parseClockToMin(outClock) == null) {
+    const span = Math.min(23 * 60 + 59, Math.max(1, Math.round(hours * 60)));
+    inClock = "00:00";
+    outClock = `${String(Math.floor(span / 60)).padStart(2, "0")}:${String(
+      span % 60,
+    ).padStart(2, "0")}`;
+  }
   return {
     kfiId,
     customer,
@@ -545,8 +573,8 @@ function toParsedPunch(
     // Always normalize through fmtDT so AI-extracted rows land in DB as
     // canonical `YYYY-MM-DD h:MM AM/PM` regardless of what shape Gemini
     // returned (24-hour, seconds, mixed case). Task #247.
-    clockIn: fmtDT(`${r.date} ${clockIn}`),
-    clockOut: fmtDT(`${r.date} ${clockOut}`),
+    clockIn: fmtDT(`${r.date} ${inClock}`),
+    clockOut: fmtDT(`${r.date} ${outClock}`),
     hours: Math.round(hours * 1000) / 1000,
     payType: "Reg",
     // Carry the raw badge through so the PDF schema-cache recorder can
