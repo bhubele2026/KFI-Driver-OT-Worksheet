@@ -185,3 +185,48 @@ test("Penda incident replay: badge matching a same-customer driver resolves to t
     __clearAiExtractStubs();
   }
 });
+
+test("same-customer badge collision is vetoed by a disagreeing name so the correctly-named driver wins (Penda 'Choncoa, Ashley M' case)", async () => {
+  // Real incident: the Penda file ships emp# `2003274` for
+  // "Choncoa, Ashley M". That number is an unrelated id space and
+  // happened to equal another Penda driver's KFI id (K-COLLIDE).
+  // Pre-fix, the same-customer rule trusted the badge and pinned all
+  // of Ashley's hours onto K-COLLIDE — she imported as nothing.
+  // Expectation now: the badge match is vetoed because the row's name
+  // disagrees with K-COLLIDE, and the row resolves by name to Ashley.
+  __pushAiExtractStub([
+    {
+      driverNameOnDoc: "Choncoa, Ashley M",
+      badgeOrId: "2003274",
+      date: "2026-05-10",
+      timeIn: "5:40 AM",
+      timeOut: "6:01 PM",
+      hours: 12.35,
+    },
+  ]);
+  try {
+    const result = await extractImageForKnownCustomer({
+      fileName: "penda.jpg",
+      buffer: PNG,
+      mimeType: "image/jpeg",
+      customer: "Penda Corp",
+      weekStart: "2026-05-10",
+      weekEnd: "2026-05-16",
+      idMap: {},
+      drivers: [
+        { kfiId: "2005310", name: "Ashley Choncoa", customer: "Penda Corp" },
+        { kfiId: "2003274", name: "Marcus Webb", customer: "Penda Corp" },
+      ],
+      kfiSet: new Set(["2005310", "2003274"]),
+    });
+    assert.equal(result.punches.length, 1);
+    assert.equal(
+      result.punches[0].kfiId,
+      "2005310",
+      "row must resolve to Ashley by name, not the badge-colliding driver",
+    );
+    assert.equal(result.unmappedIds.length, 0);
+  } finally {
+    __clearAiExtractStubs();
+  }
+});

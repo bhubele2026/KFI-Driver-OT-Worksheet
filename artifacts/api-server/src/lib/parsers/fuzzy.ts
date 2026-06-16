@@ -3,6 +3,12 @@
 // based: order-insensitive, robust to "LAST, FIRST" vs "First Last" and
 // extra middle initials.
 
+// Below this name-similarity score, a badge → driver match is treated as a
+// name collision and vetoed even when the customer lines up (see
+// `isBadgeMatchTrustworthy`). 0.5 only trips on a strong disagreement, so a
+// typo'd / OCR-garbled name (which still scores well above it) is unaffected.
+const BADGE_NAME_VETO_FLOOR = 0.5;
+
 function normalize(s: string): string[] {
   return s
     .toLowerCase()
@@ -114,15 +120,31 @@ export function isBadgeMatchTrustworthy(args: {
   // to land here is a roster row that was excluded from the lookup
   // map, which is fine to accept.
   if (!driver) return true;
-  const uploadedLower = uploadedCustomer.trim().toLowerCase();
-  const driverCustomerLower = (driver.customer ?? "").trim().toLowerCase();
-  if (uploadedLower && driverCustomerLower === uploadedLower) return true;
   const name = nameOnDoc.trim();
+  // An explicit saved name alias pins this (customer, name) → candidate.
+  // The dispatcher already vouched for it, so it wins over everything else.
   if (nameAliasMap && name) {
     const aliased = nameAliasMap.get(name.toLowerCase());
     if (aliased && aliased === candidateKfiId) return true;
   }
-  if (name && nameSimilarity(name, driver.name) >= similarityThreshold) {
+  // Strong name disagreement vetoes the badge match — even a same-customer
+  // one. The customer file's "employee number" is an unrelated id space
+  // (Task #363), so a colliding number must NOT steal a row whose name
+  // clearly belongs to a different driver just because that driver happens
+  // to sit on the uploaded customer's roster. Veto here and let the row fall
+  // through to name-based resolution. This is the Penda "Choncoa, Ashley M"
+  // case: her Penda emp# (2003274) collided with another Penda driver's KFI
+  // id, so the same-customer rule pinned all her hours to the wrong person
+  // and she imported as nothing. Only applies when the doc carries a usable
+  // name; badge-only rows keep the customer-scoped behavior below.
+  const nameScore = name ? nameSimilarity(name, driver.name) : null;
+  if (nameScore !== null && nameScore < BADGE_NAME_VETO_FLOOR) {
+    return false;
+  }
+  const uploadedLower = uploadedCustomer.trim().toLowerCase();
+  const driverCustomerLower = (driver.customer ?? "").trim().toLowerCase();
+  if (uploadedLower && driverCustomerLower === uploadedLower) return true;
+  if (nameScore !== null && nameScore >= similarityThreshold) {
     return true;
   }
   return false;
