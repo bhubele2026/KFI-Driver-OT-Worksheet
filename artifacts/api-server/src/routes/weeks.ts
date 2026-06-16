@@ -2045,15 +2045,27 @@ weeksRouter.post(
     }
 
     // Step 1+2: schema cache lookup. Skipped for images (always AI).
-    const schemaHit = isImage
-      ? { kind: "miss" as const }
-      : await lookupSchema(
-          detectedCustomer,
-          fileName,
-          req.file.buffer,
-          isImage,
-          req.log,
-        );
+    //
+    // Product intent: every customer upload should be read by AI, not by the
+    // deterministic cached-layout reader. The cache path matches rows by saved
+    // column positions / badge IDs and silently SKIPS any row whose id/name it
+    // can't resolve (no quarantine record) — which dropped real drivers (e.g.
+    // Ashley Choncoa on Penda) without warning. `CUSTOMER_EXTRACT_FORCE_AI`
+    // defaults to on so all uploads run the AI extractor (which resolves by
+    // name + alias and is far more forgiving). Set it to "0" to re-enable the
+    // column-schema cache for speed/cost if that tradeoff is ever wanted.
+    const forceAiExtract =
+      (process.env.CUSTOMER_EXTRACT_FORCE_AI ?? "1").trim() !== "0";
+    const schemaHit =
+      isImage || forceAiExtract
+        ? { kind: "miss" as const }
+        : await lookupSchema(
+            detectedCustomer,
+            fileName,
+            req.file.buffer,
+            isImage,
+            req.log,
+          );
 
     if (schemaHit.kind === "cache") {
       // AI-discovered column-roles cache hit: skip AI entirely and run
