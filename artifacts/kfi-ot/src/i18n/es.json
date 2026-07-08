@@ -305,6 +305,9 @@
       "source": "Origen",
       "driver": "Conductor",
       "customer": "Cliente",
+      "customerPlaceholder": "Seleccionar cliente…",
+      "customerSearch": "Buscar clientes…",
+      "customerNoResults": "No se encontró ningún cliente.",
       "clockIn": "Entrada",
       "clockOut": "Salida"
     },

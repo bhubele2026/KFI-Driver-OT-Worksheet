@@ -305,6 +305,9 @@
       "source": "Source",
       "driver": "Driver",
       "customer": "Customer",
+      "customerPlaceholder": "Select customer…",
+      "customerSearch": "Search customers…",
+      "customerNoResults": "No customer found.",
       "clockIn": "Clock In",
       "clockOut": "Clock Out"
     },

@@ -41,8 +41,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, Lock, LockOpen, ThumbsDown, Undo2, MessageSquarePlus, Globe, Flag } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, ChevronsUpDown, Lock, LockOpen, ThumbsDown, Undo2, MessageSquarePlus, Globe, Flag } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Fragment } from "react";
@@ -491,6 +492,7 @@ export default function DriverDetail() {
   );
   const [manualClockIn, setManualClockIn] = useState("");
   const [manualClockOut, setManualClockOut] = useState("");
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
 
   // Pull the dispatcher-managed customer list for the manual-punch dropdown.
   // Falls back to the seed list while the request is in flight so the dialog
@@ -2753,18 +2755,50 @@ export default function DriverDetail() {
             {manualSource === "Customer" && (
               <div className="grid gap-2">
                 <Label>{t("driverDetail.manualPunch.customer")}</Label>
-                <Select value={manualCustomer} onValueChange={setManualCustomer}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {manualCustomerOptions.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={customerPickerOpen} onOpenChange={setCustomerPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={customerPickerOpen}
+                      className="w-full justify-between font-normal"
+                      data-testid="select-manual-customer"
+                    >
+                      {manualCustomer || t("driverDetail.manualPunch.customerPlaceholder")}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-0">
+                    <Command>
+                      <CommandInput placeholder={t("driverDetail.manualPunch.customerSearch")} />
+                      <CommandList>
+                        <CommandEmpty>{t("driverDetail.manualPunch.customerNoResults")}</CommandEmpty>
+                        <CommandGroup>
+                          {manualCustomerOptions.map((c) => (
+                            <CommandItem
+                              key={c}
+                              value={c}
+                              onSelect={() => {
+                                // Use the closure `c`, not the onSelect arg — cmdk can
+                                // normalize/lowercase the value it passes back.
+                                setManualCustomer(c);
+                                setCustomerPickerOpen(false);
+                              }}
+                            >
+                              <CheckIcon
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  manualCustomer === c ? "opacity-100" : "opacity-0",
+                                )}
+                              />
+                              {c}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">
