@@ -494,16 +494,22 @@ export default function DriverDetail() {
   const [manualClockOut, setManualClockOut] = useState("");
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
 
-  // Pull the dispatcher-managed customer list for the manual-punch dropdown.
-  // Falls back to the seed list while the request is in flight so the dialog
-  // can render synchronously on first paint.
+  // The manual-punch customer picker mirrors the left sidebar: it offers the
+  // customers present in the week you're currently viewing (same weekSummary
+  // the sidebar groups by). Falls back to the dispatcher-managed list, then the
+  // seed list, while the week summary is still loading / empty.
   const { data: customersData } = useListCustomers();
   const manualCustomerOptions = useMemo<string[]>(() => {
+    const NEEDS_CLEANUP = "Needs roster cleanup"; // synthetic sidebar bucket, not a real customer
+    const fromWeek = (weekSummary?.customers ?? [])
+      .map((g) => g.customer)
+      .filter((c) => c && c !== NEEDS_CLEANUP);
+    if (fromWeek.length > 0) return fromWeek;
     const active = (customersData ?? [])
       .filter((c) => c.active)
       .map((c) => c.displayName);
     return active.length > 0 ? active : KNOWN_CUSTOMERS_FALLBACK;
-  }, [customersData]);
+  }, [weekSummary, customersData]);
 
   const [editingPunchId, setEditingPunchId] = useState<number | null>(null);
   const [editClockIn, setEditClockIn] = useState("");
@@ -2755,50 +2761,57 @@ export default function DriverDetail() {
             {manualSource === "Customer" && (
               <div className="grid gap-2">
                 <Label>{t("driverDetail.manualPunch.customer")}</Label>
-                <Popover open={customerPickerOpen} onOpenChange={setCustomerPickerOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={customerPickerOpen}
-                      className="w-full justify-between font-normal"
-                      data-testid="select-manual-customer"
-                    >
-                      {manualCustomer || t("driverDetail.manualPunch.customerPlaceholder")}
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-0">
-                    <Command>
-                      <CommandInput placeholder={t("driverDetail.manualPunch.customerSearch")} />
-                      <CommandList>
-                        <CommandEmpty>{t("driverDetail.manualPunch.customerNoResults")}</CommandEmpty>
-                        <CommandGroup>
-                          {manualCustomerOptions.map((c) => (
-                            <CommandItem
-                              key={c}
-                              value={c}
-                              onSelect={() => {
-                                // Use the closure `c`, not the onSelect arg — cmdk can
-                                // normalize/lowercase the value it passes back.
-                                setManualCustomer(c);
-                                setCustomerPickerOpen(false);
-                              }}
-                            >
-                              <CheckIcon
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  manualCustomer === c ? "opacity-100" : "opacity-0",
-                                )}
-                              />
-                              {c}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
+                {/*
+                  In-flow (non-portaled) searchable picker. A portaled Popover/Select
+                  can't be wheel-scrolled inside this modal Dialog (the Dialog's
+                  scroll-lock swallows the wheel events), so the list lives directly
+                  in the dialog body where native scrolling works.
+                */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={customerPickerOpen}
+                  className="w-full justify-between font-normal"
+                  data-testid="select-manual-customer"
+                  onClick={() => setCustomerPickerOpen((o) => !o)}
+                >
+                  {manualCustomer || t("driverDetail.manualPunch.customerPlaceholder")}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+                {customerPickerOpen && (
+                  <Command className="rounded-md border">
+                    <CommandInput
+                      autoFocus
+                      placeholder={t("driverDetail.manualPunch.customerSearch")}
+                    />
+                    <CommandList className="max-h-[220px]">
+                      <CommandEmpty>{t("driverDetail.manualPunch.customerNoResults")}</CommandEmpty>
+                      <CommandGroup>
+                        {manualCustomerOptions.map((c) => (
+                          <CommandItem
+                            key={c}
+                            value={c}
+                            onSelect={() => {
+                              // Use the closure `c`, not the onSelect arg — cmdk can
+                              // normalize/lowercase the value it passes back.
+                              setManualCustomer(c);
+                              setCustomerPickerOpen(false);
+                            }}
+                          >
+                            <CheckIcon
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                manualCustomer === c ? "opacity-100" : "opacity-0",
+                              )}
+                            />
+                            {c}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                )}
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">
