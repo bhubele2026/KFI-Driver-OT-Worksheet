@@ -1,0 +1,24 @@
+# Force a clean linux install inside the image (never copy host node_modules or
+# host-arch native binaries / prior build output).
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.gitignore
+
+# Replit + local dev cruft
+.local
+.replit
+.replitignore
+replit.nix
+.agents
+attached_assets/**/*.zip
+exports
+
+# Editor / OS
+.idea
+.vscode
+.DS_Store
+*.log
+*.orig
