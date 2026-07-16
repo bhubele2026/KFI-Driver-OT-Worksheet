@@ -7589,16 +7589,36 @@ weeksRouter.get(
   "/admin/customer-import-rules",
   requireSupervisorOrAdmin,
   async (_req, res) => {
-    const rows = await db
-      .select({
-        id: schema.customersTable.id,
-        displayName: schema.customersTable.displayName,
-        active: schema.customersTable.active,
-        importRules: schema.customersTable.importRules,
-      })
-      .from(schema.customersTable)
-      .orderBy(schema.customersTable.sortOrder, schema.customersTable.displayName);
-    res.json(rows);
+    try {
+      const rows = await db
+        .select({
+          id: schema.customersTable.id,
+          displayName: schema.customersTable.displayName,
+          active: schema.customersTable.active,
+          importRules: schema.customersTable.importRules,
+        })
+        .from(schema.customersTable)
+        .orderBy(
+          schema.customersTable.sortOrder,
+          schema.customersTable.displayName,
+        );
+      res.json(rows);
+    } catch {
+      // Tolerate the pre-ALTER window: if import_rules hasn't been added
+      // yet, still list customers (all "Default") so the page loads.
+      const rows = await db
+        .select({
+          id: schema.customersTable.id,
+          displayName: schema.customersTable.displayName,
+          active: schema.customersTable.active,
+        })
+        .from(schema.customersTable)
+        .orderBy(
+          schema.customersTable.sortOrder,
+          schema.customersTable.displayName,
+        );
+      res.json(rows.map((r) => ({ ...r, importRules: null })));
+    }
   },
 );
 
