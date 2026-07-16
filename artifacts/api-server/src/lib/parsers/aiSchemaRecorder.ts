@@ -34,6 +34,14 @@ export function inferColumnRoles(
      * tolerates that.
      */
     name?: string | null;
+    /**
+     * Worked hours the AI read for the sample row. When present, the recorder
+     * locates the column whose numeric cell on the same row equals it and
+     * stores the index as `hours`, so the deterministic cache reader can HONOR
+     * the customer's own Total/Hours/Duration column (break + rounding baked
+     * in) instead of recomputing from clock in/out. Null when not found.
+     */
+    hours?: number | null;
   },
 ): {
   badge: number;
@@ -65,6 +73,8 @@ export function inferColumnRoles(
     typeof sample.name === "string" && sample.name.trim().length > 0
       ? sample.name.trim().toLowerCase()
       : null;
+  const hoursNeedle =
+    typeof sample.hours === "number" && sample.hours > 0 ? sample.hours : null;
 
   // xlsx (cellDates:true) hands us JS Date objects for cells that
   // Excel stores as dates/datetimes. These cells have a meaningful
@@ -88,9 +98,22 @@ export function inferColumnRoles(
     let timeInCol = -1;
     let timeOutCol = -1;
     let nameCol = -1;
+    let hoursCol = -1;
     for (let i = 0; i < row.length; i++) {
       const v = row[i];
       if (v == null) continue;
+      // Hours column: a numeric cell equal to the AI's stated hours for this
+      // row (small tolerance for 2-dp rounding). Skip Date cells.
+      if (
+        hoursCol < 0 &&
+        hoursNeedle != null &&
+        !(v instanceof Date) &&
+        Number.isFinite(Number(v)) &&
+        Math.abs(Number(v) - hoursNeedle) < 0.02
+      ) {
+        hoursCol = i;
+        continue;
+      }
       const s =
         v instanceof Date ? v.toISOString().slice(0, 10) : String(v).trim();
       // For time matching, use the wall-clock representation of a
@@ -167,6 +190,9 @@ export function inferColumnRoles(
         // recipes simply won't carry this and `readWithRoles` will
         // fall back to the "(no name on doc)" placeholder.
         name: nameCol >= 0 ? nameCol : null,
+        // Record the customer's Total/Hours column so cached re-uploads
+        // honor it (readWithRoles:272 already prefers columnRoles.hours).
+        hours: hoursCol >= 0 ? hoursCol : null,
       };
     }
   }
@@ -541,6 +567,9 @@ export async function deriveSchemaCacheMutation(args: {
         // didn't carry one through, role inference still succeeds
         // and `name` is recorded as null.
         name: candidate.nameOnDoc ?? null,
+        // Pass the AI's hours so the recorder pins the customer's own
+        // Total/Hours column for deterministic re-uploads.
+        hours: typeof candidate.hours === "number" ? candidate.hours : null,
       });
     } else {
       const fallbackYear = parseInt(weekStart.slice(0, 4));

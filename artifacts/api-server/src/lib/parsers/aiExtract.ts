@@ -487,7 +487,7 @@ export function buildPrompt(
     `- badgeOrId: any employee/badge/payroll id shown for that worker (string of digits or alphanum), or omit.`,
     `- date: the punch date as YYYY-MM-DD. Resolve year from the week window if the document only shows MM/DD.`,
     `- timeIn / timeOut: clock in/out as "H:MM AM" or "H:MM PM". Omit if the document only shows total hours.`,
-    `- hours: the daily worked hours as a decimal number when shown (e.g. 8.50). Omit if not present.`,
+    `- hours: the worked hours for the row as a decimal (e.g. 8.50, 12.0). ALWAYS include this when the document shows a Total / Hours / Duration column, EVEN IF clock in/out times are also present — that column is authoritative because it already nets unpaid breaks and the customer's own rounding. Sum split same-row durations (e.g. Regular + OT) into the row's hours. Omit only when the document shows no hours/total value at all.`,
     `- resolvedKfiId: ONLY set this when you are confident the row's worker matches one of the KNOWN DRIVERS listed below — either an exact badge match, an exact alias match (case-insensitive), or the names are clearly the same person (e.g. "J. Smith" → "John Smith" when no other "Smith" is in the list). When in doubt, leave it null/omitted and the dispatcher will pick the driver. Setting the wrong id silently misroutes payroll, so prefer omission over guessing.`,
     `CRITICAL: Return one output row for EVERY non-empty data row in the document. Do NOT merge, sum, or combine multiple rows for the same driver/date — even when pay-category columns (e.g. "Reg", "OT 1.5", "SHIFT PREM", "PREM-NIGHT") split one shift across several lines, emit each line as its own output row exactly as it appears. The caller deduplicates downstream; your job is faithful row-by-row transcription.`,
     `The ONLY lines to skip are: column headers, completely blank rows, page footers/signatures, and grand-total / subtotal rows that have no driver name. When in doubt, include the row.`,
@@ -568,7 +568,7 @@ function buildClaudePrompt(
     `- badgeOrId (string, omit if absent): any employee number / badge / payroll id printed next to the name (digits, alphanumeric, or both). Strip leading zeros only if the document itself shows them stripped elsewhere.`,
     `- date (required, "YYYY-MM-DD"): the punch date. If the document only prints MM/DD, fill in the year from the payroll-week window above. Never invent a date that isn't anchored in the document.`,
     `- timeIn / timeOut (string "H:MM AM" or "H:MM PM", omit if absent): clock in and clock out. Omit BOTH (not just one) if the document only reports a daily total.`,
-    `- hours (number, omit if absent): daily worked hours as a decimal, e.g. 8.5 or 10.25. Omit if the document gives you clock times instead of a total.`,
+    `- hours (number, omit if absent): worked hours as a decimal, e.g. 8.5 or 12.0. ALWAYS include this when the document shows a Total / Hours / Duration column, EVEN IF clock in/out times are also present — that column is authoritative (it already nets unpaid breaks and the customer's rounding). Sum split same-row durations (e.g. Regular + OT) into the row's hours. Omit only when the document reports no hours/total value at all.`,
     `- resolvedKfiId (string, OMIT WHEN IN DOUBT): only set this when the row's worker is unambiguously one of the KNOWN DRIVERS listed below — exact badge match, exact alias match (case-insensitive), or names that are clearly the same person (e.g. "J. Smith" → "John Smith" when no other "Smith" is in the list). Setting the wrong id silently misroutes payroll. When unsure, leave it out and the dispatcher will pick the driver.`,
     ``,
     `## Rules`,
@@ -710,11 +710,14 @@ export function dedupeAiRows(
     }
   }
 
-  // Sanity-check backstop (Task #376). Defense-in-depth: if the AI's
-  // stated hours disagree with the clock-time span by more than the
-  // tolerance, prefer the larger value so payroll never silently
-  // under-reports, and log the divergence so future format drift the
-  // dedupe rule doesn't catch surfaces immediately.
+  // Sanity-check backstop (Task #376, revised). If the AI's stated hours
+  // disagree with the clock-time span by more than the tolerance, LOG it —
+  // but TRUST the stated value. Nearly every customer file reports a Total /
+  // Hours / Duration column that already nets an unpaid break and the
+  // customer's own rounding (e.g. Orgill 5:58 AM–6:30 PM = 12.0, not the 12.53
+  // raw span). The old code preferred the larger (span) value and thereby
+  // over-reported those breaks every week. The divergence log stays so a real
+  // parse error still surfaces for review.
   const log = opts.log ?? logger;
   const out = Array.from(byKey.values());
   for (const r of out) {
@@ -742,9 +745,8 @@ export function dedupeAiRows(
           computedHours: spanHours,
           delta: Math.round(delta * 1000) / 1000,
         },
-        "AI extract hours disagree with clock-time span — preferring the larger value",
+        "AI extract hours disagree with clock-time span — trusting the document's stated hours (break/rounding baked in)",
       );
-      if (spanHours > r.hours) r.hours = spanHours;
     }
   }
   return out;
