@@ -27,6 +27,7 @@ const GROUPS: { label: string; tiles: SettingTile[] }[] = [
   {
     label: "Drivers & matching",
     tiles: [
+      { href: "/admin/drivers", title: "Drivers", blurb: "Turn someone off when they're no longer a driver, or reactivate them." },
       { href: "/admin/driver-id-aliases", title: "Driver ID aliases", blurb: "Customer badge / employee IDs that map to a KFI driver." },
       { href: "/admin/driver-customer-overrides", title: "Driver ↔ customer overrides", blurb: "Force a driver onto a customer." },
       { href: "/admin/connecteam-user-aliases", title: "Connecteam aliases", blurb: "Map Connecteam users to KFI drivers." },

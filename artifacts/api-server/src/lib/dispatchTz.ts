@@ -22,16 +22,39 @@ export function resolveDispTz(
   return CT_TZ;
 }
 
-/** Load every driver's display_tz keyed by kfiId. */
+/**
+ * Load every driver's effective display timezone keyed by kfiId.
+ * Precedence: the driver's own `display_tz`, else their CUSTOMER's tz
+ * preference, else null (→ CT_TZ fallback at import). The customer fallback
+ * fixes non-Central drivers (e.g. Pennsylvania = Eastern, El Paso = Mountain)
+ * whose Connecteam punches were importing an hour off because `display_tz`
+ * was unset and everything silently defaulted to America/Chicago — the bug
+ * the operator worked around by shifting +1 Chicago / −1 customer each week.
+ */
 export async function loadDriverTzMap(): Promise<Map<string, string | null>> {
-  const rows = await db
-    .select({
-      kfiId: schema.driversTable.kfiId,
-      displayTz: schema.driversTable.displayTz,
-    })
-    .from(schema.driversTable);
+  const [drivers, custPrefs] = await Promise.all([
+    db
+      .select({
+        kfiId: schema.driversTable.kfiId,
+        displayTz: schema.driversTable.displayTz,
+        customer: schema.driversTable.customer,
+      })
+      .from(schema.driversTable),
+    db
+      .select({
+        customer: schema.customerTzPreferencesTable.customer,
+        displayTz: schema.customerTzPreferencesTable.displayTz,
+      })
+      .from(schema.customerTzPreferencesTable),
+  ]);
+  const custTz = new Map(custPrefs.map((p) => [p.customer, p.displayTz]));
   const out = new Map<string, string | null>();
-  for (const r of rows) out.set(r.kfiId, r.displayTz ?? null);
+  for (const r of drivers) {
+    const own = r.displayTz && isAllowedTz(r.displayTz) ? r.displayTz : null;
+    const fromCustomer = own ? null : custTz.get(r.customer) ?? null;
+    const tz = own ?? (isAllowedTz(fromCustomer) ? fromCustomer : null);
+    out.set(r.kfiId, tz);
+  }
   return out;
 }
 

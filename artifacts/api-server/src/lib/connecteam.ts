@@ -382,14 +382,16 @@ export async function fetchPunchesForWeek(
         const rawStartMs = startTs * 1000 + shiftFix;
         const rawEndMs = endTs * 1000 + shiftFix;
         if (rawEndMs <= rawStartMs) continue;
-        // Round each end to the nearest minute before computing duration so
-        // the stored hours match what the dispatcher (and Connecteam itself)
-        // sees on the minute-resolution wall-clock display. Computing hours
-        // from second-precision raw timestamps used to drift by ~0.01–0.04
-        // hours per shift versus what Connecteam shows the driver (e.g.
-        // 5.43 vs 5.47), and the dashboard had no way to reconcile.
-        const startMs = Math.round(rawStartMs / 60_000) * 60_000;
-        const endMs = Math.round(rawEndMs / 60_000) * 60_000;
+        // TRUNCATE (floor) each punch to the minute before computing duration.
+        // Connecteam's on-screen HH:MM wall clock drops the seconds (floors),
+        // and its per-shift / daily / weekly totals are the sum of those
+        // displayed minute values. Rounding to the NEAREST minute pushed a
+        // punch whose seconds were ≥30 to the next minute, so both the shown
+        // in/out time and the total drifted from Connecteam (~0.03h/week, e.g.
+        // 4.54 vs 4.57). Flooring makes the stored in/out minutes and the
+        // summed hours match exactly what the dispatcher sees in Connecteam.
+        const startMs = Math.floor(rawStartMs / 60_000) * 60_000;
+        const endMs = Math.floor(rawEndMs / 60_000) * 60_000;
         if (endMs <= startMs) continue;
         const date = msToLocalDate(startMs, dispTz);
         // Skip anything that fell outside the requested window after tz-conv.

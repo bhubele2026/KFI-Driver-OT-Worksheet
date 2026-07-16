@@ -21,6 +21,7 @@ import AdminCustomers from "@/pages/admin-customers";
 import AdminCustomerLessons from "@/pages/admin-customer-lessons";
 import AdminInactiveCustomers from "@/pages/admin-inactive-customers";
 import AdminDriverIdAliases from "@/pages/admin-driver-id-aliases";
+import AdminDrivers from "@/pages/admin-drivers";
 import AdminDriverCustomerOverrides from "@/pages/admin-driver-customer-overrides";
 import AdminConnecteamUserAliases from "@/pages/admin-connecteam-user-aliases";
 import AdminClockOffsets from "@/pages/admin-clock-offsets";
@@ -131,6 +132,7 @@ function Router() {
           component={AdminCustomerLessons}
         />
         <Route path="/admin/inactive-customers" component={AdminInactiveCustomers} />
+        <Route path="/admin/drivers" component={AdminDrivers} />
         <Route path="/admin/driver-id-aliases" component={AdminDriverIdAliases} />
         <Route
           path="/admin/driver-customer-overrides"

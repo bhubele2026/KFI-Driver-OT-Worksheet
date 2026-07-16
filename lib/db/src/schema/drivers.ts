@@ -16,6 +16,12 @@ export const driversTable = pgTable(
     ctUserId: integer("ct_user_id"),
     isDriver: boolean("is_driver").notNull().default(true),
     isArchived: boolean("is_archived").notNull().default(false),
+    // Locally-owned "no longer a driver" flag. Unlike is_archived (which the
+    // Connecteam sync overwrites from CT), this is set ONLY in-app and is never
+    // touched by the CT upsert, so deactivating someone sticks across refreshes.
+    // When true: their Connecteam time stops importing and they drop off the
+    // roster / sidebar / match pool.
+    deactivated: boolean("deactivated").notNull().default(false),
     displayTz: text("display_tz"),
     displayTzUpdatedBy: integer("display_tz_updated_by"),
     displayTzUpdatedAt: timestamp("display_tz_updated_at", { withTimezone: true }),

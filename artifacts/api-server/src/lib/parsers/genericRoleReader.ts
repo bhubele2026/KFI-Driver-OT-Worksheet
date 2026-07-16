@@ -274,6 +274,23 @@ export function readWithRoles(
       if (!isNaN(h) && h > 0) hours = Math.round(h * 100) / 100;
     }
     if (hours == null) hours = diffHours(clockIn, clockOut);
+    if (hours != null && hours > 20) {
+      // Implausible single shift — almost certainly a daily/weekly TOTAL row,
+      // not a punch (e.g. Landscape Structures' per-day total). Drop it.
+      dropped.add({
+        reason: "extraction_failed",
+        detail: `implausible shift hours ${hours} > 20 (likely a total row)`,
+        rawRow: {
+          driverNameOnDoc: earlyName,
+          badgeOrId: rawBadge,
+          date: dateIso,
+          timeIn: clockIn,
+          timeOut: clockOut,
+          hours,
+        },
+      });
+      continue;
+    }
     if (hours <= 0) {
       dropped.add({
         reason: "extraction_failed",

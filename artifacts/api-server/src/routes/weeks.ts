@@ -464,6 +464,7 @@ weeksRouter.get("/drivers", requireAuth, async (_req, res) => {
       customer: schema.driversTable.customer,
     })
     .from(schema.driversTable)
+    .where(eq(schema.driversTable.deactivated, false))
     .orderBy(schema.driversTable.name);
   res.json(rows);
 });
@@ -1158,6 +1159,16 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
     // rest of the roster — locking one driver shouldn't block the week.
     const lockedKfiIds = await loadLockedKfiIds(startDate);
     const lockedSkipped: string[] = [];
+    // Drivers marked "no longer a driver" — their Connecteam time never imports
+    // (their old imported rows are deleted by the refresh and not re-inserted).
+    const deactivatedKfiIds = new Set(
+      (
+        await db
+          .select({ kfiId: schema.driversTable.kfiId })
+          .from(schema.driversTable)
+          .where(eq(schema.driversTable.deactivated, true))
+      ).map((r) => r.kfiId),
+    );
     const refreshedAt = new Date();
     // Wrap delete + insert + week-update in a single transaction so a partial
     // failure never leaves the week with no driver punches.
@@ -1191,24 +1202,43 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
           .returning({ id: schema.punchesTable.id });
         await _g.recordOk(_del.length);
       }
-      // Skip any inbound row whose ctExternalKey was kept (because it was edited).
+      // Skip any inbound row already represented by a kept (edited/preserved)
+      // row. Match on ctExternalKey first, then fall back to punch IDENTITY
+      // (kfiId + clock_in + clock_out): an edited or tz-shifted row keeps its
+      // original ctExternalKey while its clock times change, so a key-only test
+      // let the freshly-fetched inbound punch through as a DUPLICATE. The
+      // identity fallback suppresses that twin. (Note: after the floor-rounding
+      // change the inbound clock times can differ from a pre-existing row by a
+      // minute, but such rows aren't "edited", so they were deleted above and
+      // correctly re-inserted — only preserved edited/manual rows are matched
+      // here.)
+      const keptRows = await tx
+        .select({
+          key: schema.punchesTable.ctExternalKey,
+          kfiId: schema.punchesTable.kfiId,
+          clockIn: schema.punchesTable.clockIn,
+          clockOut: schema.punchesTable.clockOut,
+        })
+        .from(schema.punchesTable)
+        .where(
+          and(
+            eq(schema.punchesTable.weekStart, startDate),
+            eq(schema.punchesTable.source, "Driver"),
+          ),
+        );
       const keptKeys = new Set(
-        (
-          await tx
-            .select({ key: schema.punchesTable.ctExternalKey })
-            .from(schema.punchesTable)
-            .where(
-              and(
-                eq(schema.punchesTable.weekStart, startDate),
-                eq(schema.punchesTable.source, "Driver"),
-              ),
-            )
-        )
-          .map((r) => r.key)
-          .filter((k): k is string => Boolean(k)),
+        keptRows.map((r) => r.key).filter((k): k is string => Boolean(k)),
+      );
+      const identityOf = (kfiId: string, clockIn: string, clockOut: string) =>
+        `${kfiId}|${clockIn}|${clockOut}`;
+      const keptIdentities = new Set(
+        keptRows.map((r) => identityOf(r.kfiId, r.clockIn, r.clockOut)),
       );
       const toInsert = dedupedPunches.filter((p) => {
+        if (deactivatedKfiIds.has(p.kfiId)) return false;
         if (keptKeys.has(p.ctExternalKey)) return false;
+        if (keptIdentities.has(identityOf(p.kfiId, p.clockIn, p.clockOut)))
+          return false;
         if (lockedKfiIds.has(p.kfiId)) {
           if (!lockedSkipped.includes(p.kfiId)) lockedSkipped.push(p.kfiId);
           return false;
@@ -1847,7 +1877,7 @@ weeksRouter.post(
     const drivers = await db
       .select()
       .from(schema.driversTable)
-      .where(eq(schema.driversTable.isArchived, false));
+      .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)));
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
     const nameByKfi = new Map(drivers.map((d) => [d.kfiId, d.name] as const));
     const fileName = req.file.originalname;
@@ -2617,7 +2647,7 @@ weeksRouter.post(
     const drivers = await db
       .select()
       .from(schema.driversTable)
-      .where(eq(schema.driversTable.isArchived, false));
+      .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)));
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
 
     let hasAiRows =
@@ -3582,7 +3612,7 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
   const driverCustomerRows = await db
     .selectDistinct({ customer: schema.driversTable.customer })
     .from(schema.driversTable)
-    .where(eq(schema.driversTable.isArchived, false));
+    .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)));
   for (const r of driverCustomerRows) {
     const name = (r.customer ?? "").trim();
     if (!name) continue;
@@ -4390,7 +4420,7 @@ weeksRouter.post(
         customer: schema.driversTable.customer,
       })
       .from(schema.driversTable)
-      .where(eq(schema.driversTable.isArchived, false));
+      .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)));
     const customerLowerForRoster = customer.toLowerCase();
     const customerPreferred = rosterDrivers.filter(
       (d) => (d.customer ?? "").toLowerCase() === customerLowerForRoster,
@@ -4537,7 +4567,7 @@ weeksRouter.post(
         customer: schema.driversTable.customer,
       })
       .from(schema.driversTable)
-      .where(eq(schema.driversTable.isArchived, false));
+      .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)));
     const seen = new Map<string, string | null>();
     for (const r of rows) {
       const key = r.driverNameOnDoc.trim();
@@ -5102,7 +5132,7 @@ weeksRouter.get("/customer-aliases", requireAdmin, async (_req, res) => {
       isDriver: schema.driversTable.isDriver,
     })
     .from(schema.driversTable)
-    .where(eq(schema.driversTable.isArchived, false))
+    .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)))
     .orderBy(asc(sql`lower(${schema.driversTable.name})`));
   const usageRows = await db
     .select({
@@ -5390,7 +5420,7 @@ weeksRouter.get("/driver-id-aliases", requireAdmin, async (_req, res) => {
       isDriver: schema.driversTable.isDriver,
     })
     .from(schema.driversTable)
-    .where(eq(schema.driversTable.isArchived, false))
+    .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)))
     .orderBy(asc(sql`lower(${schema.driversTable.name})`));
   res.json({
     aliases,
@@ -5625,7 +5655,7 @@ weeksRouter.get(
         isDriver: schema.driversTable.isDriver,
       })
       .from(schema.driversTable)
-      .where(eq(schema.driversTable.isArchived, false))
+      .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)))
       .orderBy(asc(sql`lower(${schema.driversTable.name})`));
     res.json({
       aliases,
@@ -7479,6 +7509,52 @@ weeksRouter.patch(
       displayTz: row.displayTz ?? null,
       effectiveDispTz: resolveDispTz(row.kfiId, row.displayTz ?? null),
     });
+  },
+);
+
+// Full driver roster incl. deactivated — for the Settings → Drivers page so an
+// admin can see and reactivate someone who was turned off.
+weeksRouter.get("/admin/drivers", requireSupervisorOrAdmin, async (_req, res) => {
+  const rows = await db
+    .select({
+      kfiId: schema.driversTable.kfiId,
+      name: schema.driversTable.name,
+      customer: schema.driversTable.customer,
+      deactivated: schema.driversTable.deactivated,
+      isArchived: schema.driversTable.isArchived,
+    })
+    .from(schema.driversTable)
+    .orderBy(schema.driversTable.name);
+  res.json(rows);
+});
+
+// Mark a person as no longer a driver (or reactivate). Locally-owned flag the
+// Connecteam sync never overwrites — when true, their CT time stops importing
+// and they drop off the roster/sidebar/match pool.
+weeksRouter.patch(
+  "/drivers/:kfiId/deactivated",
+  requireSupervisorOrAdmin,
+  async (req, res) => {
+    const kfiId = String(req.params.kfiId ?? "").trim();
+    if (!kfiId) {
+      res.status(400).json({ error: "kfiId is required" });
+      return;
+    }
+    const body = req.body as { deactivated?: unknown } | undefined;
+    const deactivated = Boolean(body?.deactivated);
+    const driver = await db.query.driversTable.findFirst({
+      where: eq(schema.driversTable.kfiId, kfiId),
+    });
+    if (!driver) {
+      res.status(404).json({ error: "Driver not found" });
+      return;
+    }
+    const [row] = await db
+      .update(schema.driversTable)
+      .set({ deactivated })
+      .where(eq(schema.driversTable.kfiId, kfiId))
+      .returning();
+    res.json({ kfiId: row.kfiId, name: row.name, deactivated: row.deactivated });
   },
 );
 

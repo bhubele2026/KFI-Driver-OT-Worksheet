@@ -424,12 +424,15 @@ function resolveKfiId(
   // against the candidate driver (see `isBadgeMatchTrustworthy`).
   if (badge) {
     const mapped = idMap[badge] ?? idMap[badge.toLowerCase()] ?? idMap[badge.toUpperCase()];
-    const candidate =
-      mapped && kfiSet.has(mapped)
-        ? mapped
-        : kfiSet.has(badge)
-          ? badge
-          : null;
+    // An EXPLICIT driver_id_aliases mapping is authoritative and wins outright.
+    // A dispatcher/admin pinned this badge → driver, so we resolve it directly
+    // and skip the trustworthiness veto + the name/fuzzy fallback below. That
+    // fallback was misrouting people who share a surname (full-vs-split name
+    // fields) or a first name; an explicit mapping is exactly how the operator
+    // wants those pinned. The Task #363 collision guard still applies to the
+    // BARE self-map case (a badge that merely equals some kfi_id).
+    if (mapped && kfiSet.has(mapped)) return mapped;
+    const candidate = kfiSet.has(badge) ? badge : null;
     if (
       candidate &&
       isBadgeMatchTrustworthy({
@@ -550,6 +553,12 @@ function toParsedPunch(
     }
   }
   if (!(hours > 0)) return null;
+  // Drop implausible "shifts". A single punch can't be a full day+ of hours;
+  // values this large are almost always a daily/weekly TOTAL row the model
+  // transcribed as a shift (e.g. Landscape Structures' per-day total imported
+  // as an ~86h punch). A real double/long shift stays well under this ceiling.
+  const MAX_SHIFT_HOURS = 20;
+  if (hours > MAX_SHIFT_HOURS) return null;
   // Prefer the real clock times when they parse. But some customer exports
   // (e.g. Penda) occasionally hand us a row with a valid Hours value and
   // blank / unparseable in/out times — the "Choncoa, Ashley M" rows arrived
