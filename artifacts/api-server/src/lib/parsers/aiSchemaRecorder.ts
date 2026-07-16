@@ -5,6 +5,7 @@ import * as schema from "@workspace/db/schema";
 import {
   computeHeaderSignature,
   extractPdfLinesByPage,
+  resolveSheetName,
 } from "./schemaSignature.js";
 import type { ParseResult, ParsedPunch } from "./types.js";
 
@@ -43,6 +44,14 @@ export function inferColumnRoles(
      */
     hours?: number | null;
   },
+  /**
+   * Customer's `sheetSelector` import rule. Picks WHICH sheet of a
+   * multi-sheet workbook to infer roles from, so a customer like Orgill
+   * (Zenople "Master External" export as sheet 1, real timecard on
+   * another sheet) records roles from the timecard — matching the sheet
+   * the AI extracted from and the sheet the reader/signature will use.
+   */
+  sheetSelector?: string | null,
 ): {
   badge: number;
   date: number;
@@ -50,6 +59,7 @@ export function inferColumnRoles(
   timeOut: number;
   hours?: number | null;
   name?: number | null;
+  sheet?: string | null;
 } | null {
   let wb: XLSX.WorkBook;
   try {
@@ -57,7 +67,7 @@ export function inferColumnRoles(
   } catch {
     return null;
   }
-  const sheetName = wb.SheetNames[0];
+  const sheetName = resolveSheetName(wb, sheetSelector);
   if (!sheetName) return null;
   const ws = wb.Sheets[sheetName];
   if (!ws) return null;
@@ -193,6 +203,9 @@ export function inferColumnRoles(
         // Record the customer's Total/Hours column so cached re-uploads
         // honor it (readWithRoles:272 already prefers columnRoles.hours).
         hours: hoursCol >= 0 ? hoursCol : null,
+        // Record WHICH sheet these roles came from so the cache reader
+        // opens the same sheet on re-upload (multi-sheet workbooks).
+        sheet: sheetName,
       };
     }
   }
@@ -527,9 +540,11 @@ export async function deriveSchemaCacheMutation(args: {
   buffer: Buffer;
   aiResult: ParseResult;
   weekStart: string;
+  /** Customer's sheetSelector rule — sign + infer on the same sheet. */
+  sheetSelector?: string | null;
 }): Promise<SchemaCacheMutation> {
-  const { fileName, buffer, aiResult, weekStart } = args;
-  const signature = await computeHeaderSignature(fileName, buffer);
+  const { fileName, buffer, aiResult, weekStart, sheetSelector } = args;
+  const signature = await computeHeaderSignature(fileName, buffer, sheetSelector);
   if (!signature) return { action: "skip", reason: "no-signature" };
   const first = aiResult.punches[0];
   if (!first) return { action: "skip", reason: "no-ai-rows" };
@@ -570,7 +585,7 @@ export async function deriveSchemaCacheMutation(args: {
         // Pass the AI's hours so the recorder pins the customer's own
         // Total/Hours column for deterministic re-uploads.
         hours: typeof candidate.hours === "number" ? candidate.hours : null,
-      });
+      }, sheetSelector);
     } else {
       const fallbackYear = parseInt(weekStart.slice(0, 4));
       roles = await inferPdfColumnRoles(
@@ -636,6 +651,8 @@ export async function recordAiSchemaIfPossible(args: {
   buffer: Buffer;
   aiResult: ParseResult;
   weekStart: string;
+  /** Customer's sheetSelector rule — forwarded to deriveSchemaCacheMutation. */
+  sheetSelector?: string | null;
   log: {
     warn: (obj: object, msg: string) => void;
     info: (obj: object, msg: string) => void;

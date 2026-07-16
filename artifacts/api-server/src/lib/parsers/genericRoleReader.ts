@@ -34,6 +34,14 @@ export interface ColumnRoles {
    * column included.
    */
   name?: number | null;
+  /**
+   * Name of the workbook sheet these roles were inferred from, when the
+   * recorder pinned a specific sheet (multi-sheet workbooks — e.g. Orgill's
+   * timecard sheet, not its "Master External" export). Optional: older
+   * recipes written before this field, and single-sheet files, leave it
+   * unset and the reader falls back to the first sheet.
+   */
+  sheet?: string | null;
 }
 
 function isColumnRoles(v: unknown): v is ColumnRoles {
@@ -142,7 +150,13 @@ export function readWithRoles(
   } catch {
     return null;
   }
-  const sheetName = wb.SheetNames[0];
+  // Open the sheet the recorder pinned these roles to (multi-sheet
+  // workbooks), falling back to the first sheet for older single-sheet
+  // recipes that never stored a sheet name.
+  const sheetName =
+    (columnRoles.sheet && wb.SheetNames.includes(columnRoles.sheet)
+      ? columnRoles.sheet
+      : undefined) ?? wb.SheetNames[0];
   if (!sheetName) return null;
   const ws = wb.Sheets[sheetName];
   if (!ws) return null;

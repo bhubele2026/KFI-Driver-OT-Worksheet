@@ -38,6 +38,13 @@ export async function lookupSchema(
   buffer: Buffer,
   isImage: boolean,
   log?: { info: (obj: object, msg: string) => void },
+  /**
+   * Customer's sheetSelector import rule. Forwarded to the signature so a
+   * multi-sheet workbook is looked up on the SAME sheet the recorder
+   * signed and the reader will open (Orgill timecard, not the Master
+   * export). Omit for single-sheet customers (signs on sheet 1).
+   */
+  sheetSelector?: string | null,
 ): Promise<SchemaLookupResult> {
   const lower = fileName.toLowerCase();
   const format: "xlsx" | "pdf" | null = isImage
@@ -49,7 +56,7 @@ export async function lookupSchema(
         : null;
   if (!format) return { kind: "miss" };
 
-  const signature = await computeHeaderSignature(fileName, buffer);
+  const signature = await computeHeaderSignature(fileName, buffer, sheetSelector);
   if (!signature) return { kind: "miss" };
 
   const rows = await db

@@ -2,6 +2,106 @@ import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
 
 /**
+ * Return the first row of a worksheet that has at least one non-blank
+ * string cell. Some vendor exports prefix the real header row with a
+ * blank or title row, so callers can't assume row 0.
+ */
+function firstNonEmptyRow(ws: XLSX.WorkSheet): unknown[] | undefined {
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+    header: 1,
+    defval: null,
+  });
+  for (const r of rows) {
+    if (
+      Array.isArray(r) &&
+      r.some((c) => c != null && String(c).trim() !== "")
+    ) {
+      return r;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve a customer's `sheetSelector` import-rule to a concrete sheet
+ * name in `wb`. Shared by the signature, the layout recorder, and the
+ * generic reader so all three operate on the SAME sheet for a multi-sheet
+ * workbook (e.g. Orgill ships a "Master External" Zenople export as sheet
+ * 1 and the real timecard as another sheet). Resolution order:
+ *   1. no selector → first sheet (the historical default).
+ *   2. exact case-insensitive match on a sheet name.
+ *   3. numeric selector → 1-based sheet index.
+ *   4. best header-token overlap: the sheet whose header row shares the
+ *      most words with the selector string. Run BEFORE substring so a
+ *      prose selector like "…Employee ID / … / Total, NOT the Master
+ *      External export…" picks the timecard sheet by its content rather
+ *      than substring-matching the "Master External" sheet name it names
+ *      only to EXCLUDE it.
+ *   5. substring match on a sheet name (handles a short tab-name selector
+ *      like "timecard" whose word doesn't appear in any header row).
+ *   6. fallback → first sheet.
+ */
+export function resolveSheetName(
+  wb: XLSX.WorkBook,
+  sheetSelector?: string | null,
+): string | undefined {
+  const names = wb.SheetNames;
+  if (names.length === 0) return undefined;
+  const sel = (sheetSelector ?? "").trim();
+  if (!sel) return names[0];
+
+  const selLower = sel.toLowerCase();
+  // 2. exact
+  const exact = names.find((n) => n.toLowerCase() === selLower);
+  if (exact) return exact;
+  // 3. numeric (1-based)
+  if (/^\d+$/.test(sel)) {
+    const idx = Number(sel) - 1;
+    if (idx >= 0 && idx < names.length) return names[idx];
+  }
+  // 4. best header-token overlap (before substring — a prose selector may
+  //    mention the sheet to AVOID by name, which substring would wrongly
+  //    latch onto; header content is the reliable signal).
+  const selTokens = new Set(
+    selLower.split(/[^a-z0-9]+/).filter((t) => t.length > 1),
+  );
+  if (selTokens.size > 0) {
+    let bestName: string | undefined;
+    let bestScore = 0;
+    for (const name of names) {
+      const ws = wb.Sheets[name];
+      if (!ws) continue;
+      const header = firstNonEmptyRow(ws);
+      if (!header) continue;
+      const headerTokens = new Set(
+        header
+          .flatMap((c) =>
+            c == null ? [] : String(c).toLowerCase().split(/[^a-z0-9]+/),
+          )
+          .filter((t) => t.length > 1),
+      );
+      let score = 0;
+      for (const t of selTokens) if (headerTokens.has(t)) score++;
+      if (score > bestScore) {
+        bestScore = score;
+        bestName = name;
+      }
+    }
+    if (bestName) return bestName;
+  }
+  // 5. substring (either direction — selector may be a fragment of the tab
+  //    name, or a short tab name a fragment of the selector)
+  const substr = names.find(
+    (n) =>
+      n.toLowerCase().includes(selLower) ||
+      selLower.includes(n.toLowerCase()),
+  );
+  if (substr) return substr;
+  // 6. fallback
+  return names[0];
+}
+
+/**
  * Compute a stable signature for a customer upload's column layout.
  *
  * Goal: identical files (same vendor's weekly export with the same column
@@ -32,10 +132,11 @@ import * as XLSX from "xlsx";
 export async function computeHeaderSignature(
   fileName: string,
   buffer: Buffer,
+  sheetSelector?: string | null,
 ): Promise<string | null> {
   const lower = fileName.toLowerCase();
   if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
-    return computeXlsxSignature(buffer);
+    return computeXlsxSignature(buffer, sheetSelector);
   }
   if (lower.endsWith(".pdf")) {
     return computePdfSignature(buffer);
@@ -43,34 +144,24 @@ export async function computeHeaderSignature(
   return null;
 }
 
-function computeXlsxSignature(buffer: Buffer): string | null {
+function computeXlsxSignature(
+  buffer: Buffer,
+  sheetSelector?: string | null,
+): string | null {
   let wb: XLSX.WorkBook;
   try {
     wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
   } catch {
     return null;
   }
-  const sheetName = wb.SheetNames[0];
+  // Honor the customer's sheetSelector so a multi-sheet workbook signs on
+  // the SAME sheet the recorder/reader will use (not always sheet 1).
+  const sheetName = resolveSheetName(wb, sheetSelector);
   if (!sheetName) return null;
   const ws = wb.Sheets[sheetName];
   if (!ws) return null;
 
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, {
-    header: 1,
-    defval: null,
-  });
-  // Find the first row that has at least one non-blank string cell — some
-  // exports prefix the actual header row with a blank or title row.
-  let headerRow: unknown[] | undefined;
-  for (const r of rows) {
-    if (
-      Array.isArray(r) &&
-      r.some((c) => c != null && String(c).trim() !== "")
-    ) {
-      headerRow = r;
-      break;
-    }
-  }
+  const headerRow = firstNonEmptyRow(ws);
   if (!headerRow) return null;
 
   // Normalize each header cell (trim, lowercase, collapse whitespace)

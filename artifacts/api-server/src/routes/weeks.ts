@@ -2089,6 +2089,10 @@ weeksRouter.post(
     // defaults to on so all uploads run the AI extractor (which resolves by
     // name + alias and is far more forgiving). Set it to "0" to re-enable the
     // column-schema cache for speed/cost if that tradeoff is ever wanted.
+    // Phase-2: load the customer's durable import rules once here so both
+    // the cache lookup/record (sheetSelector → correct sheet of a
+    // multi-sheet workbook) and the AI directive (below) share them.
+    const customerRules = await loadCustomerRules(detectedCustomer);
     const forceAiExtract =
       (process.env.CUSTOMER_EXTRACT_FORCE_AI ?? "1").trim() !== "0";
     const schemaHit =
@@ -2100,6 +2104,7 @@ weeksRouter.post(
             req.file.buffer,
             isImage,
             req.log,
+            customerRules?.sheetSelector,
           );
 
     if (schemaHit.kind === "cache") {
@@ -2219,8 +2224,7 @@ weeksRouter.post(
         // per-customer import rules both steer this known-customer
         // extraction. Previously ONLY the new-customer path threaded
         // lessons, so "teaching Claude" never reached normal weekly
-        // uploads — this closes that gap.
-        const customerRules = await loadCustomerRules(detectedCustomer);
+        // uploads — this closes that gap. (customerRules loaded once above.)
         const promptLessons = [
           ...(await loadLessonsForPrompt(detectedCustomer)),
           ...rulesToDirectives(customerRules),
@@ -2275,6 +2279,7 @@ weeksRouter.post(
           buffer: req.file.buffer,
           aiResult,
           weekStart: startDate,
+          sheetSelector: customerRules?.sheetSelector,
           log: req.log,
         });
       } catch (err) {
@@ -7728,23 +7733,42 @@ weeksRouter.post(
             .returning({ id: schema.punchesTable.id });
           await _g.recordOk(_del.length);
         }
+        // Match on ctExternalKey first, then fall back to punch IDENTITY
+        // (kfiId + clockIn + clockOut) — mirrors the week-wide refresh
+        // (see above). After the floor-rounding change an edited/manual
+        // row can keep its original ctExternalKey while its clock times
+        // shift by a minute, so a key-only test would let a duplicate
+        // twin of a preserved row slip in. The identity fallback
+        // suppresses that.
+        const keptRows = await tx
+          .select({
+            key: schema.punchesTable.ctExternalKey,
+            kfiId: schema.punchesTable.kfiId,
+            clockIn: schema.punchesTable.clockIn,
+            clockOut: schema.punchesTable.clockOut,
+          })
+          .from(schema.punchesTable)
+          .where(
+            and(
+              eq(schema.punchesTable.weekStart, startDate),
+              eq(schema.punchesTable.kfiId, kfiId),
+              eq(schema.punchesTable.source, "Driver"),
+            ),
+          );
         const keptKeys = new Set(
-          (
-            await tx
-              .select({ key: schema.punchesTable.ctExternalKey })
-              .from(schema.punchesTable)
-              .where(
-                and(
-                  eq(schema.punchesTable.weekStart, startDate),
-                  eq(schema.punchesTable.kfiId, kfiId),
-                  eq(schema.punchesTable.source, "Driver"),
-                ),
-              )
-          )
-            .map((r) => r.key)
-            .filter((k): k is string => Boolean(k)),
+          keptRows.map((r) => r.key).filter((k): k is string => Boolean(k)),
         );
-        const toInsert = deduped.filter((p) => !keptKeys.has(p.ctExternalKey));
+        const identityOf = (kId: string, clockIn: string, clockOut: string) =>
+          `${kId}|${clockIn}|${clockOut}`;
+        const keptIdentities = new Set(
+          keptRows.map((r) => identityOf(r.kfiId, r.clockIn, r.clockOut)),
+        );
+        const toInsert = deduped.filter((p) => {
+          if (keptKeys.has(p.ctExternalKey)) return false;
+          if (keptIdentities.has(identityOf(p.kfiId, p.clockIn, p.clockOut)))
+            return false;
+          return true;
+        });
         if (toInsert.length > 0) {
           await tx.insert(schema.punchesTable).values(
             toInsert.map((p) => ({
