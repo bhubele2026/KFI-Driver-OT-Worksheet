@@ -20,6 +20,7 @@ const GROUPS: { label: string; tiles: SettingTile[] }[] = [
     label: "Customers",
     tiles: [
       { href: "/admin/customers", title: "Customers", blurb: "Active customers, filename keywords, and Gemini fallback." },
+      { href: "/admin/customer-import-rules", title: "Import rules", blurb: "Per-customer read exceptions: sheet, name layout, actual-vs-scheduled, total rows to drop." },
       { href: "/admin/customer-aliases", title: "Customer aliases", blurb: "Alternate names that map to a customer." },
       { href: "/admin/inactive-customers", title: "Inactive customers", blurb: "Archived customers kept for history." },
     ],

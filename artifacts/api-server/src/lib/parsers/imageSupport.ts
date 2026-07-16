@@ -15,6 +15,10 @@ import {
   type RosterContext,
 } from "./aiExtract.js";
 import type { IngestionBudgetSummary } from "./ingestionBudget.js";
+import {
+  isDroppableTotalRow,
+  type CustomerImportRules,
+} from "./customerRules.js";
 
 /**
  * Build the RosterContext the AI prompt uses to attempt resolvedKfiId
@@ -169,6 +173,12 @@ export async function extractImageForKnownCustomer(args: {
    * let `aiExtractRows` construct a throwaway budget.
    */
   aiOpts?: AiExtractOptions;
+  /**
+   * Phase-2 durable per-customer import rules. Only the deterministic
+   * total-row drop (`dropTotalRowPatterns`) is consumed here; the prompt
+   * directives are folded into `aiOpts.lessons` by the caller.
+   */
+  importRules?: CustomerImportRules | null;
 }): Promise<ParseResult & { aiBudgetSummary?: IngestionBudgetSummary }> {
   const {
     fileName,
@@ -183,6 +193,7 @@ export async function extractImageForKnownCustomer(args: {
     nameAliasMap,
     log,
     aiOpts,
+    importRules,
   } = args;
   // Prefer drivers attached to this customer when building the roster
   // hints sent to the AI — narrows the prompt to plausible candidates
@@ -249,6 +260,25 @@ export async function extractImageForKnownCustomer(args: {
       dropped.add({
         reason: "outside_week",
         detail: `date ${iso} is outside ${weekStart}..${weekEnd}`,
+        rawRow: {
+          driverNameOnDoc: r.driverNameOnDoc ?? null,
+          badgeOrId: (r.badgeOrId ?? "").trim() || null,
+          date: iso,
+          timeIn: r.timeIn ?? null,
+          timeOut: r.timeOut ?? null,
+          hours: typeof r.hours === "number" ? r.hours : null,
+        },
+      });
+      continue;
+    }
+    // Phase-2: drop customer-specific total/subtotal/pay-code rows that
+    // slip under the >20h implausible-shift guard (e.g. LSI's per-day
+    // REGULAR/OVERTIME marker rows). Matched on the row's own name/badge
+    // text so a real punch is never affected.
+    if (isDroppableTotalRow(importRules, r.driverNameOnDoc, r.badgeOrId)) {
+      dropped.add({
+        reason: "extraction_failed",
+        detail: `matched customer total-row pattern`,
         rawRow: {
           driverNameOnDoc: r.driverNameOnDoc ?? null,
           badgeOrId: (r.badgeOrId ?? "").trim() || null,

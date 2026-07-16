@@ -101,6 +101,11 @@ import {
   isImageMime,
   normalizeImageBuffer,
 } from "../lib/parsers/imageSupport.js";
+import {
+  loadCustomerRules,
+  rulesToDirectives,
+  sanitizeRulesForStore,
+} from "../lib/parsers/customerRules.js";
 import { isBadgeMatchTrustworthy, topMatches } from "../lib/parsers/fuzzy.js";
 import { narrowDriverPool } from "../lib/parsers/candidatePool.js";
 import {
@@ -2210,6 +2215,16 @@ weeksRouter.post(
         stashedImageMime = mimeForAi;
         const idMap = await loadMergedIdMap();
         const nameAliasMap = await loadCustomerNameAliasMap(detectedCustomer);
+        // Phase-2: past dispatcher corrections (lessons) + durable
+        // per-customer import rules both steer this known-customer
+        // extraction. Previously ONLY the new-customer path threaded
+        // lessons, so "teaching Claude" never reached normal weekly
+        // uploads — this closes that gap.
+        const customerRules = await loadCustomerRules(detectedCustomer);
+        const promptLessons = [
+          ...(await loadLessonsForPrompt(detectedCustomer)),
+          ...rulesToDirectives(customerRules),
+        ];
         const aiResult = await extractImageForKnownCustomer({
           fileName,
           buffer: bufferForAi,
@@ -2222,10 +2237,12 @@ weeksRouter.post(
           kfiSet,
           nameAliasMap,
           log: req.log,
+          importRules: customerRules,
           aiOpts: {
             budget: aiBudget,
             allowGeminiFallback,
             ingestionId,
+            lessons: promptLessons,
             onChunkProgress: (current, total, resumedFromStaging) =>
               publishExtractProgress(
                 progressKey,
@@ -2705,6 +2722,11 @@ weeksRouter.post(
         const reIdMap = await loadMergedIdMap();
         const reNameAliasMap = await loadCustomerNameAliasMap(sample.customer);
         const { endDate: reEndDate } = await ensureWeek(startDate);
+        const reCustomerRules = await loadCustomerRules(sample.customer);
+        const reLessons = [
+          ...(await loadLessonsForPrompt(sample.customer)),
+          ...rulesToDirectives(reCustomerRules),
+        ];
         const reAiResult = await extractImageForKnownCustomer({
           fileName: sample.fileName,
           buffer: fileBytesBuf,
@@ -2717,10 +2739,12 @@ weeksRouter.post(
           kfiSet,
           nameAliasMap: reNameAliasMap,
           log: req.log,
+          importRules: reCustomerRules,
           aiOpts: {
             budget: reBudget,
             allowGeminiFallback: reAllowGemini,
             ingestionId: reIngestionId,
+            lessons: reLessons,
             // No SSE progress key on the confirm path — the dispatcher
             // is already past the preview dialog and not subscribed.
             uploadKey: makeUploadKey({
@@ -7555,6 +7579,57 @@ weeksRouter.patch(
       .where(eq(schema.driversTable.kfiId, kfiId))
       .returning();
     res.json({ kfiId: row.kfiId, name: row.name, deactivated: row.deactivated });
+  },
+);
+
+// Phase-2: durable per-customer import EXCEPTION rules. List every
+// customer with its current rule (null = default behavior). Raw fetch on
+// the client (no codegen) to stay off the openapi drift path.
+weeksRouter.get(
+  "/admin/customer-import-rules",
+  requireSupervisorOrAdmin,
+  async (_req, res) => {
+    const rows = await db
+      .select({
+        id: schema.customersTable.id,
+        displayName: schema.customersTable.displayName,
+        active: schema.customersTable.active,
+        importRules: schema.customersTable.importRules,
+      })
+      .from(schema.customersTable)
+      .orderBy(schema.customersTable.sortOrder, schema.customersTable.displayName);
+    res.json(rows);
+  },
+);
+
+// Set (or clear) one customer's import rules. Body `{ importRules: {...}|null }`.
+// Sanitized to the known field set before persisting so the JSONB column
+// never accumulates junk keys.
+weeksRouter.put(
+  "/admin/customer-import-rules/:id",
+  requireSupervisorOrAdmin,
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid customer id" });
+      return;
+    }
+    const body = req.body as { importRules?: unknown } | undefined;
+    const clean = sanitizeRulesForStore(body?.importRules);
+    const [row] = await db
+      .update(schema.customersTable)
+      .set({ importRules: clean })
+      .where(eq(schema.customersTable.id, id))
+      .returning({
+        id: schema.customersTable.id,
+        displayName: schema.customersTable.displayName,
+        importRules: schema.customersTable.importRules,
+      });
+    if (!row) {
+      res.status(404).json({ error: "Customer not found" });
+      return;
+    }
+    res.json(row);
   },
 );
 

@@ -4,6 +4,7 @@ import {
   text,
   boolean,
   integer,
+  jsonb,
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -39,6 +40,16 @@ export const customersTable = pgTable(
     allowGeminiFallback: boolean("allow_gemini_fallback")
       .notNull()
       .default(false),
+    // Phase-2: durable per-customer import EXCEPTION rules, independent
+    // of the header-signature cache (so they survive AI re-learning and
+    // file drift). Steers the AI extraction prompt (nameMode /
+    // sheetSelector / timeColumnMode / trustProvidedHours) and drives a
+    // deterministic post-extract total-row filter. Null = default
+    // behavior (which already honors each file's Hours/Total column as
+    // of Phase-2 core). Shape mirrors `CustomerImportRules` in
+    // `lib/parsers/customerRules.ts`; edited from
+    // /admin/customer-import-rules.
+    importRules: jsonb("import_rules"),
     sortOrder: integer("sort_order").notNull().default(1000),
     createdBy: integer("created_by").references(() => usersTable.id, {
       onDelete: "set null",
