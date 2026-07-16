@@ -28,7 +28,10 @@ import AdminDeletedNotes from "@/pages/admin-deleted-notes";
 import AdminBootAudit from "@/pages/admin-boot-audit";
 import AdminRealtime from "@/pages/admin-realtime";
 import AdminTimezones from "@/pages/admin-timezones";
-import Landing from "@/pages/landing";
+import Home from "@/pages/home";
+import DriverUpload from "@/pages/driver-upload";
+import History from "@/pages/history";
+import Settings from "@/pages/settings";
 import WeekSummary from "@/pages/week-summary";
 import DriverDetail from "@/pages/driver-detail";
 import { CopilotDrawer } from "@/components/copilot-drawer";
@@ -85,7 +88,6 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   const PUBLIC_ROUTE_RES = [
-    /^\/$/,
     /^\/login$/,
     /^\/register$/,
     /^\/forgot-password$/,
@@ -100,7 +102,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   if (user && isLoginRoute) {
-    return <Redirect to="/worksheet" />;
+    return <Redirect to="/" />;
   }
 
   return (
@@ -109,15 +111,6 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       {user && <CopilotDrawer />}
     </>
   );
-}
-
-// Front door: logged-out visitors see the branded Landing page; authenticated
-// users get the worksheet at "/" exactly as before (so every in-app link and
-// logo href that points to "/" still lands on the worksheet).
-function Home() {
-  const { data: user, isLoading } = useGetMe();
-  if (isLoading) return null;
-  return user ? <WeekSummary /> : <Landing />;
 }
 
 function Router() {
@@ -154,6 +147,13 @@ function Router() {
         <Route path="/admin/timezones" component={AdminTimezones} />
         <Route path="/admin/i18n" component={AdminI18nStatus} />
         <Route path="/" component={Home} />
+        <Route path="/upload/:weekStart" component={DriverUpload} />
+        <Route path="/upload" component={DriverUpload} />
+        <Route path="/timesheets/:weekStart" component={WeekSummary} />
+        <Route path="/timesheets" component={WeekSummary} />
+        <Route path="/history" component={History} />
+        <Route path="/settings" component={Settings} />
+        {/* legacy paths still resolve to the worksheet */}
         <Route path="/worksheet" component={WeekSummary} />
         <Route path="/weeks/:weekStart" component={WeekSummary} />
         <Route path="/weeks/:weekStart/drivers/:kfiId" component={DriverDetail} />

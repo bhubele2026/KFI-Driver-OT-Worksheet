@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..800;1,14..32,300..800&family=Geist+Mono:wght@100..900&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -60,6 +59,14 @@
   --color-warning: hsl(var(--warning));
   --color-warning-foreground: hsl(var(--warning-foreground));
 
+  /* KFI Financial Dashboard brand palette (exact hex) */
+  --color-brand-navy: #19315b;
+  --color-brand-navy2: #22406e;
+  --color-brand-orange: #f68d2e;
+  --color-brand-tint: #f7f9fc;
+  --color-brand-line: #e6edf5;
+  --color-brand-ink: #1a2233;
+
   --font-sans: var(--app-font-sans);
   --font-mono: var(--app-font-mono);
   --font-display: var(--app-font-display);
@@ -70,82 +77,79 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* LIGHT MODE — KFI Workforce Deployment corporate (navy / white / steel) */
+/* LIGHT — matched to the KFI Financial Dashboard (navy / white / steel, flat) */
 :root {
-  --button-outline: rgba(25, 36, 63, .10);
-  --badge-outline: rgba(25, 36, 63, .05);
+  color-scheme: light;
 
+  --button-outline: rgba(25, 49, 91, .10);
+  --badge-outline: rgba(25, 49, 91, .05);
   --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(25, 49, 91, .03);
+  --elevate-2: rgba(25, 49, 91, .07);
 
-  --elevate-1: rgba(25, 36, 63, .03);
-  --elevate-2: rgba(25, 36, 63, .07);
+  --background: 216 43% 98%;          /* #F7F9FC brand tint */
+  --foreground: 222 33% 15%;          /* #1A2233 ink */
 
-  --background: 210 33% 98%;          /* #F7F9FC cool white canvas */
-  --foreground: 222 44% 17%;          /* #19243F navy ink */
-
-  --border: 214 28% 90%;              /* #DEE4ED cool hairline */
-  --input: 214 28% 90%;
-  --ring: 221 45% 38%;                /* steel-navy focus ring */
+  --border: 213 44% 93%;              /* #E6EDF5 hairline */
+  --input: 213 44% 93%;
+  --ring: 217 57% 23%;                /* navy focus ring */
 
   --card: 0 0% 100%;                  /* pure white panels */
-  --card-foreground: 222 44% 17%;
-  --card-border: 214 28% 91%;
+  --card-foreground: 222 33% 15%;
+  --card-border: 213 44% 93%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 222 44% 17%;
-  --popover-border: 214 28% 91%;
+  --popover-foreground: 222 33% 15%;
+  --popover-border: 213 44% 93%;
 
-  --primary: 222 46% 24%;             /* #21305C KFI navy CTAs */
+  --primary: 217 57% 23%;             /* #19315B KFI navy */
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 214 32% 94%;           /* #E9EEF6 cool block */
-  --secondary-foreground: 222 44% 20%;
+  --secondary: 214 40% 96%;           /* cool block */
+  --secondary-foreground: 217 57% 23%;
 
-  --muted: 210 33% 97%;               /* #F4F7FB card subhead bg */
-  --muted-foreground: 218 16% 45%;    /* #636C82 cool gray text */
+  --muted: 214 42% 97%;               /* card subhead bg */
+  --muted-foreground: 220 12% 46%;    /* #6B7280 neutral-500 */
 
-  --accent: 214 45% 92%;              /* #E3EBF7 steel highlight */
-  --accent-foreground: 222 46% 24%;
+  --accent: 213 44% 93%;              /* steel line highlight */
+  --accent-foreground: 217 57% 23%;
 
-  --destructive: 0 63% 47%;           /* #C42E2E professional red */
+  --destructive: 0 63% 47%;           /* professional red */
   --destructive-foreground: 0 0% 100%;
 
-  --warning: 35 85% 45%;              /* #D5862A amber */
+  --warning: 30 92% 57%;              /* #F68D2E brand orange (OT / accent) */
   --warning-foreground: 0 0% 100%;
 
-  --sidebar: 222 46% 22%;             /* #1E2C50 KFI navy brand bar (matches logo) */
-  --sidebar-foreground: 210 40% 98%;  /* near-white on navy */
-  --sidebar-border: 222 32% 32%;      /* subtle navy hairline */
-  --sidebar-primary: 205 90% 64%;     /* bright steel-blue accent on navy */
-  --sidebar-primary-foreground: 222 47% 11%;
-  --sidebar-accent: 222 38% 28%;      /* navy hover */
-  --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 205 90% 64%;
+  --sidebar: 217 57% 23%;             /* #19315B navy app bar */
+  --sidebar-foreground: 0 0% 100%;
+  --sidebar-border: 216 40% 32%;
+  --sidebar-primary: 30 92% 57%;      /* orange accent on navy */
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 216 45% 30%;      /* navy hover */
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-ring: 30 92% 57%;
 
-  --chart-1: 221 45% 40%;             /* steel-navy */
+  --chart-1: 217 57% 30%;             /* navy */
   --chart-2: 200 78% 44%;             /* cyan-blue */
-  --chart-3: 222 46% 24%;             /* deep navy */
-  --chart-4: 35 85% 45%;              /* amber */
+  --chart-3: 173 45% 40%;             /* teal */
+  --chart-4: 30 92% 57%;              /* orange */
   --chart-5: 0 63% 50%;               /* red */
 
-  --app-font-sans: 'Inter', system-ui, sans-serif;
-  --app-font-display: 'Inter', system-ui, sans-serif;
-  --app-font-mono: 'Geist Mono', ui-monospace, monospace;
+  --app-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --app-font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --app-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Sharp corporate corners — flattened from the old 0.5rem rounding. */
-  --radius: 0.25rem;
+  --radius: 0.75rem;
 
-  /* Flat by default — definition comes from 1px hairline borders, not
-     shadows. Only popovers/dialogs/dropdowns (lg/xl/2xl) get a faint
-     lift so floating layers read as separate from the page. */
-  --shadow-2xs: 0px 0px 0px 0px hsl(222 44% 17% / 0.00);
-  --shadow-xs: 0px 0px 0px 0px hsl(222 44% 17% / 0.00);
-  --shadow-sm: 0px 1px 0px 0px hsl(222 44% 17% / 0.03);
-  --shadow: 0px 1px 0px 0px hsl(222 44% 17% / 0.04);
-  --shadow-md: 0px 1px 2px 0px hsl(222 44% 17% / 0.05);
-  --shadow-lg: 0px 4px 12px -3px hsl(222 44% 17% / 0.10);
-  --shadow-xl: 0px 8px 22px -5px hsl(222 44% 17% / 0.12);
-  --shadow-2xl: 0px 14px 32px -6px hsl(222 44% 17% / 0.16);
+  /* Flat: definition from hairline rings, only floating layers get a faint lift. */
+  --shadow-2xs: 0px 0px 0px 0px hsl(222 33% 15% / 0.00);
+  --shadow-xs: 0px 1px 1px 0px hsl(222 33% 15% / 0.03);
+  --shadow-sm: 0px 1px 2px 0px hsl(222 33% 15% / 0.05);
+  --shadow: 0px 1px 3px 0px hsl(222 33% 15% / 0.06);
+  --shadow-md: 0px 4px 12px -3px hsl(222 33% 15% / 0.08);
+  --shadow-lg: 0px 8px 20px -5px hsl(222 33% 15% / 0.10);
+  --shadow-xl: 0px 14px 32px -8px hsl(222 33% 15% / 0.14);
+  --shadow-2xl: 0px 20px 44px -10px hsl(222 33% 15% / 0.18);
 
   --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
@@ -156,65 +160,54 @@
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
-.dark {
-  --button-outline: rgba(255,255,255, .10);
-  --badge-outline: rgba(255,255,255, .05);
-
-  --opaque-button-border-intensity: 9;
-
-  --elevate-1: rgba(255,255,255, .04);
-  --elevate-2: rgba(255,255,255, .09);
-
-  --background: 222.2 47.4% 11.2%;
-  --foreground: 210 40% 98%;
-
-  --border: 217.2 32.6% 17.5%;
-  --input: 217.2 32.6% 17.5%;
-  --ring: 173 58% 39%;
-
-  --card: 222.2 47.4% 11.2%;
-  --card-foreground: 210 40% 98%;
-  --card-border: 217.2 32.6% 17.5%;
-
-  --popover: 222.2 47.4% 11.2%;
-  --popover-foreground: 210 40% 98%;
-  --popover-border: 217.2 32.6% 17.5%;
-
-  --primary: 173 58% 39%;
-  --primary-foreground: 222.2 47.4% 11.2%;
-
-  --secondary: 217.2 32.6% 17.5%;
-  --secondary-foreground: 210 40% 98%;
-
-  --muted: 217.2 32.6% 17.5%;
-  --muted-foreground: 215 20.2% 65.1%;
-
-  --accent: 217.2 32.6% 17.5%;
-  --accent-foreground: 210 40% 98%;
-
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
-
-  --warning: 38 92% 50%;
-  --warning-foreground: 222.2 47.4% 11.2%;
-
-  --sidebar: 222.2 47.4% 11.2%;
-  --sidebar-foreground: 210 40% 98%;
-  --sidebar-border: 217.2 32.6% 17.5%;
-  --sidebar-primary: 173 58% 39%;
-  --sidebar-primary-foreground: 222.2 47.4% 11.2%;
-  --sidebar-accent: 217.2 32.6% 17.5%;
-  --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 173 58% 39%;
-}
-
 @layer base {
   * {
     @apply border-border;
   }
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    text-rendering: optimizeLegibility;
   }
+}
+
+/* Tabular lining figures for numbers/data — clean, not monospace "code". */
+.fin-num {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* Tile / content entrance — fade + short rise, staggered via inline animation-delay.
+   Signature easing from the dashboard: cubic-bezier(0.16, 1, 0.3, 1). */
+@keyframes tileIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tile-in {
+  animation: tileIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: opacity, transform;
+}
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.rise-in {
+  animation: riseIn 170ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: opacity, transform;
+}
+.stagger > * {
+  animation: riseIn 170ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: opacity, transform;
+}
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 28ms; }
+.stagger > *:nth-child(3) { animation-delay: 56ms; }
+.stagger > *:nth-child(4) { animation-delay: 84ms; }
+.stagger > *:nth-child(5) { animation-delay: 112ms; }
+.stagger > *:nth-child(6) { animation-delay: 140ms; }
+.stagger > *:nth-child(n + 7) { animation-delay: 168ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tile-in, .rise-in, .stagger > * { animation: none; }
 }
 
 @media print {

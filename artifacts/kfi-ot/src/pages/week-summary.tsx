@@ -14,9 +14,10 @@ import {
   useGetZenopleReadiness,
   getDownloadZenopleExportUrl,
 } from "@workspace/api-client-react";
-import { CustomerUploadPanel } from "@/components/customer-upload-panel";
 import { ZenopleExportButton } from "@/components/zenople-export-button";
-import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
+import { DriversSidebar } from "@/components/drivers-sidebar";
+import { AppShell } from "@/components/app-shell";
+import { WeekToolbar } from "@/components/week-toolbar";
 import { ReviewedPill } from "@/components/reviewed-pill";
 import {
   AllReviewedSplash,
@@ -404,81 +405,13 @@ export default function WeekSummary() {
     .filter((c) => c.driverCount > 0);
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-background">
-      <header className="sticky top-0 z-10 bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4 h-14 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-4">
-          <DriversSidebarMobileTrigger
-            weekStart={weekStart}
-            className="text-sidebar-foreground hover:bg-sidebar-accent"
-          />
-          <Link
-            href="/"
-            className="flex items-center no-underline"
-            title="KFI Workforce Deployment"
-          >
-            <Logo />
-          </Link>
-          <div className="h-6 w-px bg-sidebar-border/60" />
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => goWeek(-1)}
-              title={t("header.previousWeek")}
-              className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => goWeek(1)}
-              title={t("header.nextWeek")}
-              className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <Select value={weekStart} onValueChange={handleWeekChange}>
-              <SelectTrigger className="w-[200px] h-8 bg-sidebar-accent border-sidebar-accent-border text-sidebar-accent-foreground text-sm font-mono">
-                <SelectValue placeholder={t("header.selectWeek")} />
-              </SelectTrigger>
-              <SelectContent>
-                {weekOptions.map((w) => (
-                  <SelectItem
-                    key={w.startDate}
-                    value={w.startDate}
-                    className="font-mono"
-                  >
-                    {t("weekSummary.weekRangeOption", { start: w.startDate, end: w.endDate })}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Input
-              type="date"
-              title={t("header.jumpTo")}
-              className="w-36 h-8 bg-sidebar-accent border-sidebar-accent-border text-sidebar-accent-foreground font-mono text-sm [color-scheme:dark]"
-              onChange={handleCustomWeekChange}
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <PresenceChip viewers={viewers} selfEmail={me?.email ?? null} />
-          <HiddenNotesBadge variant="compact" />
-          <LanguageToggle />
-          <AdminLink />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleLogout}
-            className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-8"
-          >
-            <LogOut className="h-4 w-4 mr-2" />
-            {t("common.signOut")}
-          </Button>
-        </div>
-      </header>
+    <AppShell active="/timesheets" wide>
+      <div className="mx-auto w-full max-w-[1700px] px-5 pt-4">
+        <WeekToolbar
+          weekStart={weekStart}
+          onChange={(w) => setLocation(`/timesheets/${w}`)}
+        />
+      </div>
 
       <div className="flex-1 flex min-h-0">
         <DriversSidebar
@@ -513,7 +446,7 @@ export default function WeekSummary() {
                     <span className="font-semibold">
                       {t("weekSummary.refreshIssuesClocksFailed", { count: lastRefreshIssues.failures.length })}
                     </span>{" "}
-                    <span className="font-mono">
+                    <span className="fin-num">
                       {lastRefreshIssues.failures
                         .map((f) => `${f.clockName} (${f.clockId})`)
                         .join(", ")}
@@ -526,7 +459,7 @@ export default function WeekSummary() {
                       <span className="font-semibold">
                         {t("weekSummary.refreshIssuesUnresolved", { count: lastRefreshIssues.unresolved.length })}
                       </span>{" "}
-                      <span className="font-mono">
+                      <span className="fin-num">
                         {lastRefreshIssues.unresolved
                           .slice(0, 5)
                           .map((u) => `${u.ctUserId} (${u.shiftCount})`)
@@ -566,13 +499,13 @@ export default function WeekSummary() {
               {summary?.lastRefreshedAt ? (
                 <p className="text-sm text-muted-foreground">
                   {t("weekSummary.lastRefresh")}{" "}
-                  <span className="font-mono">
+                  <span className="fin-num">
                     {new Date(summary.lastRefreshedAt).toLocaleString()}
                   </span>
                   {summary.lastRefreshedByEmail && (
                     <span className="ml-2">
                       {t("weekSummary.lastRefreshBy")}{" "}
-                      <span className="font-mono">
+                      <span className="fin-num">
                         {summary.lastRefreshedByEmail}
                       </span>
                     </span>
@@ -681,7 +614,7 @@ export default function WeekSummary() {
                           data-testid={`menuitem-print-customer-${c.customer}`}
                         >
                           <span className="truncate">{c.customer}</span>
-                          <span className="ml-auto text-xs text-muted-foreground font-mono">
+                          <span className="ml-auto text-xs text-muted-foreground fin-num">
                             {t("weekSummary.htmlBadge", { count: c.driverCount })}
                           </span>
                         </DropdownMenuItem>
@@ -698,7 +631,7 @@ export default function WeekSummary() {
                           data-testid={`menuitem-pdf-customer-${c.customer}`}
                         >
                           <span className="truncate">{c.customer}</span>
-                          <span className="ml-auto text-xs text-muted-foreground font-mono">
+                          <span className="ml-auto text-xs text-muted-foreground fin-num">
                             {t("weekSummary.pdfBadge", { count: c.driverCount })}
                           </span>
                         </DropdownMenuItem>
@@ -806,14 +739,14 @@ export default function WeekSummary() {
                   htmlFor="reset-confirm"
                   className="text-xs uppercase tracking-wide text-muted-foreground"
                 >
-                  {t("weekSummary.resetTypePrefix")} <span className="font-mono">{weekStart}</span> {t("weekSummary.resetTypeSuffix")}
+                  {t("weekSummary.resetTypePrefix")} <span className="fin-num">{weekStart}</span> {t("weekSummary.resetTypeSuffix")}
                 </Label>
                 <Input
                   id="reset-confirm"
                   value={resetConfirmText}
                   onChange={(e) => setResetConfirmText(e.target.value)}
                   placeholder={weekStart}
-                  className="font-mono"
+                  className="fin-num"
                   data-testid="input-reset-confirm"
                   autoComplete="off"
                 />
@@ -872,7 +805,7 @@ export default function WeekSummary() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-4">
-                    <div className="text-2xl font-bold font-mono">
+                    <div className="text-2xl font-bold fin-num">
                       {summary.totals.activeDrivers}
                     </div>
                   </CardContent>
@@ -884,7 +817,7 @@ export default function WeekSummary() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-4">
-                    <div className="text-2xl font-bold font-mono">
+                    <div className="text-2xl font-bold fin-num">
                       {summary.totals.totalHours.toFixed(2)}
                     </div>
                   </CardContent>
@@ -896,7 +829,7 @@ export default function WeekSummary() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-4">
-                    <div className="text-2xl font-bold font-mono text-blue-600 dark:text-blue-400">
+                    <div className="text-2xl font-bold fin-num text-brand-navy">
                       {summary.totals.driverHours.toFixed(2)}
                     </div>
                   </CardContent>
@@ -908,7 +841,7 @@ export default function WeekSummary() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-4">
-                    <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                    <div className="text-2xl font-bold fin-num text-teal-600">
                       {summary.totals.customerHours.toFixed(2)}
                     </div>
                   </CardContent>
@@ -920,7 +853,7 @@ export default function WeekSummary() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-4">
-                    <div className="text-2xl font-bold font-mono">
+                    <div className="text-2xl font-bold fin-num">
                       {summary.totals.regularHours.toFixed(2)}
                     </div>
                   </CardContent>
@@ -932,7 +865,7 @@ export default function WeekSummary() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-4 pb-4">
-                    <div className="text-2xl font-bold font-mono text-warning">
+                    <div className="text-2xl font-bold fin-num text-warning">
                       {summary.totals.overtimeHours.toFixed(2)}
                     </div>
                   </CardContent>
@@ -944,7 +877,7 @@ export default function WeekSummary() {
                 data-testid="review-totals-chips"
               >
                 <span
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-medium border bg-card text-foreground border-border"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs fin-num font-medium border bg-card text-foreground border-border"
                   data-testid="chip-review-totals"
                 >
                   <span className="text-emerald-700 dark:text-emerald-300">
@@ -960,7 +893,7 @@ export default function WeekSummary() {
                   </span>
                 </span>
                 <span
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-medium border bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs fin-num font-medium border bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
                   data-testid="chip-locked-count"
                 >
                   <Lock className="h-3 w-3" />
@@ -968,12 +901,11 @@ export default function WeekSummary() {
                 </span>
               </div>
 
-              <CustomerUploadPanel weekStart={weekStart} />
             </>
           ) : null}
         </main>
       </div>
-    </div>
+    </AppShell>
   );
 }
 
