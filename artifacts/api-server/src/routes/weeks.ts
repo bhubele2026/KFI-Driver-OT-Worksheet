@@ -28,6 +28,10 @@ import {
 import { db, schema } from "../lib/db.js";
 import { guardBulkPunchDelete } from "../lib/safeBulkDelete.js";
 import {
+  computeNoteRemap,
+  type RefreshPunchRow,
+} from "../lib/refreshNoteRemap.js";
+import {
   requireAuth,
   requireAdmin,
   requireSupervisorOrAdmin,
@@ -1076,6 +1080,52 @@ weeksRouter.get(
   },
 );
 
+/** Drizzle transaction handle type, for helpers that run inside a tx. */
+type WeeksTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * B3: a refresh DELETEs then re-INSERTs a driver's Driver-source punches,
+ * so each returning row gets a NEW id. Any row-level `driver_notes`
+ * pinned to a deleted punch would otherwise orphan ("(orphaned punch)")
+ * on every weekly refresh even though the same shift came right back.
+ * This re-points those notes onto the freshly-inserted punch representing
+ * the SAME shift (see {@link computeNoteRemap} — ctExternalKey first, then
+ * identity). Week-level notes (punch_id IS NULL) are untouched. Safe no-op
+ * when nothing was deleted/re-inserted or the deleted punches had no notes.
+ */
+async function remapNotesAfterRefresh(
+  tx: WeeksTx,
+  weekStart: string,
+  deletedRows: RefreshPunchRow[],
+  insertedRows: RefreshPunchRow[],
+): Promise<void> {
+  const oldIdToNew = computeNoteRemap(deletedRows, insertedRows);
+  if (oldIdToNew.size === 0) return;
+  const oldIds = [...oldIdToNew.keys()];
+  // Only touch punches that actually carry an active row-level note.
+  const noted = await tx
+    .select({
+      id: schema.driverNotesTable.id,
+      punchId: schema.driverNotesTable.punchId,
+    })
+    .from(schema.driverNotesTable)
+    .where(
+      and(
+        eq(schema.driverNotesTable.weekStart, weekStart),
+        inArray(schema.driverNotesTable.punchId, oldIds),
+        sql`${schema.driverNotesTable.deletedAt} IS NULL`,
+      ),
+    );
+  for (const n of noted) {
+    const target = n.punchId != null ? oldIdToNew.get(n.punchId) : undefined;
+    if (target == null) continue;
+    await tx
+      .update(schema.driverNotesTable)
+      .set({ punchId: target })
+      .where(eq(schema.driverNotesTable.id, n.id));
+  }
+}
+
 weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
   const weekStart = req.params.weekStart;
   if (!isWeek(weekStart)) {
@@ -1194,6 +1244,8 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
           )})`,
         );
       }
+      // Captured for B3 note remap — the punches this refresh removed.
+      let deletedRows: RefreshPunchRow[] = [];
       {
         const _w = and(...deleteConds)!;
         const _g = await guardBulkPunchDelete({
@@ -1201,11 +1253,18 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
           where: _w,
           executor: tx,
         });
-        const _del = await tx
+        deletedRows = await tx
           .delete(schema.punchesTable)
           .where(_w)
-          .returning({ id: schema.punchesTable.id });
-        await _g.recordOk(_del.length);
+          .returning({
+            id: schema.punchesTable.id,
+            ctExternalKey: schema.punchesTable.ctExternalKey,
+            kfiId: schema.punchesTable.kfiId,
+            date: schema.punchesTable.date,
+            clockIn: schema.punchesTable.clockIn,
+            clockOut: schema.punchesTable.clockOut,
+          });
+        await _g.recordOk(deletedRows.length);
       }
       // Skip any inbound row already represented by a kept (edited/preserved)
       // row. Match on ctExternalKey first, then fall back to punch IDENTITY
@@ -1251,22 +1310,36 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
         return true;
       });
       if (toInsert.length > 0) {
-        await tx.insert(schema.punchesTable).values(
-          toInsert.map((p) => ({
-            weekStart: startDate,
-            kfiId: p.kfiId,
-            customer: null,
-            source: "Driver",
-            date: p.date,
-            clockIn: p.clockIn,
-            clockOut: p.clockOut,
-            hours: String(p.hours),
-            dispTz: p.dispTz,
-            isManual: false,
-            ctExternalKey: p.ctExternalKey,
-            createdBy: req.session.userId ?? null,
-          })),
-        );
+        const insertedRows = await tx
+          .insert(schema.punchesTable)
+          .values(
+            toInsert.map((p) => ({
+              weekStart: startDate,
+              kfiId: p.kfiId,
+              customer: null,
+              source: "Driver",
+              date: p.date,
+              clockIn: p.clockIn,
+              clockOut: p.clockOut,
+              hours: String(p.hours),
+              dispTz: p.dispTz,
+              isManual: false,
+              ctExternalKey: p.ctExternalKey,
+              createdBy: req.session.userId ?? null,
+            })),
+          )
+          .returning({
+            id: schema.punchesTable.id,
+            ctExternalKey: schema.punchesTable.ctExternalKey,
+            kfiId: schema.punchesTable.kfiId,
+            date: schema.punchesTable.date,
+            clockIn: schema.punchesTable.clockIn,
+            clockOut: schema.punchesTable.clockOut,
+          });
+        // B3: re-point row-level notes off the deleted punches onto the
+        // freshly-inserted rows for the same shifts (same ctExternalKey /
+        // identity), so comments don't orphan on every weekly refresh.
+        await remapNotesAfterRefresh(tx, startDate, deletedRows, insertedRows);
       }
       // Snapshot Connecteam-side per-day totals so the driver-detail page can
       // render a real "matches Connecteam" parity badge (not just an
@@ -7714,6 +7787,7 @@ weeksRouter.post(
       const refreshedAt = new Date();
       await db.transaction(async (tx) => {
         // Replace only this driver's non-manual, non-edited Driver-source rows.
+        let deletedRows: RefreshPunchRow[] = [];
         {
           const _w = and(
             eq(schema.punchesTable.weekStart, startDate),
@@ -7727,11 +7801,18 @@ weeksRouter.post(
             where: _w,
             executor: tx,
           });
-          const _del = await tx
+          deletedRows = await tx
             .delete(schema.punchesTable)
             .where(_w)
-            .returning({ id: schema.punchesTable.id });
-          await _g.recordOk(_del.length);
+            .returning({
+              id: schema.punchesTable.id,
+              ctExternalKey: schema.punchesTable.ctExternalKey,
+              kfiId: schema.punchesTable.kfiId,
+              date: schema.punchesTable.date,
+              clockIn: schema.punchesTable.clockIn,
+              clockOut: schema.punchesTable.clockOut,
+            });
+          await _g.recordOk(deletedRows.length);
         }
         // Match on ctExternalKey first, then fall back to punch IDENTITY
         // (kfiId + clockIn + clockOut) — mirrors the week-wide refresh
@@ -7770,22 +7851,35 @@ weeksRouter.post(
           return true;
         });
         if (toInsert.length > 0) {
-          await tx.insert(schema.punchesTable).values(
-            toInsert.map((p) => ({
-              weekStart: startDate,
-              kfiId: p.kfiId,
-              customer: null,
-              source: "Driver",
-              date: p.date,
-              clockIn: p.clockIn,
-              clockOut: p.clockOut,
-              hours: String(p.hours),
-              dispTz: p.dispTz,
-              isManual: false,
-              ctExternalKey: p.ctExternalKey,
-              createdBy: req.session.userId ?? null,
-            })),
-          );
+          const insertedRows = await tx
+            .insert(schema.punchesTable)
+            .values(
+              toInsert.map((p) => ({
+                weekStart: startDate,
+                kfiId: p.kfiId,
+                customer: null,
+                source: "Driver",
+                date: p.date,
+                clockIn: p.clockIn,
+                clockOut: p.clockOut,
+                hours: String(p.hours),
+                dispTz: p.dispTz,
+                isManual: false,
+                ctExternalKey: p.ctExternalKey,
+                createdBy: req.session.userId ?? null,
+              })),
+            )
+            .returning({
+              id: schema.punchesTable.id,
+              ctExternalKey: schema.punchesTable.ctExternalKey,
+              kfiId: schema.punchesTable.kfiId,
+              date: schema.punchesTable.date,
+              clockIn: schema.punchesTable.clockIn,
+              clockOut: schema.punchesTable.clockOut,
+            });
+          // B3: re-point this driver's row-level notes onto the re-inserted
+          // punches for the same shifts so they don't orphan on refresh.
+          await remapNotesAfterRefresh(tx, startDate, deletedRows, insertedRows);
         }
         // Refresh the per-day snapshot for this driver only.
         const snapshotByDate = new Map<string, number>();
