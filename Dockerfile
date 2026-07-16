@@ -6,8 +6,9 @@
 FROM node:24-bookworm-slim AS builder
 WORKDIR /app
 
-# pnpm via corepack (version pinned by package.json "packageManager"/lockfile)
-RUN corepack enable
+# pnpm via corepack, pinned to the version verified locally (newer pnpm treats
+# ignored optional build scripts as a fatal error instead of a warning).
+RUN corepack enable && corepack prepare pnpm@10.34.3 --activate
 
 # Install deps first (better layer caching). node_modules is .dockerignore'd so
 # this is a clean linux install — pnpm fetches the correct linux native binaries
