@@ -1185,7 +1185,7 @@ export default function DriverDetail() {
           {weekPunchCount > 0 && (
             <span
               className={cn(
-                "inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded border",
+                "inline-flex items-center gap-1 text-[11px] fin-num px-2 py-0.5 rounded border",
                 weekReviewedCount === weekPunchCount
                   ? "border-emerald-400/40 text-emerald-300 bg-emerald-500/10"
                   : "border-sidebar-border/60 text-sidebar-foreground/80 bg-sidebar-accent/30",
@@ -1201,7 +1201,7 @@ export default function DriverDetail() {
           )}
           {weekFlaggedCount > 0 && (
             <span
-              className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded border border-rose-500/40 text-rose-200 bg-rose-600/20"
+              className="inline-flex items-center gap-1 text-[11px] fin-num px-2 py-0.5 rounded border border-rose-500/40 text-rose-200 bg-rose-600/20"
               data-testid="pill-punch-flagged-count"
               title={t("driverDetail.flaggedTitle")}
             >
@@ -1275,7 +1275,7 @@ export default function DriverDetail() {
           )}
           {!canLock && driverLocked && (
             <span
-              className="inline-flex items-center gap-1.5 text-xs font-mono text-amber-300"
+              className="inline-flex items-center gap-1.5 text-xs fin-num text-amber-300"
               data-testid="badge-locked-readonly"
               title={
                 data.lockedByEmail
@@ -1364,7 +1364,7 @@ export default function DriverDetail() {
               )}
             />
           </div>
-          <p className="text-sm text-muted-foreground font-mono flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="text-sm text-muted-foreground fin-num flex flex-wrap items-center gap-x-2 gap-y-1">
             <span>
               {t("driverDetail.customer")}{" "}
               <span className="text-foreground">{customerLabel}</span>
@@ -1391,13 +1391,13 @@ export default function DriverDetail() {
                     className="inline-flex items-center gap-1 rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[11px] hover:bg-muted"
                   >
                     <Globe className="h-3 w-3" />
-                    <span className="font-mono">
+                    <span className="fin-num">
                       {data.driver.effectiveDispTz ?? "America/Chicago"}
                     </span>
                     {data.driver.displayTz ? (
                       <Badge
                         variant="outline"
-                        className="ml-1 h-4 px-1 text-[9px] font-mono border-primary/40 text-primary"
+                        className="ml-1 h-4 px-1 text-[9px] fin-num border-primary/40 text-primary"
                       >
                         {t("driverDetail.tz.override")}
                       </Badge>
@@ -1574,7 +1574,7 @@ export default function DriverDetail() {
                       <Input
                         value={shiftHours}
                         onChange={(e) => setShiftHours(e.target.value)}
-                        className="h-7 w-20 text-xs font-mono"
+                        className="h-7 w-20 text-xs fin-num"
                         data-testid="input-shift-hours"
                       />
                       <Button
@@ -1688,12 +1688,12 @@ export default function DriverDetail() {
                         )}
                       >
                         <Globe className="h-3 w-3" />
-                        <span className="font-mono">{ct.customer}:</span>
-                        <span className="font-mono">{ct.dispTz}</span>
+                        <span className="fin-num">{ct.customer}:</span>
+                        <span className="fin-num">{ct.dispTz}</span>
                         {ct.preferredDispTz ? (
                           <Badge
                             variant="outline"
-                            className="ml-1 h-4 px-1 text-[9px] font-mono border-primary/40 text-primary"
+                            className="ml-1 h-4 px-1 text-[9px] fin-num border-primary/40 text-primary"
                           >
                             {t("driverDetail.tz.pref")}
                           </Badge>
@@ -1792,7 +1792,7 @@ export default function DriverDetail() {
                             onChange={(e) =>
                               setCustomerShiftHours(e.target.value)
                             }
-                            className="h-7 w-20 text-xs font-mono"
+                            className="h-7 w-20 text-xs fin-num"
                             data-testid={`input-customer-shift-${ct.customer}`}
                           />
                           <Button
@@ -1941,7 +1941,7 @@ export default function DriverDetail() {
                 className="text-xs uppercase tracking-wide text-muted-foreground"
               >
                 {t("driverDetail.resetCustomerTypePrefix")}{" "}
-                <span className="font-mono">{kfiId}</span>{" "}
+                <span className="fin-num">{kfiId}</span>{" "}
                 {t("driverDetail.resetCustomerTypeSuffix")}
               </Label>
               <Input
@@ -1949,7 +1949,7 @@ export default function DriverDetail() {
                 value={resetCustomerConfirmText}
                 onChange={(e) => setResetCustomerConfirmText(e.target.value)}
                 placeholder={kfiId}
-                className="font-mono"
+                className="fin-num"
                 data-testid="input-reset-driver-customer-confirm"
                 autoComplete="off"
               />
@@ -2053,7 +2053,7 @@ export default function DriverDetail() {
                 className="text-xs uppercase tracking-wide text-muted-foreground"
               >
                 {t("driverDetail.removeConnecteamTypePrefix")}{" "}
-                <span className="font-mono">{kfiId}</span>{" "}
+                <span className="fin-num">{kfiId}</span>{" "}
                 {t("driverDetail.removeConnecteamTypeSuffix")}
               </Label>
               <Input
@@ -2063,7 +2063,7 @@ export default function DriverDetail() {
                   setRemoveConnecteamConfirmText(e.target.value)
                 }
                 placeholder={kfiId}
-                className="font-mono"
+                className="fin-num"
                 data-testid="input-remove-driver-connecteam-confirm"
                 autoComplete="off"
               />
@@ -2182,7 +2182,7 @@ export default function DriverDetail() {
               <ul className="space-y-1 text-sm text-warning-foreground">
                 {data.checks.map((chk, i) => (
                   <li key={i} className="flex gap-2">
-                    <span className="font-mono text-xs opacity-70 w-24 shrink-0">{chk.date || t("driverDetail.generalAlertDate")}</span>
+                    <span className="fin-num text-xs opacity-70 w-24 shrink-0">{chk.date || t("driverDetail.generalAlertDate")}</span>
                     <span>{chk.message}</span>
                   </li>
                 ))}
@@ -2205,7 +2205,7 @@ export default function DriverDetail() {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow>
+                <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60 [&>th]:h-9 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-neutral-400">
                   <TableHead className="w-[110px] uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.date")}</TableHead>
                   <TableHead className="w-[110px] uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.source")}</TableHead>
                   <TableHead className="uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.clockIn")}</TableHead>
@@ -2260,13 +2260,13 @@ export default function DriverDetail() {
                       }
                       style={rowStyle}
                       className={cn(
-                        isOt && "bg-warning/10 hover:bg-warning/15",
+                        "group/row scroll-mt-24 border-b border-border/70 transition-colors hover:bg-muted/50 [&>td]:py-2",
+                        isOt && "bg-brand-orange/[0.05] hover:bg-brand-orange/10",
                         (p as { flagged?: boolean }).flagged &&
-                          "bg-rose-500/10 hover:bg-rose-500/15 border-l-2 border-l-rose-500",
-                        "scroll-mt-24 transition-colors [&>td]:py-1.5",
+                          "border-l-2 border-l-rose-400 bg-rose-500/[0.05] hover:bg-rose-500/10",
                       )}
                     >
-                      <TableCell className="font-mono text-xs whitespace-nowrap align-top">
+                      <TableCell className="fin-num text-xs whitespace-nowrap align-top">
                         <div>{p.date}</div>
                       </TableCell>
                       <TableCell>
@@ -2284,11 +2284,11 @@ export default function DriverDetail() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className={cn("font-mono text-xs whitespace-nowrap", sourceCellTint)}>
+                      <TableCell className={cn("fin-num text-xs whitespace-nowrap", sourceCellTint)}>
                         {isEditing ? (
                           <Input
                             autoFocus
-                            className="h-7 w-24 font-mono text-xs"
+                            className="h-7 w-24 fin-num text-xs"
                             placeholder={t("driverDetail.clockInPlaceholder")}
                             value={editClockIn}
                             onChange={(e) => {
@@ -2310,10 +2310,10 @@ export default function DriverDetail() {
                           formatClockCell(p.clockIn)
                         )}
                       </TableCell>
-                      <TableCell className={cn("font-mono text-xs whitespace-nowrap", sourceCellTint)}>
+                      <TableCell className={cn("fin-num text-xs whitespace-nowrap", sourceCellTint)}>
                         {isEditing ? (
                           <Input
-                            className="h-7 w-24 font-mono text-xs"
+                            className="h-7 w-24 fin-num text-xs"
                             placeholder={t("driverDetail.clockOutPlaceholder")}
                             value={editClockOut}
                             onChange={(e) => {
@@ -2335,7 +2335,7 @@ export default function DriverDetail() {
                           formatClockCell(p.clockOut)
                         )}
                       </TableCell>
-                      <TableCell className={cn("text-right font-mono font-medium text-xs", sourceCellTint)}>
+                      <TableCell className={cn("text-right fin-num font-medium text-xs", sourceCellTint)}>
                         {isEditing ? (
                           <>
                             {editPreview ? editPreview.hours.toFixed(2) : p.hours.toFixed(2)}
@@ -2366,7 +2366,7 @@ export default function DriverDetail() {
                               step="0.01"
                               min="0"
                               max="24"
-                              className="h-6 w-16 font-mono text-xs px-1 py-0"
+                              className="h-6 w-16 fin-num text-xs px-1 py-0"
                               value={editHoursValue}
                               onChange={(e) => {
                                 setEditHoursValue(e.target.value);
@@ -2413,7 +2413,7 @@ export default function DriverDetail() {
                             <button
                               type="button"
                               onClick={() => startEditHours(p)}
-                              className="font-mono tabular-nums px-1 py-0 rounded hover:underline decoration-dotted underline-offset-2 cursor-pointer hover:text-foreground"
+                              className="fin-num tabular-nums px-1 py-0 rounded hover:underline decoration-dotted underline-offset-2 cursor-pointer hover:text-foreground"
                               title={t("driverDetail.punchHoursClickToEdit")}
                               data-testid={`button-edit-punch-hours-${p.id}`}
                             >
@@ -2428,14 +2428,14 @@ export default function DriverDetail() {
                             <TooltipTrigger asChild>
                               <span
                                 className={cn(
-                                  "font-mono text-xs tabular-nums cursor-help",
+                                  "fin-num text-xs tabular-nums cursor-help",
                                   isOt ? "text-warning font-semibold" : "text-muted-foreground",
                                 )}
                               >
                                 {after.toFixed(2)}
                               </span>
                             </TooltipTrigger>
-                            <TooltipContent side="top" className="font-mono text-[11px] leading-relaxed">
+                            <TooltipContent side="top" className="fin-num text-[11px] leading-relaxed">
                               <div>{t("driverDetail.cumulative", { hours: after.toFixed(2) })}</div>
                               <div>{tooltipLine}</div>
                             </TooltipContent>
@@ -2473,7 +2473,7 @@ export default function DriverDetail() {
                             </Button>
                           </div>
                         ) : (
-                          <div className="flex items-center justify-end gap-1 opacity-60 hover:opacity-100">
+                          <div className="flex items-center justify-end gap-1 opacity-100 transition-opacity focus-within:opacity-100 md:opacity-0 md:group-hover/row:opacity-100">
                             <TooltipProvider delayDuration={150}>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -2574,7 +2574,7 @@ export default function DriverDetail() {
                             >
                               <MessageSquarePlus className="h-3 w-3" />
                               {punchNotes.length > 0 && (
-                                <span className="ml-0.5 text-[9px] font-mono">
+                                <span className="ml-0.5 text-[9px] fin-num">
                                   {punchNotes.length}
                                 </span>
                               )}
@@ -3002,144 +3002,128 @@ function SummaryAndChecks({
   const eq = checksEq;
   const allOk = checks.every((c) => eq(c.expected, c.actual));
 
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <Card data-testid="card-summary">
-        <CardHeader className="pb-2 pt-4 px-4">
-          <CardTitle className="text-sm font-display tracking-tight flex items-center justify-between gap-2">
-            <span>{t("driverDetail.summaryHeading")}</span>
-            {parityStatus === "match" ? (
-              <span
-                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
-                data-testid="badge-ct-parity-match"
-                title={t("driverDetail.ct.parityMatchTitle", { refreshedNote })}
-              >
-                <CheckIcon className="h-3 w-3" />
-                {t("driverDetail.ct.parityMatch")}
-              </span>
-            ) : parityStatus === "differ" ? (
-              <span
-                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-warning/15 text-warning border border-warning/40"
-                data-testid="badge-ct-parity-diff"
-                title={t("driverDetail.ct.parityDifferTitle", { count: diffCount, refreshedNote, staleNote, dayList: diffDayList ? `\n\n${diffDayList}` : "" })}
-              >
-                <AlertTriangle className="h-3 w-3" />
-                {t("driverDetail.ct.parityDiffer", { count: diffCount })}
-              </span>
-            ) : (
-              <span
-                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-sm bg-muted text-muted-foreground border border-border"
-                data-testid="badge-ct-parity-unknown"
-                title={t("driverDetail.noConnecteamBaselineTitle")}
-              >
-                {t("driverDetail.ct.parityUnknown")}
-              </span>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="px-4 pb-4">
-          <dl className="divide-y divide-border">
-            <SummaryRow label={t("driverDetail.summary.totalDriver")} value={totDriver} testId="row-summary-total-driver" />
-            <SummaryRow label={t("driverDetail.summary.totalCustomer")} value={totCust} testId="row-summary-total-customer" />
-            <SummaryRow label={t("driverDetail.summary.totalHours")} value={total} testId="row-summary-total-hours" />
-            <SummaryRow label={t("driverDetail.summary.customerRt")} value={custRt} testId="row-summary-customer-rt" />
-            <SummaryRow
-              label={t("driverDetail.summary.customerOt")}
-              value={custOt}
-              valueClass={custOt > 0.005 ? "text-warning" : undefined}
-              testId="row-summary-customer-ot"
-            />
-            <SummaryRow label={t("driverDetail.summary.driverRt")} value={driverRt} testId="row-summary-driver-rt" />
-            <SummaryRow
-              label={t("driverDetail.summary.driverOt")}
-              value={driverOt}
-              valueClass={driverOt > 0.005 ? "text-warning" : undefined}
-              testId="row-summary-driver-ot"
-            />
-          </dl>
-        </CardContent>
-      </Card>
-
-      <Card
-        data-testid="card-checks"
-        className={cn(
-          allOk
-            ? "border-emerald-500/40 bg-emerald-50/40 dark:bg-emerald-950/20"
-            : "border-warning bg-warning/5",
-        )}
+  const parityPill =
+    parityStatus === "match" ? (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-500/25"
+        data-testid="badge-ct-parity-match"
+        title={t("driverDetail.ct.parityMatchTitle", { refreshedNote })}
       >
-        <CardHeader className="pb-2 pt-4 px-4">
-          <CardTitle
-            className={cn(
-              "text-sm font-display tracking-tight flex items-center gap-2",
-              allOk
-                ? "text-emerald-700 dark:text-emerald-400"
-                : "text-warning",
-            )}
-          >
-            {allOk ? (
-              <CheckIcon className="h-4 w-4" />
-            ) : (
-              <AlertCircle className="h-4 w-4" />
-            )}
-            {allOk ? t("driverDetail.checks.allReconcile") : t("driverDetail.checks.mismatch")}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="px-4 pb-4">
-          <dl className="divide-y divide-border">
+        <CheckIcon className="h-3 w-3" />
+        {t("driverDetail.ct.parityMatch")}
+      </span>
+    ) : parityStatus === "differ" ? (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-brand-orange/12 px-2.5 py-0.5 text-[11px] font-medium text-brand-orange ring-1 ring-brand-orange/30"
+        data-testid="badge-ct-parity-diff"
+        title={t("driverDetail.ct.parityDifferTitle", { count: diffCount, refreshedNote, staleNote, dayList: diffDayList ? `\n\n${diffDayList}` : "" })}
+      >
+        <AlertTriangle className="h-3 w-3" />
+        {t("driverDetail.ct.parityDiffer", { count: diffCount })}
+      </span>
+    ) : (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground ring-1 ring-border"
+        data-testid="badge-ct-parity-unknown"
+        title={t("driverDetail.noConnecteamBaselineTitle")}
+      >
+        {t("driverDetail.ct.parityUnknown")}
+      </span>
+    );
+
+  return (
+    <div className="space-y-3">
+      {/* KPI stat strip */}
+      <div
+        className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+        data-testid="card-summary"
+      >
+        <StatTile label={t("driverDetail.summary.totalHours")} value={total} testId="row-summary-total-hours" />
+        <StatTile label={t("weekSummary.stats.regular")} value={Number(totals.regularHours) || 0} />
+        <StatTile label={t("weekSummary.stats.overtime")} value={Number(totals.overtimeHours) || 0} tone="text-brand-orange" />
+        <StatTile label={t("driverDetail.summary.totalDriver")} value={totDriver} tone="text-brand-navy" testId="row-summary-total-driver" />
+        <StatTile label={t("driverDetail.summary.totalCustomer")} value={totCust} tone="text-teal-600" testId="row-summary-total-customer" />
+      </div>
+
+      {/* Reconciliation + parity + RT/OT split */}
+      <div className="rounded-2xl bg-white ring-1 ring-border shadow-sm">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
+          {allOk ? (
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700" data-testid="checks-status-ok">
+              <CheckIcon className="h-4 w-4" /> {t("driverDetail.checks.allReconcile")}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-warning" data-testid="checks-status-bad">
+              <AlertCircle className="h-4 w-4" /> {t("driverDetail.checks.mismatch")}
+            </span>
+          )}
+          {parityPill}
+          <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span data-testid="row-summary-driver-rt">Driver RT <b className="fin-num font-semibold text-foreground">{driverRt.toFixed(2)}</b></span>
+            <span data-testid="row-summary-driver-ot">OT <b className={cn("fin-num font-semibold", driverOt > 0.005 ? "text-brand-orange" : "text-foreground")}>{driverOt.toFixed(2)}</b></span>
+            <span className="text-border">·</span>
+            <span data-testid="row-summary-customer-rt">Cust RT <b className="fin-num font-semibold text-foreground">{custRt.toFixed(2)}</b></span>
+            <span data-testid="row-summary-customer-ot">OT <b className={cn("fin-num font-semibold", custOt > 0.005 ? "text-brand-orange" : "text-foreground")}>{custOt.toFixed(2)}</b></span>
+          </div>
+        </div>
+
+        <details open={!allOk} data-testid="card-checks" className="group border-t border-border px-4 py-2">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 hover:text-neutral-600">
+            <span aria-hidden className="text-neutral-300 transition-transform group-open:rotate-90">›</span>
+            {t("driverDetail.checks.allReconcile")}
+          </summary>
+          <dl className="mt-1.5 grid grid-cols-1 gap-x-8 sm:grid-cols-2">
             {checks.map((c) => {
               const ok = eq(c.expected, c.actual);
               return (
                 <div
                   key={c.label}
-                  className="flex items-center justify-between py-1.5 gap-3"
+                  className="flex items-center justify-between gap-3 py-1"
                   data-testid={`row-check-${c.key.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
                 >
-                  <dt className="flex items-center gap-2 text-sm">
+                  <dt className="flex items-center gap-2 text-sm text-muted-foreground">
                     {ok ? (
-                      <CheckIcon className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <CheckIcon className="h-3.5 w-3.5 text-emerald-600" />
                     ) : (
                       <X className="h-3.5 w-3.5 text-warning" />
                     )}
-                    <span className={cn(!ok && "text-warning font-medium")}>
-                      {c.label}
-                    </span>
+                    <span className={cn(!ok && "font-medium text-warning")}>{c.label}</span>
                   </dt>
-                  <dd
-                    className={cn(
-                      "font-mono tabular-nums text-sm",
-                      !ok && "text-warning font-semibold",
-                    )}
-                  >
+                  <dd className={cn("fin-num text-sm", !ok && "font-semibold text-warning")}>
                     {c.actual.toFixed(2)}
                   </dd>
                 </div>
               );
             })}
           </dl>
-        </CardContent>
-      </Card>
+        </details>
+      </div>
     </div>
   );
 }
 
-function SummaryRow({
+function StatTile({
   label,
   value,
-  valueClass,
+  tone,
   testId,
 }: {
   label: string;
   value: number;
-  valueClass?: string;
+  tone?: string;
   testId?: string;
 }) {
   return (
-    <div className="flex items-center justify-between py-1.5" data-testid={testId}>
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className={cn("font-mono tabular-nums text-sm font-semibold", valueClass)}>
+    <div
+      className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-border"
+      data-testid={testId}
+    >
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+        {label}
+      </div>
+      <div className={cn("mt-1 fin-num text-xl font-semibold", tone ?? "text-foreground")}>
         {value.toFixed(2)}
-      </dd>
+      </div>
     </div>
   );
 }
@@ -3193,12 +3177,12 @@ function NoteItem({
           >
             {roleLabel}
           </span>
-          <span className="font-mono text-muted-foreground">
+          <span className="fin-num text-muted-foreground">
             {note.authorEmail ?? t("common.deletedUser")}
           </span>
           <span className="text-muted-foreground">·</span>
           <span
-            className="font-mono text-muted-foreground"
+            className="fin-num text-muted-foreground"
             title={new Date(note.createdAt).toLocaleString()}
           >
             {new Date(note.createdAt).toLocaleString()}
@@ -3246,7 +3230,7 @@ function ShortcutRow({ keys, label }: { keys: string[]; label: string }) {
         {keys.map((k, i) => (
           <kbd
             key={i}
-            className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-xs min-w-[1.5rem] text-center"
+            className="px-1.5 py-0.5 rounded border border-border bg-muted fin-num text-xs min-w-[1.5rem] text-center"
           >
             {k}
           </kbd>
@@ -3260,14 +3244,13 @@ function SourceBadge({ source }: { source: "Driver" | "Customer" | string }) {
   const { t } = useTranslation();
   const isDriver = source === "Driver";
   return (
-    <span
-      className={cn(
-        "inline-block text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-sm border",
-        isDriver
-          ? "bg-sidebar text-sidebar-foreground border-sidebar"
-          : "bg-primary text-primary-foreground border-primary",
-      )}
-    >
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
+      <span
+        className={cn(
+          "h-2 w-2 shrink-0 rounded-full",
+          isDriver ? "bg-brand-navy" : "bg-teal-500",
+        )}
+      />
       {isDriver ? t("driverDetail.sourceBadge.driver") : t("driverDetail.sourceBadge.customer")}
     </span>
   );
@@ -3333,7 +3316,7 @@ function PreviewPanel({
         data-testid="preview-panel"
       >
         <div className="font-display font-semibold text-foreground mb-1">{t("driverDetail.preview.title")}</div>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 fin-num">
           <dt className="text-muted-foreground">{t("driverDetail.preview.duration")}</dt>
           <dd className="text-right" data-testid="preview-hours">
             {preview.hours.toFixed(2)}h
@@ -3372,7 +3355,7 @@ function PreviewPanel({
               <div className="text-muted-foreground mt-0.5">
                 {t("driverDetail.previewPanel.overlapHelp")}
               </div>
-              <ul className="mt-1.5 space-y-0.5 font-mono text-[11px]">
+              <ul className="mt-1.5 space-y-0.5 fin-num text-[11px]">
                 {preview.overlaps.slice(0, 3).map((o) => (
                   <li key={o.id} className="text-foreground flex items-center gap-2">
                     <span>

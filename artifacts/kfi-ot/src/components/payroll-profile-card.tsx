@@ -171,7 +171,7 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
             onChange={(e) =>
               setForm((s) => ({ ...s, [fd.key]: e.target.value }))
             }
-            className="font-mono text-sm h-8"
+            className="fin-num text-sm h-8"
             data-testid={`input-payroll-${fd.key}`}
           />
         </div>
@@ -241,7 +241,7 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
                   data-testid={`row-payroll-${fd.key}`}
                 >
                   <dt className="text-xs text-muted-foreground">{fd.label}</dt>
-                  <dd className="font-mono">
+                  <dd className="fin-num">
                     {fmtView(
                       (profile as Record<string, unknown> | undefined)?.[
                         fd.key
@@ -277,7 +277,7 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
                       <dt className="text-[11px] text-muted-foreground">
                         {fd.label}
                       </dt>
-                      <dd className="font-mono text-muted-foreground">
+                      <dd className="fin-num text-muted-foreground">
                         {fmtView(
                           (profile as Record<string, unknown> | undefined)?.[
                             fd.key
