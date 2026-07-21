@@ -9,12 +9,14 @@ import {
   buildZenopleWorkbook,
   isoToExcelSerial,
   missingProfileFields,
+  payPeriodEndDowFor,
   rosterNameToZenople,
   rowsToAoA,
   zenopleFileName,
   type ZenopleDriverInput,
   type ZenopleProfile,
 } from "../zenopleExport.js";
+import { periodEndFor } from "../time.js";
 import {
   fingerprintName,
   PAYROLL_SEED_ROWS,
@@ -68,6 +70,32 @@ test("isoToExcelSerial: 2026-05-16 (Saturday) -> 46158", () => {
 
 test("isoToExcelSerial: 1900-03-01 = 61 (Excel leap bug compat)", () => {
   assert.equal(isoToExcelSerial("1900-03-01"), 61);
+});
+
+test("payPeriodEndDowFor: the 4 reference Sunday customers end Sun(0), others Sat(6)", () => {
+  for (const c of ["Adient", "DeLallo Foods", "Schuette Metals", "WB Manufacturing"]) {
+    assert.equal(payPeriodEndDowFor(c), 0, `${c} should end Sunday`);
+  }
+  for (const c of [
+    "Burnett Dairy - Grantsburg",
+    "International Wire Group, Inc",
+    "Landscape Structures",
+    "Penda Corp",
+    "Trienda Holdings",
+    "Shuster's Building Components",
+    "",
+  ]) {
+    assert.equal(payPeriodEndDowFor(c), 6, `${c} should end Saturday`);
+  }
+});
+
+test("periodEndFor: Sat customer keeps the week-end; Sun customer shifts +1 day", () => {
+  // App week 2026-05-10 (Sun) .. 2026-05-16 (Sat).
+  assert.equal(periodEndFor("2026-05-10", 6), "2026-05-16"); // Saturday
+  assert.equal(periodEndFor("2026-05-10", 0), "2026-05-17"); // Sunday (+1)
+  // Serials the export stamps.
+  assert.equal(isoToExcelSerial(periodEndFor("2026-05-10", 6)), 46158);
+  assert.equal(isoToExcelSerial(periodEndFor("2026-05-10", 0)), 46159);
 });
 
 test("rosterNameToZenople: 'Jose Angulo Alfaro' -> 'ANGULO ALFARO, JOSE'", () => {
@@ -181,7 +209,7 @@ test("buildZenopleWorkbook: null rate fields are written as numeric 0 in the wor
       p("Driver", "2026-05-12", "2026-05-12 6:00 AM", "2026-05-12 4:00 PM", 10),
     ],
   };
-  const buf = buildZenopleWorkbook([driver], "2026-05-16");
+  const buf = buildZenopleWorkbook([driver], "2026-05-10");
   const wb = XLSX.read(buf, { type: "buffer" });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true });
@@ -225,7 +253,7 @@ test("buildZenopleRows: omits zero-hour buckets and sorts by customer then perso
       p("Customer", "2026-05-10", "2026-05-10 8:00 AM", "2026-05-10 1:00 PM", 5, "Burnett"),
     ],
   };
-  const rows = buildZenopleRows([driverB, driverA], "2026-05-16");
+  const rows = buildZenopleRows([driverB, driverA], "2026-05-10");
   assert.equal(rows.length, 2);
   // Adient sorts before Burnett.
   assert.equal(rows[0].customer, "Adient");
@@ -234,8 +262,10 @@ test("buildZenopleRows: omits zero-hour buckets and sorts by customer then perso
   assert.equal(rows[1].customer, "Burnett");
   assert.equal(rows[1].code, "RT");
   assert.equal(rows[1].payUnit, 5);
-  // PPE is the Saturday serial.
-  assert.equal(rows[0].ppe, 46158);
+  // PPE is per-customer: Adient ends Sunday (week-end + 1 = 05-17 -> 46159),
+  // Burnett ends Saturday (week-end 05-16 -> 46158).
+  assert.equal(rows[0].ppe, 46159);
+  assert.equal(rows[1].ppe, 46158);
 });
 
 test("rowsToAoA: Item Bill is '' for DriverRT, 0 for the other codes; Status columns blank", () => {
@@ -253,7 +283,7 @@ test("rowsToAoA: Item Bill is '' for DriverRT, 0 for the other codes; Status col
       p("Driver", "2026-05-12", "2026-05-12 6:00 AM", "2026-05-12 4:00 PM", 10),
     ],
   };
-  const aoa = rowsToAoA(buildZenopleRows([driver], "2026-05-16"));
+  const aoa = rowsToAoA(buildZenopleRows([driver], "2026-05-10"));
   // header + 3 rows (RT, DriverRT, DriverOT)
   assert.equal(aoa.length, 4);
   assert.deepEqual(aoa[0], [...ZENOPLE_HEADER]);
@@ -282,7 +312,7 @@ test("buildZenopleWorkbook: round-trips through XLSX and preserves header verbat
     profile: FULL_PROFILE,
     punches: [p("Customer", "2026-05-10", "2026-05-10 8:00 AM", "2026-05-10 12:00 PM", 4)],
   };
-  const buf = buildZenopleWorkbook([driver], "2026-05-16");
+  const buf = buildZenopleWorkbook([driver], "2026-05-10");
   const wb = XLSX.read(buf, { type: "buffer" });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true });
@@ -291,7 +321,9 @@ test("buildZenopleWorkbook: round-trips through XLSX and preserves header verbat
   assert.equal(aoa.length, 2);
   assert.equal(aoa[1][5], "RT");
   assert.equal(aoa[1][6], 4);
-  assert.equal(aoa[1][12], 46158);
+  // FULL_PROFILE customer is Adient (Sunday-ending) -> PPE = week-end + 1
+  // = 2026-05-17 -> serial 46159.
+  assert.equal(aoa[1][12], 46159);
 });
 
 test("seed fingerprint matcher: 'ANGULO ALFARO, JOSE R' matches 'Jose R. Angulo Alfaro'", () => {

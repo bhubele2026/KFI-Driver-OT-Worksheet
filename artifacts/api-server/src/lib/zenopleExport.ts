@@ -1,6 +1,29 @@
 import * as XLSX from "xlsx";
 import type { Punch } from "@workspace/db/schema";
 import { computeDriverTotals } from "./hoursEngine.js";
+import { periodEndFor } from "./time.js";
+
+/**
+ * Zenople stamps each assignment's own pay-period-END date in the PPE
+ * column, and not every customer runs a Saturday-ending week. In the
+ * reference file most customers end Saturday, but these four end Sunday
+ * (their PPE is the day after the app's Sat week-end). Keyed by the exact
+ * `zenopleCustomer` label (same string that lands in the Customer column).
+ * The app does NOT re-bucket the week for these — this only shifts the
+ * stamped date (Brad's call: label only). Edit this set if a customer's
+ * pay-period-end day changes.
+ */
+const SUNDAY_ENDING_CUSTOMERS = new Set<string>([
+  "Adient",
+  "DeLallo Foods",
+  "Schuette Metals",
+  "WB Manufacturing",
+]);
+
+/** Pay-period-end day-of-week (0=Sun … 6=Sat) for a Zenople customer. */
+export function payPeriodEndDowFor(zenopleCustomer: string): number {
+  return SUNDAY_ENDING_CUSTOMERS.has(zenopleCustomer) ? 0 : 6;
+}
 
 // Exact header strings from the attached Zenople sample
 // (Driver_Pay_Units_customer_and_Driver_time_PD_05.15.2026_…xlsx).
@@ -129,9 +152,8 @@ function rateFor(
  */
 export function buildZenopleRows(
   drivers: ZenopleDriverInput[],
-  weekEndIso: string,
+  weekStartIso: string,
 ): ZenopleRow[] {
-  const ppe = isoToExcelSerial(weekEndIso);
   const out: ZenopleRow[] = [];
   for (const d of drivers) {
     if (!d.profile) continue;
@@ -145,6 +167,11 @@ export function buildZenopleRows(
     const person =
       (d.zenopleName && d.zenopleName.trim()) || rosterNameToZenople(d.name);
     const customer = d.profile.zenopleCustomer ?? "";
+    // PPE is per-customer: most end Saturday (the app week-end), a few end
+    // Sunday (week-end + 1). See payPeriodEndDowFor / periodEndFor.
+    const ppe = isoToExcelSerial(
+      periodEndFor(weekStartIso, payPeriodEndDowFor(customer)),
+    );
     for (const [code, hoursRaw] of buckets) {
       const hours = r2(hoursRaw);
       if (hours <= 0) continue;
@@ -203,9 +230,9 @@ export function rowsToAoA(rows: ZenopleRow[]): unknown[][] {
 
 export function buildZenopleWorkbook(
   drivers: ZenopleDriverInput[],
-  weekEndIso: string,
+  weekStartIso: string,
 ): Buffer {
-  const rows = buildZenopleRows(drivers, weekEndIso);
+  const rows = buildZenopleRows(drivers, weekStartIso);
   const aoa = rowsToAoA(rows);
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();

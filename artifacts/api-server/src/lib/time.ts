@@ -114,6 +114,26 @@ export function weekEndOf(weekStart: string): string {
 }
 
 /**
+ * Pay-period-END date for a customer whose week ends on `endDow`
+ * (0=Sun … 6=Sat), given the app's Sunday-anchored `weekStart`.
+ *
+ * The app always buckets punches Sun→Sat, but Zenople stamps each
+ * assignment's own pay-period-end date in the PPE column, and not every
+ * customer runs a Sat-ending week. We DON'T re-bucket the week (Brad's
+ * call — label only); we only shift the stamped date. The period-end is
+ * the first `endDow` on or after the Saturday week-end:
+ *   Sat (6) → week-end itself (unchanged);
+ *   Sun (0) → week-end + 1 (the following Sunday);
+ *   Mon..Fri → week-end + 2..6.
+ * Verified against the reference file: app week 05-03…05-09 →
+ * Sat customers 05-09, Sun customers (Adient/DeLallo/Schuette/WB) 05-10.
+ */
+export function periodEndFor(weekStart: string, endDow: number): string {
+  const offset = (((endDow - 6) % 7) + 7) % 7;
+  return addDays(weekEndOf(weekStart), offset);
+}
+
+/**
  * Snap any ISO date to the Sunday of its payroll week (Sun→Sat).
  * KFI runs payroll Sunday through Saturday, so every weekStart in the
  * system is a Sunday.

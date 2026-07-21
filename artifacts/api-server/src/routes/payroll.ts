@@ -330,9 +330,11 @@ router.get(
         const t = computeDriverTotals(d.punches);
         return t.custRt + t.custOt + t.driverRt + t.driverOt > 0;
       });
-    const endIso = readiness.weekEnd;
-    const buffer = buildZenopleWorkbook(inputs, endIso);
-    const fileName = zenopleFileName(new Date(), endIso);
+    // PPE is stamped per-customer inside the builder (most end Saturday, a
+    // few end Sunday), so it needs the week START; the filename keeps the
+    // week's Saturday serial to match the reference naming convention.
+    const buffer = buildZenopleWorkbook(inputs, sunday);
+    const fileName = zenopleFileName(new Date(), readiness.weekEnd);
 
     // Audit the export so admins can see who exported what.
     await db.insert(schema.userAuditLogTable).values({
