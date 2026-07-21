@@ -1,5 +1,5 @@
 import { useParams, useLocation } from "wouter";
-import { format, startOfWeek } from "date-fns";
+import { payWeekStart } from "@/lib/pay-week";
 import {
   useRefreshConnecteam,
   getGetWeekSummaryQueryKey,
@@ -23,7 +23,8 @@ export default function DriverUpload() {
   const qc = useQueryClient();
   const refreshCt = useRefreshConnecteam();
 
-  const defaultWeek = format(startOfWeek(new Date(), { weekStartsOn: 0 }), "yyyy-MM-dd");
+  // Default to the just-completed pay week (payroll runs after the week ends).
+  const defaultWeek = payWeekStart();
   const weekStart = (params.weekStart as string) || defaultWeek;
 
   const handleRefresh = () =>

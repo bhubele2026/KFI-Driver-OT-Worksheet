@@ -42,9 +42,12 @@ export function buildWeekOptions(
     d.setDate(d.getDate() + 6);
     return format(d, "yyyy-MM-dd");
   };
-  const currentSunday = getSunday(today);
-  const windowStart = format(addWeeks(currentSunday, -WEEKS_BACK), "yyyy-MM-dd");
-  const windowEnd = format(addWeeks(currentSunday, WEEKS_FWD), "yyyy-MM-dd");
+  // Anchor on the pay week (last completed week), not the in-progress calendar
+  // week — that's the week the app defaults to and the dispatcher works. The
+  // window then runs from a couple weeks before it through the in-progress week.
+  const anchor = addWeeks(getSunday(today), -1);
+  const windowStart = format(addWeeks(anchor, -WEEKS_BACK), "yyyy-MM-dd");
+  const windowEnd = format(addWeeks(anchor, WEEKS_FWD), "yyyy-MM-dd");
 
   const map = new Map<string, { startDate: string; endDate: string }>();
   // Generated window (so current + next show even with no data yet).

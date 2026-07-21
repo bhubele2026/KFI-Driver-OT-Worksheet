@@ -18,6 +18,7 @@ import { DriversSidebar } from "@/components/drivers-sidebar";
 import { AppShell } from "@/components/app-shell";
 import { WeekToolbar } from "@/components/week-toolbar";
 import { StatTile } from "@/components/stat-tile";
+import { payWeekStart } from "@/lib/pay-week";
 import { ReviewedPill } from "@/components/reviewed-pill";
 import {
   AllReviewedSplash,
@@ -90,13 +91,6 @@ import {
   addWeeks,
 } from "date-fns";
 
-function getSunday(d: Date) {
-  const date = new Date(d);
-  const day = date.getDay(); // 0 = Sunday
-  date.setDate(date.getDate() - day);
-  return date;
-}
-
 function errMessage(err: unknown, fallback: string): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
@@ -115,8 +109,9 @@ export default function WeekSummary() {
   const { data: me } = useGetMe();
 
   const today = new Date();
-  const currentSunday = getSunday(today);
-  const defaultWeekStart = format(currentSunday, "yyyy-MM-dd");
+  // Payroll is reconciled after the week ends, so default to last week (the
+  // most-recently-completed pay week), not the in-progress current week.
+  const defaultWeekStart = payWeekStart(today);
 
   const weekStart = params.weekStart || defaultWeekStart;
 
