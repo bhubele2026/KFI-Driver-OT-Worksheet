@@ -165,3 +165,74 @@ export function topMatches(
     .sort((a, b) => b.confidence - a.confidence)
     .slice(0, limit);
 }
+
+/**
+ * Resolve a customer-file row to a KFI driver id. This is the SINGLE
+ * resolution policy shared by both extraction lanes so the deterministic
+ * (cached-layout) reader matches drivers exactly as well as the AI path —
+ * badge/alias → collision-guarded self-map → (optional AI hint) → saved
+ * name alias → high-confidence fuzzy name. Returns null when nothing clears
+ * the bar, so the row surfaces to the dispatcher instead of being silently
+ * mis-attributed or dropped.
+ *
+ * Mirrors `imageSupport.resolveKfiId`; kept generic (no AI-row type) so the
+ * deterministic reader can call it with just a badge + name. `aiPick` is
+ * optional (the AI lane's `resolvedKfiId` hint) and simply skipped when absent.
+ */
+export function resolveDriverId(
+  input: { badge: string; nameOnDoc: string; aiPick?: string | null },
+  ctx: {
+    idMap: Record<string, string>;
+    fuzzyPool: ReadonlyArray<{ kfiId: string; name: string }>;
+    kfiSet: ReadonlySet<string>;
+    nameAliasMap?: ReadonlyMap<string, string>;
+    uploadedCustomer: string;
+    driversByKfi: ReadonlyMap<string, { name: string; customer: string | null }>;
+  },
+): string | null {
+  const badge = (input.badge ?? "").trim();
+  const nameOnDoc = (input.nameOnDoc ?? "").trim();
+  if (badge) {
+    // Explicit alias mapping is authoritative (case-insensitive to match the
+    // driver_id_aliases lower(external_id) index); it wins outright.
+    const mapped =
+      ctx.idMap[badge] ??
+      ctx.idMap[badge.toLowerCase()] ??
+      ctx.idMap[badge.toUpperCase()];
+    if (mapped && ctx.kfiSet.has(mapped)) return mapped;
+    // Bare self-map (badge already equals a kfi_id) only when corroborated —
+    // Task #363 collision guard (unrelated employee-number id spaces).
+    const candidate = ctx.kfiSet.has(badge) ? badge : null;
+    if (
+      candidate &&
+      isBadgeMatchTrustworthy({
+        candidateKfiId: candidate,
+        nameOnDoc,
+        uploadedCustomer: ctx.uploadedCustomer,
+        driversByKfi: ctx.driversByKfi,
+        nameAliasMap: ctx.nameAliasMap,
+      })
+    ) {
+      return candidate;
+    }
+  }
+  const aiPick = (input.aiPick ?? "").trim();
+  if (aiPick && ctx.kfiSet.has(aiPick) && ctx.fuzzyPool.some((d) => d.kfiId === aiPick)) {
+    return aiPick;
+  }
+  if (!nameOnDoc) return null;
+  // Saved per-customer name alias (a prior dispatcher decision) wins over fuzzy.
+  if (ctx.nameAliasMap) {
+    const aliased = ctx.nameAliasMap.get(nameOnDoc.toLowerCase());
+    if (aliased && ctx.kfiSet.has(aliased)) return aliased;
+  }
+  const best = topMatches(
+    nameOnDoc,
+    ctx.fuzzyPool.map((d) => ({ kfiId: d.kfiId, name: d.name, customer: "" })),
+    1,
+  )[0];
+  if (best && best.confidence >= 0.85 && ctx.kfiSet.has(best.kfiId)) {
+    return best.kfiId;
+  }
+  return null;
+}

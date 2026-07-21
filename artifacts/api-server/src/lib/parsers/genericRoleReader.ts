@@ -2,7 +2,7 @@ import * as XLSX from "xlsx";
 import { UnmappedIdAccumulator, DroppedRowAccumulator } from "./types.js";
 import type { DroppedRow, ParseResult, ParsedPunch } from "./types.js";
 import { extractPdfLinesByPage } from "./schemaSignature.js";
-import { isBadgeMatchTrustworthy } from "./fuzzy.js";
+import { resolveDriverId } from "./fuzzy.js";
 
 /**
  * Task #363: optional collision-guard context the readers use to
@@ -167,16 +167,41 @@ export function readWithRoles(
   const unmapped = new UnmappedIdAccumulator();
   const dropped = new DroppedRowAccumulator();
   const punches: ParsedPunch[] = [];
+  // Shared driver-resolution context so this deterministic lane matches
+  // drivers exactly as well as the AI lane (badge/alias → guarded self-map →
+  // saved name alias → high-confidence fuzzy name). Derived from the badge
+  // guard's roster; empty when no guard is supplied (older callers) so the
+  // resolver degrades to badge/alias only.
+  const fuzzyPool = badgeGuard
+    ? [...badgeGuard.driversByKfi].map(([kfiId, d]) => ({ kfiId, name: d.name }))
+    : [];
+  const resolveCtx = {
+    idMap,
+    fuzzyPool,
+    kfiSet,
+    nameAliasMap: badgeGuard?.nameAliasMap,
+    uploadedCustomer: badgeGuard?.uploadedCustomer ?? customer,
+    driversByKfi:
+      badgeGuard?.driversByKfi ??
+      (new Map() as ReadonlyMap<
+        string,
+        { name: string; customer: string | null }
+      >),
+  };
   for (const row of rows) {
     if (!Array.isArray(row)) continue;
     const rawBadge = cellToString(row[columnRoles.badge]);
-    if (!rawBadge) continue;
-    // Read any name early so a drop entry can carry it as context.
+    // Read the name early: it may be the only identifier (some files carry the
+    // driver in a name column with no usable badge) and drop entries carry it.
     let sampleName: string | null = null;
     if (columnRoles.name != null) {
       const raw = cellToString(row[columnRoles.name]).trim();
       if (raw) sampleName = raw;
     }
+    // Skip only a truly empty row (no badge AND no name) — a blank/spacer line.
+    // A row with a name but no badge is real data and must still resolve or be
+    // surfaced — never silently skipped (the original cache-lane data-loss bug).
+    if (!rawBadge && !sampleName) continue;
     const earlyName = sampleName;
     const rawDateCell = row[columnRoles.date];
     const rawInCell = row[columnRoles.timeIn];
@@ -233,47 +258,30 @@ export function readWithRoles(
       });
       continue;
     }
-    // Resolve badge → kfiId. Aliases take precedence (a customer's
-    // external employee number remapped to a KFI driver); otherwise
-    // fall through to the badge itself if it's already a real
-    // kfi_id (matches the AI path in `imageSupport.resolveKfiId`,
-    // which accepts kfiSet.has(badge) as a self-mapping so files
-    // that ship driver kfi_ids in the badge column don't need a
-    // dummy alias per driver).
-    // sampleName already read above so a drop entry can carry it.
-    const aliased = idMap[rawBadge];
-    let mapped: string | null = null;
-    if (aliased && kfiSet.has(aliased)) mapped = aliased;
-    else if (kfiSet.has(rawBadge)) mapped = rawBadge;
-    // Task #363: when the cached recipe self-resolves a numeric
-    // employee number to a real KFI badge (e.g. Trienda's "Employee
-    // Number" column accidentally matching Felix Baez Caballero's
-    // badge), refuse the match unless corroborated by roster /
-    // alias / name agreement. Older callers without the guard
-    // context retain the previous permissive behaviour.
-    if (
-      mapped &&
-      badgeGuard &&
-      !isBadgeMatchTrustworthy({
-        candidateKfiId: mapped,
-        nameOnDoc: sampleName ?? "",
-        uploadedCustomer: badgeGuard.uploadedCustomer,
-        driversByKfi: badgeGuard.driversByKfi,
-        nameAliasMap: badgeGuard.nameAliasMap,
-      })
-    ) {
-      mapped = null;
-    }
+    // Resolve to a KFI driver using the SAME policy as the AI lane
+    // (`resolveDriverId`): badge/alias → collision-guarded self-map → saved
+    // name alias → high-confidence fuzzy name. This is what lets the cached
+    // lane match name-only customers (e.g. Penda's Ashley Choncoa, whose
+    // employee number ≠ her KFI id) instead of dropping them — the reason
+    // the deterministic lane was previously disabled.
+    const mapped = resolveDriverId(
+      { badge: rawBadge, nameOnDoc: sampleName ?? "" },
+      resolveCtx,
+    );
     if (!mapped) {
-      unmapped.add(rawBadge, sampleName);
+      // Badge-bearing misses feed the badge-keyed unmapped picker; name-only
+      // misses surface via droppedRows so nothing is lost quietly.
+      if (rawBadge) unmapped.add(rawBadge, sampleName);
       dropped.add({
         reason: "no_driver_match",
-        detail: `badge ${rawBadge} not in roster${
-          sampleName ? ` (name on doc: ${sampleName})` : ""
-        }`,
+        detail: rawBadge
+          ? `badge ${rawBadge} not matched to a roster driver${
+              sampleName ? ` (name on doc: ${sampleName})` : ""
+            }`
+          : `name "${sampleName ?? ""}" not matched to a roster driver`,
         rawRow: {
           driverNameOnDoc: sampleName,
-          badgeOrId: rawBadge,
+          badgeOrId: rawBadge || null,
           date: dateIso,
           timeIn: clockIn,
           timeOut: clockOut,
@@ -485,6 +493,23 @@ export async function readPdfWithRoles(
   const punches: ParsedPunch[] = [];
   const fallbackYear =
     columnRoles.fallbackYear ?? parseInt(weekStart.slice(0, 4));
+  // Same shared resolver as the xlsx lane / AI lane (see readWithRoles).
+  const fuzzyPool = badgeGuard
+    ? [...badgeGuard.driversByKfi].map(([kfiId, d]) => ({ kfiId, name: d.name }))
+    : [];
+  const resolveCtx = {
+    idMap,
+    fuzzyPool,
+    kfiSet,
+    nameAliasMap: badgeGuard?.nameAliasMap,
+    uploadedCustomer: badgeGuard?.uploadedCustomer ?? customer,
+    driversByKfi:
+      badgeGuard?.driversByKfi ??
+      (new Map() as ReadonlyMap<
+        string,
+        { name: string; customer: string | null }
+      >),
+  };
 
   for (const lines of pages) {
     let currentRawBadge: string | null = null;
@@ -507,26 +532,12 @@ export async function readPdfWithRoles(
         currentRawBadge = badgeRaw;
         currentSampleName =
           (eMatch.groups?.name ?? eMatch[2] ?? "").trim() || null;
-        const aliased = idMap[currentRawBadge];
-        let mapped: string | null = null;
-        if (aliased && kfiSet.has(aliased)) mapped = aliased;
-        else if (kfiSet.has(currentRawBadge)) mapped = currentRawBadge;
-        // Task #363 collision guard — mirror the xlsx cache reader so
-        // a numeric employee number that happens to equal a real KFI
-        // badge from a different customer doesn't auto-resolve.
-        if (
-          mapped &&
-          badgeGuard &&
-          !isBadgeMatchTrustworthy({
-            candidateKfiId: mapped,
-            nameOnDoc: currentSampleName ?? "",
-            uploadedCustomer: badgeGuard.uploadedCustomer,
-            driversByKfi: badgeGuard.driversByKfi,
-            nameAliasMap: badgeGuard.nameAliasMap,
-          })
-        ) {
-          mapped = null;
-        }
+        // Same shared resolver as the xlsx / AI lanes: badge/alias →
+        // guarded self-map → saved name alias → high-confidence fuzzy name.
+        const mapped = resolveDriverId(
+          { badge: currentRawBadge, nameOnDoc: currentSampleName ?? "" },
+          resolveCtx,
+        );
         if (mapped) {
           currentKfiId = mapped;
           currentMapped = true;
