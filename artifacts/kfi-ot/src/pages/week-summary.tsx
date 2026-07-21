@@ -17,6 +17,7 @@ import { ZenopleExportButton } from "@/components/zenople-export-button";
 import { DriversSidebar } from "@/components/drivers-sidebar";
 import { AppShell } from "@/components/app-shell";
 import { WeekToolbar } from "@/components/week-toolbar";
+import { StatTile } from "@/components/stat-tile";
 import { ReviewedPill } from "@/components/reviewed-pill";
 import {
   AllReviewedSplash,
@@ -766,78 +767,34 @@ export default function WeekSummary() {
           ) : summary ? (
             <>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-4">
-                    <CardTitle className="text-xs text-muted-foreground uppercase font-semibold">
-                      {t("weekSummary.stats.activeDrivers")}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-4 pb-4">
-                    <div className="text-2xl font-bold fin-num">
-                      {summary.totals.activeDrivers}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-4">
-                    <CardTitle className="text-xs text-muted-foreground uppercase font-semibold">
-                      {t("weekSummary.stats.totalHours")}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-4 pb-4">
-                    <div className="text-2xl font-bold fin-num">
-                      {summary.totals.totalHours.toFixed(2)}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-4">
-                    <CardTitle className="text-xs text-muted-foreground uppercase font-semibold">
-                      {t("weekSummary.stats.driverSource")}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-4 pb-4">
-                    <div className="text-2xl font-bold fin-num text-brand-navy">
-                      {summary.totals.driverHours.toFixed(2)}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-4">
-                    <CardTitle className="text-xs text-muted-foreground uppercase font-semibold">
-                      {t("weekSummary.stats.customerSource")}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-4 pb-4">
-                    <div className="text-2xl font-bold fin-num text-teal-600">
-                      {summary.totals.customerHours.toFixed(2)}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-4">
-                    <CardTitle className="text-xs text-muted-foreground uppercase font-semibold">
-                      {t("weekSummary.stats.regular")}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-4 pb-4">
-                    <div className="text-2xl font-bold fin-num">
-                      {summary.totals.regularHours.toFixed(2)}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="border-warning/50 bg-warning/5">
-                  <CardHeader className="pb-2 pt-4 px-4">
-                    <CardTitle className="text-xs text-warning uppercase font-semibold">
-                      {t("weekSummary.stats.overtime")}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-4 pb-4">
-                    <div className="text-2xl font-bold fin-num text-warning">
-                      {summary.totals.overtimeHours.toFixed(2)}
-                    </div>
-                  </CardContent>
-                </Card>
+                <StatTile
+                  label={t("weekSummary.stats.activeDrivers")}
+                  value={summary.totals.activeDrivers}
+                  decimals={0}
+                />
+                <StatTile
+                  label={t("weekSummary.stats.totalHours")}
+                  value={summary.totals.totalHours}
+                />
+                <StatTile
+                  label={t("weekSummary.stats.driverSource")}
+                  value={summary.totals.driverHours}
+                  tone="text-brand-navy"
+                />
+                <StatTile
+                  label={t("weekSummary.stats.customerSource")}
+                  value={summary.totals.customerHours}
+                  tone="text-teal-600"
+                />
+                <StatTile
+                  label={t("weekSummary.stats.regular")}
+                  value={summary.totals.regularHours}
+                />
+                <StatTile
+                  label={t("weekSummary.stats.overtime")}
+                  value={summary.totals.overtimeHours}
+                  highlight
+                />
               </div>
 
               <div

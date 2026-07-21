@@ -38,6 +38,7 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { StatTile } from "@/components/stat-tile";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
@@ -3102,31 +3103,6 @@ function SummaryAndChecks({
   );
 }
 
-function StatTile({
-  label,
-  value,
-  tone,
-  testId,
-}: {
-  label: string;
-  value: number;
-  tone?: string;
-  testId?: string;
-}) {
-  return (
-    <div
-      className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-border"
-      data-testid={testId}
-    >
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
-        {label}
-      </div>
-      <div className={cn("mt-1 fin-num text-xl font-semibold", tone ?? "text-foreground")}>
-        {value.toFixed(2)}
-      </div>
-    </div>
-  );
-}
 
 function NoteItem({
   note,
