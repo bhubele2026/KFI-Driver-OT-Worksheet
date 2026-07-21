@@ -1284,6 +1284,13 @@
   "customerPreview": {
     "reviewTitle": "Review {{customer}} upload",
     "description": "Nothing is saved until you confirm.",
+    "statusPunches_one": "{{count}} punch",
+    "statusPunches_other": "{{count}} punches",
+    "statusDrivers_one": "{{count}} driver",
+    "statusDrivers_other": "{{count}} drivers",
+    "statusNeedAttention": "{{count}} need attention",
+    "statusDropped": "{{count}} dropped",
+    "geminiFallback": "Gemini fallback used — Claude was unreachable, so these rows were extracted by the secondary model. Double-check before confirming.",
     "readBy": "Read by:",
     "ai": "AI",
     "learnedSchema": "Learned schema",

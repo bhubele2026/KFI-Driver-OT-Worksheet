@@ -363,17 +363,22 @@ export function CustomerPreviewDialog({
         </DialogHeader>
 
         <div className="space-y-2">
-          {preview.extractSource ? (
-            <div
-              className="flex items-center gap-2 text-xs text-muted-foreground"
-              data-testid="text-extract-source"
-            >
-              <span>{t("customerPreview.readBy")}</span>
+          {/* Compact at-a-glance status — replaces the old stacked banner wall
+              so the data table isn't buried. Lane + counts + replace note in
+              one row; rarer warnings stay below. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
+            {preview.extractSource ? (
               <span
                 className={
                   preview.extractSource === "ai"
                     ? "inline-flex items-center rounded border border-amber-500/40 bg-amber-50/60 dark:bg-amber-950/20 px-2 py-0.5 font-medium text-amber-900 dark:text-amber-200"
-                    : "inline-flex items-center rounded border border-border bg-muted/40 px-2 py-0.5 font-medium"
+                    : "inline-flex items-center rounded border border-border bg-card px-2 py-0.5 font-medium"
+                }
+                data-testid="text-extract-source"
+                title={
+                  preview.extractSource === "ai"
+                    ? t("customerPreview.aiReviewHint")
+                    : t("customerPreview.cacheWarmedTitle")
                 }
               >
                 {preview.extractSource === "ai"
@@ -382,22 +387,49 @@ export function CustomerPreviewDialog({
                     ? t("customerPreview.learnedSchema")
                     : t("customerPreview.builtinParser")}
               </span>
-              {preview.extractSource === "ai" ? (
-                <span className="text-muted-foreground/80">
-                  {t("customerPreview.aiReviewHint")}
-                </span>
-              ) : null}
-              {preview.extractSource === "ai" && preview.cacheWritten ? (
-                <span
-                  className="ml-1 inline-flex items-center rounded border border-emerald-500/40 bg-emerald-50/60 dark:bg-emerald-950/20 px-2 py-0.5 text-[10px] font-medium text-emerald-800 dark:text-emerald-200"
-                  data-testid="chip-cache-warmed"
-                  title={t("customerPreview.cacheWarmedTitle")}
-                >
-                  {t("customerPreview.cacheWarmedLabel")}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
+            ) : null}
+            <span className="font-medium text-foreground">
+              {t("customerPreview.statusPunches", { count: includedCount })}
+            </span>
+            <span className="text-muted-foreground">
+              {t("customerPreview.statusDrivers", { count: groups.length })}
+            </span>
+            {preview.unmappedIds.length > 0 ? (
+              <span className="inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300">
+                <AlertCircle className="h-3.5 w-3.5" />
+                {t("customerPreview.statusNeedAttention", {
+                  count: preview.unmappedIds.length,
+                })}
+              </span>
+            ) : null}
+            {preview.droppedRows && preview.droppedRows.length > 0 ? (
+              <span className="text-muted-foreground">
+                {t("customerPreview.statusDropped", {
+                  count: preview.droppedRows.length,
+                })}
+              </span>
+            ) : null}
+            <span
+              className="ml-auto text-muted-foreground"
+              data-testid={
+                preview.existingPunchCount > 0
+                  ? "text-replace-warning"
+                  : undefined
+              }
+            >
+              {preview.existingPunchCount > 0
+                ? t("customerPreview.replaceWarning", {
+                    count: preview.existingPunchCount,
+                    existing: preview.existingPunchCount,
+                    included: includedCount,
+                    customer: preview.customer,
+                  })
+                : t("customerPreview.willImport", {
+                    count: includedCount,
+                    customer: preview.customer,
+                  })}
+            </span>
+          </div>
           {preview.extractionTruncated ? (
             <div
               className="flex items-start gap-2 rounded-md border border-red-500/40 bg-red-50/60 dark:bg-red-950/20 px-3 py-2 text-xs text-red-900 dark:text-red-200"
@@ -428,33 +460,9 @@ export function CustomerPreviewDialog({
               data-testid="text-gemini-fallback-warning"
             >
               <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-              <span>
-                Gemini fallback used — Claude was unreachable, so these rows
-                were extracted by the secondary model. Double-check before
-                confirming.
-              </span>
+              <span>{t("customerPreview.geminiFallback")}</span>
             </div>
           ) : null}
-          {preview.existingPunchCount > 0 ? (
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-              <span data-testid="text-replace-warning">
-                {t("customerPreview.replaceWarning", {
-                  count: preview.existingPunchCount,
-                  existing: preview.existingPunchCount,
-                  included: includedCount,
-                  customer: preview.customer,
-                })}
-              </span>
-            </div>
-          ) : (
-            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              {t("customerPreview.willImport", {
-                count: includedCount,
-                customer: preview.customer,
-              })}
-            </div>
-          )}
           {preview.unmappedIds.length > 0 && (
             <div
               className="rounded-md border border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 space-y-2"
