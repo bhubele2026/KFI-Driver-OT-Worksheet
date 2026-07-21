@@ -321,12 +321,31 @@ export function parseMaxCallsOverride(
   return n;
 }
 
+// Earliest week the app has ever had real data for; nothing before this is
+// legitimate. Weeks more than ~60 days in the future are also treated as bad
+// data (a stray punch/upload dated years out once created a permanent 2031
+// `weeks` row that the picker then showed forever).
+const MIN_VALID_WEEK = "2026-01-01";
+const MAX_FUTURE_DAYS = 60;
+
 async function ensureWeek(weekStart: string): Promise<{
   startDate: string;
   endDate: string;
 }> {
   const sunday = sundayOf(weekStart);
   const end = weekEndOf(sunday);
+  // Guard: never persist a `weeks` row for an out-of-range date. We still
+  // return the computed range so callers don't break, but skipping the insert
+  // keeps bogus far-future/ancient weeks out of the picker permanently.
+  const maxSunday = new Date(Date.now() + MAX_FUTURE_DAYS * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  if (sunday < MIN_VALID_WEEK || sunday > maxSunday) {
+    console.warn(
+      `[ensureWeek] skipping out-of-range week ${sunday} (from weekStart=${weekStart})`,
+    );
+    return { startDate: sunday, endDate: end };
+  }
   await db
     .insert(schema.weeksTable)
     .values({ startDate: sunday, endDate: end })

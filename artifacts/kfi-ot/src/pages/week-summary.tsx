@@ -3,7 +3,6 @@ import { useLocation, Link, useParams } from "wouter";
 import {
   useGetWeekSummary,
   useGetCustomerUploadStatus,
-  useListWeeks,
   useRefreshConnecteam,
   useResetWeek,
   getGetWeekSummaryQueryKey,
@@ -127,38 +126,7 @@ export default function WeekSummary() {
   });
   const viewers = usePresence({ weekStart });
 
-  const { data: weeksList } = useListWeeks();
-
-  // Dropdown shows every Sun→Sat week from the Sun→Sat cutover
-  // (2026-05-10) through the current payroll week, plus any DB-known
-  // weeks (in case data exists for a week outside that range) and the
-  // currently-selected week. No future-only weeks; the list grows
-  // naturally as time advances.
-  const weekOptions = (() => {
-    const endOf = (sundayIso: string) => {
-      const d = parseISO(sundayIso);
-      d.setDate(d.getDate() + 6);
-      return format(d, "yyyy-MM-dd");
-    };
-    const FIRST_WEEK = "2026-05-10";
-    const map = new Map<string, { startDate: string; endDate: string }>();
-    let cursor = parseISO(FIRST_WEEK);
-    const end = currentSunday;
-    while (cursor.getTime() <= end.getTime()) {
-      const s = format(cursor, "yyyy-MM-dd");
-      map.set(s, { startDate: s, endDate: endOf(s) });
-      cursor = addWeeks(cursor, 1);
-    }
-    for (const w of weeksList ?? []) {
-      map.set(w.startDate, { startDate: w.startDate, endDate: w.endDate });
-    }
-    if (!map.has(weekStart)) {
-      map.set(weekStart, { startDate: weekStart, endDate: endOf(weekStart) });
-    }
-    return [...map.values()].sort((a, b) =>
-      a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0,
-    );
-  })();
+  // The week picker + its bounded option list live in <WeekToolbar>.
   // Task #401: dashboard navigates between drivers frequently; a 30s
   // staleTime keeps the network panel quiet while still letting any
   // explicit mutation (refresh, upload, edit) invalidate immediately.

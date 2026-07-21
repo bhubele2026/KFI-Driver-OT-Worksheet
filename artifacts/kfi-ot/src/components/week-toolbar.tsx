@@ -12,6 +12,67 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+// The picker only offers the weeks a dispatcher is actively working: the two
+// weeks leading up to now, the current payroll week, and the next week. Older
+// (closed) weeks live on the History page; this also drops stray far-future
+// junk rows (e.g. a bad 2031 week) that the raw /weeks list would otherwise
+// surface. Tune the window here.
+const WEEKS_BACK = 2;
+const WEEKS_FWD = 1;
+
+function getSunday(d: Date): Date {
+  const date = new Date(d);
+  date.setDate(date.getDate() - date.getDay()); // 0 = Sunday
+  return date;
+}
+
+/**
+ * Build the dropdown options: a small recent+next window, generated so the
+ * current and next week appear even before they have any data, merged with any
+ * real DB weeks that fall inside the window, plus the currently-selected week
+ * (so a week opened from History still displays). Newest first.
+ */
+export function buildWeekOptions(
+  dbWeeks: Array<{ startDate: string; endDate: string }>,
+  selectedWeekStart: string,
+  today: Date = new Date(),
+): Array<{ startDate: string; endDate: string }> {
+  const endOf = (sundayIso: string) => {
+    const d = parseISO(sundayIso);
+    d.setDate(d.getDate() + 6);
+    return format(d, "yyyy-MM-dd");
+  };
+  const currentSunday = getSunday(today);
+  const windowStart = format(addWeeks(currentSunday, -WEEKS_BACK), "yyyy-MM-dd");
+  const windowEnd = format(addWeeks(currentSunday, WEEKS_FWD), "yyyy-MM-dd");
+
+  const map = new Map<string, { startDate: string; endDate: string }>();
+  // Generated window (so current + next show even with no data yet).
+  let cursor = parseISO(windowStart);
+  const endTs = parseISO(windowEnd).getTime();
+  while (cursor.getTime() <= endTs) {
+    const s = format(cursor, "yyyy-MM-dd");
+    map.set(s, { startDate: s, endDate: endOf(s) });
+    cursor = addWeeks(cursor, 1);
+  }
+  // Real DB weeks, but only inside the window (drops 2031 junk + old weeks).
+  for (const w of dbWeeks) {
+    if (w.startDate >= windowStart && w.startDate <= windowEnd) {
+      map.set(w.startDate, { startDate: w.startDate, endDate: w.endDate });
+    }
+  }
+  // Always keep the selected week visible (may be an older week from History).
+  if (selectedWeekStart && !map.has(selectedWeekStart)) {
+    map.set(selectedWeekStart, {
+      startDate: selectedWeekStart,
+      endDate: endOf(selectedWeekStart),
+    });
+  }
+  return [...map.values()].sort((a, b) =>
+    a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0,
+  );
+}
+
 /**
  * Sub-header week picker (prev / next / select / jump) rendered on the tint page
  * background — used by the Driver Upload and Timesheets sections. Actions for the
@@ -30,7 +91,10 @@ export function WeekToolbar({
 }) {
   const { t } = useTranslation();
   const { data: weeksList } = useListWeeks();
-  const weeks = (weeksList ?? []) as Array<{ startDate: string; endDate: string }>;
+  const weeks = buildWeekOptions(
+    (weeksList ?? []) as Array<{ startDate: string; endDate: string }>,
+    weekStart,
+  );
 
   const go = (delta: number) =>
     onChange(format(addWeeks(parseISO(weekStart), delta), "yyyy-MM-dd"));
