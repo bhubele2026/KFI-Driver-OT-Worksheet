@@ -15,13 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { DriverPicker } from "@/components/driver-picker";
 import {
   Table,
   TableBody,
@@ -518,50 +512,27 @@ export function CustomerPreviewDialog({
                         </span>
                       </div>
                       <div className="flex-1 min-w-[240px]">
-                        <Select
+                        <DriverPicker
+                          testId={`select-unmapped-${u.id}`}
                           value={picked}
-                          onValueChange={(v) =>
+                          onChange={(v) =>
                             setPicks((p) => ({ ...p, [u.id]: v }))
                           }
-                        >
-                          <SelectTrigger
-                            className="h-8 text-xs"
-                            data-testid={`select-unmapped-${u.id}`}
-                          >
-                            <SelectValue placeholder={t("customerPreview.pickDriverPlaceholder")} />
-                          </SelectTrigger>
-                          <SelectContent className="max-h-[50vh]">
-                            <SelectItem value={SKIP_PICK}>
-                              {t("customerPreview.skipLeaveDropped")}
-                            </SelectItem>
-                            <SelectItem value={IGNORE_PICK}>
-                              {t("customerPreview.notADriver", { customer: preview.customer })}
-                            </SelectItem>
-                            {orderedDrivers.length === 0 ? (
-                              <SelectItem value="__no_drivers" disabled>
-                                {t("customerPreview.noDriversLoaded")}
-                              </SelectItem>
-                            ) : null}
-                            {orderedDrivers.map((d) => {
-                              const isSuggested = d.kfiId === suggestedKfiId;
-                              return (
-                                <SelectItem key={d.kfiId} value={d.kfiId}>
-                                  <span className="font-medium">
-                                    {formatPersonName(d.name)}
-                                  </span>
-                                  <span className="font-mono text-[10px] text-muted-foreground ml-2">
-                                    {d.kfiId} · {d.customer}
-                                  </span>
-                                  {isSuggested ? (
-                                    <span className="ml-2 text-[10px] text-emerald-600 dark:text-emerald-400">
-                                      {t("customerPreview.suggested")}
-                                    </span>
-                                  ) : null}
-                                </SelectItem>
-                              );
-                            })}
-                          </SelectContent>
-                        </Select>
+                          drivers={orderedDrivers}
+                          suggestedKfiId={suggestedKfiId}
+                          skipValue={SKIP_PICK}
+                          ignoreValue={IGNORE_PICK}
+                          labels={{
+                            skip: t("customerPreview.skipLeaveDropped"),
+                            ignore: t("customerPreview.notADriver", {
+                              customer: preview.customer,
+                            }),
+                            placeholder: t("customerPreview.pickDriverPlaceholder"),
+                            search: t("customerPreview.pickDriverPlaceholder"),
+                            noResults: t("customerPreview.noDriversLoaded"),
+                            suggested: t("customerPreview.suggested"),
+                          }}
+                        />
                       </div>
                     </div>
                   );
