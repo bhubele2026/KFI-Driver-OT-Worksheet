@@ -4,6 +4,22 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Inter Variable — vendored (assets/fonts), no external requests. */
+@font-face {
+  font-family: "InterVariable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./assets/fonts/InterVariable.woff2") format("woff2");
+}
+@font-face {
+  font-family: "InterVariable";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./assets/fonts/InterVariable-Italic.woff2") format("woff2");
+}
+
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -77,50 +93,52 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* LIGHT — matched to the KFI Financial Dashboard (navy / white / steel, flat) */
+/* LIGHT — premium light SaaS: slate canvas, white tiles, KFI navy as the one
+   accent, orange reserved for OT/warnings. Depth from a soft two-layer shadow
+   scale + hairline borders; tiles lift slightly on hover. */
 :root {
   color-scheme: light;
 
-  --button-outline: rgba(25, 49, 91, .10);
-  --badge-outline: rgba(25, 49, 91, .05);
+  --button-outline: rgba(15, 23, 42, .10);
+  --badge-outline: rgba(15, 23, 42, .05);
   --opaque-button-border-intensity: -8;
-  --elevate-1: rgba(25, 49, 91, .03);
-  --elevate-2: rgba(25, 49, 91, .07);
+  --elevate-1: rgba(15, 23, 42, .03);
+  --elevate-2: rgba(15, 23, 42, .07);
 
-  --background: 216 43% 98%;          /* #F7F9FC brand tint */
-  --foreground: 222 33% 15%;          /* #1A2233 ink */
+  --background: 210 40% 98%;          /* #F8FAFC slate-50 canvas */
+  --foreground: 222 47% 11%;          /* #0F172A slate-900 ink */
 
-  --border: 213 44% 93%;              /* #E6EDF5 hairline */
-  --input: 213 44% 93%;
+  --border: 214 32% 91%;              /* #E2E8F0 slate-200 hairline */
+  --input: 214 32% 91%;
   --ring: 217 57% 23%;                /* navy focus ring */
 
-  --card: 0 0% 100%;                  /* pure white panels */
-  --card-foreground: 222 33% 15%;
-  --card-border: 213 44% 93%;
+  --card: 0 0% 100%;                  /* pure white tiles */
+  --card-foreground: 222 47% 11%;
+  --card-border: 214 32% 91%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 222 33% 15%;
-  --popover-border: 213 44% 93%;
+  --popover-foreground: 222 47% 11%;
+  --popover-border: 214 32% 91%;
 
-  --primary: 217 57% 23%;             /* #19315B KFI navy */
+  --primary: 217 57% 23%;             /* #19315B KFI navy — THE accent */
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 214 40% 96%;           /* cool block */
+  --secondary: 210 40% 96%;           /* slate-100 block */
   --secondary-foreground: 217 57% 23%;
 
-  --muted: 214 42% 97%;               /* card subhead bg */
-  --muted-foreground: 220 12% 46%;    /* #6B7280 neutral-500 */
+  --muted: 210 40% 97%;               /* subhead bg */
+  --muted-foreground: 215 16% 47%;    /* #64748B slate-500 */
 
-  --accent: 213 44% 93%;              /* steel line highlight */
+  --accent: 213 36% 94%;              /* soft highlight */
   --accent-foreground: 217 57% 23%;
 
-  --destructive: 0 63% 47%;           /* professional red */
+  --destructive: 350 74% 46%;         /* refined rose-red */
   --destructive-foreground: 0 0% 100%;
 
-  --warning: 30 92% 57%;              /* #F68D2E brand orange (OT / accent) */
+  --warning: 30 92% 57%;              /* #F68D2E brand orange (OT only) */
   --warning-foreground: 0 0% 100%;
 
-  --sidebar: 217 57% 23%;             /* #19315B navy app bar */
+  --sidebar: 217 57% 23%;             /* #19315B navy app bar (brand anchor) */
   --sidebar-foreground: 0 0% 100%;
   --sidebar-border: 216 40% 32%;
   --sidebar-primary: 30 92% 57%;      /* orange accent on navy */
@@ -135,21 +153,22 @@
   --chart-4: 30 92% 57%;              /* orange */
   --chart-5: 0 63% 50%;               /* red */
 
-  --app-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --app-font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --app-font-sans: "InterVariable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --app-font-display: "InterVariable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --app-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --radius: 0.75rem;
+  --radius: 1rem;
 
-  /* Flat: definition from hairline rings, only floating layers get a faint lift. */
-  --shadow-2xs: 0px 0px 0px 0px hsl(222 33% 15% / 0.00);
-  --shadow-xs: 0px 1px 1px 0px hsl(222 33% 15% / 0.03);
-  --shadow-sm: 0px 1px 2px 0px hsl(222 33% 15% / 0.05);
-  --shadow: 0px 1px 3px 0px hsl(222 33% 15% / 0.06);
-  --shadow-md: 0px 4px 12px -3px hsl(222 33% 15% / 0.08);
-  --shadow-lg: 0px 8px 20px -5px hsl(222 33% 15% / 0.10);
-  --shadow-xl: 0px 14px 32px -8px hsl(222 33% 15% / 0.14);
-  --shadow-2xl: 0px 20px 44px -10px hsl(222 33% 15% / 0.18);
+  /* Soft two-layer depth: tiles rest on a gentle ambient + key shadow and
+     lift on hover. Crisper than the old near-flat scale without going heavy. */
+  --shadow-2xs: 0px 1px 1px 0px hsl(222 47% 11% / 0.02);
+  --shadow-xs: 0px 1px 2px 0px hsl(222 47% 11% / 0.04);
+  --shadow-sm: 0px 1px 2px 0px hsl(222 47% 11% / 0.05), 0px 2px 6px -1px hsl(222 47% 11% / 0.05);
+  --shadow: 0px 1px 3px 0px hsl(222 47% 11% / 0.06), 0px 4px 10px -2px hsl(222 47% 11% / 0.06);
+  --shadow-md: 0px 2px 4px -1px hsl(222 47% 11% / 0.06), 0px 8px 18px -4px hsl(222 47% 11% / 0.09);
+  --shadow-lg: 0px 4px 8px -2px hsl(222 47% 11% / 0.07), 0px 14px 30px -6px hsl(222 47% 11% / 0.12);
+  --shadow-xl: 0px 8px 14px -4px hsl(222 47% 11% / 0.08), 0px 22px 44px -8px hsl(222 47% 11% / 0.16);
+  --shadow-2xl: 0px 24px 56px -12px hsl(222 47% 11% / 0.22);
 
   --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
@@ -167,6 +186,8 @@
   body {
     @apply font-sans antialiased bg-background text-foreground;
     text-rendering: optimizeLegibility;
+    /* Inter: open digits + disambiguated l/I for a crisper UI voice. */
+    font-feature-settings: "cv05" 1, "cv08" 1;
   }
 }
 
@@ -174,6 +195,30 @@
 .fin-num {
   font-variant-numeric: tabular-nums lining-nums;
   font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* The app's core visual unit: a white tile. Resting soft shadow, hairline
+   ring; interactive tiles lift on hover. Use `.tile` for static surfaces and
+   `.tile-action` for clickable ones. */
+.tile {
+  @apply rounded-2xl bg-card ring-1 ring-border;
+  box-shadow: var(--shadow-sm);
+}
+.tile-action {
+  @apply rounded-2xl bg-card ring-1 ring-border cursor-pointer;
+  box-shadow: var(--shadow-sm);
+  transition:
+    box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    ring-color 150ms;
+}
+.tile-action:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+.tile-action:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow);
 }
 
 /* Tile / content entrance — fade + short rise, staggered via inline animation-delay.

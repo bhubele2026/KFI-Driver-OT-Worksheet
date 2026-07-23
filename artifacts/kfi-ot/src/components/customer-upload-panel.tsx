@@ -39,7 +39,6 @@ import {
   Circle,
   Sparkles,
   AlertCircle,
-  Wand2,
   Lightbulb,
   FileQuestion,
   FolderUp,
@@ -1715,7 +1714,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           </ul>
         </div>
       )}
-      <ul className="divide-y divide-border">
+      <ul className="stagger grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 xl:grid-cols-3">
         {(statuses ?? []).map((s) => {
           const st = rowState[s.customer] ?? {
             uploading: false,
@@ -1768,10 +1767,8 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
             <li
               key={s.customer}
               data-testid={`customer-upload-row-${s.customer}`}
-              className={`relative px-4 py-2.5 flex items-center gap-3 hover:bg-muted/20 transition-colors ${
-                isRowDragTarget
-                  ? "bg-primary/10 ring-2 ring-primary ring-inset"
-                  : ""
+              className={`tile-action relative flex flex-col gap-2.5 p-5 ${
+                isRowDragTarget ? "ring-2 ring-primary" : ""
               }`}
               onDragEnter={(e) => handleRowDragEnter(s.customer, e)}
               onDragOver={handleRowDragOver}
@@ -1779,122 +1776,125 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
               onDrop={(e) => handleRowDrop(s.customer, e)}
             >
               {isRowDragTarget && (
-                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-primary/5">
-                  <div className="rounded border-2 border-dashed border-primary bg-background/95 px-3 py-1.5 shadow text-xs font-display font-semibold flex items-center gap-2">
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-primary/5">
+                  <div className="flex items-center gap-2 rounded-xl border-2 border-dashed border-primary bg-background/95 px-3 py-1.5 text-xs font-semibold shadow">
                     <UploadCloud className="h-4 w-4 text-primary" />
                     {t("customerUpload.dropToUploadAs", { customer: s.customer })}
                   </div>
                 </div>
               )}
-              <div className="shrink-0">
-                {showError ? (
-                  <AlertCircle
-                    className={`h-4 w-4 ${
-                      isStaleFailure
-                        ? "text-muted-foreground/60"
-                        : "text-destructive"
-                    }`}
-                  />
-                ) : uploaded ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                ) : (
-                  <Circle className="h-4 w-4 text-muted-foreground/40" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm">{s.customer}</span>
-                  {uploaded ? (
-                    <Badge
-                      variant="secondary"
-                      className="font-mono text-[10px]"
-                    >
-                      {t("customerUpload.punches", { count: s.punchCount })}
-                    </Badge>
-                  ) : showError ? (
-                    isStaleFailure && persistedFailureAge !== null ? (
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] text-muted-foreground border-muted-foreground/30"
-                        title={t("customerUpload.staleErrorTitle")}
-                        data-testid={`badge-stale-failed-${s.customer}`}
-                      >
-                        {formatFailedAgo(persistedFailureAge)}
-                      </Badge>
-                    ) : (
-                      <Badge
-                        variant="destructive"
-                        className="text-[10px]"
-                      >
-                        {t("customerUpload.lastUploadFailed")}
-                      </Badge>
-                    )
-                  ) : (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] text-muted-foreground"
-                    >
-                      {t("customerUpload.notUploaded")}
-                    </Badge>
-                  )}
-                  {showSkipped && (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] text-muted-foreground gap-1 border-muted-foreground/30"
-                      title={t("customerUpload.latestFileImportedTitle")}
-                      data-testid={`badge-skipped-${s.customer}`}
-                    >
-                      <CheckCircle2 className="h-3 w-3" />
-                      {t("customerUpload.latestFileImported")}
-                    </Badge>
-                  )}
-                  {s.hasCachedLayout && (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] text-muted-foreground border-muted-foreground/30"
-                      title={t("customerUpload.cachedLayoutBadgeTitle")}
-                      data-testid={`badge-cached-layout-${s.customer}`}
-                    >
-                      {t("customerUpload.cachedLayoutBadge")}
-                    </Badge>
-                  )}
-                  {s.isAiImported &&
-                    (me?.isAdmin ? (
-                      <Link
-                        href={`/admin/ai-samples?customer=${encodeURIComponent(s.customer)}`}
-                      >
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1 cursor-pointer hover:bg-amber-500/10"
-                          title={t("customerUpload.aiBadgeTitle", {
-                            aliases: s.aliasCount,
-                          })}
+              {/* Tile header: customer name + quiet per-tile actions. */}
+              <div className="flex items-start justify-between gap-2">
+                <span className="truncate text-[15px] font-semibold leading-tight">
+                  {s.customer}
+                </span>
+                <div className="-mr-2 -mt-1 flex shrink-0 items-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                    title={`Fix upload with chat · ${s.customer}`}
+                    data-testid={`customer-chat-open-${s.customer}`}
+                    onClick={() => setChatCustomer(s.customer)}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    <span className="sr-only">Open chat</span>
+                  </Button>
+                  {me?.isAdmin && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                          title={t("customerUpload.rowActionsTitle", { customer: s.customer })}
+                          data-testid={`row-actions-${s.customer}`}
+                          disabled={
+                            markInactiveMutation.isPending &&
+                            markInactiveMutation.variables?.data.customer ===
+                              s.customer
+                          }
                         >
-                          <Wand2 className="h-3 w-3" />
-                          {t("customerUpload.aiBadge", { count: s.aiImportWeekCount })}
-                        </Badge>
-                      </Link>
-                    ) : (
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] border-amber-500/40 text-amber-700 dark:text-amber-400 gap-1"
-                        title={t("customerUpload.aiBadgeTitleNoAdmin", {
-                          aliases: s.aliasCount,
-                        })}
-                      >
-                        <Wand2 className="h-3 w-3" />
-                        {t("customerUpload.aiBadge", { count: s.aiImportWeekCount })}
-                      </Badge>
-                    ))}
-                  {s.latestUploadAnalysis && (
-                    <UploadAnalysisPill
-                      weekStart={weekStart}
-                      customer={s.customer}
-                      summary={s.latestUploadAnalysis}
-                    />
+                          {markInactiveMutation.isPending &&
+                          markInactiveMutation.variables?.data.customer ===
+                            s.customer ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <span aria-hidden className="text-base leading-none">
+                              ⋯
+                            </span>
+                          )}
+                          <span className="sr-only">{t("customerUpload.rowActions")}</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel className="text-xs">
+                          {s.customer}
+                        </DropdownMenuLabel>
+                        {s.isAiImported && me?.isAdmin && (
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/admin/ai-samples?customer=${encodeURIComponent(s.customer)}`}
+                            >
+                              {t("customerUpload.aiBadge", { count: s.aiImportWeekCount })}
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => markInactive(s.customer)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          {t("customerUpload.markInactive")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
                 </div>
-                <div className="text-xs text-muted-foreground font-mono mt-0.5 truncate">
+              </div>
+              {/* One clear status line — replaces the old badge stack. */}
+              <div className="flex flex-wrap items-center gap-2">
+                {showError ? (
+                  <span
+                    className={`inline-flex items-center gap-1.5 text-sm font-medium ${
+                      isStaleFailure ? "text-muted-foreground" : "text-destructive"
+                    }`}
+                  >
+                    <AlertCircle className="h-4 w-4" />
+                    {isStaleFailure && persistedFailureAge !== null
+                      ? formatFailedAgo(persistedFailureAge)
+                      : t("customerUpload.lastUploadFailed")}
+                  </span>
+                ) : uploaded ? (
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4" />
+                    {t("customerUpload.punches", { count: s.punchCount })}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <Circle className="h-4 w-4 text-muted-foreground/40" />
+                    {t("customerUpload.notUploaded")}
+                  </span>
+                )}
+                {showSkipped && (
+                  <span
+                    className="text-xs text-muted-foreground"
+                    title={t("customerUpload.latestFileImportedTitle")}
+                    data-testid={`badge-skipped-${s.customer}`}
+                  >
+                    {t("customerUpload.latestFileImported")}
+                  </span>
+                )}
+                {s.latestUploadAnalysis && (
+                  <UploadAnalysisPill
+                    weekStart={weekStart}
+                    customer={s.customer}
+                    summary={s.latestUploadAnalysis}
+                  />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs text-muted-foreground/80">
                   {s.lastUploadAt || s.lastAttemptAt ? (
                     <>
                       {new Date(
@@ -2073,84 +2073,36 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   </span>
                 );
               })()}
-              <Button
-                variant={uploaded ? "outline" : "default"}
-                size="sm"
-                disabled={st.uploading}
-                onClick={() => inputs.current[s.customer]?.click()}
-              >
-                {st.uploading ? (
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <UploadCloud className="mr-2 h-3.5 w-3.5" />
-                )}
-                {uploaded
-                  ? t("customerUpload.reuploadButton")
-                  : t("customerUpload.uploadButton")}
-              </Button>
-              {st.uploading && (
+              {/* Footer: primary action pinned to the tile bottom. */}
+              <div className="mt-auto flex items-center gap-2 pt-1">
                 <Button
-                  variant="ghost"
+                  variant={uploaded ? "outline" : "default"}
                   size="sm"
-                  onClick={() => cancelRowUpload(s.customer)}
-                  data-testid={`upload-cancel-${s.customer}`}
-                  title={t("customerUpload.cancelUpload")}
+                  className="flex-1"
+                  disabled={st.uploading}
+                  onClick={() => inputs.current[s.customer]?.click()}
                 >
-                  {t("common.cancel")}
+                  {st.uploading ? (
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <UploadCloud className="mr-2 h-3.5 w-3.5" />
+                  )}
+                  {uploaded
+                    ? t("customerUpload.reuploadButton")
+                    : t("customerUpload.uploadButton")}
                 </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0 shrink-0"
-                title={`Fix upload with chat · ${s.customer}`}
-                data-testid={`customer-chat-open-${s.customer}`}
-                onClick={() => setChatCustomer(s.customer)}
-              >
-                <MessageSquare className="h-4 w-4" />
-                <span className="sr-only">Open chat</span>
-              </Button>
-              {me?.isAdmin && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0 shrink-0"
-                      title={t("customerUpload.rowActionsTitle", { customer: s.customer })}
-                      data-testid={`row-actions-${s.customer}`}
-                      disabled={
-                        markInactiveMutation.isPending &&
-                        markInactiveMutation.variables?.data.customer ===
-                          s.customer
-                      }
-                    >
-                      {markInactiveMutation.isPending &&
-                      markInactiveMutation.variables?.data.customer ===
-                        s.customer ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <span aria-hidden className="text-base leading-none">
-                          ⋯
-                        </span>
-                      )}
-                      <span className="sr-only">{t("customerUpload.rowActions")}</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel className="text-xs">
-                      {s.customer}
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => markInactive(s.customer)}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      {t("customerUpload.markInactive")}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+                {st.uploading && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => cancelRowUpload(s.customer)}
+                    data-testid={`upload-cancel-${s.customer}`}
+                    title={t("customerUpload.cancelUpload")}
+                  >
+                    {t("common.cancel")}
+                  </Button>
+                )}
+              </div>
             </li>
           );
         })}
