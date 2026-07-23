@@ -57,7 +57,17 @@ async function prepareContentParts(
   if (isSheet) {
     // Dump every sheet to CSV in one text block, labeled by tab name so the
     // model can pick the right sheet (e.g. Orgill's timecard vs Zenople master).
-    const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
+    let wb: XLSX.WorkBook;
+    try {
+      wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
+    } catch (err) {
+      // Corrupt/truncated zip (e.g. "Bad compressed size: 0 != 421") — the
+      // file usually got cut off in transit or is a cloud placeholder.
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Couldn't open "${fileName}" as an Excel file — it looks corrupted or only partially uploaded (${detail}). Upload it again; if it keeps failing, open it in Excel, re-save it, and try once more.`,
+      );
+    }
     const blocks: string[] = [];
     for (const name of wb.SheetNames) {
       const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false });
