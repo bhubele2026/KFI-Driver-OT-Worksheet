@@ -1986,7 +1986,7 @@ weeksRouter.post(
         .select()
         .from(schema.driversTable)
         .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)))
-    ).filter((d) => !/e2e/i.test(d.kfiId));
+    ).filter((d) => !/e2e/i.test(`${d.kfiId} ${d.name}`));
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
     const nameByKfi = new Map(drivers.map((d) => [d.kfiId, d.name] as const));
     const fileName = req.file.originalname;
@@ -4443,7 +4443,7 @@ weeksRouter.post(
         })
         .from(schema.driversTable)
         .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)))
-    ).filter((d) => !/e2e/i.test(d.kfiId));
+    ).filter((d) => !/e2e/i.test(`${d.kfiId} ${d.name}`));
     const rosterIdMap = await loadMergedIdMap();
     const savedAliasesForRoster = await db
       .select({
@@ -4605,7 +4605,7 @@ weeksRouter.post(
         })
         .from(schema.driversTable)
         .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)))
-    ).filter((d) => !/e2e/i.test(d.kfiId));
+    ).filter((d) => !/e2e/i.test(`${d.kfiId} ${d.name}`));
     const seen = new Map<string, string | null>();
     for (const r of rows) {
       const key = r.driverNameOnDoc.trim();

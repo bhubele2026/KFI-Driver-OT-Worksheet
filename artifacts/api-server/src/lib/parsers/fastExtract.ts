@@ -182,11 +182,19 @@ function matchCensusToFleet(
       laneSamples,
     };
   }
-  const byBadge = new Map<string, string>();
+  // Pinned badges (driver_id_aliases — dispatcher-vouched) are trusted
+  // outright. A badge that merely EQUALS some driver's kfiId is a known
+  // collision surface (customer employee-number id spaces overlap the
+  // kfi range — Task #363), so a self-map hit additionally requires the
+  // census name to not obviously disagree with that driver's name.
+  const byPinnedBadge = new Map<string, string>();
+  const bySelfKfi = new Map<string, string>();
+  const nameByKfi = new Map<string, string>();
   const byNameAlias = new Map<string, string>();
   for (const d of drivers) {
-    byBadge.set(d.kfiId.toLowerCase(), d.kfiId);
-    for (const b of d.badges) byBadge.set(b.trim().toLowerCase(), d.kfiId);
+    nameByKfi.set(d.kfiId, d.name);
+    bySelfKfi.set(d.kfiId.toLowerCase(), d.kfiId);
+    for (const b of d.badges) byPinnedBadge.set(b.trim().toLowerCase(), d.kfiId);
     // Saved picker decisions are NAME spellings, not badges — separate map.
     for (const a of d.aliases) byNameAlias.set(a.trim().toLowerCase(), d.kfiId);
   }
@@ -194,7 +202,16 @@ function matchCensusToFleet(
   const strangers: string[] = [];
   for (const w of workers) {
     const badge = (w.badge ?? "").trim();
-    const badgeHit = badge ? byBadge.get(badge.toLowerCase()) : undefined;
+    let badgeHit = badge ? byPinnedBadge.get(badge.toLowerCase()) : undefined;
+    if (!badgeHit && badge) {
+      const selfHit = bySelfKfi.get(badge.toLowerCase());
+      if (
+        selfHit &&
+        nameSimilarity(w.name, nameByKfi.get(selfHit) ?? "") >= 0.5
+      ) {
+        badgeHit = selfHit;
+      }
+    }
     const nameHit = byNameAlias.get(w.name.trim().toLowerCase());
     if (badgeHit || nameHit) {
       if (badgeHit) laneCounts.badge++;
