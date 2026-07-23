@@ -210,7 +210,7 @@ export async function extractImageForKnownCustomer(args: {
   // Clean-slate default: one model call, no chunking (fastExtractRows).
   // FAST_IMPORT=0 falls back to the legacy chunked extractor for rollback.
   const useFast = (process.env.FAST_IMPORT ?? "1") !== "0";
-  const { rows: rawRows, budgetSummary: aiBudgetSummary } = useFast
+  const extractResult = useFast
     ? await fastExtractRows(
         fileName,
         buffer,
@@ -232,6 +232,12 @@ export async function extractImageForKnownCustomer(args: {
         roster,
         aiOpts,
       );
+  const rawRows = extractResult.rows;
+  const aiBudgetSummary = extractResult.budgetSummary;
+  // Names-only list of workers the model saw but didn't extract (fast lane
+  // only) — powers the honest zero-punch message + missed-driver check.
+  const otherWorkers =
+    "otherWorkers" in extractResult ? (extractResult.otherWorkers ?? []) : [];
 
   // Normalize Gemini's date shape before the string-compare window filter.
   // Without this, any row whose `date` came back as `5/12/2026` or
@@ -377,6 +383,23 @@ export async function extractImageForKnownCustomer(args: {
     invalidTimeCount,
     acceptedCount: punches.length,
   };
+  // Cross-check the model's "clear strangers" list against the full fleet:
+  // a hit means the model skipped someone the server thinks is ours — the
+  // sheet's spelling beat the hint list. Loud log so it's diagnosable.
+  const likelySkippedDrivers = otherWorkers.filter((w) => {
+    const best = topMatches(
+      w.replace(/\s*\([^)]*\)\s*$/, ""),
+      drivers.map((d) => ({ kfiId: d.kfiId, name: d.name, customer: d.customer ?? "" })),
+      1,
+    )[0];
+    return best && best.confidence >= 0.85;
+  });
+  if (likelySkippedDrivers.length > 0) {
+    log?.warn(
+      { customer, fileName, likelySkippedDrivers },
+      "model listed likely KFI drivers as strangers — check the sheet's spelling vs the roster",
+    );
+  }
   if (punches.length === 0) {
     // Diagnosability for prod: when nothing auto-matched, record what the
     // model actually read and how many drivers we offered as hints — so a
@@ -385,10 +408,18 @@ export async function extractImageForKnownCustomer(args: {
       ...new Set(rawRows.map((r) => r.driverNameOnDoc?.trim()).filter(Boolean)),
     ].slice(0, 10);
     log?.warn(
-      { customer, fileName, ...diagnostics, rosterSize: drivers.length, sampleRawNames },
+      {
+        customer,
+        fileName,
+        ...diagnostics,
+        rosterSize: drivers.length,
+        sampleRawNames,
+        otherWorkerCount: otherWorkers.length,
+        otherWorkersSample: otherWorkers.slice(0, 10),
+      },
       rawRows.length > 0
         ? "AI extract accepted zero punches"
-        : "AI read zero worker rows from file",
+        : "AI extracted zero KFI rows from file",
     );
   }
   // Task #427: gap-inference catch-all. The per-row drop sites above
@@ -428,6 +459,7 @@ export async function extractImageForKnownCustomer(args: {
     diagnostics,
     pendingNamedRows,
     droppedRows: dropped.toArray(),
+    otherWorkerNames: otherWorkers,
     aiBudgetSummary,
   };
 }

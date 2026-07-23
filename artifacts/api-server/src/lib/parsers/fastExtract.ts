@@ -17,16 +17,17 @@ import type { IngestionBudgetSummary } from "./ingestionBudget.js";
  * matching / review / confirm logic in `extractImageForKnownCustomer` is
  * reused unchanged.
  *
- * Matching philosophy: the AI READS, the app MATCHES. The model extracts
- * EVERY worker on the sheet (skipping nobody), tagging the ones that
- * clearly match the expected-driver hints with `resolvedKfiId`. Server-side
- * resolution (`resolveKfiId`) then decides which rows are KFI drivers;
- * anything unresolved surfaces in the preview's picker instead of being
- * dropped. The roster is a HINT for id/spelling accuracy — never a filter:
- * a filter turns "driver tagged to the wrong customer in the DB" into a
- * silent 0-punch dead end (the IWG El Paso failure, 2026-07-23).
- * Expected drivers are emitted FIRST so if a monster sheet ever hits the
- * output-token cap, the truncated tail only loses non-KFI strangers.
+ * Matching philosophy: the AI READS, the app MATCHES — with bounded output.
+ * The expected-driver hints are the FULL active fleet (never narrowed to a
+ * customer tag: narrowing turned "driver tagged to the wrong customer in
+ * the DB" into a silent 0-punch dead end — the IWG El Paso failure,
+ * 2026-07-23). The model emits punch rows for every worker who plausibly
+ * matches the fleet (unsure → row WITHOUT resolvedKfiId, so the picker
+ * decides), and lists every remaining worker by NAME ONLY in
+ * `otherWorkers`. That keeps output tokens small on 500-row sheets (a
+ * full extract-everyone attempt blew the 180s timeout mid-JSON) while
+ * guaranteeing nobody on the sheet is invisible: worst case the server
+ * can say exactly which workers it saw and didn't recognize.
  */
 
 /** File bytes → the content block(s) we hand the model, no chunking. */
@@ -81,25 +82,26 @@ function buildFastPrompt(
     `You extract timecard punches for KFI Staffing from a customer's timesheet.`,
     `Customer: "${customer}". Pay week: ${weekStart} through ${weekEnd} (Sunday–Saturday). Only include rows whose date is in that window.`,
     ``,
-    `IMPORTANT — extract EVERY worker on the sheet. Do not skip anyone: KFI's drivers are mixed in with the customer's other workers under names/ids you may not recognize, and the app decides afterwards which rows are KFI's. A worker you omit can never be recovered.`,
+    `The sheet mixes KFI's drivers in with the customer's other workers. Extract punch rows for every worker who matches — or PLAUSIBLY matches — one of the EXPECTED KFI DRIVERS listed at the end. Names on customer sheets are spelled loosely ("Choncoa, Ashley M" is "Ashley Choncoa"; middle names, initials, and accents vary), and a driver may appear even if you wouldn't expect them at this customer — when in doubt, INCLUDE the worker's rows and leave resolvedKfiId out so a human decides. Only clear strangers go in otherWorkers.`,
     ``,
-    `For each worker's daily punch, output an object with:`,
+    `For each extracted worker's daily punch, output an object with:`,
     `- driverNameOnDoc: the worker's name exactly as written on the sheet.`,
     `- badgeOrId: the worker's id/badge/employee-number on the sheet, if any.`,
     `- date: YYYY-MM-DD (use the pay week to fill in the year if the sheet shows only M/D).`,
     `- hours: the day's worked hours as a decimal. USE THE SHEET'S OWN Total/Hours/Duration COLUMN when present — it already nets unpaid breaks and the customer's rounding. If a single day is split across pay-category rows (Reg + OT 1.5 + …), SUM them into one number for that day.`,
     `- timeIn / timeOut: clock in/out as "H:MM AM" / "H:MM PM" when shown; omit if only totals are given.`,
-    `- resolvedKfiId: ONLY when the worker clearly matches one of the EXPECTED KFI DRIVERS listed at the end — by badge/alias, or by name when it's clearly the same person (e.g. "Choncoa, Ashley M" -> "Ashley Choncoa") — copy that driver's KFI id here. For every other worker, omit this field entirely; never guess.`,
+    `- resolvedKfiId: the matched driver's KFI id from the list — but ONLY when the match is clear. If the worker plausibly matches yet you're unsure which driver (or whether it's really them), still output their rows and omit this field; never guess an id.`,
     ``,
-    `Emit ONE object per worker per day. Skip column headers, blank rows, page footers, and any total/subtotal/grand-total rows.`,
-    `Output the rows for EXPECTED KFI DRIVERS first, then every other worker.`,
+    `Emit ONE object per extracted worker per day. Skip column headers, blank rows, page footers, and any total/subtotal/grand-total rows.`,
     ``,
-    `Return ONLY raw JSON of the form {"rows":[ {…}, {…} ]}. No markdown fences, no prose before or after. Do not invent rows, workers, dates, or hours that aren't on the sheet.`,
+    `Then list EVERY remaining worker on the sheet — the clear strangers you did not extract — in "otherWorkers": one string each, "Name (badge)" or just "Name". Names only, no punches, no duplicates. Nobody on the sheet may be missing from both lists.`,
+    ``,
+    `Return ONLY raw JSON of the form {"rows":[ {…} ], "otherWorkers":["…"]}. Put "rows" first. No markdown fences, no prose before or after. Do not invent rows, workers, dates, or hours that aren't on the sheet.`,
   ];
   if (roster && roster.drivers.length > 0) {
     lines.push(
       "",
-      `EXPECTED KFI DRIVERS (matching hints only — still extract every worker NOT on this list):`,
+      `EXPECTED KFI DRIVERS (the full fleet — a driver may show up at ANY customer):`,
     );
     for (const d of roster.drivers.slice(0, 300)) {
       const parts = [`${d.kfiId}: ${d.name}`];
@@ -110,7 +112,7 @@ function buildFastPrompt(
   } else {
     lines.push(
       "",
-      `(No expected-driver list was provided — extract every worker's punches and a human will map them.)`,
+      `(No expected-driver list was provided — extract every worker's punches, leave resolvedKfiId out, and a human will map them. otherWorkers should be empty.)`,
     );
   }
   return lines.join("\n");
@@ -129,7 +131,11 @@ export async function fastExtractRows(
   mimeType?: string,
   log?: SalvageLogger,
   roster?: RosterContext,
-): Promise<{ rows: AiExtractedRow[]; budgetSummary?: IngestionBudgetSummary }> {
+): Promise<{
+  rows: AiExtractedRow[];
+  otherWorkers?: string[];
+  budgetSummary?: IngestionBudgetSummary;
+}> {
   const parts = await prepareContentParts(
     buffer,
     mimeType ?? "application/octet-stream",
@@ -145,13 +151,28 @@ export async function fastExtractRows(
   });
   const { rows } = parseOrSalvage(text, customer, fileName, log);
   const out: AiExtractedRow[] = rows ?? [];
-  // Near the 32k output cap → the model likely got cut off mid-list. The
-  // prompt orders expected KFI drivers first so a truncated tail loses only
-  // non-KFI workers, but flag it loudly so a short import is explainable.
+  // Best-effort read of the names-only stranger list. It rides in the same
+  // JSON object AFTER "rows", so a truncated response loses strangers first
+  // and this parse just yields [] (parseOrSalvage already rescued the rows).
+  let otherWorkers: string[] = [];
+  try {
+    const full = JSON.parse(text) as { otherWorkers?: unknown };
+    if (Array.isArray(full.otherWorkers)) {
+      otherWorkers = full.otherWorkers
+        .filter((w): w is string => typeof w === "string" && w.trim().length > 0)
+        .map((w) => w.trim())
+        .slice(0, 500);
+    }
+  } catch {
+    // salvaged/truncated response — stranger names unavailable, rows stand.
+  }
+  // Near the 32k output cap → the model likely got cut off mid-list. Rows
+  // come first in the output, so the loss lands on otherWorkers, but flag
+  // it loudly so a short import is explainable.
   if (usage.outputTokens >= 32_000) {
     log?.warn(
       { customer, fileName, outTokens: usage.outputTokens, rows: out.length },
-      "fastExtract output near token cap — sheet likely truncated (expected drivers were emitted first)",
+      "fastExtract output near token cap — response likely truncated (rows were emitted first)",
     );
   }
   log?.warn(
@@ -165,5 +186,5 @@ export async function fastExtractRows(
     },
     "fastExtract single-call complete",
   );
-  return { rows: out };
+  return { rows: out, otherWorkers };
 }

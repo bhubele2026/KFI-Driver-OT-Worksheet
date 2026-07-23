@@ -152,6 +152,13 @@ export interface ParseResult {
    * to land instead of asking the dispatcher.
    */
   droppedRows?: DroppedRow[];
+  /**
+   * AI-only: names of workers the model saw on the sheet but did NOT
+   * extract (clear non-KFI strangers, names only). Lets the zero-punch
+   * error say exactly who was on the sheet instead of "0 punches", and
+   * lets the server spot a likely KFI driver the model wrongly skipped.
+   */
+  otherWorkerNames?: string[];
 }
 
 /**

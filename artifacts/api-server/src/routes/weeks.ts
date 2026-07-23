@@ -214,12 +214,19 @@ function explainZeroPunches(
   unmapped: UnmappedIdEntry[],
   diagnostics?: ExtractDiagnostics,
   _origin?: "parser" | "ai",
+  otherWorkerNames?: string[],
 ): string {
   const raw = diagnostics?.rawRowCount ?? 0;
-  // The model read NOTHING — this is a file problem, not a matching problem.
-  // (Every rows-were-read case now returns the preview + picker instead of
-  // an error, so this message must never point at a dialog that won't open.)
+  // The model extracted no KFI rows — say exactly what it DID see. (Every
+  // rows-were-read case now returns the preview + picker instead of an
+  // error, so this message must never point at a dialog that won't open.)
   if (raw === 0) {
+    const others = otherWorkerNames ?? [];
+    if (others.length > 0) {
+      const sample = others.slice(0, 8).join("; ");
+      const more = others.length > 8 ? ` and ${others.length - 8} more` : "";
+      return `Read the sheet and found ${others.length} worker(s) — ${sample}${more} — but none of them match a KFI driver. Check this is the right file for "${customerName}". If one of these workers IS a KFI driver, add or fix their name under Drivers, then re-upload.`;
+    }
     return `Couldn't read any worker rows from this file for "${customerName}". Check that it's a timesheet with worker names and daily hours, then try again — the tile's Ask Claude chat can tell you what the file actually contains.`;
   }
   const drops: string[] = [];
@@ -2372,6 +2379,7 @@ weeksRouter.post(
           result.unmappedIds,
           result.diagnostics,
           origin,
+          result.otherWorkerNames,
         );
         await recordAttempt(startDate, result.customer, fileName, msg, origin);
         res.status(400).json({ error: msg });
@@ -2779,6 +2787,7 @@ weeksRouter.post(
             reAiResult.unmappedIds,
             reAiResult.diagnostics,
             "ai",
+            reAiResult.otherWorkerNames,
           );
           await recordAttempt(
             startDate,
@@ -4380,6 +4389,7 @@ weeksRouter.post(
       }
     }
     let rows;
+    let otherWorkersNew: string[] = [];
     let extractionTruncated = false;
     let failedChunks = 0;
     let geminiFallbackUsedNew = false;
@@ -4495,6 +4505,8 @@ weeksRouter.post(
             },
           );
       rows = extracted.rows;
+      otherWorkersNew =
+        "otherWorkers" in extracted ? (extracted.otherWorkers ?? []) : [];
       extractionTruncated =
         "truncated" in extracted ? (extracted.truncated ?? false) : false;
       failedChunks =
@@ -4549,8 +4561,12 @@ weeksRouter.post(
     // always obey, so we hard-clamp here.
     rows = rows.filter((r) => r.date >= startDate && r.date <= endDate);
     if (rows.length === 0) {
+      const seen =
+        otherWorkersNew.length > 0
+          ? ` The sheet listed ${otherWorkersNew.length} worker(s) — ${otherWorkersNew.slice(0, 8).join("; ")}${otherWorkersNew.length > 8 ? "…" : ""} — but none match a KFI driver; if one of them IS a KFI driver, add or fix their name under Drivers first.`
+          : "";
       res.status(400).json({
-        error: `Could not find any punch rows in this file for the week of ${startDate}.`,
+        error: `Could not find any punch rows in this file for the week of ${startDate}.${seen}`,
       });
       return;
     }
