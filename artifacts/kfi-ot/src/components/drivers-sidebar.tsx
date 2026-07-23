@@ -335,12 +335,24 @@ function DriversList({
                       ) : driver.reviewed || status === "good" ? (
                         <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                       ) : (
-                        <Circle className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground/70" />
+                        <Circle className="h-3.5 w-3.5 text-transparent transition-colors group-hover:text-muted-foreground/50" />
                       )}
                     </button>
                     <span className="flex-1 truncate">{formatPersonName(driver.name)}</span>
                     {driver.totalHours > 0 && (
-                      <span className="fin-num text-xs text-muted-foreground shrink-0">
+                      <span
+                        className={cn(
+                          "fin-num text-xs shrink-0 tabular-nums",
+                          driver.overtimeHours > 0
+                            ? "font-semibold text-warning"
+                            : "text-muted-foreground",
+                        )}
+                        title={
+                          driver.overtimeHours > 0
+                            ? `${driver.totalHours.toFixed(2)} h \u00b7 ${t("driversSidebar.badge.ot")} ${driver.overtimeHours.toFixed(2)}`
+                            : `${driver.totalHours.toFixed(2)} h`
+                        }
+                      >
                         {driver.totalHours.toFixed(1)}
                       </span>
                     )}
@@ -349,11 +361,6 @@ function DriversList({
                         className="h-3 w-3 text-muted-foreground shrink-0"
                         data-testid={`sidebar-locked-${driver.kfiId}`}
                       />
-                    )}
-                    {driver.overtimeHours > 0 && (
-                      <span className="fin-num text-[11px] font-semibold text-warning bg-warning/10 px-1 rounded">
-                        {t("driversSidebar.badge.ot")}
-                      </span>
                     )}
                     {flaggedCount ? (
                       <span
@@ -396,7 +403,7 @@ function DriversList({
                           aria-label={t("driversSidebar.actionsAria", { name: driver.name })}
                           title={t("driversSidebar.actionsTitle")}
                           data-testid={`sidebar-actions-${driver.kfiId}`}
-                          className="inline-flex items-center justify-center h-5 w-5 rounded shrink-0 text-muted-foreground/60 hover:text-foreground hover:bg-foreground/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 transition-opacity hover:bg-foreground/10 hover:text-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:opacity-100 md:opacity-0 md:group-hover:opacity-100"
                         >
                           <MoreHorizontal className="h-3.5 w-3.5" />
                         </button>
