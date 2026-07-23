@@ -82,7 +82,7 @@ function buildFastPrompt(
     `You extract timecard punches for KFI Staffing from a customer's timesheet.`,
     `Customer: "${customer}". Pay week: ${weekStart} through ${weekEnd} (Sunday–Saturday). Only include rows whose date is in that window.`,
     ``,
-    `The sheet mixes KFI's drivers in with the customer's other workers. Extract punch rows for every worker whose name or badge matches one of the EXPECTED KFI DRIVERS listed at the end. Match names loosely and decisively — "Choncoa, Ashley M" is "Ashley Choncoa"; middle names, initials, and accents vary; a shared surname or a close spelling counts as a match (include the rows, leave resolvedKfiId out, a human decides). Do not deliberate: one quick pass per worker — resembles someone on the list → extract their rows; otherwise → their name goes in otherWorkers.`,
+    `The sheet mixes KFI's drivers in with the customer's other workers. Extract punch rows ONLY for workers who match one of the EXPECTED KFI DRIVERS listed at the end — the same person despite formatting ("Choncoa, Ashley M" is "Ashley Choncoa"; middle names, initials, and accents vary), or a badge/alias match. A merely similar name or a shared surname alone is NOT a match — those workers go in otherWorkers. If a worker IS one of the expected drivers but you can't tell which, output their rows and omit resolvedKfiId so a human decides. Work fast: one pass per worker, no deliberating.`,
     ``,
     `For each extracted worker's daily punch, output an object with:`,
     `- driverNameOnDoc: the worker's name exactly as written on the sheet.`,
