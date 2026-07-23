@@ -573,8 +573,9 @@ function FilterControls({
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-foreground/40",
               )}
+              title={chipLabels[key]}
             >
-              {chipLabels[key]}
+              <Circle className="h-3 w-3" />
             </button>
           );
         })}

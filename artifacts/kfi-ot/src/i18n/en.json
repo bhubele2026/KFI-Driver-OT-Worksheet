@@ -115,7 +115,7 @@
     "failedFallback": "Try requesting a new invite"
   },
   "weekSummary": {
-    "weekHeading": "Week of {{week}}",
+    "weekHeading": "{{week}}",
     "lastRefresh": "Last CT Refresh:",
     "lastRefreshBy": "by",
     "noData": "No Connecteam data yet for this week.",
@@ -141,18 +141,18 @@
     "updateReviewFailed": "Failed to update review status",
     "noActiveDrivers": "No active drivers found for this week.",
     "stats": {
-      "activeDrivers": "Active Drivers",
-      "totalHours": "Total Hours",
-      "driverSource": "Driver hrs",
-      "customerSource": "Customer hrs",
-      "regular": "Regular",
-      "overtime": "Overtime"
+      "activeDrivers": "Drivers",
+      "totalHours": "Hours",
+      "driverSource": "Driver",
+      "customerSource": "Customer",
+      "regular": "Reg",
+      "overtime": "OT"
     },
     "totals": {
-      "good": "{{count}} good",
-      "bad": "{{count}} bad",
-      "total": "{{count}} total",
-      "locked": "{{count}} locked"
+      "good": "{{count}}",
+      "bad": "{{count}}",
+      "total": "{{count}}",
+      "locked": "{{count}}"
     },
     "table": {
       "driver": "Driver",
@@ -216,9 +216,9 @@
     "loadWeekFailed": "Failed to load week summary",
     "moreActions": "More actions",
     "customersHeading": "Customers",
-    "tileHours": "hrs",
+    "tileHours": "h",
     "tileOt": "{{hours}} OT",
-    "tileReviewed": "{{n}}/{{total}} reviewed"
+    "tileReviewed": "{{n}}/{{total}}"
   },
   "driverDetail": {
     "back": "Back",
@@ -253,7 +253,7 @@
     "driverConnect": "Driver",
     "customerSource": "Customer",
     "overtimeThreshold": "Overtime threshold",
-    "addPunch": "Add Punch",
+    "addPunch": "Add",
     "lock": "Lock",
     "locked": "Locked",
     "unlockTitle": "Unlock driver-week",
@@ -447,7 +447,7 @@
       "parityStaleTitle": "Dashboard matches the snapshot, but the snapshot is {{age}} old — Connecteam may have logged new shifts since.{{refreshedNote}} Re-pull Connecteam to recheck.",
       "parityStaleLabel": "Baseline {{age}} old — refresh to recheck",
       "parityMatchTitle": "Every day's dashboard total reconciles to the Connecteam baseline within 0.005h.{{refreshedNote}}",
-      "parityMatch": "Matches Connecteam",
+      "parityMatch": "CT",
       "parityDifferTitle_one": "{{count}} day diverges from the Connecteam baseline.{{refreshedNote}}{{staleNote}}{{dayList}}",
       "parityDifferTitle_other": "{{count}} days diverge from the Connecteam baseline.{{refreshedNote}}{{staleNote}}{{dayList}}",
       "parityDiffer": "Differs from Connecteam ({{count}})",
@@ -463,7 +463,7 @@
     "summary": {
       "totalDriver": "Total Driver",
       "totalCustomer": "Total Customer",
-      "totalHours": "Total Hours",
+      "totalHours": "Total",
       "rt": "RT",
       "ot": "OT",
       "customerRt": "Customer RT",
@@ -472,7 +472,7 @@
       "driverOt": "Driver OT"
     },
     "checks": {
-      "allReconcile": "All reconciled",
+      "allReconcile": "Reconciled",
       "mismatch": "Checks — mismatch",
       "totalEq": "Total = Driver + Customer",
       "customerEq": "Customer = Total − Driver",
@@ -511,7 +511,7 @@
     "collapse": "Collapse sidebar",
     "expand": "Expand drivers sidebar",
     "openMobile": "Open drivers sidebar",
-    "searchPlaceholder": "Search name or KFI ID",
+    "searchPlaceholder": "Search",
     "searchAria": "Search drivers",
     "searchClear": "Clear search",
     "filterCount": "{{matched}} of {{total}} drivers",
@@ -570,7 +570,7 @@
     "compactTitle_other": "{{count}} notes hidden since you last checked"
   },
   "zenopleExport": {
-    "button": "Export to Zenople",
+    "button": "Export",
     "buttonTitle": "Download the Zenople xlsx for this week (admin)",
     "checkFailed": "Could not check Zenople readiness",
     "notReady": "Not ready to export",
@@ -1248,8 +1248,8 @@
     "formatDriftHint": "Likely a format change — compare with the last working file before retrying.",
     "notKnownCustomer": "Not a known customer — use the new-customer flow to map it.",
     "dropToUploadAs": "Drop to upload as {{customer}}",
-    "punches_one": "{{count}} punch",
-    "punches_other": "{{count}} punches",
+    "punches_one": "{{count}}",
+    "punches_other": "{{count}}",
     "lastUploadFailed": "Last upload failed",
     "retryHigherLimit": "Retry with higher limit",
     "failedAgoMin_one": "Failed {{count}} min ago",
@@ -1257,7 +1257,7 @@
     "failedAgoHour_one": "Failed {{count}} hr ago",
     "failedAgoHour_other": "Failed {{count}} hrs ago",
     "staleErrorTitle": "This error is from an earlier attempt and may no longer reflect the current state. Re-upload to refresh.",
-    "notUploaded": "Not uploaded",
+    "notUploaded": "—",
     "latestFileImported": "Latest file already imported",
     "latestFileImportedTitle": "Your most recent upload for this customer was identical to the file already imported, so it was skipped. Use Re-upload to force a fresh import anyway.",
     "cachedLayoutBadge": "Cached layout",
@@ -1267,12 +1267,12 @@
     "aiBadgeTitle": "AI-imported. {{aliases}} saved driver alias(es). Click to view stashed samples.",
     "aiBadgeTitleNoAdmin": "AI-imported. {{aliases}} saved driver alias(es).",
     "anyFile": "Any file",
-    "noUploadYet": "Not uploaded",
+    "noUploadYet": "—",
     "unknownBadges_one": "Unknown badge",
     "unknownBadges_other": "Unknown badges",
     "mapIdsAdmin": "Click an id to add a driver mapping.",
     "mapIdsUser": "Ask an admin to add the missing driver mapping.",
-    "reading": "Reading… {{elapsed}}s",
+    "reading": "{{elapsed}}s",
     "readingHint": "First read of a new format takes a minute; repeat uploads are instant.",
     "readingChunk": "Chunk {{current}} of {{total}}",
     "readingChunkResumed": "Resumed {{resumed}} of {{total}} chunks — re-running {{remaining}}",

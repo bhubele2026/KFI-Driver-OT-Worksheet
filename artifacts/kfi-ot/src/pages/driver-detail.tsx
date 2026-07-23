@@ -1294,7 +1294,7 @@ export default function DriverDetail() {
                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >
-                  <CheckIcon className="h-3.5 w-3.5" /> {t("driverDetail.good")}
+                  <CheckIcon className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
@@ -1311,26 +1311,23 @@ export default function DriverDetail() {
                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >
-                  <ThumbsDown className="h-3.5 w-3.5" /> {t("driverDetail.bad")}
+                  <ThumbsDown className="h-4 w-4" />
                 </button>
               </div>
               {canLock && (
                 <Button
                   variant={driverLocked ? "secondary" : "outline"}
-                  size="sm"
+                  size="icon"
+                  className="h-8 w-8"
                   onClick={handleToggleLock}
                   disabled={lockMutation.isPending || unlockMutation.isPending}
                   data-testid="button-toggle-lock"
                   title={driverLocked ? t("driverDetail.unlockTitle") : t("driverDetail.lockTitle")}
                 >
                   {driverLocked ? (
-                    <>
-                      <Lock className="mr-2 h-4 w-4" /> {t("driverDetail.locked")}
-                    </>
+                    <Lock className="h-4 w-4" />
                   ) : (
-                    <>
-                      <LockOpen className="mr-2 h-4 w-4" /> {t("driverDetail.lock")}
-                    </>
+                    <LockOpen className="h-4 w-4" />
                   )}
                 </Button>
               )}
@@ -1354,16 +1351,17 @@ export default function DriverDetail() {
               </Button>
               <Button
                 variant="outline"
-                size="sm"
+                size="icon"
+                className="h-8 w-8"
                 onClick={handleRefresh}
                 disabled={refreshCt.isPending}
+                title={t("common.refresh")}
               >
                 {refreshCt.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
+                  <RefreshCw className="h-4 w-4" />
                 )}
-                {t("common.refresh")}
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

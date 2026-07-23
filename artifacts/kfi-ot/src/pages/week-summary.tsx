@@ -77,6 +77,9 @@ import {
   MoreHorizontal,
   Flag,
   Users,
+  Download,
+  Check,
+  X as XIcon,
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
 import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
@@ -468,19 +471,14 @@ export default function WeekSummary() {
                 ) : null}
               </div>
               {summary?.lastRefreshedAt ? (
-                <p className="text-sm text-muted-foreground">
-                  {t("weekSummary.lastRefresh")}{" "}
+                <p
+                  className="inline-flex items-center gap-1.5 text-sm text-muted-foreground"
+                  title={`${t("weekSummary.lastRefresh")} ${new Date(summary.lastRefreshedAt).toLocaleString()}${summary.lastRefreshedByEmail ? ` ${t("weekSummary.lastRefreshBy")} ${summary.lastRefreshedByEmail}` : ""}`}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
                   <span className="fin-num">
                     {new Date(summary.lastRefreshedAt).toLocaleString()}
                   </span>
-                  {summary.lastRefreshedByEmail && (
-                    <span className="ml-2">
-                      {t("weekSummary.lastRefreshBy")}{" "}
-                      <span className="fin-num">
-                        {summary.lastRefreshedByEmail}
-                      </span>
-                    </span>
-                  )}
                 </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -490,18 +488,23 @@ export default function WeekSummary() {
             </div>
 
             <div className="flex items-center gap-3 flex-wrap">
-              <Button variant="outline" onClick={openReport}>
-                <Printer className="mr-2 h-4 w-4" />
-                {t("weekSummary.downloadReport")}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={openReport}
+                title={t("weekSummary.downloadReport")}
+              >
+                <Download className="h-4 w-4" />
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="outline"
+                    size="icon"
                     data-testid="button-print-week-timesheets"
+                    title={t("weekSummary.printTimesheets")}
                   >
-                    <Printer className="mr-2 h-4 w-4" />
-                    {t("weekSummary.printTimesheets")}
+                    <Printer className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64">
@@ -611,13 +614,17 @@ export default function WeekSummary() {
                   ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Button onClick={handleRefresh} disabled={refreshCt.isPending}>
+              <Button
+                size="icon"
+                onClick={handleRefresh}
+                disabled={refreshCt.isPending}
+                title={t("weekSummary.refreshConnecteam")}
+              >
                 {refreshCt.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
+                  <RefreshCw className="h-4 w-4" />
                 )}
-                {t("weekSummary.refreshConnecteam")}
               </Button>
               {me?.isAdmin ? (
                 <>
@@ -822,14 +829,16 @@ export default function WeekSummary() {
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs fin-num font-medium border bg-card text-foreground border-border"
                   data-testid="chip-review-totals"
                 >
-                  <span className="text-emerald-700 dark:text-emerald-300">
+                  <span className="inline-flex items-center gap-0.5 text-emerald-700 dark:text-emerald-300">
+                    <Check className="h-3 w-3" />
                     {t("weekSummary.totals.good", { count: (summary.totals as { goodCount?: number }).goodCount ?? 0 })}
                   </span>
-                  <span className="text-muted-foreground">/</span>
-                  <span className="text-rose-700 dark:text-rose-300">
+                  <span className="text-muted-foreground">·</span>
+                  <span className="inline-flex items-center gap-0.5 text-rose-700 dark:text-rose-300">
+                    <XIcon className="h-3 w-3" />
                     {t("weekSummary.totals.bad", { count: (summary.totals as { badCount?: number }).badCount ?? 0 })}
                   </span>
-                  <span className="text-muted-foreground">/</span>
+                  <span className="text-muted-foreground">·</span>
                   <span>
                     {t("weekSummary.totals.total", { count: summary.totals.activeDrivers })}
                   </span>
@@ -848,9 +857,6 @@ export default function WeekSummary() {
                   customer's first driver. Pure derivation from `summary`. */}
               {summary.customers.some((c) => c.drivers.length > 0) ? (
                 <section className="space-y-3">
-                  <h3 className="text-xs font-display font-semibold uppercase tracking-wider text-muted-foreground">
-                    {t("weekSummary.customersHeading", { defaultValue: "Customers" })}
-                  </h3>
                   <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     {summary.customers
                       .filter((c) => c.drivers.length > 0)
@@ -906,9 +912,9 @@ export default function WeekSummary() {
                             </div>
                             <div className="mt-auto space-y-1.5">
                               <div className="flex items-center justify-between text-xs">
-                                <span className="fin-num text-muted-foreground">
+                                <span className="inline-flex items-center gap-1 fin-num text-muted-foreground">
+                                  <Check className="h-3 w-3" />
                                   {t("weekSummary.tileReviewed", {
-                                    defaultValue: "{{n}} of {{total}} reviewed",
                                     n: reviewedN,
                                     total: c.drivers.length,
                                   })}

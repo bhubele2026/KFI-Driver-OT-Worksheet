@@ -115,7 +115,7 @@
     "failedFallback": "Intente solicitar una nueva invitación"
   },
   "weekSummary": {
-    "weekHeading": "Semana del {{week}}",
+    "weekHeading": "{{week}}",
     "lastRefresh": "Última actualización CT:",
     "lastRefreshBy": "por",
     "noData": "Aún no hay datos de Connecteam para esta semana.",
@@ -141,18 +141,18 @@
     "updateReviewFailed": "Error al actualizar el estado de revisión",
     "noActiveDrivers": "No se encontraron conductores activos para esta semana.",
     "stats": {
-      "activeDrivers": "Conductores activos",
-      "totalHours": "Horas totales",
-      "driverSource": "Hrs conductor",
-      "customerSource": "Hrs cliente",
-      "regular": "Regular",
-      "overtime": "Horas extra"
+      "activeDrivers": "Choferes",
+      "totalHours": "Horas",
+      "driverSource": "Chofer",
+      "customerSource": "Cliente",
+      "regular": "Reg",
+      "overtime": "OT"
     },
     "totals": {
-      "good": "{{count}} bien",
-      "bad": "{{count}} mal",
-      "total": "{{count}} total",
-      "locked": "{{count}} bloqueado"
+      "good": "{{count}}",
+      "bad": "{{count}}",
+      "total": "{{count}}",
+      "locked": "{{count}}"
     },
     "table": {
       "driver": "Conductor",
@@ -216,9 +216,9 @@
     "loadWeekFailed": "Error al cargar el resumen de la semana",
     "moreActions": "Más acciones",
     "customersHeading": "Clientes",
-    "tileHours": "hrs",
+    "tileHours": "h",
     "tileOt": "{{hours}} extra",
-    "tileReviewed": "{{n}}/{{total}} revisados"
+    "tileReviewed": "{{n}}/{{total}}"
   },
   "driverDetail": {
     "resetCustomerTitle": "Restablecer registros del cliente",
@@ -253,7 +253,7 @@
     "driverConnect": "Conductor",
     "customerSource": "Cliente",
     "overtimeThreshold": "Umbral de horas extra",
-    "addPunch": "Agregar registro",
+    "addPunch": "Añadir",
     "lock": "Bloquear",
     "locked": "Bloqueado",
     "unlockTitle": "Desbloquear semana del conductor",
@@ -447,7 +447,7 @@
       "parityStaleTitle": "El tablero coincide con la instantánea, pero la instantánea tiene {{age}} — Connecteam puede haber registrado nuevos turnos desde entonces.{{refreshedNote}} Vuelva a descargar Connecteam para recomprobar.",
       "parityStaleLabel": "Línea base {{age}} — actualizar para recomprobar",
       "parityMatchTitle": "El total del tablero de cada día concilia con la línea base de Connecteam dentro de 0.005h.{{refreshedNote}}",
-      "parityMatch": "Coincide con Connecteam",
+      "parityMatch": "CT",
       "parityDifferTitle_one": "{{count}} día difiere de la línea base de Connecteam.{{refreshedNote}}{{staleNote}}{{dayList}}",
       "parityDifferTitle_other": "{{count}} días difieren de la línea base de Connecteam.{{refreshedNote}}{{staleNote}}{{dayList}}",
       "parityDiffer": "Difiere de Connecteam ({{count}})",
@@ -463,7 +463,7 @@
     "summary": {
       "totalDriver": "Total conductor",
       "totalCustomer": "Total cliente",
-      "totalHours": "Horas totales",
+      "totalHours": "Total",
       "rt": "RT",
       "ot": "HE",
       "customerRt": "RT cliente",
@@ -472,7 +472,7 @@
       "driverOt": "HE conductor"
     },
     "checks": {
-      "allReconcile": "Todo conciliado",
+      "allReconcile": "Conciliado",
       "mismatch": "Verificaciones — discrepancia",
       "totalEq": "Total = Conductor + Cliente",
       "customerEq": "Cliente = Total − Conductor",
@@ -511,7 +511,7 @@
     "collapse": "Colapsar barra lateral",
     "expand": "Expandir barra de conductores",
     "openMobile": "Abrir barra de conductores",
-    "searchPlaceholder": "Buscar nombre o KFI ID",
+    "searchPlaceholder": "Buscar",
     "searchAria": "Buscar conductores",
     "searchClear": "Limpiar búsqueda",
     "filterCount": "{{matched}} de {{total}} conductores",
@@ -570,7 +570,7 @@
     "compactTitle_other": "{{count}} notas ocultas desde su última revisión"
   },
   "zenopleExport": {
-    "button": "Exportar a Zenople",
+    "button": "Exportar",
     "buttonTitle": "Descargar el xlsx de Zenople para esta semana (admin)",
     "checkFailed": "No se pudo verificar la disponibilidad de Zenople",
     "notReady": "No está listo para exportar",
@@ -1248,8 +1248,8 @@
     "formatDriftHint": "Probablemente cambió el formato — abra el archivo directamente y compárelo con la última subida válida antes de reintentar.",
     "notKnownCustomer": "No es un cliente conocido — use el flujo de nuevo cliente para asignarlo.",
     "dropToUploadAs": "Soltar para subir como {{customer}}",
-    "punches_one": "{{count}} registro",
-    "punches_other": "{{count}} registros",
+    "punches_one": "{{count}}",
+    "punches_other": "{{count}}",
     "lastUploadFailed": "Falló la última subida",
     "retryHigherLimit": "Reintentar con límite mayor",
     "failedAgoMin_one": "Falló hace {{count}} min",
@@ -1257,7 +1257,7 @@
     "failedAgoHour_one": "Falló hace {{count}} h",
     "failedAgoHour_other": "Falló hace {{count}} h",
     "staleErrorTitle": "Este error es de un intento anterior y puede que ya no refleje el estado actual. Vuelva a subir para actualizar.",
-    "notUploaded": "Sin subir",
+    "notUploaded": "—",
     "latestFileImported": "Último archivo ya importado",
     "latestFileImportedTitle": "Su subida más reciente para este cliente fue idéntica al archivo ya importado, por eso se omitió. Use Volver a subir para forzar una importación nueva.",
     "cachedLayoutBadge": "Plantilla guardada",
@@ -1267,12 +1267,12 @@
     "aiBadgeTitle": "Importado por IA. {{aliases}} alias de conductor guardado(s). Haga clic para ver las muestras almacenadas.",
     "aiBadgeTitleNoAdmin": "Importado por IA. {{aliases}} alias de conductor guardado(s).",
     "anyFile": "Cualquier archivo",
-    "noUploadYet": "Sin subida para esta semana",
+    "noUploadYet": "—",
     "unknownBadges_one": "Credencial desconocida",
     "unknownBadges_other": "Credenciales desconocidas",
     "mapIdsAdmin": "Haga clic en un id para añadir una asignación de conductor.",
     "mapIdsUser": "Pida a un administrador que añada la asignación de conductor que falta.",
-    "reading": "Leyendo… {{elapsed}}s",
+    "reading": "{{elapsed}}s",
     "readingHint": "La primera lectura por IA puede tardar unos minutos — la próxima subida con este formato será instantánea.",
     "readingChunk": "Bloque {{current}} de {{total}}",
     "readingChunkResumed": "Reanudados {{resumed}} de {{total}} bloques — reprocesando {{remaining}}",
