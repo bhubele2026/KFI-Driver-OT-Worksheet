@@ -1894,18 +1894,14 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-xs text-muted-foreground/80">
-                  {s.lastUploadAt || s.lastAttemptAt ? (
-                    <>
-                      {new Date(
-                        (s.lastUploadAt ?? s.lastAttemptAt) as string,
-                      ).toLocaleString()}
-                      {s.lastFileName ? ` · ${s.lastFileName}` : ""}
-                    </>
-                  ) : (
-                    <span className="italic">{t("customerUpload.noUploadYet")}</span>
-                  )}
-                </div>
+                {(s.lastUploadAt || s.lastAttemptAt) && (
+                  <div className="truncate text-xs text-muted-foreground/80">
+                    {new Date(
+                      (s.lastUploadAt ?? s.lastAttemptAt) as string,
+                    ).toLocaleString()}
+                    {s.lastFileName ? ` · ${s.lastFileName}` : ""}
+                  </div>
+                )}
                 {showError && (
                   <div
                     className={`mt-1 text-xs flex items-start gap-1 flex-wrap ${

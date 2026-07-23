@@ -351,7 +351,7 @@ export function CustomerPreviewDialog({
         onOpenChange(o);
       }}
     >
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+      <DialogContent className="flex max-h-[88vh] max-w-5xl flex-col gap-4">
         <DialogHeader>
           <DialogTitle className="font-display">
             {t("customerPreview.reviewTitle", { customer: preview.customer })}
@@ -813,23 +813,23 @@ function DriverGroup({
   return (
     <>
       <TableRow
-        className="bg-muted/30 hover:bg-muted/30"
+        className="bg-secondary/60 hover:bg-secondary/60"
         data-testid={`row-driver-group-${kfiId}`}
       >
-        <TableCell colSpan={5} className="py-1.5">
+        <TableCell colSpan={5} className="py-2">
           <div className="flex items-baseline gap-2">
-            <span className="font-medium text-xs">
+            <span className="text-sm font-semibold">
               {driverName ?? kfiId}
             </span>
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="fin-num text-xs text-muted-foreground">
               {kfiId}
             </span>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               · {t("customerPreview.rows", { count: rows.length })}
             </span>
           </div>
         </TableCell>
-        <TableCell className="py-1.5 text-right font-mono text-xs">
+        <TableCell className="fin-num py-2 text-right text-sm font-semibold">
           {includedHours.toFixed(2)}
         </TableCell>
       </TableRow>
@@ -841,7 +841,7 @@ function DriverGroup({
             data-testid={`row-preview-${r.index}`}
             className={isExcluded ? "opacity-50" : undefined}
           >
-            <TableCell>
+            <TableCell className="py-2.5">
               <Checkbox
                 checked={!isExcluded}
                 onCheckedChange={() => onToggle(r.index)}
@@ -849,13 +849,13 @@ function DriverGroup({
                 aria-label={t("customerPreview.keepRowAria", { n: r.index + 1 })}
               />
             </TableCell>
-            <TableCell className="text-[11px] text-muted-foreground font-mono">
+            <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">
               {r.sourceRow}
             </TableCell>
-            <TableCell className="font-mono text-xs">{r.date}</TableCell>
-            <TableCell className="font-mono text-xs">{r.clockIn}</TableCell>
-            <TableCell className="font-mono text-xs">{r.clockOut}</TableCell>
-            <TableCell className="font-mono text-xs text-right">
+            <TableCell className="fin-num text-sm">{r.date}</TableCell>
+            <TableCell className="fin-num text-sm">{r.clockIn}</TableCell>
+            <TableCell className="fin-num text-sm">{r.clockOut}</TableCell>
+            <TableCell className="fin-num text-right text-sm">
               {r.hours.toFixed(2)}
             </TableCell>
           </TableRow>
