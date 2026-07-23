@@ -131,6 +131,12 @@ export class ClaudeModelClient implements ModelClient {
       {
         model: this.model,
         max_tokens: Math.min(opts.maxOutputTokens, 32768),
+        // Extraction is a mechanical read-the-sheet task — force thinking
+        // OFF. Models with adaptive thinking (Sonnet 5+) otherwise burn the
+        // output budget deliberating on big sheets: a 500-row extract hit
+        // the full 32k max_tokens with ~31k of thinking and ~1.9k chars of
+        // truncated JSON (2026-07-23).
+        thinking: { type: "disabled" },
         // System reinforces the user prompt's output contract: a single
         // JSON object `{ "rows": [ {...}, ... ] }`. This MUST match
         // `buildPrompt`'s "Output format" section and `parseOrSalvage`,
