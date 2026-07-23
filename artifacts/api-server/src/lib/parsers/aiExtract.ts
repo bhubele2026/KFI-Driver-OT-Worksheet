@@ -1204,7 +1204,13 @@ function halveChunk(chunk: string): [string, string] | null {
 // busting the limit. The Task #293 retry/backoff at the model-client
 // layer is still the defense-in-depth for transient 429s on the
 // tail.
-const XLSX_CHUNK_CONCURRENCY = 3;
+// Chunks run in parallel; the token pacer (400k ITPM) still bounds the real
+// rate, so a wider fan-out just collapses a multi-chunk file into ~1 wave
+// instead of several. Overridable via CHUNK_CONCURRENCY for tuning.
+const XLSX_CHUNK_CONCURRENCY = Math.max(
+  1,
+  Number(process.env.CHUNK_CONCURRENCY) || 10,
+);
 
 async function runChunkedXlsxExtract(
   client: ModelClient,
