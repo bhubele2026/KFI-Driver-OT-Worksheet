@@ -152,6 +152,8 @@ export interface RosterContext {
     name: string;
     badges: string[];
     aliases: string[];
+    /** The driver's tagged customer — a matching TIEBREAKER, never a gate. */
+    customer?: string | null;
   }>;
 }
 

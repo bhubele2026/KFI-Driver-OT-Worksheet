@@ -26,6 +26,7 @@ import {
   UpdateDriverIdAliasBody,
 } from "@workspace/api-zod";
 import { db, schema } from "../lib/db.js";
+import { reconcileDriverIdentities } from "../lib/driverIdentity.js";
 import { guardBulkPunchDelete } from "../lib/safeBulkDelete.js";
 import {
   computeNoteRemap,
@@ -1180,6 +1181,20 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
         .from(schema.clockOffsetsTable),
       loadDriverTzMap(),
     ]);
+    // ONE HUMAN, ONE ROW: reconcile identities on the stable ctUserId anchor
+    // BEFORE the kfiId-keyed upsert can fork a person. Upgrades/merges the
+    // driver row (and every kfi_id-keyed dependent) when the derived kfiId
+    // changed, and pins `users[i].kfiId` to the canonical id so the upsert
+    // and the punch-attribution map below both target one row per human.
+    if (users.length > 0) {
+      const identityEvents = await reconcileDriverIdentities(users, req.log);
+      if (identityEvents.length > 0) {
+        req.log.warn(
+          { identityEvents },
+          "driver identity reconciliation applied (upgrade/merge/pin)",
+        );
+      }
+    }
     if (users.length > 0) {
       await db
         .insert(schema.driversTable)
@@ -7560,6 +7575,10 @@ weeksRouter.get("/admin/drivers", requireSupervisorOrAdmin, async (_req, res) =>
       customer: schema.driversTable.customer,
       deactivated: schema.driversTable.deactivated,
       isArchived: schema.driversTable.isArchived,
+      // Identity diagnostics: which Connecteam human owns this row, and
+      // when the sync last touched it (see driverIdentity.ts).
+      ctUserId: schema.driversTable.ctUserId,
+      updatedAt: schema.driversTable.updatedAt,
     })
     .from(schema.driversTable)
     .orderBy(schema.driversTable.name);

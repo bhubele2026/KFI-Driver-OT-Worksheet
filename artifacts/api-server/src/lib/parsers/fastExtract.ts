@@ -251,23 +251,41 @@ function matchCensusToFleet(
       targets.push({ name: w.name, badge: w.badge, kfiId: badgeHit ?? nameHit ?? null });
       continue;
     }
-    let bestScore = 0;
-    let bestKfi: string | null = null;
-    let bestName = "";
-    for (const d of drivers) {
-      const s = nameSimilarity(w.name, d.name);
-      if (s > bestScore) {
-        bestScore = s;
-        bestKfi = d.kfiId;
-        bestName = d.name;
-      }
-    }
+    // Score EVERY driver; a lone winner is confident, but near-ties across
+    // DISTINCT drivers must never be settled by array order (that is how a
+    // duplicate/same-named person stole punches — 2026-07-23). Tiebreak by
+    // the uploaded customer's tag; still ambiguous → picker decides.
+    const scored = drivers
+      .map((d) => ({ d, s: nameSimilarity(w.name, d.name) }))
+      .sort((a, b) => b.s - a.s);
+    const bestScore = scored[0]?.s ?? 0;
+    const bestName = scored[0]?.d.name ?? "";
     if (bestScore >= 0.85) {
-      laneCounts.fuzzyConfident++;
-      if (laneSamples.length < 15) {
-        laneSamples.push(`${w.name}→${bestName} @${bestScore.toFixed(2)}`);
+      const nearTies = scored.filter((x) => bestScore - x.s <= 0.03 && x.s >= 0.85);
+      let pick: string | null = null;
+      if (nearTies.length === 1) {
+        pick = nearTies[0].d.kfiId;
+      } else {
+        const custLower = (roster?.customer ?? "").trim().toLowerCase();
+        const tagged = nearTies.filter(
+          (x) => (x.d.customer ?? "").trim().toLowerCase() === custLower,
+        );
+        if (tagged.length === 1) pick = tagged[0].d.kfiId;
       }
-      targets.push({ name: w.name, badge: w.badge, kfiId: bestKfi });
+      if (pick) {
+        laneCounts.fuzzyConfident++;
+        if (laneSamples.length < 15) {
+          laneSamples.push(`${w.name}→${bestName} @${bestScore.toFixed(2)}`);
+        }
+        targets.push({ name: w.name, badge: w.badge, kfiId: pick });
+      } else {
+        // Ambiguous humans — extract the punches, let the picker assign.
+        laneCounts.fuzzyBorderline++;
+        if (laneSamples.length < 15) {
+          laneSamples.push(`${w.name}⇄AMBIGUOUS @${bestScore.toFixed(2)}`);
+        }
+        targets.push({ name: w.name, badge: w.badge, kfiId: null });
+      }
     } else if (bestScore >= 0.8) {
       // Close enough that a human should look — extract, no id, picker decides.
       laneCounts.fuzzyBorderline++;

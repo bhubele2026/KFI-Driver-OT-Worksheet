@@ -33,7 +33,7 @@ import {
  */
 export function buildRosterContext(args: {
   customer: string;
-  drivers: Array<{ kfiId: string; name: string }>;
+  drivers: Array<{ kfiId: string; name: string; customer?: string | null }>;
   idMap: Record<string, string>;
   nameAliasMap?: Map<string, string>;
 }): RosterContext {
@@ -57,6 +57,7 @@ export function buildRosterContext(args: {
     drivers: drivers.map((d) => ({
       kfiId: d.kfiId,
       name: d.name,
+      customer: d.customer ?? null,
       // Cap each list so a driver with hundreds of historical badges
       // doesn't dominate the prompt for one customer.
       badges: (badgesByKfi.get(d.kfiId) ?? []).slice(0, 8),
@@ -464,6 +465,11 @@ export async function extractImageForKnownCustomer(args: {
   };
 }
 
+/** Normalized-name equality for duplicate-human detection. */
+function normName(n: string): string {
+  return n.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 function resolveKfiId(
   row: AiExtractedRow,
   idMap: Record<string, string>,
@@ -542,7 +548,19 @@ function resolveKfiId(
       nameAliasMap,
     })
   ) {
-    return aiPick;
+    // ONE HUMAN, ONE ROW guard: if another active driver carries the same
+    // normalized name, the pick is a coin flip unless an alias or pinned
+    // badge vouches for it — send the row to the picker instead (the
+    // dispatcher's answer is saved as an alias and pins it forever).
+    const pickName = normName(driversByKfi.get(aiPick)?.name ?? "");
+    const rival = fuzzyPool.some(
+      (d) => d.kfiId !== aiPick && normName(d.name) === pickName && pickName !== "",
+    );
+    const aliasPinned =
+      nameOnDoc && nameAliasMap?.get(nameOnDoc.toLowerCase()) === aiPick;
+    if (!rival || aliasPinned) {
+      return aiPick;
+    }
   }
   const name = row.driverNameOnDoc.trim();
   if (!name) return null;
@@ -571,10 +589,14 @@ function resolveKfiId(
     const nearTies = confident.filter(
       (m) => confident[0].confidence - m.confidence <= 0.03,
     );
-    const sameCustomer = nearTies.find(
+    if (nearTies.length === 1) return nearTies[0].kfiId;
+    // Multiple near-tied humans: the uploaded customer's tag may single one
+    // out; if it can't, NEVER guess — null sends the row to the picker.
+    const tagged = nearTies.filter(
       (m) => m.customer.trim().toLowerCase() === uploadedLower,
     );
-    return (sameCustomer ?? confident[0]).kfiId;
+    if (tagged.length === 1) return tagged[0].kfiId;
+    return null;
   }
   return null;
 }
