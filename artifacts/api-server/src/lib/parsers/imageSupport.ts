@@ -14,6 +14,7 @@ import {
   type AiExtractedRow,
   type RosterContext,
 } from "./aiExtract.js";
+import { fastExtractRows } from "./fastExtract.js";
 import type { IngestionBudgetSummary } from "./ingestionBudget.js";
 import {
   isDroppableTotalRow,
@@ -209,20 +210,31 @@ export async function extractImageForKnownCustomer(args: {
     idMap,
     nameAliasMap,
   });
-  const {
-    rows: rawRows,
-    budgetSummary: aiBudgetSummary,
-  } = await aiExtractRows(
-    fileName,
-    buffer,
-    customer,
-    weekStart,
-    weekEnd,
-    mimeType,
-    log,
-    roster,
-    aiOpts,
-  );
+  // Clean-slate default: one model call, no chunking (fastExtractRows).
+  // FAST_IMPORT=0 falls back to the legacy chunked extractor for rollback.
+  const useFast = (process.env.FAST_IMPORT ?? "1") !== "0";
+  const { rows: rawRows, budgetSummary: aiBudgetSummary } = useFast
+    ? await fastExtractRows(
+        fileName,
+        buffer,
+        customer,
+        weekStart,
+        weekEnd,
+        mimeType,
+        log,
+        roster,
+      )
+    : await aiExtractRows(
+        fileName,
+        buffer,
+        customer,
+        weekStart,
+        weekEnd,
+        mimeType,
+        log,
+        roster,
+        aiOpts,
+      );
 
   // Normalize Gemini's date shape before the string-compare window filter.
   // Without this, any row whose `date` came back as `5/12/2026` or
