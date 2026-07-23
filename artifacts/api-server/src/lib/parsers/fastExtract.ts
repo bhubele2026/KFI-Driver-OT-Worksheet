@@ -7,27 +7,36 @@ import {
   type AiExtractedRow,
   type RosterContext,
 } from "./aiExtract.js";
+import { nameSimilarity } from "./fuzzy.js";
 import type { SalvageLogger } from "./jsonSalvage.js";
 import type { IngestionBudgetSummary } from "./ingestionBudget.js";
 
 /**
- * Clean-slate customer-timesheet extraction: ONE model call per file, no
- * chunking, no schema cache, no pacer. Drop-in replacement for the old
- * `aiExtractRows` (same signature + return), so all the downstream
- * matching / review / confirm logic in `extractImageForKnownCustomer` is
- * reused unchanged.
+ * Clean-slate customer-timesheet extraction: TWO small model calls per
+ * file, no chunking, no schema cache, no pacer. Drop-in replacement for
+ * the old `aiExtractRows` (same signature + return), so all the
+ * downstream matching / review / confirm logic in
+ * `extractImageForKnownCustomer` is reused unchanged.
  *
- * Matching philosophy: the AI READS, the app MATCHES — with bounded output.
- * The expected-driver hints are the FULL active fleet (never narrowed to a
- * customer tag: narrowing turned "driver tagged to the wrong customer in
- * the DB" into a silent 0-punch dead end — the IWG El Paso failure,
- * 2026-07-23). The model emits punch rows for every worker who plausibly
- * matches the fleet (unsure → row WITHOUT resolvedKfiId, so the picker
- * decides), and lists every remaining worker by NAME ONLY in
- * `otherWorkers`. That keeps output tokens small on 500-row sheets (a
- * full extract-everyone attempt blew the 180s timeout mid-JSON) while
- * guaranteeing nobody on the sheet is invisible: worst case the server
- * can say exactly which workers it saw and didn't recognize.
+ * Architecture — the AI reads, the SERVER matches (2026-07-23):
+ *
+ *  1. CENSUS call: "list every worker name + badge on the sheet" —
+ *     tiny output, no matching asked of the model at all.
+ *  2. Server matching: census names/badges vs the FULL fleet roster
+ *     (badge/alias equality, then fuzzy name) — deterministic code, and
+ *     never narrowed to a customer tag (narrowing turned "driver tagged
+ *     to the wrong customer" into a silent 0-punch dead end — the IWG
+ *     El Paso failure). Borderline names are kept and surface in the
+ *     preview's picker instead of being dropped.
+ *  3. EXTRACT call: "extract punch rows for EXACTLY these workers" —
+ *     the filter-shaped prompt the model obeys reliably and fast.
+ *
+ * Why not one call: asking the model to classify 500 sheet workers
+ * against a 58-driver list while streaming punches made it either
+ * extract everyone (343 rows, token-cap truncation) or narrate/think
+ * itself past the 180s timeout — across three prompt iterations. List
+ * matching is the server's job; each remaining model task is mechanical
+ * and provably quick.
  */
 
 /** File bytes → the content block(s) we hand the model, no chunking. */
@@ -54,7 +63,10 @@ async function prepareContentParts(
       const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false });
       blocks.push(`===== SHEET: ${name} =====\n${csv}`);
     }
-    return [{ kind: "text", text: blocks.join("\n\n") }];
+    // cacheable: the census call warms Anthropic's prompt cache with the
+    // sheet body; the extract call seconds later reads it back at ~10% of
+    // the input price and much faster time-to-first-token.
+    return [{ kind: "text", text: blocks.join("\n\n"), cacheable: true }];
   }
   if (isPdf) {
     return [
@@ -68,58 +80,139 @@ async function prepareContentParts(
     ];
   }
   // Unknown type — best effort: hand the raw text.
-  return [{ kind: "text", text: buffer.toString("utf8").slice(0, 200_000) }];
+  return [{ kind: "text", text: buffer.toString("utf8").slice(0, 200_000), cacheable: true }];
 }
 
-/** Extract-everyone prompt (roster is a hint, never a filter). Output is the AiExtractedRow shape. */
-function buildFastPrompt(
+/** Strip any prose the model narrates before the JSON object. */
+function stripToJson(text: string): string {
+  const braceAt = text.indexOf("{");
+  return braceAt > 0 ? text.slice(braceAt) : text;
+}
+
+interface CensusWorker {
+  name: string;
+  badge: string | null;
+}
+
+/** Pass 1 — names only. No matching, no punches: mechanical and tiny. */
+function buildCensusPrompt(customer: string): string {
+  return [
+    `You read a customer's timesheet document for KFI Staffing. Customer: "${customer}".`,
+    ``,
+    `List every distinct WORKER (person) who appears on the sheet — one entry per person, even if they have many rows.`,
+    `- name: exactly as written on the sheet.`,
+    `- badge: the worker's id/badge/employee-number on the sheet, if shown; else null.`,
+    `Skip column headers, blank rows, page footers, and total/subtotal rows. Do not invent names.`,
+    ``,
+    `Return ONLY raw JSON of the form {"workers":[{"name":"…","badge":"…"}]}. Start your reply with "{" — no markdown fences, no prose.`,
+  ].join("\n");
+}
+
+/**
+ * Pass 2 — the filter-shaped extraction prompt the model reliably obeys,
+ * except the worker list now comes from server-side fleet matching
+ * instead of a DB customer tag.
+ */
+function buildExtractPrompt(
   customer: string,
   weekStart: string,
   weekEnd: string,
-  roster?: RosterContext,
+  targets: Array<{ name: string; badge: string | null; kfiId: string | null }>,
 ): string {
   const lines = [
     `You extract timecard punches for KFI Staffing from a customer's timesheet.`,
     `Customer: "${customer}". Pay week: ${weekStart} through ${weekEnd} (Sunday–Saturday). Only include rows whose date is in that window.`,
     ``,
-    `The sheet mixes KFI's drivers in with the customer's other workers. Extract punch rows ONLY for workers who match one of the EXPECTED KFI DRIVERS listed at the end — the same person despite formatting ("Choncoa, Ashley M" is "Ashley Choncoa"; middle names, initials, and accents vary), or a badge/alias match. A merely similar name or a shared surname alone is NOT a match — those workers go in otherWorkers. If a worker IS one of the expected drivers but you can't tell which, output their rows and omit resolvedKfiId so a human decides. Work fast: one pass per worker, no deliberating.`,
+    `Extract punches ONLY for the workers listed below, exactly as their names appear on the sheet. Ignore every other worker completely.`,
     ``,
-    `For each extracted worker's daily punch, output an object with:`,
+  ];
+  for (const t of targets) {
+    const badge = t.badge ? ` (badge ${t.badge})` : "";
+    const kfi = t.kfiId
+      ? `resolvedKfiId "${t.kfiId}"`
+      : `resolvedKfiId UNKNOWN — output their rows WITHOUT resolvedKfiId`;
+    lines.push(`- "${t.name}"${badge} → ${kfi}`);
+  }
+  lines.push(
+    ``,
+    `For each listed worker's daily punch, output an object with:`,
+    `- resolvedKfiId: exactly the id given above for that worker; omit the field where marked UNKNOWN. Never guess.`,
     `- driverNameOnDoc: the worker's name exactly as written on the sheet.`,
     `- badgeOrId: the worker's id/badge/employee-number on the sheet, if any.`,
     `- date: YYYY-MM-DD (use the pay week to fill in the year if the sheet shows only M/D).`,
     `- hours: the day's worked hours as a decimal. USE THE SHEET'S OWN Total/Hours/Duration COLUMN when present — it already nets unpaid breaks and the customer's rounding. If a single day is split across pay-category rows (Reg + OT 1.5 + …), SUM them into one number for that day.`,
     `- timeIn / timeOut: clock in/out as "H:MM AM" / "H:MM PM" when shown; omit if only totals are given.`,
-    `- resolvedKfiId: the matched driver's KFI id from the list — but ONLY when the match is clear. If the worker plausibly matches yet you're unsure which driver (or whether it's really them), still output their rows and omit this field; never guess an id.`,
     ``,
-    `Emit ONE object per extracted worker per day. Skip column headers, blank rows, page footers, and any total/subtotal/grand-total rows.`,
+    `Emit ONE object per listed worker per day. Skip column headers, blank rows, page footers, and any total/subtotal/grand-total rows.`,
     ``,
-    `Then "otherWorkers": the workers you did NOT extract, names only ("Name (badge)" or "Name"), no duplicates. List at most 30; if there are more, make the final entry "+N more" with N = how many you left off. Do not list them all.`,
-    ``,
-    `Return ONLY raw JSON of the form {"rows":[ {…} ], "otherWorkers":["…"]}. Put "rows" first. Start your reply with "{" — no markdown fences, no prose, no explanation before or after the JSON. Do not invent rows, workers, dates, or hours that aren't on the sheet.`,
-  ];
-  if (roster && roster.drivers.length > 0) {
-    lines.push(
-      "",
-      `EXPECTED KFI DRIVERS (the full fleet — a driver may show up at ANY customer):`,
-    );
-    for (const d of roster.drivers.slice(0, 300)) {
-      const parts = [`${d.kfiId}: ${d.name}`];
-      if (d.badges.length) parts.push(`badges=[${d.badges.join(", ")}]`);
-      if (d.aliases.length) parts.push(`aliases=[${d.aliases.join(", ")}]`);
-      lines.push(`- ${parts.join("; ")}`);
-    }
-  } else {
-    lines.push(
-      "",
-      `(No expected-driver list was provided — extract every worker's punches, leave resolvedKfiId out, and a human will map them. otherWorkers should be empty.)`,
-    );
-  }
+    `Return ONLY raw JSON of the form {"rows":[ {…}, {…} ]}. Start your reply with "{" — no markdown fences, no prose. Do not invent rows, workers, dates, or hours that aren't on the sheet.`,
+  );
   return lines.join("\n");
 }
 
 /**
- * Single-call extraction. Same signature/return as the old `aiExtractRows`
+ * Server-side census → fleet matching. Deterministic ladder per worker:
+ * badge/alias equality → confident kfiId; fuzzy name ≥0.85 → confident
+ * kfiId; fuzzy ≥0.72 → borderline (extract WITHOUT an id so the preview
+ * picker decides); below → stranger (names surface in `otherWorkers`).
+ * The roster is always the FULL active fleet — customer tags never gate.
+ */
+function matchCensusToFleet(
+  workers: CensusWorker[],
+  roster: RosterContext | undefined,
+): {
+  targets: Array<{ name: string; badge: string | null; kfiId: string | null }>;
+  strangers: string[];
+} {
+  const drivers = roster?.drivers ?? [];
+  if (drivers.length === 0) {
+    // No fleet context — extract everyone and let the picker sort it out.
+    return {
+      targets: workers.map((w) => ({ name: w.name, badge: w.badge, kfiId: null })),
+      strangers: [],
+    };
+  }
+  const byBadge = new Map<string, string>();
+  for (const d of drivers) {
+    byBadge.set(d.kfiId.toLowerCase(), d.kfiId);
+    for (const b of d.badges) byBadge.set(b.trim().toLowerCase(), d.kfiId);
+    for (const a of d.aliases) byBadge.set(a.trim().toLowerCase(), d.kfiId);
+  }
+  const targets: Array<{ name: string; badge: string | null; kfiId: string | null }> = [];
+  const strangers: string[] = [];
+  for (const w of workers) {
+    const badge = (w.badge ?? "").trim();
+    const badgeHit = badge ? byBadge.get(badge.toLowerCase()) : undefined;
+    // Alias tables may also key on the doc's name spelling (saved picker
+    // decisions are folded into `aliases` by buildRosterContext).
+    const nameHit = byBadge.get(w.name.trim().toLowerCase());
+    if (badgeHit || nameHit) {
+      targets.push({ name: w.name, badge: w.badge, kfiId: badgeHit ?? nameHit ?? null });
+      continue;
+    }
+    let bestScore = 0;
+    let bestKfi: string | null = null;
+    for (const d of drivers) {
+      const s = nameSimilarity(w.name, d.name);
+      if (s > bestScore) {
+        bestScore = s;
+        bestKfi = d.kfiId;
+      }
+    }
+    if (bestScore >= 0.85) {
+      targets.push({ name: w.name, badge: w.badge, kfiId: bestKfi });
+    } else if (bestScore >= 0.72) {
+      // Close enough that a human should look — extract, no id, picker decides.
+      targets.push({ name: w.name, badge: w.badge, kfiId: null });
+    } else {
+      strangers.push(w.badge ? `${w.name} (${w.badge})` : w.name);
+    }
+  }
+  return { targets, strangers };
+}
+
+/**
+ * Two-call extraction. Same signature/return as the old `aiExtractRows`
  * so it drops straight into `extractImageForKnownCustomer`.
  */
 export async function fastExtractRows(
@@ -141,43 +234,87 @@ export async function fastExtractRows(
     mimeType ?? "application/octet-stream",
     fileName,
   );
-  const prompt = buildFastPrompt(customer, weekStart, weekEnd, roster);
   const client = new ClaudeModelClient(); // uses CLAUDE_EXTRACT_MODEL (Sonnet 5)
   const started = Date.now();
+
+  // ---- Pass 1: census (who is on this sheet?) ----
+  const census = await client.generate({
+    parts: [...parts, { kind: "text", text: buildCensusPrompt(customer) }],
+    maxOutputTokens: 16384,
+    timeoutMs: 120_000,
+  });
+  let workers: CensusWorker[] = [];
+  try {
+    const parsed = JSON.parse(stripToJson(census.text)) as { workers?: unknown };
+    if (Array.isArray(parsed.workers)) {
+      workers = parsed.workers
+        .filter(
+          (w): w is { name: string; badge?: unknown } =>
+            !!w && typeof (w as { name?: unknown }).name === "string" &&
+            (w as { name: string }).name.trim().length > 0,
+        )
+        .map((w) => ({
+          name: w.name.trim(),
+          badge:
+            typeof w.badge === "string" && w.badge.trim().length > 0
+              ? w.badge.trim()
+              : null,
+        }))
+        .slice(0, 1000);
+    }
+  } catch (err) {
+    log?.warn(
+      { customer, fileName, err: String(err), censusChars: census.text.length },
+      "fastExtract census parse failed",
+    );
+    throw new Error(
+      "AI extraction: could not read the worker list from this file. Try again, or check the file is a readable timesheet.",
+    );
+  }
+  if (workers.length === 0) {
+    log?.warn(
+      { customer, fileName, censusOutTokens: census.usage.outputTokens },
+      "fastExtract census found zero workers",
+    );
+    return { rows: [], otherWorkers: [] };
+  }
+
+  // ---- Server-side matching: census vs the full fleet ----
+  const { targets, strangers } = matchCensusToFleet(workers, roster);
+  log?.warn(
+    {
+      customer,
+      fileName,
+      censusWorkers: workers.length,
+      matchedTargets: targets.length,
+      strangers: strangers.length,
+      censusMs: Date.now() - started,
+      censusOutTokens: census.usage.outputTokens,
+    },
+    "fastExtract census + fleet match complete",
+  );
+  if (targets.length === 0) {
+    // Nobody on the sheet matches the fleet — no extract call needed. The
+    // route turns this into an honest error that names who WAS on the sheet.
+    return { rows: [], otherWorkers: strangers };
+  }
+
+  // ---- Pass 2: extract punches for exactly the matched workers ----
+  const extractStarted = Date.now();
   const { text, usage } = await client.generate({
-    parts: [...parts, { kind: "text", text: prompt }],
+    parts: [
+      ...parts,
+      { kind: "text", text: buildExtractPrompt(customer, weekStart, weekEnd, targets) },
+    ],
     maxOutputTokens: 32768,
     timeoutMs: 180_000,
   });
-  // Models occasionally narrate before the JSON despite the contract
-  // ("Looking at the timesheet…"). Strip anything before the first "{"
-  // so a prose prefix can't sink an otherwise-good response.
-  const braceAt = text.indexOf("{");
-  const jsonText = braceAt > 0 ? text.slice(braceAt) : text;
-  const { rows } = parseOrSalvage(jsonText, customer, fileName, log);
+  const { rows } = parseOrSalvage(stripToJson(text), customer, fileName, log);
   const out: AiExtractedRow[] = rows ?? [];
-  // Best-effort read of the names-only stranger list. It rides in the same
-  // JSON object AFTER "rows", so a truncated response loses strangers first
-  // and this parse just yields [] (parseOrSalvage already rescued the rows).
-  let otherWorkers: string[] = [];
-  try {
-    const full = JSON.parse(jsonText) as { otherWorkers?: unknown };
-    if (Array.isArray(full.otherWorkers)) {
-      otherWorkers = full.otherWorkers
-        .filter((w): w is string => typeof w === "string" && w.trim().length > 0)
-        .map((w) => w.trim())
-        .slice(0, 500);
-    }
-  } catch {
-    // salvaged/truncated response — stranger names unavailable, rows stand.
-  }
-  // Near the 32k output cap → the model likely got cut off mid-list. Rows
-  // come first in the output, so the loss lands on otherWorkers, but flag
-  // it loudly so a short import is explainable.
   if (usage.outputTokens >= 32_000) {
     log?.warn(
       { customer, fileName, outTokens: usage.outputTokens, rows: out.length },
-      "fastExtract output near token cap — response likely truncated (rows were emitted first)",
+      "fastExtract output near token cap — response likely truncated",
     );
   }
   log?.warn(
@@ -186,10 +323,11 @@ export async function fastExtractRows(
       fileName,
       rows: out.length,
       ms: Date.now() - started,
+      extractMs: Date.now() - extractStarted,
       model: usage.model,
       outTokens: usage.outputTokens,
     },
-    "fastExtract single-call complete",
+    "fastExtract two-call complete",
   );
-  return { rows: out, otherWorkers };
+  return { rows: out, otherWorkers: strangers };
 }
