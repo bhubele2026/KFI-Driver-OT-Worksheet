@@ -3157,7 +3157,7 @@ function SummaryAndChecks({
             <div className="flex items-baseline justify-between text-xs">
               <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                 <span className="h-2 w-2 rounded-full bg-brand-navy" />
-                {t("driverDetail.driverSource")}
+                {t("driverDetail.driverConnect")}
               </span>
               <span className="fin-num font-semibold text-foreground" data-testid="row-summary-total-driver">
                 {totDriver.toFixed(2)}
