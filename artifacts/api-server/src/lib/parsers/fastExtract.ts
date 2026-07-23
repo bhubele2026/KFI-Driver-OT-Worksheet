@@ -167,52 +167,75 @@ function matchCensusToFleet(
 ): {
   targets: Array<{ name: string; badge: string | null; kfiId: string | null }>;
   strangers: string[];
+  laneCounts: { badge: number; nameAlias: number; fuzzyConfident: number; fuzzyBorderline: number };
+  laneSamples: string[];
 } {
   const drivers = roster?.drivers ?? [];
+  const laneCounts = { badge: 0, nameAlias: 0, fuzzyConfident: 0, fuzzyBorderline: 0 };
+  const laneSamples: string[] = [];
   if (drivers.length === 0) {
     // No fleet context — extract everyone and let the picker sort it out.
     return {
       targets: workers.map((w) => ({ name: w.name, badge: w.badge, kfiId: null })),
       strangers: [],
+      laneCounts,
+      laneSamples,
     };
   }
   const byBadge = new Map<string, string>();
+  const byNameAlias = new Map<string, string>();
   for (const d of drivers) {
     byBadge.set(d.kfiId.toLowerCase(), d.kfiId);
     for (const b of d.badges) byBadge.set(b.trim().toLowerCase(), d.kfiId);
-    for (const a of d.aliases) byBadge.set(a.trim().toLowerCase(), d.kfiId);
+    // Saved picker decisions are NAME spellings, not badges — separate map.
+    for (const a of d.aliases) byNameAlias.set(a.trim().toLowerCase(), d.kfiId);
   }
   const targets: Array<{ name: string; badge: string | null; kfiId: string | null }> = [];
   const strangers: string[] = [];
   for (const w of workers) {
     const badge = (w.badge ?? "").trim();
     const badgeHit = badge ? byBadge.get(badge.toLowerCase()) : undefined;
-    // Alias tables may also key on the doc's name spelling (saved picker
-    // decisions are folded into `aliases` by buildRosterContext).
-    const nameHit = byBadge.get(w.name.trim().toLowerCase());
+    const nameHit = byNameAlias.get(w.name.trim().toLowerCase());
     if (badgeHit || nameHit) {
+      if (badgeHit) laneCounts.badge++;
+      else laneCounts.nameAlias++;
+      if (laneSamples.length < 15) {
+        laneSamples.push(
+          `${w.name}|${badge || "-"}→${badgeHit ?? nameHit} via ${badgeHit ? "badge" : "nameAlias"}`,
+        );
+      }
       targets.push({ name: w.name, badge: w.badge, kfiId: badgeHit ?? nameHit ?? null });
       continue;
     }
     let bestScore = 0;
     let bestKfi: string | null = null;
+    let bestName = "";
     for (const d of drivers) {
       const s = nameSimilarity(w.name, d.name);
       if (s > bestScore) {
         bestScore = s;
         bestKfi = d.kfiId;
+        bestName = d.name;
       }
     }
     if (bestScore >= 0.85) {
+      laneCounts.fuzzyConfident++;
+      if (laneSamples.length < 15) {
+        laneSamples.push(`${w.name}→${bestName} @${bestScore.toFixed(2)}`);
+      }
       targets.push({ name: w.name, badge: w.badge, kfiId: bestKfi });
     } else if (bestScore >= 0.8) {
       // Close enough that a human should look — extract, no id, picker decides.
+      laneCounts.fuzzyBorderline++;
+      if (laneSamples.length < 15) {
+        laneSamples.push(`${w.name}~${bestName} @${bestScore.toFixed(2)}`);
+      }
       targets.push({ name: w.name, badge: w.badge, kfiId: null });
     } else {
       strangers.push(w.badge ? `${w.name} (${w.badge})` : w.name);
     }
   }
-  return { targets, strangers };
+  return { targets, strangers, laneCounts, laneSamples };
 }
 
 /**
@@ -284,7 +307,10 @@ export async function fastExtractRows(
   }
 
   // ---- Server-side matching: census vs the full fleet ----
-  const { targets, strangers } = matchCensusToFleet(workers, roster);
+  const { targets, strangers, laneCounts, laneSamples } = matchCensusToFleet(
+    workers,
+    roster,
+  );
   log?.warn(
     {
       customer,
@@ -292,6 +318,8 @@ export async function fastExtractRows(
       censusWorkers: workers.length,
       matchedTargets: targets.length,
       strangers: strangers.length,
+      laneCounts,
+      laneSamples,
       censusMs: Date.now() - started,
       censusOutTokens: census.usage.outputTokens,
     },
