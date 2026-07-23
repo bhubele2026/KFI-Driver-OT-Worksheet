@@ -12,6 +12,7 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   CheckCircle2,
   Circle,
   Flag,
@@ -339,6 +340,15 @@ function DriversList({
                       )}
                     </button>
                     <span className="flex-1 truncate">{formatPersonName(driver.name)}</span>
+                    {driver.customerHours > 0 && driver.driverHours <= 0 && (
+                      <span
+                        className="inline-flex shrink-0"
+                        data-testid={`sidebar-noct-${driver.kfiId}`}
+                        title={t("driversSidebar.noCtTitle")}
+                      >
+                        <AlertTriangle className="h-3 w-3 text-warning" />
+                      </span>
+                    )}
                     {driver.totalHours > 0 && (
                       <span
                         className={cn(

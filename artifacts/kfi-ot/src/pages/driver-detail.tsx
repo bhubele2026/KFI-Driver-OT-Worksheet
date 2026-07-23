@@ -3056,7 +3056,19 @@ function SummaryAndChecks({
   const eq = checksEq;
   const allOk = checks.every((c) => eq(c.expected, c.actual));
 
-  const parityPill =
+  // NO-CT state: the week has customer hours but ZERO Connecteam time.
+  // Matching a zero baseline must never look like good news — orange, loud.
+  const noCt = totCust > 0.005 && totDriver <= 0.005;
+  const parityPill = noCt ? (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-brand-orange/12 px-2.5 py-0.5 text-[11px] font-medium text-brand-orange ring-1 ring-brand-orange/30"
+      data-testid="badge-ct-zero"
+      title={t("driverDetail.ct.zeroTitle")}
+    >
+      <AlertTriangle className="h-3 w-3" />
+      {t("driverDetail.ct.zero")}
+    </span>
+  ) :
     parityStatus === "match" ? (
       <span
         className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-500/25"

@@ -218,7 +218,9 @@
     "customersHeading": "Customers",
     "tileHours": "h",
     "tileOt": "{{hours}} OT",
-    "tileReviewed": "{{n}}/{{total}}"
+    "tileReviewed": "{{n}}/{{total}}",
+    "tileNoCt": "{{count}}",
+    "tileNoCtTitle": "{{count}} driver(s) with hours but no Connecteam time this week"
   },
   "driverDetail": {
     "back": "Back",
@@ -458,7 +460,9 @@
       "ageHour_one": "{{count}} hour",
       "ageHour_other": "{{count}} hours",
       "ageDay_one": "{{count}} day",
-      "ageDay_other": "{{count}} days"
+      "ageDay_other": "{{count}} days",
+      "zero": "CT 0",
+      "zeroTitle": "No Connecteam punches this week — hours are from the customer sheet only. Check that the driver is clocking in."
     },
     "summary": {
       "totalDriver": "Total Driver",
@@ -548,7 +552,8 @@
       "clearedOverrideDesc": "Driver is back under their Connecteam roster customer.",
       "clearOverrideFailedTitle": "Couldn't clear override",
       "allReviewed": "All drivers reviewed for this week"
-    }
+    },
+    "noCtTitle": "No Connecteam time this week — customer-sheet hours only"
   },
   "editingIndicator": {
     "singular": "{{email}} is editing",

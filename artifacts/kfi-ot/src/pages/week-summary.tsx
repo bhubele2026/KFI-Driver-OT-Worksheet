@@ -869,6 +869,9 @@ export default function WeekSummary() {
                           0,
                         );
                         const lockedN = c.drivers.filter((d) => d.locked).length;
+                        const noCtN = c.drivers.filter(
+                          (d) => d.customerHours > 0 && d.driverHours <= 0,
+                        ).length;
                         const pct =
                           c.drivers.length > 0
                             ? Math.round((reviewedN / c.drivers.length) * 100)
@@ -907,6 +910,15 @@ export default function WeekSummary() {
                                     defaultValue: "{{hours}} OT",
                                     hours: ot.toFixed(2),
                                   })}
+                                </span>
+                              ) : null}
+                              {noCtN > 0 ? (
+                                <span
+                                  className="inline-flex items-center gap-1 fin-num text-sm font-semibold text-warning"
+                                  title={t("weekSummary.tileNoCtTitle", { count: noCtN })}
+                                >
+                                  <AlertTriangle className="h-3.5 w-3.5" />
+                                  {t("weekSummary.tileNoCt", { count: noCtN })}
                                 </span>
                               ) : null}
                             </div>

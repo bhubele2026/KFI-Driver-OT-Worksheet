@@ -218,7 +218,9 @@
     "customersHeading": "Clientes",
     "tileHours": "h",
     "tileOt": "{{hours}} extra",
-    "tileReviewed": "{{n}}/{{total}}"
+    "tileReviewed": "{{n}}/{{total}}",
+    "tileNoCt": "{{count}}",
+    "tileNoCtTitle": "{{count}} chofer(es) con horas pero sin tiempo de Connecteam esta semana"
   },
   "driverDetail": {
     "resetCustomerTitle": "Restablecer registros del cliente",
@@ -458,7 +460,9 @@
       "ageHour_one": "{{count}} hora",
       "ageHour_other": "{{count}} horas",
       "ageDay_one": "{{count}} día",
-      "ageDay_other": "{{count}} días"
+      "ageDay_other": "{{count}} días",
+      "zero": "CT 0",
+      "zeroTitle": "Sin marcajes de Connecteam esta semana — horas solo de la hoja del cliente. Verifique que el chofer marque entrada."
     },
     "summary": {
       "totalDriver": "Total conductor",
@@ -548,7 +552,8 @@
       "clearedOverrideDesc": "El conductor vuelve a su cliente de la plantilla de Connecteam.",
       "clearOverrideFailedTitle": "No se pudo quitar la anulación",
       "allReviewed": "Todos los conductores revisados esta semana"
-    }
+    },
+    "noCtTitle": "Sin tiempo de Connecteam esta semana — solo horas del cliente"
   },
   "editingIndicator": {
     "singular": "{{email}} está editando",
