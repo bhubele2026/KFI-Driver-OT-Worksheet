@@ -82,12 +82,6 @@ import {
   type IngestionBudgetSummary,
   MIN_MAX_CALLS_PER_UPLOAD,
 } from "../lib/parsers/ingestionBudget.js";
-import { lookupSchema } from "../lib/parsers/schemaLookup.js";
-import {
-  runCachedRoleReader,
-  runCachedPdfRoleReader,
-} from "../lib/parsers/runCachedRoleReader.js";
-import { recordAiSchemaIfPossible } from "../lib/parsers/aiSchemaRecorder.js";
 import {
   makeUploadKey,
   dbChunkStageStore,
@@ -2128,31 +2122,14 @@ weeksRouter.post(
     > | null = null;
     let stashedImageMime = req.file.mimetype || "application/octet-stream";
     let stashedImageBuffer: Buffer = req.file.buffer;
-    // Track which extraction strategy ran. Drives the preview dialog's
-    // neutral source chip + the customer_upload_attempts.last_source
-    // audit value. One of:
-    //   - 'cache': AI-discovered column roles fed a generic reader (fast).
-    //   - 'ai': fell through to Gemini (slow, but uniform).
-    // Task #277 removed the legacy hand-written parsers; every upload
-    // is AI-first now.
-    let extractSource: "cache" | "ai" = "ai";
-    // True only when the AI path succeeded AND `recordAiSchemaIfPossible`
-    // wrote a `customer_column_schemas` row for the file's header
-    // signature. Surfaced to the dispatcher so they know the next upload
-    // of this format will skip AI entirely (cache → readWithRoles). Task #255.
-    let cacheWritten = false;
+    // Extraction strategy. The clean-slate rebuild has ONE lane: a single
+    // fast model call per file (fastExtract). The old schema-cache lane
+    // was removed; 'cache' remains in the type only for the API contract.
+    const extractSource: "cache" | "ai" = "ai";
+    // Legacy field kept on the response contract; the schema cache is gone
+    // so nothing is ever "warmed" anymore.
+    const cacheWritten = false;
 
-    // ---- Uniform per-row pipeline (Task #250, simplified by #277) -----
-    // Every per-row upload (`explicitCustomer` set, including drag-drop
-    // and the per-row picker) starts with the same single lookup against
-    // `customer_column_schemas`:
-    //   1. Cache hit (exact header signature) → generic role-based reader.
-    //   2. Miss → AI extraction (which then writes a cache row for the
-    //      next upload of the same layout).
-    // Task #277 removed the legacy hand-written parsers; the cache is
-    // the only fast path. Images and the no-explicit-customer
-    // (filename-detection) path also route here so the behavior tree is
-    // one shape regardless of input.
     const detectedCustomer =
       explicitCustomer ??
       detectCustomerFromFileName(fileName, allCustomersForUpload);
@@ -2171,87 +2148,13 @@ weeksRouter.post(
       return;
     }
 
-    // Step 1+2: schema cache lookup. Skipped for images (always AI).
-    //
-    // Product intent: every customer upload should be read by AI, not by the
-    // deterministic cached-layout reader. The cache path matches rows by saved
-    // column positions / badge IDs and silently SKIPS any row whose id/name it
-    // can't resolve (no quarantine record) — which dropped real drivers (e.g.
-    // Ashley Choncoa on Penda) without warning. `CUSTOMER_EXTRACT_FORCE_AI`
-    // defaults to on so all uploads run the AI extractor (which resolves by
-    // name + alias and is far more forgiving). Set it to "0" to re-enable the
-    // column-schema cache for speed/cost if that tradeoff is ever wanted.
-    // Phase-2: load the customer's durable import rules once here so both
-    // the cache lookup/record (sheetSelector → correct sheet of a
-    // multi-sheet workbook) and the AI directive (below) share them.
+    // Per-customer durable import rules still steer the model prompt
+    // (sheet hints, name mode, drop-total patterns) via rulesToDirectives.
     const customerRules = await loadCustomerRules(detectedCustomer);
-    const forceAiExtract =
-      (process.env.CUSTOMER_EXTRACT_FORCE_AI ?? "1").trim() !== "0";
-    const schemaHit =
-      isImage || forceAiExtract
-        ? { kind: "miss" as const }
-        : await lookupSchema(
-            detectedCustomer,
-            fileName,
-            req.file.buffer,
-            isImage,
-            req.log,
-            customerRules?.sheetSelector,
-          );
 
-    if (schemaHit.kind === "cache") {
-      // AI-discovered column-roles cache hit: skip AI entirely and run
-      // the generic role-based reader for the file's format (xlsx or
-      // pdf — Task #257). Falls through to AI if the reader can't
-      // parse (stale roles) — re-running AI on the same signature will
-      // overwrite the cache row.
-      const idMap = await loadMergedIdMap();
-      // Task #363 collision guard context. Without this a cached
-      // recipe that maps an unrelated customer's employee number
-      // straight to a real KFI badge (the Trienda × Felix Baez
-      // Caballero case) would silently misroute punches on every
-      // subsequent same-format upload.
-      const cacheNameAliasMap =
-        await loadCustomerNameAliasMap(detectedCustomer);
-      const parsed =
-        schemaHit.format === "pdf"
-          ? await runCachedPdfRoleReader({
-              customer: detectedCustomer,
-              buffer: req.file.buffer,
-              schemaHit,
-              drivers,
-              idMap,
-              nameAliasMap: cacheNameAliasMap,
-              weekStart: startDate,
-              weekEnd: endDate,
-              log: req.log,
-            })
-          : runCachedRoleReader({
-              customer: detectedCustomer,
-              buffer: req.file.buffer,
-              schemaHit,
-              drivers,
-              idMap,
-              nameAliasMap: cacheNameAliasMap,
-              weekStart: startDate,
-              weekEnd: endDate,
-              log: req.log,
-            });
-      if (parsed && parsed.punches.length > 0) {
-        result = parsed;
-        extractSource = "cache";
-        // Stash the cache-reader's resolved rows so /confirm-customer-file
-        // commits them directly. Without this the confirm route sees an
-        // empty `extractedRows`/`pendingNamedRows` stash and falls through
-        // to the Task #352 re-extract fallback — which runs the full
-        // chunked Claude path (minutes per confirm) even though the
-        // cache hit already produced the punches deterministically.
-        stashedImageRows = imagePunchesForStash(parsed.punches);
-      }
-    }
-
-    // Step 2: AI extraction. Triggered when the cache missed or when
-    // the cached role reader threw / returned no rows.
+    // Single extraction lane: one fast model call per file (fastExtract,
+    // inside extractImageForKnownCustomer). The old schema-cache reader
+    // and its lookup were deleted in the clean-slate rebuild.
     const needsAi = !result;
     // Task #356: admin-only `?maxCalls=N` override for retrying an
     // upload that previously aborted with `IngestionBudgetExceeded`.
@@ -2360,20 +2263,6 @@ weeksRouter.post(
         });
         result = aiResult;
         stashedImageRows = imagePunchesForStash(aiResult.punches);
-        extractSource = "ai";
-        // Learn the column layout so the next upload of the same
-        // header signature skips AI and uses the generic reader.
-        // Fire-and-forget: failure here only costs the next upload
-        // another AI call.
-        cacheWritten = await recordAiSchemaIfPossible({
-          customer: detectedCustomer,
-          fileName,
-          buffer: req.file.buffer,
-          aiResult,
-          weekStart: startDate,
-          sheetSelector: customerRules?.sheetSelector,
-          log: req.log,
-        });
       } catch (err) {
         req.log.error({ err, fileName }, "AI extract error");
         const msg =
@@ -3502,23 +3391,10 @@ weeksRouter.get("/weeks/:weekStart/customer-uploads", async (req, res) => {
   const aliasCountByCustomer = new Map(
     aliasRows.map((r) => [r.customer, r.aliasCount ?? 0]),
   );
-  // Task #441: per-customer "has at least one saved AI schema" lookup
-  // so the dispatcher can tell at a glance which rows will skip the AI
-  // re-read on the next upload. Grouped by lowercase customer to match
-  // the case-insensitive cache lookup in `lookupSchema`. Only `source =
-  // 'ai'` rows count — legacy / seed rows aren't relevant to the badge.
-  const cachedLayoutRows = await db
-    .select({
-      customerLower: sql<string>`lower(${schema.customerColumnSchemasTable.customer})`,
-    })
-    .from(schema.customerColumnSchemasTable)
-    .where(eq(schema.customerColumnSchemasTable.source, "ai"))
-    .groupBy(sql`lower(${schema.customerColumnSchemasTable.customer})`);
-  const cachedLayoutByLower = new Set(
-    cachedLayoutRows.map((r) => r.customerLower),
-  );
-  const hasCachedLayoutFor = (name: string): boolean =>
-    cachedLayoutByLower.has(name.toLowerCase());
+  // Clean-slate rebuild: the schema cache is gone (every upload is one fast
+  // model call), so no customer "has a cached layout" anymore. Kept on the
+  // API contract; always false so the misleading badge never renders.
+  const hasCachedLayoutFor = (_name: string): boolean => false;
   // Task #446: load the latest Claude-reviewer verdict per (customer)
   // for this week. We join through the stashed sample so we pick the
   // verdict tied to the most recent confirmed upload for the week,

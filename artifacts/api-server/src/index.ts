@@ -17,7 +17,6 @@ import { startHiddenNotesDigest } from "./lib/hiddenNotesDigest";
 import { initIpBlocklist } from "./lib/ipBlocklist";
 import { startRealtimeHeartbeat } from "./lib/realtime";
 import { seedDriverPayrollProfiles } from "@workspace/db/seedDriverPayrollProfiles";
-import { deleteLegacyParserSchemaRows } from "./lib/parsers/schemaLookup";
 import { recordMutation } from "./lib/dataMutationAudit";
 
 // Captured once at module load so the boot-summary log can scope its
@@ -84,30 +83,8 @@ async function main() {
   startHiddenNotesDigest();
   startRealtimeHeartbeat();
 
-  // Task #277: legacy hand-written parsers were removed; every upload
-  // now flows through the AI-first pipeline (cache → AI → cache write).
-  // Drop any leftover legacy-parser sentinel rows from the old boot
-  // seed so they don't clutter the table. Idempotent: no-op once gone.
-  try {
-    const cleanup = await deleteLegacyParserSchemaRows();
-    if (cleanup.deleted > 0) {
-      logger.info(
-        { deleted: cleanup.deleted },
-        "deleteLegacyParserSchemaRows cleaned legacy customer_column_schemas",
-      );
-    }
-  } catch (err) {
-    logger.warn({ err }, "deleteLegacyParserSchemaRows failed");
-    // safeBulkDelete already wrote its own audit row on the happy paths; on
-    // throw we still want a marker so /admin/boot-audit shows the failed boot.
-    await recordMutation({
-      routine: "deleteLegacyParserSchemaRows",
-      outcome: "error",
-      rowsAffected: 0,
-      startedAt: new Date(),
-      detail: err instanceof Error ? err.message : String(err),
-    });
-  }
+  // Clean-slate import rebuild: the schema-cache lane (and its legacy-row
+  // boot cleanup) was removed — every upload is one fast model call.
 
   void (async () => {
     const client = await pool.connect();
