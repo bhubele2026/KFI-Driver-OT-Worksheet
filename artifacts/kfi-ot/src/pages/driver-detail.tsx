@@ -38,7 +38,6 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { StatTile } from "@/components/stat-tile";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
@@ -50,7 +49,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { format, parseISO } from "date-fns";
+import { addDays, format, parseISO } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
@@ -159,12 +158,17 @@ const KNOWN_CUSTOMERS_FALLBACK = [
   "Zenople",
 ];
 
-/** Parse "YYYY-MM-DD H:MM AM" into "MM/DD, h:MM AM" prefixed with the date. */
-function formatClockCell(value: string): string {
+/**
+ * Parse "YYYY-MM-DD H:MM AM". With `rowDate`, same-day punches render as a
+ * bare time ("9:42 PM") — the day band above the row already names the day —
+ * and only a cross-midnight timestamp keeps its "MM/DD, " prefix.
+ */
+function formatClockCell(value: string, rowDate?: string): string {
   if (!value) return "";
   const m = value.match(/^(\d{4})-(\d{2})-(\d{2})\s+(.+)$/);
   if (!m) return value;
-  const [, , mm, dd, time] = m;
+  const [, yyyy, mm, dd, time] = m;
+  if (rowDate && `${yyyy}-${mm}-${dd}` === rowDate) return to12HourTime(time);
   return `${mm}/${dd}, ${to12HourTime(time)}`;
 }
 
@@ -1088,6 +1092,15 @@ export default function DriverDetail() {
     const isOt = otPortion > 0.0001 || running >= OT_THRESHOLD - 0.0001;
     return { p, after: running, isOt };
   });
+
+  // Per-day totals for the table's day bands + the week strip.
+  const dailyTotals = new Map<string, { hours: number; hasOt: boolean }>();
+  for (const r of rows) {
+    const d = dailyTotals.get(r.p.date) ?? { hours: 0, hasOt: false };
+    d.hours += Number(r.p.hours) || 0;
+    d.hasOt = d.hasOt || r.isOt;
+    dailyTotals.set(r.p.date, d);
+  }
 
   // Week-level reviewed counter surfaced in the header pill.
   const weekReviewedCount = sortedPunches.filter((p) => p.reviewed).length;
@@ -2210,6 +2223,49 @@ export default function DriverDetail() {
           connecteamParity={data.connecteamParity ?? null}
         />
 
+        {/* Week strip — the seven days at a glance; click jumps to the day */}
+        <div className="flex gap-2 overflow-x-auto print:hidden" data-testid="week-strip">
+          {Array.from({ length: 7 }, (_, i) => {
+            const d = addDays(parseISO(weekStart), i);
+            const iso = format(d, "yyyy-MM-dd");
+            const info = dailyTotals.get(iso);
+            return (
+              <button
+                key={iso}
+                type="button"
+                disabled={!info}
+                data-testid={`week-strip-day-${iso}`}
+                onClick={() =>
+                  document
+                    .getElementById(`day-${iso}`)
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                }
+                className={cn(
+                  "tile min-w-[88px] flex-1 px-3 py-2 text-left transition-colors",
+                  info ? "cursor-pointer hover:bg-accent" : "opacity-50",
+                )}
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {format(d, "EEE")}
+                  <span className="ml-1 fin-num font-normal normal-case">{format(d, "M/d")}</span>
+                </div>
+                <div
+                  className={cn(
+                    "fin-num text-lg font-semibold leading-tight",
+                    info?.hasOt
+                      ? "text-warning"
+                      : info
+                        ? "text-foreground"
+                        : "text-muted-foreground/50",
+                  )}
+                >
+                  {info ? info.hours.toFixed(2) : "\u2014"}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
         {/* Punch table */}
 
         <Card>
@@ -2217,7 +2273,6 @@ export default function DriverDetail() {
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60 [&>th]:h-9 [&>th]:h-10 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-muted-foreground">
-                  <TableHead className="w-[110px] uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.date")}</TableHead>
                   <TableHead className="w-[110px] uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.source")}</TableHead>
                   <TableHead className="uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.clockIn")}</TableHead>
                   <TableHead className="uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.clockOut")}</TableHead>
@@ -2229,12 +2284,15 @@ export default function DriverDetail() {
               <TableBody>
                 {rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
                       {t("driverDetail.noPunches")}
                     </TableCell>
                   </TableRow>
                 )}
-                {rows.map(({ p, after, isOt }) => {
+                {rows.map(({ p, after, isOt }, rowIdx) => {
+                  const isNewDay =
+                    rowIdx === 0 || rows[rowIdx - 1].p.date !== p.date;
+                  const dayInfo = dailyTotals.get(p.date);
                   const isEditing = editingPunchId === p.id;
                   const isDriver = p.source === "Driver";
                   const heavyTable = rows.length > VIRTUAL_PUNCH_ROW_THRESHOLD;
@@ -2262,6 +2320,26 @@ export default function DriverDetail() {
                   const rowEditors = editorsForPunch(p.id);
                   return (
                     <Fragment key={p.id}>
+                    {isNewDay && (
+                      <TableRow
+                        id={`day-${p.date}`}
+                        className="scroll-mt-24 border-b border-border bg-muted/40 hover:bg-muted/40"
+                      >
+                        <TableCell colSpan={6} className="py-1.5">
+                          <div className="flex items-baseline justify-between gap-3">
+                            <span className="font-display text-xs font-semibold uppercase tracking-wider text-foreground/80">
+                              {format(parseISO(p.date), "EEE · MMM d")}
+                            </span>
+                            <span className="fin-num text-xs text-muted-foreground">
+                              {dayInfo?.hasOt ? (
+                                <span className="mr-2 font-semibold text-warning">OT</span>
+                              ) : null}
+                              {(dayInfo?.hours ?? 0).toFixed(2)} h
+                            </span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
                     <TableRow
                       id={`punch-row-${p.id}`}
                       data-testid={`row-punch-${p.id}`}
@@ -2276,9 +2354,6 @@ export default function DriverDetail() {
                           "border-l-2 border-l-rose-400 bg-rose-500/[0.05] hover:bg-rose-500/10",
                       )}
                     >
-                      <TableCell className="fin-num text-xs whitespace-nowrap align-top">
-                        <div title={p.date}>{format(parseISO(p.date), "EEE MMM d")}</div>
-                      </TableCell>
                       <TableCell>
                         <SourceBadge source={p.source} />
                         <div className="flex flex-wrap items-center gap-1 mt-1">
@@ -2317,7 +2392,7 @@ export default function DriverDetail() {
                             data-testid={`input-edit-clock-in-${p.id}`}
                           />
                         ) : (
-                          formatClockCell(p.clockIn)
+                          formatClockCell(p.clockIn, p.date)
                         )}
                       </TableCell>
                       <TableCell className={cn("fin-num text-xs whitespace-nowrap", sourceCellTint)}>
@@ -2342,7 +2417,7 @@ export default function DriverDetail() {
                             data-testid={`input-edit-clock-out-${p.id}`}
                           />
                         ) : (
-                          formatClockCell(p.clockOut)
+                          formatClockCell(p.clockOut, p.date)
                         )}
                       </TableCell>
                       <TableCell className={cn("text-right fin-num font-medium text-xs", sourceCellTint)}>
@@ -2611,7 +2686,7 @@ export default function DriverDetail() {
                         className="bg-muted/30 hover:bg-muted/30"
                         data-testid={`row-punch-notes-${p.id}`}
                       >
-                        <TableCell colSpan={7} className="px-4 py-3">
+                        <TableCell colSpan={6} className="px-4 py-3">
                           <div className="space-y-2">
                             {punchNotes.length > 0 && (
                               <ul className="space-y-2">
@@ -3033,23 +3108,101 @@ function SummaryAndChecks({
       </span>
     );
 
-  return (
-    <div className="space-y-3">
-      {/* KPI stat strip */}
-      <div
-        className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
-        data-testid="card-summary"
-      >
-        <StatTile label={t("driverDetail.summary.totalHours")} value={total} testId="row-summary-total-hours" />
-        <StatTile label={t("weekSummary.stats.regular")} value={Number(totals.regularHours) || 0} />
-        <StatTile label={t("weekSummary.stats.overtime")} value={Number(totals.overtimeHours) || 0} tone="text-brand-orange" />
-        <StatTile label={t("driverDetail.summary.totalDriver")} value={totDriver} tone="text-brand-navy" testId="row-summary-total-driver" />
-        <StatTile label={t("driverDetail.summary.totalCustomer")} value={totCust} testId="row-summary-total-customer" />
-      </div>
+  const barMax = Math.max(totDriver, totCust, 0.01);
 
-      {/* Reconciliation + parity + RT/OT split */}
-      <div className="tile">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
+  return (
+    <div className="tile" data-testid="card-summary">
+      <div className="flex flex-col gap-5 px-5 py-4 lg:flex-row lg:items-center">
+        {/* Zone 1 — the week's bottom line */}
+        <div className="flex items-center gap-5">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {t("driverDetail.summary.totalHours")}
+            </div>
+            <div
+              className="fin-num text-4xl font-bold leading-none tracking-tight text-foreground"
+              data-testid="row-summary-total-hours"
+            >
+              {total.toFixed(2)}
+            </div>
+          </div>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">{t("weekSummary.stats.regular")}</span>
+              <span className="fin-num font-semibold text-foreground">
+                {(Number(totals.regularHours) || 0).toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">{t("weekSummary.stats.overtime")}</span>
+              <span
+                className={cn(
+                  "fin-num font-semibold",
+                  (Number(totals.overtimeHours) || 0) > 0.005
+                    ? "text-warning"
+                    : "text-foreground",
+                )}
+              >
+                {(Number(totals.overtimeHours) || 0).toFixed(2)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="hidden h-14 w-px shrink-0 bg-border lg:block" />
+
+        {/* Zone 2 — where the hours came from (mismatch is VISIBLE) */}
+        <div className="min-w-[240px] flex-1 space-y-2.5">
+          <div>
+            <div className="flex items-baseline justify-between text-xs">
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <span className="h-2 w-2 rounded-full bg-brand-navy" />
+                {t("driverDetail.driverSource")}
+              </span>
+              <span className="fin-num font-semibold text-foreground" data-testid="row-summary-total-driver">
+                {totDriver.toFixed(2)}
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-brand-navy"
+                style={{ width: `${Math.round((totDriver / barMax) * 100)}%` }}
+              />
+            </div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
+              <span data-testid="row-summary-driver-rt">RT <b className="fin-num font-semibold text-foreground">{driverRt.toFixed(2)}</b></span>
+              {" · "}
+              <span data-testid="row-summary-driver-ot">OT <b className={cn("fin-num font-semibold", driverOt > 0.005 ? "text-warning" : "text-foreground")}>{driverOt.toFixed(2)}</b></span>
+            </div>
+          </div>
+          <div>
+            <div className="flex items-baseline justify-between text-xs">
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <span className="h-2 w-2 rounded-full bg-sky-500" />
+                {t("driverDetail.customerSource")}
+              </span>
+              <span className="fin-num font-semibold text-foreground" data-testid="row-summary-total-customer">
+                {totCust.toFixed(2)}
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-sky-500"
+                style={{ width: `${Math.round((totCust / barMax) * 100)}%` }}
+              />
+            </div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
+              <span data-testid="row-summary-customer-rt">RT <b className="fin-num font-semibold text-foreground">{custRt.toFixed(2)}</b></span>
+              {" · "}
+              <span data-testid="row-summary-customer-ot">OT <b className={cn("fin-num font-semibold", custOt > 0.005 ? "text-warning" : "text-foreground")}>{custOt.toFixed(2)}</b></span>
+            </div>
+          </div>
+        </div>
+
+        <div className="hidden h-14 w-px shrink-0 bg-border lg:block" />
+
+        {/* Zone 3 — does it reconcile? */}
+        <div className="flex shrink-0 flex-row flex-wrap items-center gap-2 lg:flex-col lg:items-end">
           {allOk ? (
             <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700" data-testid="checks-status-ok">
               <CheckIcon className="h-4 w-4" /> {t("driverDetail.checks.allReconcile")}
@@ -3060,16 +3213,10 @@ function SummaryAndChecks({
             </span>
           )}
           {parityPill}
-          <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <span data-testid="row-summary-driver-rt">Driver RT <b className="fin-num font-semibold text-foreground">{driverRt.toFixed(2)}</b></span>
-            <span data-testid="row-summary-driver-ot">OT <b className={cn("fin-num font-semibold", driverOt > 0.005 ? "text-brand-orange" : "text-foreground")}>{driverOt.toFixed(2)}</b></span>
-            <span className="text-border">·</span>
-            <span data-testid="row-summary-customer-rt">Cust RT <b className="fin-num font-semibold text-foreground">{custRt.toFixed(2)}</b></span>
-            <span data-testid="row-summary-customer-ot">OT <b className={cn("fin-num font-semibold", custOt > 0.005 ? "text-brand-orange" : "text-foreground")}>{custOt.toFixed(2)}</b></span>
-          </div>
         </div>
+      </div>
 
-        <details open={!allOk} data-testid="card-checks" className="group border-t border-border px-4 py-2">
+      <details open={!allOk} data-testid="card-checks" className="group border-t border-border px-4 py-2">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground">
             <span aria-hidden className="text-muted-foreground/60 transition-transform group-open:rotate-90">›</span>
             {t("driverDetail.checks.allReconcile")}
@@ -3099,7 +3246,6 @@ function SummaryAndChecks({
             })}
           </dl>
         </details>
-      </div>
     </div>
   );
 }
