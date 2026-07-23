@@ -64,6 +64,7 @@ import {
   loadCustomers,
 } from "../lib/customersStore.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
+import { fastExtractRows } from "../lib/parsers/fastExtract.js";
 import { getXlsxWorkerPoolStats } from "../lib/parsers/xlsxWorkerPool.js";
 import { loadLessonsForPrompt, MAX_LESSON_CHARS } from "../lib/chat/lessonsStore.js";
 import { runChatTurn } from "../lib/chat/claudeChat.js";
@@ -4444,50 +4445,63 @@ weeksRouter.post(
       idMap: rosterIdMap,
       nameAliasMap: nameAliasMapForRoster,
     });
-    // Task #314: per-upload id tagged onto every pacer event this
-    // extraction pushes; released in `finally` below so the bucket
-    // empties the moment this upload resolves.
     const ingestionIdNew = randomUUID();
     try {
-      const extracted = await aiExtractRows(
-        req.file.originalname,
-        extractBuffer,
-        customer,
-        startDate,
-        endDate,
-        extractMime,
-        req.log,
-        rosterContext,
-        {
-          budget: aiBudgetNew,
-          allowGeminiFallback: allowGeminiFallbackNew,
-          ingestionId: ingestionIdNew,
-          onChunkProgress: (current, total, resumedFromStaging) =>
-            publishExtractProgress(
-              progressKey,
-              current,
-              total,
-              resumedFromStaging,
-            ),
-          // Task #309: identity for per-chunk resume staging. The
-          // new-customer path computes its hash off the extract
-          // buffer (post-image-normalize), matching the bytes the
-          // chunker actually sees so a retry hits the same key.
-          uploadKey: makeUploadKey({
-            contentHash: createHash("sha256").update(extractBuffer).digest("hex"),
-            weekStart: startDate,
+      // Clean-slate: a brand-new customer's file goes through the same
+      // one-call extractor as everyone else — read cold, no chunks, no
+      // setup. FAST_IMPORT=0 restores the legacy chunked path.
+      const useFastNew = (process.env.FAST_IMPORT ?? "1") !== "0";
+      const extracted = useFastNew
+        ? await fastExtractRows(
+            req.file.originalname,
+            extractBuffer,
             customer,
-          }),
-          stageStore: dbChunkStageStore,
-          // Task #406: prepend any saved lessons for this customer so
-          // past dispatcher corrections shape this extraction.
-          lessons: await loadLessonsForPrompt(customer),
-        },
-      );
+            startDate,
+            endDate,
+            extractMime,
+            req.log,
+            rosterContext,
+          )
+        : await aiExtractRows(
+            req.file.originalname,
+            extractBuffer,
+            customer,
+            startDate,
+            endDate,
+            extractMime,
+            req.log,
+            rosterContext,
+            {
+              budget: aiBudgetNew,
+              allowGeminiFallback: allowGeminiFallbackNew,
+              ingestionId: ingestionIdNew,
+              onChunkProgress: (current, total, resumedFromStaging) =>
+                publishExtractProgress(
+                  progressKey,
+                  current,
+                  total,
+                  resumedFromStaging,
+                ),
+              uploadKey: makeUploadKey({
+                contentHash: createHash("sha256")
+                  .update(extractBuffer)
+                  .digest("hex"),
+                weekStart: startDate,
+                customer,
+              }),
+              stageStore: dbChunkStageStore,
+              lessons: await loadLessonsForPrompt(customer),
+            },
+          );
       rows = extracted.rows;
-      extractionTruncated = extracted.truncated;
-      failedChunks = extracted.failedChunks;
-      geminiFallbackUsedNew = extracted.geminiFallbackUsed;
+      extractionTruncated =
+        "truncated" in extracted ? (extracted.truncated ?? false) : false;
+      failedChunks =
+        "failedChunks" in extracted ? (extracted.failedChunks ?? 0) : 0;
+      geminiFallbackUsedNew =
+        "geminiFallbackUsed" in extracted
+          ? (extracted.geminiFallbackUsed ?? false)
+          : false;
     } catch (err) {
       req.log.error({ err, fileName: req.file.originalname }, "AI extract error");
       const msg =
