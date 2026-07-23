@@ -251,8 +251,20 @@
 .stagger > *:nth-child(6) { animation-delay: 140ms; }
 .stagger > *:nth-child(n + 7) { animation-delay: 168ms; }
 
+/* Progress/comparison bars grow from the left on mount. Applied to the inner
+   (colored) bar; width stays the inline style, the entrance is a transform. */
+@keyframes growBar {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.grow-bar {
+  transform-origin: left center;
+  animation: growBar 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: 120ms;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .tile-in, .rise-in, .stagger > * { animation: none; }
+  .tile-in, .rise-in, .stagger > *, .grow-bar { animation: none; }
 }
 
 @media print {

@@ -58,7 +58,7 @@ export default function Settings() {
 
   return (
     <AppShell active="/settings">
-      <div className="space-y-7">
+      <div className="rise-in stagger space-y-7">
         <div>
           <h1 className="text-xl font-semibold text-brand-navy">Settings</h1>
           <p className="mt-1 text-sm text-muted-foreground">

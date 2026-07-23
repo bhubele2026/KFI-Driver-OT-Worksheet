@@ -19,7 +19,7 @@ export default function History() {
 
   return (
     <AppShell active="/history">
-      <div className="space-y-5">
+      <div className="rise-in space-y-5">
         <div>
           <h1 className="text-xl font-semibold text-brand-navy">History</h1>
           <p className="mt-1 text-sm text-muted-foreground">

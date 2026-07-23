@@ -50,6 +50,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { addDays, format, parseISO } from "date-fns";
+import { useCountUp } from "@/hooks/use-count-up";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
@@ -2224,7 +2225,7 @@ export default function DriverDetail() {
         />
 
         {/* Week strip — the seven days at a glance; click jumps to the day */}
-        <div className="flex gap-2 overflow-x-auto print:hidden" data-testid="week-strip">
+        <div className="stagger flex gap-2 overflow-x-auto print:hidden" data-testid="week-strip">
           {Array.from({ length: 7 }, (_, i) => {
             const d = addDays(parseISO(weekStart), i);
             const iso = format(d, "yyyy-MM-dd");
@@ -2268,7 +2269,7 @@ export default function DriverDetail() {
 
         {/* Punch table */}
 
-        <Card>
+        <Card className="rise-in">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -3109,9 +3110,12 @@ function SummaryAndChecks({
     );
 
   const barMax = Math.max(totDriver, totCust, 0.01);
+  const totalAnim = useCountUp(total);
+  const drvAnim = useCountUp(totDriver);
+  const custAnim = useCountUp(totCust);
 
   return (
-    <div className="tile" data-testid="card-summary">
+    <div className="tile rise-in" data-testid="card-summary">
       <div className="flex flex-col gap-5 px-5 py-4 lg:flex-row lg:items-center">
         {/* Zone 1 — the week's bottom line */}
         <div className="flex items-center gap-5">
@@ -3123,7 +3127,7 @@ function SummaryAndChecks({
               className="fin-num text-4xl font-bold leading-none tracking-tight text-foreground"
               data-testid="row-summary-total-hours"
             >
-              {total.toFixed(2)}
+              {totalAnim.toFixed(2)}
             </div>
           </div>
           <div className="space-y-1.5 text-xs">
@@ -3160,12 +3164,12 @@ function SummaryAndChecks({
                 {t("driverDetail.driverConnect")}
               </span>
               <span className="fin-num font-semibold text-foreground" data-testid="row-summary-total-driver">
-                {totDriver.toFixed(2)}
+                {drvAnim.toFixed(2)}
               </span>
             </div>
             <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-brand-navy"
+                className="grow-bar h-full rounded-full bg-brand-navy"
                 style={{ width: `${Math.round((totDriver / barMax) * 100)}%` }}
               />
             </div>
@@ -3182,12 +3186,12 @@ function SummaryAndChecks({
                 {t("driverDetail.customerSource")}
               </span>
               <span className="fin-num font-semibold text-foreground" data-testid="row-summary-total-customer">
-                {totCust.toFixed(2)}
+                {custAnim.toFixed(2)}
               </span>
             </div>
             <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-sky-500"
+                className="grow-bar h-full rounded-full bg-sky-500"
                 style={{ width: `${Math.round((totCust / barMax) * 100)}%` }}
               />
             </div>

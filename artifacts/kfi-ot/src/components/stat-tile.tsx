@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useCountUp } from "@/hooks/use-count-up";
 
 /**
  * Shared flat stat tile used across the week summary and driver detail (was
@@ -24,6 +25,7 @@ export function StatTile({
   /** Emphasized tile (overtime). */
   highlight?: boolean;
 }) {
+  const animated = useCountUp(value);
   return (
     <div
       className={cn(
@@ -46,7 +48,7 @@ export function StatTile({
           tone ?? (highlight ? "text-warning" : "text-foreground"),
         )}
       >
-        {decimals === 0 ? value : value.toFixed(decimals)}
+        {decimals === 0 ? Math.round(animated) : animated.toFixed(decimals)}
       </div>
     </div>
   );

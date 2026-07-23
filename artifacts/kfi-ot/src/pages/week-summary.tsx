@@ -18,6 +18,7 @@ import { DriversSidebar } from "@/components/drivers-sidebar";
 import { AppShell } from "@/components/app-shell";
 import { WeekToolbar } from "@/components/week-toolbar";
 import { StatTile } from "@/components/stat-tile";
+import { useCountUp } from "@/hooks/use-count-up";
 import { payWeekStart } from "@/lib/pay-week";
 import { ReviewedPill } from "@/components/reviewed-pill";
 import {
@@ -450,7 +451,7 @@ export default function WeekSummary() {
             visible={fullyReconciledSplashVisible}
             onDismiss={dismissFullyReconciledSplash}
           />
-          <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="rise-in flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-2xl font-bold font-display tracking-tight text-foreground">
@@ -783,7 +784,7 @@ export default function WeekSummary() {
             </Card>
           ) : summary ? (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="stagger grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 <StatTile
                   label={t("weekSummary.stats.activeDrivers")}
                   value={summary.totals.activeDrivers}
@@ -814,7 +815,7 @@ export default function WeekSummary() {
               </div>
 
               <div
-                className="flex flex-wrap items-center gap-2"
+                className="rise-in flex flex-wrap items-center gap-2"
                 data-testid="review-totals-chips"
               >
                 <span
@@ -889,9 +890,7 @@ export default function WeekSummary() {
                             </div>
                             <div className="flex items-baseline gap-4">
                               <span>
-                                <span className="fin-num text-2xl font-semibold text-foreground">
-                                  {hours.toFixed(2)}
-                                </span>{" "}
+                                <AnimatedHours value={hours} />{" "}
                                 <span className="text-xs text-muted-foreground">
                                   {t("weekSummary.tileHours", { defaultValue: "hrs" })}
                                 </span>
@@ -931,7 +930,7 @@ export default function WeekSummary() {
                               </div>
                               <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                                 <div
-                                  className={`h-full rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : "bg-primary"}`}
+                                  className={`grow-bar h-full rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : "bg-primary"}`}
                                   style={{ width: `${pct}%` }}
                                 />
                               </div>
@@ -950,3 +949,13 @@ export default function WeekSummary() {
   );
 }
 
+
+/** Count-up hours figure for the customer tiles ("appear live" pass). */
+function AnimatedHours({ value }: { value: number }) {
+  const animated = useCountUp(value);
+  return (
+    <span className="fin-num text-2xl font-semibold text-foreground">
+      {animated.toFixed(2)}
+    </span>
+  );
+}
