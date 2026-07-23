@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Animate a number from its previous value to `value` over ~600ms with an
+ * Animate a number from its previous value to `value` over ~280ms with an
  * ease-out curve — the "live dashboard" feel on stat tiles and totals.
  * First render starts from 0; later changes glide from the old value.
  * Snaps instantly when the user prefers reduced motion.
  */
-export function useCountUp(value: number, durationMs = 600): number {
+export function useCountUp(value: number, durationMs = 280): number {
   const [display, setDisplay] = useState(0);
   const fromRef = useRef(0);
   const rafRef = useRef<number | null>(null);
