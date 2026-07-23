@@ -17,11 +17,16 @@ import type { IngestionBudgetSummary } from "./ingestionBudget.js";
  * matching / review / confirm logic in `extractImageForKnownCustomer` is
  * reused unchanged.
  *
- * The speed trick: every customer sheet lists dozens–hundreds of workers,
- * but only the handful in the roster are KFI drivers we pay. We tell the
- * model to extract ONLY the roster's drivers, so a 500-row Penda export
- * emits ~15 rows instead of 500 — output tokens (the real latency driver)
- * shrink ~30×, and one Sonnet call finishes in a few seconds.
+ * Matching philosophy: the AI READS, the app MATCHES. The model extracts
+ * EVERY worker on the sheet (skipping nobody), tagging the ones that
+ * clearly match the expected-driver hints with `resolvedKfiId`. Server-side
+ * resolution (`resolveKfiId`) then decides which rows are KFI drivers;
+ * anything unresolved surfaces in the preview's picker instead of being
+ * dropped. The roster is a HINT for id/spelling accuracy — never a filter:
+ * a filter turns "driver tagged to the wrong customer in the DB" into a
+ * silent 0-punch dead end (the IWG El Paso failure, 2026-07-23).
+ * Expected drivers are emitted FIRST so if a monster sheet ever hits the
+ * output-token cap, the truncated tail only loses non-KFI strangers.
  */
 
 /** File bytes → the content block(s) we hand the model, no chunking. */
@@ -65,7 +70,7 @@ async function prepareContentParts(
   return [{ kind: "text", text: buffer.toString("utf8").slice(0, 200_000) }];
 }
 
-/** Roster-filtered extraction prompt. Output is the AiExtractedRow shape. */
+/** Extract-everyone prompt (roster is a hint, never a filter). Output is the AiExtractedRow shape. */
 function buildFastPrompt(
   customer: string,
   weekStart: string,
@@ -76,22 +81,26 @@ function buildFastPrompt(
     `You extract timecard punches for KFI Staffing from a customer's timesheet.`,
     `Customer: "${customer}". Pay week: ${weekStart} through ${weekEnd} (Sunday–Saturday). Only include rows whose date is in that window.`,
     ``,
-    `IMPORTANT — only KFI drivers: the sheet lists many workers, but you must extract ONLY the workers who match one of the KNOWN DRIVERS listed at the end. Ignore every other worker completely; they are not ours.`,
+    `IMPORTANT — extract EVERY worker on the sheet. Do not skip anyone: KFI's drivers are mixed in with the customer's other workers under names/ids you may not recognize, and the app decides afterwards which rows are KFI's. A worker you omit can never be recovered.`,
     ``,
-    `For each matched driver's daily punch, output an object with:`,
-    `- resolvedKfiId: the KFI id of the matched driver (from the list). Match by badge/alias, or by name when it's clearly the same person (e.g. "Choncoa, Ashley M" -> "Ashley Choncoa"). If you truly can't tell which driver a row belongs to, omit resolvedKfiId and still output the row so a human can map it.`,
+    `For each worker's daily punch, output an object with:`,
     `- driverNameOnDoc: the worker's name exactly as written on the sheet.`,
     `- badgeOrId: the worker's id/badge/employee-number on the sheet, if any.`,
     `- date: YYYY-MM-DD (use the pay week to fill in the year if the sheet shows only M/D).`,
     `- hours: the day's worked hours as a decimal. USE THE SHEET'S OWN Total/Hours/Duration COLUMN when present — it already nets unpaid breaks and the customer's rounding. If a single day is split across pay-category rows (Reg + OT 1.5 + …), SUM them into one number for that day.`,
     `- timeIn / timeOut: clock in/out as "H:MM AM" / "H:MM PM" when shown; omit if only totals are given.`,
+    `- resolvedKfiId: ONLY when the worker clearly matches one of the EXPECTED KFI DRIVERS listed at the end — by badge/alias, or by name when it's clearly the same person (e.g. "Choncoa, Ashley M" -> "Ashley Choncoa") — copy that driver's KFI id here. For every other worker, omit this field entirely; never guess.`,
     ``,
-    `Emit ONE object per matched driver per day. Skip column headers, blank rows, page footers, and any total/subtotal/grand-total rows.`,
+    `Emit ONE object per worker per day. Skip column headers, blank rows, page footers, and any total/subtotal/grand-total rows.`,
+    `Output the rows for EXPECTED KFI DRIVERS first, then every other worker.`,
     ``,
-    `Return ONLY raw JSON of the form {"rows":[ {…}, {…} ]}. No markdown fences, no prose before or after. Do not invent rows, drivers, dates, or hours that aren't on the sheet.`,
+    `Return ONLY raw JSON of the form {"rows":[ {…}, {…} ]}. No markdown fences, no prose before or after. Do not invent rows, workers, dates, or hours that aren't on the sheet.`,
   ];
   if (roster && roster.drivers.length > 0) {
-    lines.push("", `KNOWN DRIVERS for "${roster.customer}":`);
+    lines.push(
+      "",
+      `EXPECTED KFI DRIVERS (matching hints only — still extract every worker NOT on this list):`,
+    );
     for (const d of roster.drivers.slice(0, 300)) {
       const parts = [`${d.kfiId}: ${d.name}`];
       if (d.badges.length) parts.push(`badges=[${d.badges.join(", ")}]`);
@@ -101,7 +110,7 @@ function buildFastPrompt(
   } else {
     lines.push(
       "",
-      `(No known-driver list was provided — extract every worker's punches and a human will map them.)`,
+      `(No expected-driver list was provided — extract every worker's punches and a human will map them.)`,
     );
   }
   return lines.join("\n");
@@ -136,6 +145,15 @@ export async function fastExtractRows(
   });
   const { rows } = parseOrSalvage(text, customer, fileName, log);
   const out: AiExtractedRow[] = rows ?? [];
+  // Near the 32k output cap → the model likely got cut off mid-list. The
+  // prompt orders expected KFI drivers first so a truncated tail loses only
+  // non-KFI workers, but flag it loudly so a short import is explainable.
+  if (usage.outputTokens >= 32_000) {
+    log?.warn(
+      { customer, fileName, outTokens: usage.outputTokens, rows: out.length },
+      "fastExtract output near token cap — sheet likely truncated (expected drivers were emitted first)",
+    );
+  }
   log?.warn(
     {
       customer,

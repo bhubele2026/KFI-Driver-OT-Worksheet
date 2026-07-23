@@ -196,17 +196,14 @@ export async function extractImageForKnownCustomer(args: {
     aiOpts,
     importRules,
   } = args;
-  // Prefer drivers attached to this customer when building the roster
-  // hints sent to the AI — narrows the prompt to plausible candidates
-  // (and matches the fuzzy-match pool used below).
-  const customerLower = customer.toLowerCase();
-  const preferredDrivers = drivers.filter(
-    (d) => (d.customer ?? "").toLowerCase() === customerLower,
-  );
-  const rosterPool = preferredDrivers.length > 0 ? preferredDrivers : drivers;
+  // The roster sent to the AI is a HINT (id/spelling accuracy), never a
+  // filter — so it always contains ALL active drivers. Narrowing it to the
+  // customer's tagged drivers turned "driver tagged to the wrong customer
+  // in the DB" into a guaranteed 0-punch dead end (IWG El Paso, 2026-07-23).
+  // The fleet is small (~dozens), so the full list costs little prompt space.
   const roster = buildRosterContext({
     customer,
-    drivers: rosterPool,
+    drivers,
     idMap,
     nameAliasMap,
   });
@@ -305,19 +302,12 @@ export async function extractImageForKnownCustomer(args: {
     inWindow.push({ ...r, date: iso });
   }
 
-  // Fuzzy match falls back to the same customer-preferred pool used for
-  // the AI roster hint.
-  const fuzzyPool = rosterPool;
-  // Task #360: prefer same-customer matches over cross-customer for
-  // badge resolution too. When `preferredDrivers` has any rows we
-  // narrow the badge-resolution set to that pool so a badge that maps
-  // (or self-resolves) to a driver attached to a different customer is
-  // rejected — the picker prompts the dispatcher instead of silently
-  // attributing punches across customers. When the customer has no
-  // attached drivers yet (rare bootstrap case for a brand-new customer),
-  // `rosterPool` falls back to the full archived-filtered roster and
-  // `poolKfiSet` equals `kfiSet`, so behavior is unchanged.
-  const poolKfiSet = new Set(fuzzyPool.map((d) => d.kfiId));
+  // Name resolution runs against ALL active drivers — the customer tag is
+  // a TIEBREAKER inside `resolveKfiId`, never a gate. Cross-customer badge
+  // collisions are still vetoed by `isBadgeMatchTrustworthy` (Task #363),
+  // which demands name corroboration before accepting a badge that points
+  // at a driver tagged to a different customer.
+  const fuzzyPool = drivers;
 
   const unmapped = new UnmappedIdAccumulator();
   const punches: ParsedPunch[] = [];
@@ -387,10 +377,18 @@ export async function extractImageForKnownCustomer(args: {
     invalidTimeCount,
     acceptedCount: punches.length,
   };
-  if (punches.length === 0 && rawRows.length > 0) {
+  if (punches.length === 0) {
+    // Diagnosability for prod: when nothing auto-matched, record what the
+    // model actually read and how many drivers we offered as hints — so a
+    // repeat of the "0 punches" incident is explainable from container logs.
+    const sampleRawNames = [
+      ...new Set(rawRows.map((r) => r.driverNameOnDoc?.trim()).filter(Boolean)),
+    ].slice(0, 10);
     log?.warn(
-      { customer, fileName, ...diagnostics },
-      "AI extract accepted zero punches",
+      { customer, fileName, ...diagnostics, rosterSize: drivers.length, sampleRawNames },
+      rawRows.length > 0
+        ? "AI extract accepted zero punches"
+        : "AI read zero worker rows from file",
     );
   }
   // Task #427: gap-inference catch-all. The per-row drop sites above
@@ -437,7 +435,7 @@ export async function extractImageForKnownCustomer(args: {
 function resolveKfiId(
   row: AiExtractedRow,
   idMap: Record<string, string>,
-  fuzzyPool: Array<{ kfiId: string; name: string }>,
+  fuzzyPool: Array<{ kfiId: string; name: string; customer?: string | null }>,
   kfiSet: Set<string>,
   nameAliasMap: Map<string, string> | undefined,
   uploadedCustomer: string,
@@ -512,15 +510,26 @@ function resolveKfiId(
   }
   const matches = topMatches(
     name,
-    fuzzyPool.map((d) => ({ kfiId: d.kfiId, name: d.name, customer: "" })),
-    1,
+    fuzzyPool.map((d) => ({ kfiId: d.kfiId, name: d.name, customer: d.customer ?? "" })),
+    3,
   );
-  const best = matches[0];
   // Only accept a fuzzy match when the model is very confident. Anything
   // weaker bubbles up to the dispatcher as an unmapped row rather than
-  // silently attributing punches to the wrong driver.
-  if (best && best.confidence >= 0.85 && kfiSet.has(best.kfiId)) {
-    return best.kfiId;
+  // silently attributing punches to the wrong driver. The pool spans ALL
+  // active drivers; when two clear the bar in a near-tie, the driver tagged
+  // to the uploaded customer wins (customer = tiebreaker, never a gate).
+  const confident = matches.filter(
+    (m) => m.confidence >= 0.85 && kfiSet.has(m.kfiId),
+  );
+  if (confident.length > 0) {
+    const uploadedLower = uploadedCustomer.trim().toLowerCase();
+    const nearTies = confident.filter(
+      (m) => confident[0].confidence - m.confidence <= 0.03,
+    );
+    const sameCustomer = nearTies.find(
+      (m) => m.customer.trim().toLowerCase() === uploadedLower,
+    );
+    return (sameCustomer ?? confident[0]).kfiId;
   }
   return null;
 }

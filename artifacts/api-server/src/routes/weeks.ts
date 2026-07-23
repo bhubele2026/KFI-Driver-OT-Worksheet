@@ -213,37 +213,41 @@ function explainZeroPunches(
   customerName: string,
   unmapped: UnmappedIdEntry[],
   diagnostics?: ExtractDiagnostics,
-  origin?: "parser" | "ai",
+  _origin?: "parser" | "ai",
 ): string {
-  const lead = `Detected customer "${customerName}" but parsed 0 punches`;
-  const tail =
-    origin === "ai"
-      ? " Use the preview dialog's per-row picker to map names to drivers (your picks are saved for next week), or upload a file whose name contains the right customer keyword if the wrong customer was detected."
-      : " Open Admin → Driver ID aliases to add the missing IDs, or upload a file whose name contains the right customer keyword if the wrong customer was detected.";
-  const parts: string[] = [];
-  if (diagnostics && diagnostics.rawRowCount > 0) {
-    parts.push(`${origin === "ai" ? "AI" : "Parser"} read ${diagnostics.rawRowCount} row(s)`);
-    const drops: string[] = [];
-    if (diagnostics.unmappedDriverCount > 0)
-      drops.push(`${diagnostics.unmappedDriverCount} unrecognized driver(s)`);
+  const raw = diagnostics?.rawRowCount ?? 0;
+  // The model read NOTHING — this is a file problem, not a matching problem.
+  // (Every rows-were-read case now returns the preview + picker instead of
+  // an error, so this message must never point at a dialog that won't open.)
+  if (raw === 0) {
+    return `Couldn't read any worker rows from this file for "${customerName}". Check that it's a timesheet with worker names and daily hours, then try again — the tile's Ask Claude chat can tell you what the file actually contains.`;
+  }
+  const drops: string[] = [];
+  if (diagnostics) {
     if (diagnostics.outOfWindowCount > 0)
-      drops.push(`${diagnostics.outOfWindowCount} outside this week`);
+      drops.push(`${diagnostics.outOfWindowCount} dated outside the selected week`);
     if (diagnostics.invalidDateCount > 0)
       drops.push(`${diagnostics.invalidDateCount} with unreadable dates`);
     if (diagnostics.invalidTimeCount > 0)
-      drops.push(`${diagnostics.invalidTimeCount} missing clock in / out`);
-    if (drops.length > 0) parts.push(`dropped ${drops.join(", ")}`);
+      drops.push(`${diagnostics.invalidTimeCount} missing usable times/hours`);
+    if (diagnostics.unmappedDriverCount > 0)
+      drops.push(`${diagnostics.unmappedDriverCount} unrecognized worker(s)`);
   }
+  const parts: string[] = [`Read ${raw} row(s) from the file but none imported`];
+  if (drops.length > 0) parts.push(`(${drops.join(", ")})`);
   if (unmapped.length > 0) {
     const sample = unmapped
       .slice(0, 5)
       .map((u) => (u.sampleName ? `${u.id} (${u.sampleName})` : u.id))
       .join("; ");
     const more = unmapped.length > 5 ? ` and ${unmapped.length - 5} more` : "";
-    parts.push(`unrecognized: ${sample}${more}`);
+    parts.push(`— unrecognized: ${sample}${more}`);
   }
-  const body = parts.length > 0 ? ` — ${parts.join("; ")}.` : ".";
-  return `${lead}${body}${tail}`;
+  const advice =
+    diagnostics && diagnostics.outOfWindowCount > 0
+      ? " Make sure the selected pay week matches the dates in the file."
+      : "";
+  return `${parts.join(" ")}.${advice}`;
 }
 
 async function loadMergedIdMap(): Promise<Record<string, string>> {
@@ -2354,7 +2358,10 @@ weeksRouter.post(
       // model can read the names but doesn't know KFI ids until the
       // dispatcher tells it.
       const isAiWithRows =
-        origin === "ai" && rawRowCount > 0 && (result.unmappedIds.length > 0);
+        origin === "ai" &&
+        rawRowCount > 0 &&
+        (result.unmappedIds.length > 0 ||
+          (result.pendingNamedRows?.length ?? 0) > 0);
       if (!isAiWithRows) {
         req.log.warn(
           { fileName, customer: result.customer, diagnostics: result.diagnostics },
@@ -4407,10 +4414,10 @@ weeksRouter.post(
     const aiStartedAtNew = Date.now();
     // Build a RosterContext so the AI prompt can attempt resolvedKfiId
     // on each row instead of returning bare names that we'd have to
-    // fuzzy-match (Task #271). We restrict the pool to drivers attached
-    // to this customer when any exist, else fall back to the active
-    // roster — same shape used by the post-extract suggestion code
-    // below, so the model and the dispatcher see consistent candidates.
+    // fuzzy-match (Task #271). The roster is a HINT, never a filter —
+    // always the full active fleet, so a driver tagged to a different
+    // customer (or a brand-new customer with no tagged drivers) still
+    // resolves instead of dead-ending at 0 punches.
     const rosterDrivers = await db
       .select({
         kfiId: schema.driversTable.kfiId,
@@ -4419,12 +4426,6 @@ weeksRouter.post(
       })
       .from(schema.driversTable)
       .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)));
-    const customerLowerForRoster = customer.toLowerCase();
-    const customerPreferred = rosterDrivers.filter(
-      (d) => (d.customer ?? "").toLowerCase() === customerLowerForRoster,
-    );
-    const rosterPoolForAi =
-      customerPreferred.length > 0 ? customerPreferred : rosterDrivers;
     const rosterIdMap = await loadMergedIdMap();
     const savedAliasesForRoster = await db
       .select({
@@ -4441,7 +4442,7 @@ weeksRouter.post(
     }
     const rosterContext = buildRosterContext({
       customer,
-      drivers: rosterPoolForAi,
+      drivers: rosterDrivers,
       idMap: rosterIdMap,
       nameAliasMap: nameAliasMapForRoster,
     });
