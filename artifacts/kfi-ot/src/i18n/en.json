@@ -143,8 +143,8 @@
     "stats": {
       "activeDrivers": "Active Drivers",
       "totalHours": "Total Hours",
-      "driverSource": "Driver Source",
-      "customerSource": "Customer Source",
+      "driverSource": "Driver hrs",
+      "customerSource": "Customer hrs",
       "regular": "Regular",
       "overtime": "Overtime"
     },
@@ -218,7 +218,7 @@
     "customersHeading": "Customers",
     "tileHours": "hrs",
     "tileOt": "{{hours}} OT",
-    "tileReviewed": "{{n}} of {{total}} reviewed"
+    "tileReviewed": "{{n}}/{{total}} reviewed"
   },
   "driverDetail": {
     "back": "Back",
@@ -250,8 +250,8 @@
     "needsRoster": "Needs roster cleanup",
     "customer": "Customer:",
     "kfiId": "KFI ID:",
-    "driverConnect": "Driver (ConnectTeam)",
-    "customerSource": "Customer (Timesheet)",
+    "driverConnect": "Driver",
+    "customerSource": "Customer",
     "overtimeThreshold": "Overtime threshold",
     "addPunch": "Add Punch",
     "lock": "Lock",
@@ -294,10 +294,10 @@
     "punchTable": {
       "date": "Date",
       "source": "Source",
-      "clockIn": "Clock In",
-      "clockOut": "Clock Out",
-      "hours": "Hours",
-      "running": "Running",
+      "clockIn": "In",
+      "clockOut": "Out",
+      "hours": "Hrs",
+      "running": "Total",
       "type": "Type",
       "resetDayTitle": "Reset this day back to the engine-derived total",
       "markPunchReviewed": "Mark this punch reviewed",
@@ -472,7 +472,7 @@
       "driverOt": "Driver OT"
     },
     "checks": {
-      "allReconcile": "Checks — all reconcile",
+      "allReconcile": "All reconciled",
       "mismatch": "Checks — mismatch",
       "totalEq": "Total = Driver + Customer",
       "customerEq": "Customer = Total − Driver",
@@ -480,7 +480,8 @@
       "rtEq": "Customer RT + Driver RT = RT",
       "otEq": "Customer OT + Driver OT = OT",
       "rtPlusOtEq": "RT + OT = Total",
-      "rowSumEq": "Summary matches detail"
+      "rowSumEq": "Summary matches detail",
+      "details": "Details"
     },
     "previewPanel": {
       "fillIn": "Fill in date, clock in, and clock out to preview the impact on this driver's day and week.",
@@ -506,7 +507,7 @@
     }
   },
   "driversSidebar": {
-    "heading": "Drivers by Customer",
+    "heading": "Drivers",
     "collapse": "Collapse sidebar",
     "expand": "Expand drivers sidebar",
     "openMobile": "Open drivers sidebar",

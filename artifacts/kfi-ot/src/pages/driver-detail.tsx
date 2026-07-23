@@ -1365,16 +1365,6 @@ export default function DriverDetail() {
                 )}
                 {t("common.refresh")}
               </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => window.print()}
-                title={t("driverDetail.printTimesheet")}
-                data-testid="button-print-timesheet"
-                className="h-8 w-8"
-              >
-                <Printer className="h-4 w-4" />
-              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -1388,6 +1378,13 @@ export default function DriverDetail() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuItem
+                    onSelect={() => window.print()}
+                    data-testid="button-print-timesheet"
+                  >
+                    <Printer className="mr-2 h-4 w-4" />
+                    {t("common.print")}
+                  </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => setShortcutsOpen(true)}
                     data-testid="button-show-shortcuts"
@@ -1429,15 +1426,9 @@ export default function DriverDetail() {
             </div>
           </div>
           <p className="text-sm text-muted-foreground fin-num flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span>
-              {t("driverDetail.customer")}{" "}
-              <span className="text-foreground">{customerLabel}</span>
-            </span>
+            <span className="text-foreground">{customerLabel}</span>
             <span className="text-muted-foreground/60">·</span>
-            <span>
-              {t("driverDetail.kfiId")}{" "}
-              <span className="text-foreground">{data.driver.kfiId}</span>
-            </span>
+            <span className="text-foreground">{data.driver.kfiId}</span>
             <span className="text-muted-foreground/60 print:hidden">·</span>
             <span className="print:hidden">
               <Popover open={tzPopoverOpen} onOpenChange={(o) => {
@@ -1717,6 +1708,7 @@ export default function DriverDetail() {
             {(data.customerTzs ?? []).map((ct) => {
               const popKey = `${ct.customer}|${ct.dispTz}`;
               const isMismatch = !ct.matchesDriver;
+              if (!isMismatch) return null;
               return (
                 <span key={popKey} className="print:hidden">
                   <Popover
@@ -1933,20 +1925,6 @@ export default function DriverDetail() {
               {t("common.weekOf", { week: weekStart })}
             </span>
           </p>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground pt-1 print:hidden">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-sidebar" />
-              {t("driverDetail.driverConnect")}
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-primary" />
-              {t("driverDetail.customerSource")}
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-warning" />
-              {t("driverDetail.overtimeThreshold")}
-            </span>
-          </div>
         </div>
 
 
@@ -2218,6 +2196,7 @@ export default function DriverDetail() {
 
         {/* Summary + Checks panels — surface the per-source RT/OT split and an
             independent re-derivation, so any divergence is obvious. */}
+        <div className="tile rise-in overflow-hidden">
         <SummaryAndChecks
           totals={data.totals}
           rowHoursSum={rows.length > 0 ? rows[rows.length - 1].after : 0}
@@ -2225,7 +2204,7 @@ export default function DriverDetail() {
         />
 
         {/* Week strip — the seven days at a glance; click jumps to the day */}
-        <div className="stagger flex gap-2 overflow-x-auto print:hidden" data-testid="week-strip">
+        <div className="stagger flex divide-x divide-border border-t border-border overflow-x-auto print:hidden" data-testid="week-strip">
           {Array.from({ length: 7 }, (_, i) => {
             const d = addDays(parseISO(weekStart), i);
             const iso = format(d, "yyyy-MM-dd");
@@ -2242,7 +2221,7 @@ export default function DriverDetail() {
                     ?.scrollIntoView({ behavior: "smooth", block: "start" })
                 }
                 className={cn(
-                  "tile min-w-[88px] flex-1 px-3 py-2 text-left transition-colors",
+                  "min-w-[88px] flex-1 px-3 py-2.5 text-left transition-colors",
                   info ? "cursor-pointer hover:bg-accent" : "opacity-50",
                 )}
               >
@@ -2268,13 +2247,10 @@ export default function DriverDetail() {
         </div>
 
         {/* Punch table */}
-
-        <Card className="rise-in">
-          <div className="overflow-x-auto">
+          <div className="border-t border-border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60 [&>th]:h-9 [&>th]:h-10 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-muted-foreground">
-                  <TableHead className="w-[110px] uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.source")}</TableHead>
                   <TableHead className="uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.clockIn")}</TableHead>
                   <TableHead className="uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.clockOut")}</TableHead>
                   <TableHead className="text-right uppercase text-[11px] tracking-wider w-[80px]">{t("driverDetail.punchTable.hours")}</TableHead>
@@ -2285,7 +2261,7 @@ export default function DriverDetail() {
               <TableBody>
                 {rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
                       {t("driverDetail.noPunches")}
                     </TableCell>
                   </TableRow>
@@ -2304,12 +2280,6 @@ export default function DriverDetail() {
                   const rowStyle =
                     heavyTable && !isEditing ? VIRTUAL_PUNCH_ROW_STYLE : undefined;
                   const remaining = OT_THRESHOLD - after;
-                  // Source-driven faint bg wash on time cells: navy for Driver,
-                  // teal for Customer. Subtle, but unmistakable at a glance and
-                  // still readable on top of the OT highlight (bg-warning/10).
-                  const sourceCellTint = isDriver
-                    ? "bg-sidebar/[0.06] dark:bg-sidebar-accent/30"
-                    : "bg-primary/[0.07] dark:bg-primary/15";
                   const tooltipLine =
                     remaining > 0.0001
                       ? t("driverDetail.untilOt", { hours: remaining.toFixed(2) })
@@ -2326,7 +2296,7 @@ export default function DriverDetail() {
                         id={`day-${p.date}`}
                         className="scroll-mt-24 border-b border-border bg-muted/40 hover:bg-muted/40"
                       >
-                        <TableCell colSpan={6} className="py-1.5">
+                        <TableCell colSpan={5} className="py-1.5">
                           <div className="flex items-baseline justify-between gap-3">
                             <span className="font-display text-xs font-semibold uppercase tracking-wider text-foreground/80">
                               {format(parseISO(p.date), "EEE · MMM d")}
@@ -2349,28 +2319,35 @@ export default function DriverDetail() {
                       }
                       style={rowStyle}
                       className={cn(
-                        "group/row scroll-mt-24 border-b border-border/70 transition-colors hover:bg-muted/50 [&>td]:py-2",
+                        "group/row scroll-mt-24 border-b border-border/40 transition-colors hover:bg-muted/50 [&>td]:py-2",
                         isOt && "bg-brand-orange/[0.05] hover:bg-brand-orange/10",
                         (p as { flagged?: boolean }).flagged &&
                           "border-l-2 border-l-rose-400 bg-rose-500/[0.05] hover:bg-rose-500/10",
                       )}
                     >
-                      <TableCell>
-                        <SourceBadge source={p.source} />
-                        <div className="flex flex-wrap items-center gap-1 mt-1">
-                          {p.isManual && (
-                            <span className="text-[9px] uppercase tracking-wider px-1 py-0 rounded border border-border text-muted-foreground">
-                              {t("driverDetail.manualBadge")}
-                            </span>
+                      <TableCell className="fin-num text-xs whitespace-nowrap">
+                        <span className="inline-flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "h-2 w-2 shrink-0 rounded-full",
+                            isDriver ? "bg-brand-navy" : "bg-sky-500",
                           )}
-                          {p.edited && (
-                            <span className="text-[9px] uppercase tracking-wider px-1 py-0 rounded border border-border text-muted-foreground">
-                              {t("driverDetail.editedBadge")}
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className={cn("fin-num text-xs whitespace-nowrap", sourceCellTint)}>
+                          title={
+                            isDriver
+                              ? t("driverDetail.driverConnect")
+                              : t("driverDetail.customerSource")
+                          }
+                        />
+                        {p.isManual && (
+                          <span className="text-[9px] uppercase tracking-wider px-1 py-0 rounded border border-border text-muted-foreground">
+                            {t("driverDetail.manualBadge")}
+                          </span>
+                        )}
+                        {p.edited && (
+                          <span className="text-[9px] uppercase tracking-wider px-1 py-0 rounded border border-border text-muted-foreground">
+                            {t("driverDetail.editedBadge")}
+                          </span>
+                        )}
                         {isEditing ? (
                           <Input
                             autoFocus
@@ -2395,8 +2372,9 @@ export default function DriverDetail() {
                         ) : (
                           formatClockCell(p.clockIn, p.date)
                         )}
+                        </span>
                       </TableCell>
-                      <TableCell className={cn("fin-num text-xs whitespace-nowrap", sourceCellTint)}>
+                      <TableCell className="fin-num text-xs whitespace-nowrap">
                         {isEditing ? (
                           <Input
                             className="h-7 w-24 fin-num text-xs"
@@ -2421,7 +2399,7 @@ export default function DriverDetail() {
                           formatClockCell(p.clockOut, p.date)
                         )}
                       </TableCell>
-                      <TableCell className={cn("text-right fin-num font-medium text-xs", sourceCellTint)}>
+                      <TableCell className="text-right fin-num font-medium text-xs">
                         {isEditing ? (
                           <>
                             {editPreview ? editPreview.hours.toFixed(2) : p.hours.toFixed(2)}
@@ -2687,7 +2665,7 @@ export default function DriverDetail() {
                         className="bg-muted/30 hover:bg-muted/30"
                         data-testid={`row-punch-notes-${p.id}`}
                       >
-                        <TableCell colSpan={6} className="px-4 py-3">
+                        <TableCell colSpan={5} className="px-4 py-3">
                           <div className="space-y-2">
                             {punchNotes.length > 0 && (
                               <ul className="space-y-2">
@@ -2757,7 +2735,7 @@ export default function DriverDetail() {
               </TableBody>
             </Table>
           </div>
-        </Card>
+        </div>
 
         {/* Zenople pay & bill rates (admin-edit) */}
         <PayrollProfileCard kfiId={kfiId} canEdit={!!me?.isAdmin} />
@@ -3115,7 +3093,7 @@ function SummaryAndChecks({
   const custAnim = useCountUp(totCust);
 
   return (
-    <div className="tile rise-in" data-testid="card-summary">
+    <div data-testid="card-summary">
       <div className="flex flex-col gap-5 px-5 py-4 lg:flex-row lg:items-center">
         {/* Zone 1 — the week's bottom line */}
         <div className="flex items-center gap-5">
@@ -3223,7 +3201,7 @@ function SummaryAndChecks({
       <details open={!allOk} data-testid="card-checks" className="group border-t border-border px-4 py-2">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground">
             <span aria-hidden className="text-muted-foreground/60 transition-transform group-open:rotate-90">›</span>
-            {t("driverDetail.checks.allReconcile")}
+            {t("driverDetail.checks.details", { defaultValue: "Details" })}
           </summary>
           <dl className="mt-1.5 grid grid-cols-1 gap-x-8 sm:grid-cols-2">
             {checks.map((c) => {
