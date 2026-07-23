@@ -94,9 +94,9 @@ function buildFastPrompt(
     ``,
     `Emit ONE object per extracted worker per day. Skip column headers, blank rows, page footers, and any total/subtotal/grand-total rows.`,
     ``,
-    `Then list EVERY remaining worker on the sheet — the clear strangers you did not extract — in "otherWorkers": one string each, "Name (badge)" or just "Name". Names only, no punches, no duplicates. Nobody on the sheet may be missing from both lists.`,
+    `Then "otherWorkers": the workers you did NOT extract, names only ("Name (badge)" or "Name"), no duplicates. List at most 30; if there are more, make the final entry "+N more" with N = how many you left off. Do not list them all.`,
     ``,
-    `Return ONLY raw JSON of the form {"rows":[ {…} ], "otherWorkers":["…"]}. Put "rows" first. No markdown fences, no prose before or after. Do not invent rows, workers, dates, or hours that aren't on the sheet.`,
+    `Return ONLY raw JSON of the form {"rows":[ {…} ], "otherWorkers":["…"]}. Put "rows" first. Start your reply with "{" — no markdown fences, no prose, no explanation before or after the JSON. Do not invent rows, workers, dates, or hours that aren't on the sheet.`,
   ];
   if (roster && roster.drivers.length > 0) {
     lines.push(
@@ -149,14 +149,19 @@ export async function fastExtractRows(
     maxOutputTokens: 32768,
     timeoutMs: 180_000,
   });
-  const { rows } = parseOrSalvage(text, customer, fileName, log);
+  // Models occasionally narrate before the JSON despite the contract
+  // ("Looking at the timesheet…"). Strip anything before the first "{"
+  // so a prose prefix can't sink an otherwise-good response.
+  const braceAt = text.indexOf("{");
+  const jsonText = braceAt > 0 ? text.slice(braceAt) : text;
+  const { rows } = parseOrSalvage(jsonText, customer, fileName, log);
   const out: AiExtractedRow[] = rows ?? [];
   // Best-effort read of the names-only stranger list. It rides in the same
   // JSON object AFTER "rows", so a truncated response loses strangers first
   // and this parse just yields [] (parseOrSalvage already rescued the rows).
   let otherWorkers: string[] = [];
   try {
-    const full = JSON.parse(text) as { otherWorkers?: unknown };
+    const full = JSON.parse(jsonText) as { otherWorkers?: unknown };
     if (Array.isArray(full.otherWorkers)) {
       otherWorkers = full.otherWorkers
         .filter((w): w is string => typeof w === "string" && w.trim().length > 0)
