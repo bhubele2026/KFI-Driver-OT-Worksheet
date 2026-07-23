@@ -42,7 +42,15 @@ import { StatTile } from "@/components/stat-tile";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, ChevronsUpDown, Lock, LockOpen, ThumbsDown, Undo2, MessageSquarePlus, Globe, Flag } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, ChevronsUpDown, Lock, LockOpen, ThumbsDown, Undo2, MessageSquarePlus, Globe, Flag, MoreHorizontal } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { format, parseISO } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
@@ -1210,122 +1218,6 @@ export default function DriverDetail() {
               {t("driverDetail.flaggedCount", { count: weekFlaggedCount })}
             </span>
           )}
-          <div
-            className="inline-flex items-center gap-2"
-            data-testid="status-tristate"
-          >
-            <button
-              type="button"
-              onClick={() =>
-                setStatus(driverStatus === "good" ? null : "good")
-              }
-              disabled={driverLocked || setReviewed.isPending}
-              data-testid="button-status-good"
-              aria-label={t("driverDetail.markGoodAria")}
-              title={t("driverDetail.good")}
-              className={cn(
-                "px-2.5 py-1 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
-                driverStatus === "good"
-                  ? "bg-emerald-600 text-white border-emerald-700"
-                  : "bg-sidebar-accent/40 hover:bg-sidebar-accent text-sidebar-foreground border-sidebar-border/60",
-              )}
-            >
-              <CheckIcon className="h-3.5 w-3.5" /> {t("driverDetail.good")}
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setStatus(driverStatus === "bad" ? null : "bad")
-              }
-              disabled={driverLocked || setReviewed.isPending}
-              data-testid="button-status-bad"
-              title={t("driverDetail.markBadTitleShort")}
-              className={cn(
-                "px-2.5 py-1 rounded-md text-xs font-medium inline-flex items-center gap-1.5 border transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
-                driverStatus === "bad"
-                  ? "bg-rose-600 text-white border-rose-700"
-                  : "bg-sidebar-accent/40 hover:bg-sidebar-accent text-sidebar-foreground border-sidebar-border/60",
-              )}
-            >
-              <ThumbsDown className="h-3.5 w-3.5" /> {t("driverDetail.bad")}
-            </button>
-          </div>
-          {canLock && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleToggleLock}
-              disabled={lockMutation.isPending || unlockMutation.isPending}
-              data-testid="button-toggle-lock"
-              title={driverLocked ? t("driverDetail.unlockTitle") : t("driverDetail.lockTitle")}
-              className={cn(
-                "text-sidebar-foreground hover:bg-sidebar-accent",
-                driverLocked && "text-amber-300",
-              )}
-            >
-              {driverLocked ? (
-                <>
-                  <Lock className="mr-2 h-4 w-4" /> {t("driverDetail.locked")}
-                </>
-              ) : (
-                <>
-                  <LockOpen className="mr-2 h-4 w-4" /> {t("driverDetail.lock")}
-                </>
-              )}
-            </Button>
-          )}
-          {!canLock && driverLocked && (
-            <span
-              className="inline-flex items-center gap-1.5 text-xs fin-num text-amber-300"
-              data-testid="badge-locked-readonly"
-              title={
-                data.lockedByEmail
-                  ? t("weekSummary.status.lockedBy", { email: data.lockedByEmail })
-                  : t("weekSummary.status.lockedShort")
-              }
-            >
-              <Lock className="h-3.5 w-3.5" /> {t("driverDetail.locked")}
-            </span>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={refreshCt.isPending}
-            className="text-sidebar-foreground hover:bg-sidebar-accent"
-          >
-            {refreshCt.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            {t("common.refresh")}
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => setIsManualModalOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            {t("driverDetail.addPunch")}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => window.print()}
-            title={t("driverDetail.printTimesheet")}
-            data-testid="button-print-timesheet"
-            className="text-sidebar-foreground hover:bg-sidebar-accent"
-          >
-            <Printer className="mr-2 h-4 w-4" />
-            {t("common.print")}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShortcutsOpen(true)}
-            title={t("driverDetail.shortcuts")}
-            data-testid="button-show-shortcuts"
-            className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent"
-          >
-            <Keyboard className="h-4 w-4" />
-          </Button>
         </div>
       </header>
 
@@ -1348,22 +1240,179 @@ export default function DriverDetail() {
             visible={fullyReconciledSplashVisible}
             onDismiss={dismissFullyReconciledSplash}
           />
-        {/* Title block */}
+        {/* Title block + page action bar (review / lock / punch actions used
+            to crowd the navy app bar — they belong to the page). */}
         <div className="space-y-2">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="font-display font-bold text-3xl tracking-tight leading-none">
-              {formatPersonName(data.driver.name)}
-            </h1>
-            <EditingIndicator
-              emails={Array.from(
-                new Set(
-                  data.punches
-                    .map((p) => editorsForPunch(p.id))
-                    .flat()
-                    .concat(editorsForPunch(null)),
-                ),
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="font-display font-bold text-3xl tracking-tight leading-none">
+                {formatPersonName(data.driver.name)}
+              </h1>
+              <EditingIndicator
+                emails={Array.from(
+                  new Set(
+                    data.punches
+                      .map((p) => editorsForPunch(p.id))
+                      .flat()
+                      .concat(editorsForPunch(null)),
+                  ),
+                )}
+              />
+            </div>
+            <div className="flex items-center gap-2 flex-wrap print:hidden">
+              <div
+                className="inline-flex items-center gap-0.5 rounded-xl border border-border bg-card p-0.5"
+                data-testid="status-tristate"
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setStatus(driverStatus === "good" ? null : "good")
+                  }
+                  disabled={driverLocked || setReviewed.isPending}
+                  data-testid="button-status-good"
+                  aria-label={t("driverDetail.markGoodAria")}
+                  title={t("driverDetail.good")}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                    driverStatus === "good"
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  <CheckIcon className="h-3.5 w-3.5" /> {t("driverDetail.good")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setStatus(driverStatus === "bad" ? null : "bad")
+                  }
+                  disabled={driverLocked || setReviewed.isPending}
+                  data-testid="button-status-bad"
+                  title={t("driverDetail.markBadTitleShort")}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                    driverStatus === "bad"
+                      ? "bg-rose-600 text-white shadow-sm"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  <ThumbsDown className="h-3.5 w-3.5" /> {t("driverDetail.bad")}
+                </button>
+              </div>
+              {canLock && (
+                <Button
+                  variant={driverLocked ? "secondary" : "outline"}
+                  size="sm"
+                  onClick={handleToggleLock}
+                  disabled={lockMutation.isPending || unlockMutation.isPending}
+                  data-testid="button-toggle-lock"
+                  title={driverLocked ? t("driverDetail.unlockTitle") : t("driverDetail.lockTitle")}
+                >
+                  {driverLocked ? (
+                    <>
+                      <Lock className="mr-2 h-4 w-4" /> {t("driverDetail.locked")}
+                    </>
+                  ) : (
+                    <>
+                      <LockOpen className="mr-2 h-4 w-4" /> {t("driverDetail.lock")}
+                    </>
+                  )}
+                </Button>
               )}
-            />
+              {!canLock && driverLocked && (
+                <span
+                  className="inline-flex items-center gap-1.5 text-xs fin-num text-muted-foreground"
+                  data-testid="badge-locked-readonly"
+                  title={
+                    data.lockedByEmail
+                      ? t("weekSummary.status.lockedBy", { email: data.lockedByEmail })
+                      : t("weekSummary.status.lockedShort")
+                  }
+                >
+                  <Lock className="h-3.5 w-3.5" /> {t("driverDetail.locked")}
+                </span>
+              )}
+              <div className="h-6 w-px bg-border" />
+              <Button size="sm" onClick={() => setIsManualModalOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                {t("driverDetail.addPunch")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={refreshCt.isPending}
+              >
+                {refreshCt.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                {t("common.refresh")}
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => window.print()}
+                title={t("driverDetail.printTimesheet")}
+                data-testid="button-print-timesheet"
+                className="h-8 w-8"
+              >
+                <Printer className="h-4 w-4" />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    data-testid="button-driver-overflow"
+                    title={t("weekSummary.moreActions", { defaultValue: "More actions" })}
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuItem
+                    onSelect={() => setShortcutsOpen(true)}
+                    data-testid="button-show-shortcuts"
+                  >
+                    <Keyboard className="mr-2 h-4 w-4" />
+                    {t("driverDetail.shortcuts")}
+                  </DropdownMenuItem>
+                  {me?.isAdmin && !driverLocked ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setRemoveConnecteamConfirmText("");
+                          setRemoveConnecteamOpen(true);
+                        }}
+                        disabled={removeConnecteamMut.isPending}
+                        data-testid="button-open-remove-driver-connecteam"
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {t("driverDetail.removeConnecteamBtn")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setResetCustomerConfirmText("");
+                          setResetCustomerOpen(true);
+                        }}
+                        disabled={resetDriverCustomerMut.isPending}
+                        data-testid="button-open-reset-driver-customer"
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {t("driverDetail.resetCustomerBtn")}
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
           <p className="text-sm text-muted-foreground fin-num flex flex-wrap items-center gap-x-2 gap-y-1">
             <span>
@@ -1887,47 +1936,8 @@ export default function DriverDetail() {
         </div>
 
 
-        {me?.isAdmin && !driverLocked && (
-          <div className="flex justify-end gap-2 print:hidden">
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-              onClick={() => {
-                setRemoveConnecteamConfirmText("");
-                setRemoveConnecteamOpen(true);
-              }}
-              disabled={removeConnecteamMut.isPending}
-              data-testid="button-open-remove-driver-connecteam"
-            >
-              {removeConnecteamMut.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="mr-2 h-4 w-4" />
-              )}
-              {t("driverDetail.removeConnecteamBtn")}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-              onClick={() => {
-                setResetCustomerConfirmText("");
-                setResetCustomerOpen(true);
-              }}
-              disabled={resetDriverCustomerMut.isPending}
-              data-testid="button-open-reset-driver-customer"
-            >
-              {resetDriverCustomerMut.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="mr-2 h-4 w-4" />
-              )}
-              {t("driverDetail.resetCustomerBtn")}
-            </Button>
-          </div>
-        )}
-
+        {/* Destructive per-driver actions moved into the header's overflow
+            menu — their confirm dialogs below stay state-controlled. */}
         <Dialog open={resetCustomerOpen} onOpenChange={setResetCustomerOpen}>
           <DialogContent data-testid="dialog-reset-driver-customer">
             <DialogHeader>
@@ -2157,12 +2167,12 @@ export default function DriverDetail() {
 
         {driverLocked && (
           <Card
-            className="border-amber-500/40 bg-amber-50/40 dark:bg-amber-950/20"
+            className="border-border bg-muted/40"
             data-testid="card-locked-banner"
           >
             <CardContent className="flex items-center gap-3 px-4 py-3 text-sm">
-              <Lock className="h-4 w-4 text-amber-700 dark:text-amber-400" />
-              <span className="text-amber-900 dark:text-amber-200">
+              <Lock className="h-4 w-4 text-muted-foreground" />
+              <span className="text-foreground">
                 {t("driverDetail.lockedBanner", {
                   by: data.lockedByEmail ? t("driverDetail.lockedBannerBy", { email: data.lockedByEmail }) : "",
                   at: data.lockedAt ? t("driverDetail.lockedBannerAt", { time: new Date(data.lockedAt).toLocaleString() }) : "",
@@ -2206,21 +2216,20 @@ export default function DriverDetail() {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60 [&>th]:h-9 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-neutral-400">
+                <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60 [&>th]:h-9 [&>th]:h-10 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-muted-foreground">
                   <TableHead className="w-[110px] uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.date")}</TableHead>
                   <TableHead className="w-[110px] uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.source")}</TableHead>
                   <TableHead className="uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.clockIn")}</TableHead>
                   <TableHead className="uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.clockOut")}</TableHead>
                   <TableHead className="text-right uppercase text-[11px] tracking-wider w-[80px]">{t("driverDetail.punchTable.hours")}</TableHead>
                   <TableHead className="text-right uppercase text-[11px] tracking-wider w-[90px]">{t("driverDetail.punchTable.running")}</TableHead>
-                  <TableHead className="text-right uppercase text-[11px] tracking-wider w-[100px]">{t("driverDetail.punchTable.type")}</TableHead>
                   <TableHead className="text-right w-[90px] print:hidden"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
                       {t("driverDetail.noPunches")}
                     </TableCell>
                   </TableRow>
@@ -2268,7 +2277,7 @@ export default function DriverDetail() {
                       )}
                     >
                       <TableCell className="fin-num text-xs whitespace-nowrap align-top">
-                        <div>{p.date}</div>
+                        <div title={p.date}>{format(parseISO(p.date), "EEE MMM d")}</div>
                       </TableCell>
                       <TableCell>
                         <SourceBadge source={p.source} />
@@ -2388,7 +2397,7 @@ export default function DriverDetail() {
                             <Button
                               size="icon"
                               variant="ghost"
-                              className="h-5 w-5 text-green-600"
+                              className="h-5 w-5 text-emerald-600"
                               onClick={() => saveEditHours(p.id)}
                               disabled={editPunch.isPending}
                               data-testid={`button-save-punch-hours-${p.id}`}
@@ -2443,21 +2452,13 @@ export default function DriverDetail() {
                           </Tooltip>
                         </TooltipProvider>
                       </TableCell>
-                      <TableCell
-                        className={cn(
-                          "text-right font-medium text-xs",
-                          isDriver ? "text-sidebar dark:text-sidebar-foreground" : "text-primary",
-                        )}
-                      >
-                        {p.source}
-                      </TableCell>
                       <TableCell className="text-right print:hidden">
                         {isEditing ? (
                           <div className="flex items-center justify-end gap-1">
                             <Button
                               size="icon"
                               variant="ghost"
-                              className="h-7 w-7 text-green-600"
+                              className="h-7 w-7 text-emerald-600"
                               onClick={() => saveEdit(p.id)}
                               data-testid={`button-save-punch-${p.id}`}
                             >
@@ -2610,7 +2611,7 @@ export default function DriverDetail() {
                         className="bg-muted/30 hover:bg-muted/30"
                         data-testid={`row-punch-notes-${p.id}`}
                       >
-                        <TableCell colSpan={8} className="px-4 py-3">
+                        <TableCell colSpan={7} className="px-4 py-3">
                           <div className="space-y-2">
                             {punchNotes.length > 0 && (
                               <ul className="space-y-2">
@@ -3043,11 +3044,11 @@ function SummaryAndChecks({
         <StatTile label={t("weekSummary.stats.regular")} value={Number(totals.regularHours) || 0} />
         <StatTile label={t("weekSummary.stats.overtime")} value={Number(totals.overtimeHours) || 0} tone="text-brand-orange" />
         <StatTile label={t("driverDetail.summary.totalDriver")} value={totDriver} tone="text-brand-navy" testId="row-summary-total-driver" />
-        <StatTile label={t("driverDetail.summary.totalCustomer")} value={totCust} tone="text-teal-600" testId="row-summary-total-customer" />
+        <StatTile label={t("driverDetail.summary.totalCustomer")} value={totCust} testId="row-summary-total-customer" />
       </div>
 
       {/* Reconciliation + parity + RT/OT split */}
-      <div className="rounded-2xl bg-white ring-1 ring-border shadow-sm">
+      <div className="tile">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
           {allOk ? (
             <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700" data-testid="checks-status-ok">
@@ -3069,8 +3070,8 @@ function SummaryAndChecks({
         </div>
 
         <details open={!allOk} data-testid="card-checks" className="group border-t border-border px-4 py-2">
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400 hover:text-neutral-600">
-            <span aria-hidden className="text-neutral-300 transition-transform group-open:rotate-90">›</span>
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground">
+            <span aria-hidden className="text-muted-foreground/60 transition-transform group-open:rotate-90">›</span>
             {t("driverDetail.checks.allReconcile")}
           </summary>
           <dl className="mt-1.5 grid grid-cols-1 gap-x-8 sm:grid-cols-2">
@@ -3224,7 +3225,7 @@ function SourceBadge({ source }: { source: "Driver" | "Customer" | string }) {
       <span
         className={cn(
           "h-2 w-2 shrink-0 rounded-full",
-          isDriver ? "bg-brand-navy" : "bg-teal-500",
+          isDriver ? "bg-brand-navy" : "bg-sky-500",
         )}
       />
       {isDriver ? t("driverDetail.sourceBadge.driver") : t("driverDetail.sourceBadge.customer")}

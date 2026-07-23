@@ -213,7 +213,12 @@
     "resetTypePrefix": "Type",
     "resetTypeSuffix": "to confirm",
     "resetWeekButton": "Reset week",
-    "loadWeekFailed": "Failed to load week summary"
+    "loadWeekFailed": "Failed to load week summary",
+    "moreActions": "More actions",
+    "customersHeading": "Customers",
+    "tileHours": "hrs",
+    "tileOt": "{{hours}} OT",
+    "tileReviewed": "{{n}} of {{total}} reviewed"
   },
   "driverDetail": {
     "back": "Back",
@@ -1002,9 +1007,7 @@
     "cleared": "Cleared",
     "clearFailed": "Clear failed",
     "driverTzUpdated": "Driver tz updated",
-    "defaultValue": "(default)",
-    "aiOnly": "AI-only",
-    "driverDefaultOption": "(driver default)"
+    "defaultValue": "(default)"
   },
   "adminAiExtra": {
     "users": "Users",

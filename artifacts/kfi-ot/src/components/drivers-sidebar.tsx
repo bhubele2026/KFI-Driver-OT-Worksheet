@@ -49,9 +49,10 @@ type FilterChip = "unreviewed";
 // DOM (and every existing test selector / keyboard handler) stays exactly
 // where it was. Small weeks render the way they always have.
 const VIRTUAL_SIDEBAR_ROW_THRESHOLD = 50;
+// Keep in sync with the row's vertical padding (py-2 → ~36px tall).
 const VIRTUAL_SIDEBAR_ROW_STYLE: CSSProperties = {
   contentVisibility: "auto",
-  containIntrinsicSize: "0 28px",
+  containIntrinsicSize: "0 36px",
 };
 
 interface SidebarProps {
@@ -242,9 +243,9 @@ function DriversList({
     <ul className="py-2">
       {filteredGroups.map((group) => (
         <li key={group.customer} className="mb-2">
-          <div className="px-4 py-1.5 text-xs font-display font-semibold uppercase tracking-wider text-foreground/80 bg-muted/30">
+          <div className="sticky top-0 z-10 border-b border-border/50 bg-background/95 px-4 py-2 text-xs font-display font-semibold uppercase tracking-wider text-foreground/80 backdrop-blur">
             {group.customer}
-            <span className="ml-2 text-[10px] font-normal font-mono text-muted-foreground">
+            <span className="ml-2 fin-num text-[11px] font-normal text-muted-foreground">
               {group.drivers.length}
             </span>
           </div>
@@ -291,7 +292,7 @@ function DriversList({
                     title={t("driversSidebar.rowTitle")}
                     data-testid={`sidebar-driver-${driver.kfiId}`}
                     className={cn(
-                      "w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 transition-colors group select-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition-colors group select-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       isActive
                         ? "bg-accent text-accent-foreground border-l-2 border-primary pl-[14px] font-medium"
                         : "hover:bg-accent hover:text-accent-foreground",
@@ -338,20 +339,25 @@ function DriversList({
                       )}
                     </button>
                     <span className="flex-1 truncate">{formatPersonName(driver.name)}</span>
+                    {driver.totalHours > 0 && (
+                      <span className="fin-num text-xs text-muted-foreground shrink-0">
+                        {driver.totalHours.toFixed(1)}
+                      </span>
+                    )}
                     {(driver as { locked?: boolean }).locked && (
                       <Lock
-                        className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0"
+                        className="h-3 w-3 text-muted-foreground shrink-0"
                         data-testid={`sidebar-locked-${driver.kfiId}`}
                       />
                     )}
                     {driver.overtimeHours > 0 && (
-                      <span className="text-[10px] font-mono font-semibold text-warning bg-warning/10 px-1 rounded">
+                      <span className="fin-num text-[11px] font-semibold text-warning bg-warning/10 px-1 rounded">
                         {t("driversSidebar.badge.ot")}
                       </span>
                     )}
                     {flaggedCount ? (
                       <span
-                        className="inline-flex items-center gap-0.5 text-[10px] font-mono font-semibold text-rose-700 dark:text-rose-300 bg-rose-500/15 px-1 rounded"
+                        className="inline-flex items-center gap-0.5 fin-num text-[11px] font-semibold text-rose-700 dark:text-rose-300 bg-rose-500/15 px-1 rounded"
                         title={t(
                           flaggedCount === 1
                             ? "driversSidebar.badge.flaggedTitle_one"
@@ -366,7 +372,7 @@ function DriversList({
                     ) : null}
                     {originalCustomer && (
                       <span
-                        className="text-[10px] font-mono font-semibold text-sky-700 dark:text-sky-300 bg-sky-500/10 px-1 rounded"
+                        className="fin-num text-[11px] font-semibold text-sky-700 dark:text-sky-300 bg-sky-500/10 px-1 rounded"
                         title={t("driversSidebar.movedTitle", {
                           from: originalCustomer,
                           by: overrideSetByEmail
@@ -492,7 +498,7 @@ function FilterCountBadge({ weekStart, search, chips }: FilterCountProps) {
   return (
     <span
       data-testid="sidebar-filter-count"
-      className="inline-flex items-center text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground bg-muted/60 border border-border/60 rounded px-1.5 py-0.5"
+      className="inline-flex items-center fin-num text-[11px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/60 border border-border/60 rounded px-1.5 py-0.5"
     >
       {t("driversSidebar.filterCount", { matched: counts.matched, total: counts.total })}
     </span>
@@ -530,7 +536,7 @@ function FilterControls({
           placeholder={t("driversSidebar.searchPlaceholder")}
           aria-label={t("driversSidebar.searchAria")}
           data-testid="input-sidebar-search"
-          className="h-8 pl-7 pr-7 text-xs"
+          className="h-9 rounded-lg pl-7 pr-7 text-sm"
         />
         {search && (
           <button
@@ -555,7 +561,7 @@ function FilterControls({
               aria-pressed={active}
               data-testid={`chip-filter-${key}`}
               className={cn(
-                "text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border transition-colors",
+                "text-[11px] uppercase tracking-wider font-semibold px-2.5 py-1 rounded-full border transition-colors",
                 active
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-transparent text-muted-foreground border-border hover:text-foreground hover:border-foreground/40",

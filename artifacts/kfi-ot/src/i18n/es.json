@@ -213,7 +213,12 @@
     "resetTypePrefix": "Escriba",
     "resetTypeSuffix": "para confirmar",
     "resetWeekButton": "Restablecer semana",
-    "loadWeekFailed": "Error al cargar el resumen de la semana"
+    "loadWeekFailed": "Error al cargar el resumen de la semana",
+    "moreActions": "Más acciones",
+    "customersHeading": "Clientes",
+    "tileHours": "hrs",
+    "tileOt": "{{hours}} extra",
+    "tileReviewed": "{{n}} de {{total}} revisados"
   },
   "driverDetail": {
     "resetCustomerTitle": "Restablecer registros del cliente",
@@ -994,7 +999,7 @@
     "headerEffective": "Efectiva",
     "defaultOption": "(predeterminada)",
     "aiOnly": "Solo IA",
-    "driverDefaultOption": "(predet. del conductor)",
+    "driverDefaultOption": "(predeterminado del conductor)",
     "prefSaved": "Preferencia guardada",
     "saveFailed": "Error al guardar",
     "updated": "Actualizado",
@@ -1002,9 +1007,7 @@
     "cleared": "Eliminada",
     "clearFailed": "Error al eliminar",
     "driverTzUpdated": "Zona horaria del conductor actualizada",
-    "defaultValue": "(predeterminada)",
-    "aiOnly": "Solo IA",
-    "driverDefaultOption": "(predeterminado del conductor)"
+    "defaultValue": "(predeterminada)"
   },
   "adminAiExtra": {
     "users": "Usuarios",

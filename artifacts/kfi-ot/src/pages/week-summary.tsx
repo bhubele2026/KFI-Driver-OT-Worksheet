@@ -73,6 +73,9 @@ import {
   Lock,
   Trash2,
   Globe,
+  MoreHorizontal,
+  Flag,
+  Users,
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
 import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
@@ -89,6 +92,7 @@ import {
   previousSunday,
   isSunday,
   addWeeks,
+  addDays,
 } from "date-fns";
 
 function errMessage(err: unknown, fallback: string): string {
@@ -390,11 +394,11 @@ export default function WeekSummary() {
               lastRefreshIssues.failures.length > 0) && (
               <div
                 role="alert"
-                className="rounded-md border border-amber-500/60 bg-amber-500/10 p-4 text-sm space-y-2"
+                className="tile border-l-4 border-l-warning p-4 text-sm space-y-2"
                 data-testid="banner-refresh-issues"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="font-display font-semibold text-amber-900 dark:text-amber-200">
+                  <div className="font-display font-semibold text-foreground">
                     {t("weekSummary.refreshIssuesBanner")}
                   </div>
                   <button
@@ -433,7 +437,7 @@ export default function WeekSummary() {
                     </div>
                     <Link
                       href="/admin/connecteam-user-aliases"
-                      className="text-xs underline text-amber-900 dark:text-amber-200"
+                      className="text-xs font-medium text-primary underline underline-offset-2"
                     >
                       {t("weekSummary.refreshIssuesMapLink")}
                     </Link>
@@ -450,7 +454,9 @@ export default function WeekSummary() {
             <div className="space-y-1">
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="text-2xl font-bold font-display tracking-tight text-foreground">
-                  {t("weekSummary.weekHeading", { week: weekStart })}
+                  {t("weekSummary.weekHeading", {
+                    week: `${format(parseISO(weekStart), "MMM d")} – ${format(addDays(parseISO(weekStart), 6), "MMM d, yyyy")}`,
+                  })}
                 </h2>
                 {summary ? (
                   <ReviewedPill
@@ -615,15 +621,31 @@ export default function WeekSummary() {
               {me?.isAdmin ? (
                 <>
                   <ZenopleExportButton weekStart={weekStart} />
-                  <Button
-                    variant="destructive"
-                    onClick={openResetDialog}
-                    data-testid="button-open-reset-week"
-                    disabled={resetWeekMut.isPending}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    {t("weekSummary.resetWeek")}
-                  </Button>
+                  {/* Destructive week reset lives behind the overflow menu so
+                      a red button isn't part of the everyday toolbar. */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        data-testid="button-week-overflow"
+                        title={t("weekSummary.moreActions", { defaultValue: "More actions" })}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-52">
+                      <DropdownMenuItem
+                        onSelect={openResetDialog}
+                        disabled={resetWeekMut.isPending}
+                        data-testid="button-open-reset-week"
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {t("weekSummary.resetWeek")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </>
               ) : null}
             </div>
@@ -779,7 +801,6 @@ export default function WeekSummary() {
                 <StatTile
                   label={t("weekSummary.stats.customerSource")}
                   value={summary.totals.customerHours}
-                  tone="text-teal-600"
                 />
                 <StatTile
                   label={t("weekSummary.stats.regular")}
@@ -813,7 +834,7 @@ export default function WeekSummary() {
                   </span>
                 </span>
                 <span
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs fin-num font-medium border bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs fin-num font-medium border bg-card text-muted-foreground border-border"
                   data-testid="chip-locked-count"
                 >
                   <Lock className="h-3 w-3" />
@@ -821,6 +842,106 @@ export default function WeekSummary() {
                 </span>
               </div>
 
+              {/* Customers at a glance — fills the page with the week's real
+                  status instead of dead space. Each tile jumps into that
+                  customer's first driver. Pure derivation from `summary`. */}
+              {summary.customers.some((c) => c.drivers.length > 0) ? (
+                <section className="space-y-3">
+                  <h3 className="text-xs font-display font-semibold uppercase tracking-wider text-muted-foreground">
+                    {t("weekSummary.customersHeading", { defaultValue: "Customers" })}
+                  </h3>
+                  <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    {summary.customers
+                      .filter((c) => c.drivers.length > 0)
+                      .map((c) => {
+                        const hours = c.drivers.reduce((a, d) => a + d.totalHours, 0);
+                        const ot = c.drivers.reduce((a, d) => a + d.overtimeHours, 0);
+                        const reviewedN = c.drivers.filter((d) => d.reviewed).length;
+                        const flagged = c.drivers.reduce(
+                          (a, d) => a + (d.flaggedPunchCount ?? 0),
+                          0,
+                        );
+                        const lockedN = c.drivers.filter((d) => d.locked).length;
+                        const pct =
+                          c.drivers.length > 0
+                            ? Math.round((reviewedN / c.drivers.length) * 100)
+                            : 0;
+                        return (
+                          <button
+                            key={c.customer}
+                            type="button"
+                            className="tile-action flex flex-col gap-3 p-5 text-left"
+                            data-testid={`tile-customer-${c.customer}`}
+                            onClick={() =>
+                              setLocation(
+                                `/weeks/${weekStart}/drivers/${c.drivers[0].kfiId}`,
+                              )
+                            }
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="truncate font-display text-base font-semibold text-foreground">
+                                {c.customer}
+                              </span>
+                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-xs fin-num text-muted-foreground">
+                                <Users className="h-3 w-3" />
+                                {c.drivers.length}
+                              </span>
+                            </div>
+                            <div className="flex items-baseline gap-4">
+                              <span>
+                                <span className="fin-num text-2xl font-semibold text-foreground">
+                                  {hours.toFixed(2)}
+                                </span>{" "}
+                                <span className="text-xs text-muted-foreground">
+                                  {t("weekSummary.tileHours", { defaultValue: "hrs" })}
+                                </span>
+                              </span>
+                              {ot > 0 ? (
+                                <span className="fin-num text-sm font-semibold text-warning">
+                                  {t("weekSummary.tileOt", {
+                                    defaultValue: "{{hours}} OT",
+                                    hours: ot.toFixed(2),
+                                  })}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="mt-auto space-y-1.5">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="fin-num text-muted-foreground">
+                                  {t("weekSummary.tileReviewed", {
+                                    defaultValue: "{{n}} of {{total}} reviewed",
+                                    n: reviewedN,
+                                    total: c.drivers.length,
+                                  })}
+                                </span>
+                                <span className="flex items-center gap-2">
+                                  {flagged > 0 ? (
+                                    <span className="inline-flex items-center gap-1 fin-num text-rose-600">
+                                      <Flag className="h-3 w-3" />
+                                      {flagged}
+                                    </span>
+                                  ) : null}
+                                  {lockedN > 0 ? (
+                                    <span className="inline-flex items-center gap-1 fin-num text-muted-foreground">
+                                      <Lock className="h-3 w-3" />
+                                      {lockedN}
+                                    </span>
+                                  ) : null}
+                                </span>
+                              </div>
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className={`h-full rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : "bg-primary"}`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </section>
+              ) : null}
             </>
           ) : null}
         </main>

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { format, parseISO, addWeeks } from "date-fns";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { useListWeeks } from "@workspace/api-client-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -102,35 +102,44 @@ export function WeekToolbar({
   const go = (delta: number) =>
     onChange(format(addWeeks(parseISO(weekStart), delta), "yyyy-MM-dd"));
 
+  // Friendly range labels ("Jul 12 – Jul 18, 2026") instead of raw ISO dates.
+  const rangeLabel = (s: string, e: string) =>
+    `${format(parseISO(s), "MMM d")} – ${format(parseISO(e), "MMM d, yyyy")}`;
+
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-border">
+    <div className="tile flex flex-wrap items-center gap-2 px-3 py-2.5">
       {title && <div className="mr-1 text-sm font-semibold text-brand-navy">{title}</div>}
-      <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => go(-1)} title={t("header.previousWeek")}>
+      <div className="inline-flex items-center gap-0.5 rounded-xl border border-border bg-background p-0.5">
+        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => go(-1)} title={t("header.previousWeek")}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => go(1)} title={t("header.nextWeek")}>
+        <Select value={weekStart} onValueChange={onChange}>
+          <SelectTrigger className="h-8 w-[190px] justify-center gap-1.5 border-0 bg-transparent fin-num text-sm font-medium shadow-none focus:ring-0">
+            <SelectValue placeholder={t("header.selectWeek")} />
+          </SelectTrigger>
+          <SelectContent>
+            {weeks.map((w) => (
+              <SelectItem key={w.startDate} value={w.startDate} className="fin-num">
+                {rangeLabel(w.startDate, w.endDate)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => go(1)} title={t("header.nextWeek")}>
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
-      <Select value={weekStart} onValueChange={onChange}>
-        <SelectTrigger className="h-8 w-[210px] fin-num text-sm">
-          <SelectValue placeholder={t("header.selectWeek")} />
-        </SelectTrigger>
-        <SelectContent>
-          {weeks.map((w) => (
-            <SelectItem key={w.startDate} value={w.startDate} className="fin-num">
-              {t("weekSummary.weekRangeOption", { start: w.startDate, end: w.endDate })}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <input
-        type="date"
+      <label
+        className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-background px-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
         title={t("header.jumpTo")}
-        className="fin-num h-8 w-36 rounded-md border border-input bg-white px-2 text-sm"
-        onChange={(e) => e.target.value && onChange(e.target.value)}
-      />
+      >
+        <CalendarDays className="h-4 w-4" />
+        <input
+          type="date"
+          className="fin-num w-[7.5rem] cursor-pointer border-0 bg-transparent p-0 text-sm text-inherit outline-none"
+          onChange={(e) => e.target.value && onChange(e.target.value)}
+        />
+      </label>
       {actions && <div className="ml-auto flex items-center gap-2">{actions}</div>}
     </div>
   );
