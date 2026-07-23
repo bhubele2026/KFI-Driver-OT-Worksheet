@@ -523,13 +523,26 @@ function resolveKfiId(
     // pending-named-rows bucket for dispatcher review.
   }
   // AI hint (Task #271). Only accepted when the model returned an id
-  // that's actually in the active roster. We also require the
-  // resolvedKfiId target to be in the pool we sent to the prompt — if
-  // it picked someone from an unrelated customer or someone we never
-  // listed, treat it as a hallucination and fall through.
+  // that's actually in the active roster — AND the pick survives the same
+  // collision guard as a bare badge (2026-07-23): with the hint list now
+  // fleet-wide, the model can pattern-match a sheet's employee number to
+  // an unrelated driver's badge, so a pick whose name clearly disagrees
+  // with the row is rejected and the row falls through to alias/fuzzy/
+  // picker instead of silently stealing the punches.
   const aiPick = (row.resolvedKfiId ?? "").trim();
-  if (aiPick && kfiSet.has(aiPick)) {
-    if (fuzzyPool.some((d) => d.kfiId === aiPick)) return aiPick;
+  if (
+    aiPick &&
+    kfiSet.has(aiPick) &&
+    fuzzyPool.some((d) => d.kfiId === aiPick) &&
+    isBadgeMatchTrustworthy({
+      candidateKfiId: aiPick,
+      nameOnDoc,
+      uploadedCustomer,
+      driversByKfi,
+      nameAliasMap,
+    })
+  ) {
+    return aiPick;
   }
   const name = row.driverNameOnDoc.trim();
   if (!name) return null;

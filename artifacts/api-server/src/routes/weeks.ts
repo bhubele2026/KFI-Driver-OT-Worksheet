@@ -1977,10 +1977,16 @@ weeksRouter.post(
     // Task #359: badge → driver resolution must NEVER consider archived
     // drivers. Archived stub rows that leaked into prod were silently
     // poisoning real Penda badges before this filter was added.
-    const drivers = await db
-      .select()
-      .from(schema.driversTable)
-      .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)));
+    // 2026-07-23: ACTIVE e2e stub rows (kfiId contains "e2e") leaked too —
+    // their names embed numeric ids that collide with customer employee
+    // numbers, so the model matched real workers to "E2E Penda Stub …"
+    // fixtures. Stubs never belong in payroll matching.
+    const drivers = (
+      await db
+        .select()
+        .from(schema.driversTable)
+        .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)))
+    ).filter((d) => !/e2e/i.test(d.kfiId));
     const kfiSet = new Set(drivers.map((d) => d.kfiId));
     const nameByKfi = new Map(drivers.map((d) => [d.kfiId, d.name] as const));
     const fileName = req.file.originalname;
@@ -4428,14 +4434,16 @@ weeksRouter.post(
     // always the full active fleet, so a driver tagged to a different
     // customer (or a brand-new customer with no tagged drivers) still
     // resolves instead of dead-ending at 0 punches.
-    const rosterDrivers = await db
-      .select({
-        kfiId: schema.driversTable.kfiId,
-        name: schema.driversTable.name,
-        customer: schema.driversTable.customer,
-      })
-      .from(schema.driversTable)
-      .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)));
+    const rosterDrivers = (
+      await db
+        .select({
+          kfiId: schema.driversTable.kfiId,
+          name: schema.driversTable.name,
+          customer: schema.driversTable.customer,
+        })
+        .from(schema.driversTable)
+        .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)))
+    ).filter((d) => !/e2e/i.test(d.kfiId));
     const rosterIdMap = await loadMergedIdMap();
     const savedAliasesForRoster = await db
       .select({
@@ -4588,14 +4596,16 @@ weeksRouter.post(
         expiresAt: new Date(Date.now() + PENDING_TTL_MS),
       })
       .returning({ id: schema.aiExtractSamplesTable.id });
-    const drivers = await db
-      .select({
-        kfiId: schema.driversTable.kfiId,
-        name: schema.driversTable.name,
-        customer: schema.driversTable.customer,
-      })
-      .from(schema.driversTable)
-      .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)));
+    const drivers = (
+      await db
+        .select({
+          kfiId: schema.driversTable.kfiId,
+          name: schema.driversTable.name,
+          customer: schema.driversTable.customer,
+        })
+        .from(schema.driversTable)
+        .where(and(eq(schema.driversTable.isArchived, false), eq(schema.driversTable.deactivated, false)))
+    ).filter((d) => !/e2e/i.test(d.kfiId));
     const seen = new Map<string, string | null>();
     for (const r of rows) {
       const key = r.driverNameOnDoc.trim();
