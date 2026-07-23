@@ -153,8 +153,12 @@ function buildExtractPrompt(
 /**
  * Server-side census → fleet matching. Deterministic ladder per worker:
  * badge/alias equality → confident kfiId; fuzzy name ≥0.85 → confident
- * kfiId; fuzzy ≥0.72 → borderline (extract WITHOUT an id so the preview
+ * kfiId; fuzzy ≥0.80 → borderline (extract WITHOUT an id so the preview
  * picker decides); below → stranger (names surface in `otherWorkers`).
+ * The borderline floor is deliberately tight: token-set similarity gives
+ * surname-only overlaps ~0.7+ (100-worker Penda census matched 71 at a
+ * 0.72 floor → 341-row extract, token cap, 189s), while real spelling
+ * variants of the same person score ≥0.85.
  * The roster is always the FULL active fleet — customer tags never gate.
  */
 function matchCensusToFleet(
@@ -201,7 +205,7 @@ function matchCensusToFleet(
     }
     if (bestScore >= 0.85) {
       targets.push({ name: w.name, badge: w.badge, kfiId: bestKfi });
-    } else if (bestScore >= 0.72) {
+    } else if (bestScore >= 0.8) {
       // Close enough that a human should look — extract, no id, picker decides.
       targets.push({ name: w.name, badge: w.badge, kfiId: null });
     } else {
