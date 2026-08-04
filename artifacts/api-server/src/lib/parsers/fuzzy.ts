@@ -109,18 +109,18 @@ export function nameMatchQuality(query: string, candidate: string): NameMatchQua
 
 /**
  * Gate for AUTO-assigning a driver from a document name with no badge or
- * saved alias: the score must clear `scoreFloor` AND the match must be
- * structurally sound — first and last name both agree and the document
- * name covers the driver's full name. Single-token names ("Juan") and
- * partial-surname overlaps can never silently claim a driver.
+ * saved alias: the match must be structurally sound — first and last name
+ * both agree and the document name covers the driver's WHOLE roster name.
+ * Extra document-side tokens (a second surname the roster doesn't carry,
+ * e.g. "Lunar Molina, Aldo" → roster "Aldo Lunar") are fine and must not
+ * block the match, so there is deliberately no average-score floor here —
+ * the averaged score punishes exactly those extra tokens. Single-token
+ * names ("Juan") and partial roster coverage ("Reyes, Erica" → roster
+ * "Erica Silverio Reyes") can never silently claim a driver.
  */
-export function isAutoAssignableName(
-  query: string,
-  candidate: string,
-  scoreFloor = 0.85,
-): boolean {
+export function isAutoAssignableName(query: string, candidate: string): boolean {
   const q = nameMatchQuality(query, candidate);
-  return q.score >= scoreFloor && q.strongPairs >= 2 && q.fullCoverage;
+  return q.strongPairs >= 2 && q.fullCoverage;
 }
 
 export interface DriverMatch {
@@ -293,12 +293,7 @@ export function resolveDriverId(
     ctx.fuzzyPool.map((d) => ({ kfiId: d.kfiId, name: d.name, customer: "" })),
     1,
   )[0];
-  if (
-    best &&
-    best.confidence >= 0.85 &&
-    ctx.kfiSet.has(best.kfiId) &&
-    isAutoAssignableName(nameOnDoc, best.name)
-  ) {
+  if (best && ctx.kfiSet.has(best.kfiId) && isAutoAssignableName(nameOnDoc, best.name)) {
     return best.kfiId;
   }
   return null;

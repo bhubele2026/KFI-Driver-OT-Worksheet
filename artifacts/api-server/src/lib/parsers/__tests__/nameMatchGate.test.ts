@@ -46,6 +46,12 @@ test("partial surname of a double-surname driver is NOT auto-assignable", () => 
   assert.equal(isAutoAssignableName("Reyes, Erica", "Erica Silverio Reyes"), false);
 });
 
+test("extra second surname on the document still auto-assigns (Lunar case)", () => {
+  // Sheet carries both surnames, Connecteam only one — full roster coverage
+  // wins even though the averaged score is dragged down by "Molina".
+  assert.equal(isAutoAssignableName("Lunar Molina, Aldo", "Aldo Lunar"), true);
+});
+
 test("different surname is neither assignable nor strong", () => {
   const q = nameMatchQuality("Juan Mirelez", "Juan Disla");
   assert.equal(q.strongPairs, 1);
@@ -142,6 +148,26 @@ test("cross-surname swap (CT has the other surname) still reaches the picker", (
   );
   assert.equal(laneCounts.fuzzyConfident + laneCounts.fuzzyBorderline, 1);
   assert.equal(targets.length, 1);
+});
+
+test("census: extra second surname auto-imports (Lunar case)", () => {
+  const r = roster({
+    drivers: [
+      {
+        kfiId: "2005940",
+        name: "Aldo Lunar",
+        badges: [],
+        aliases: [],
+        customer: "Shuster's Building Components",
+      },
+    ],
+  });
+  const { targets, laneCounts } = matchCensusToFleet(
+    [{ name: "Lunar Molina, Aldo", badge: "3404" }],
+    r,
+  );
+  assert.equal(laneCounts.fuzzyConfident, 1);
+  assert.equal(targets[0].kfiId, "2005940");
 });
 
 test("true stranger (different surname) stays a stranger", () => {

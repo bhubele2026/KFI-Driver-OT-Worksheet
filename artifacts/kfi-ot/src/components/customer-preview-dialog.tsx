@@ -182,9 +182,10 @@ export function CustomerPreviewDialog({
   // Reset exclusions when a new preview arrives. Pre-fill each unmapped id's
   // picker: when the server returned a high-confidence fuzzy suggestion
   // (server-side floor is 0.85) we pre-pick it for a single-click confirm.
-  // When nothing cleared the bar, default to "Not a driver" so a wildly
-  // wrong match can never auto-import — the dispatcher has to actively
-  // choose a real driver, never the other way around.
+  // When nothing cleared the bar, default to SKIP (rows stay dropped this
+  // upload only). "Not a driver — never import" must be an ACTIVE choice —
+  // it permanently ignores the badge for this customer, and defaulting to
+  // it nearly buried a real driver (Aldo Lunar, 2026-08-04).
   useEffect(() => {
     setExcluded(new Set());
     setOpenDropReasons(new Set());
@@ -195,7 +196,7 @@ export function CustomerPreviewDialog({
     const initial: Record<string, string> = {};
     for (const u of preview.unmappedIds) {
       const top = u.suggestions?.[0];
-      initial[u.id] = top ? top.kfiId : IGNORE_PICK;
+      initial[u.id] = top ? top.kfiId : SKIP_PICK;
     }
     setPicks(initial);
   }, [preview]);

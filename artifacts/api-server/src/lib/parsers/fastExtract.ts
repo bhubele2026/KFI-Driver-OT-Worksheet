@@ -290,8 +290,11 @@ export function matchCensusToFleet(
       .sort((a, b) => b.q.score - a.q.score);
     const bestScore = scored[0]?.q.score ?? 0;
     const bestName = scored[0]?.d.name ?? "";
+    // Full coverage (every roster token matched, first AND last) is the
+    // gate — NOT the averaged score, which extra document-side surname
+    // tokens legitimately drag down ("Lunar Molina, Aldo" → "Aldo Lunar").
     const assignable = scored.filter(
-      (x) => x.q.score >= 0.85 && x.q.strongPairs >= 2 && x.q.fullCoverage,
+      (x) => x.q.strongPairs >= 2 && x.q.fullCoverage,
     );
     if (assignable.length > 0) {
       const topScore = assignable[0].q.score;

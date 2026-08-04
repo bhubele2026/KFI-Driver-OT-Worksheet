@@ -595,10 +595,7 @@ function resolveKfiId(
   // The structural gate additionally requires first AND last name to agree
   // — a bare first name must never claim a driver (2026-08-04).
   const confident = matches.filter(
-    (m) =>
-      m.confidence >= 0.85 &&
-      kfiSet.has(m.kfiId) &&
-      isAutoAssignableName(name, m.name),
+    (m) => kfiSet.has(m.kfiId) && isAutoAssignableName(name, m.name),
   );
   if (confident.length > 0) {
     const uploadedLower = uploadedCustomer.trim().toLowerCase();

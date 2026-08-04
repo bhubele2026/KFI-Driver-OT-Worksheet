@@ -8104,7 +8104,9 @@ weeksRouter.get("/customer-tz-preferences", requireAuth, async (_req, res) => {
       updatedAt: new Date(r.updatedAt).toISOString(),
       updatedByEmail: r.updatedBy ? emailById.get(r.updatedBy) ?? null : null,
     })),
-    knownCustomers: (await loadCustomers()).map((c) => c.displayName),
+    // Active customers only — the tz audit list must mirror the upload
+    // grid, not resurrect legacy/inactive/test rows (2026-08-04).
+    knownCustomers: (await loadActiveCustomers()).map((c) => c.displayName),
   });
 });
 
