@@ -905,6 +905,10 @@
     "movedDesc": "Anulación guardada. Se mantendrá tras las actualizaciones de Connecteam hasta que se elimine.",
     "moveFailed": "No se pudo mover al conductor"
   },
+  "versionRefresh": {
+    "message": "Hay una nueva versión de la aplicación.",
+    "action": "Actualizar"
+  },
   "payrollProfile": {
     "cardTitle": "Tarifas de pago y facturación (Zenople)",
     "identifiers": "Identificadores",

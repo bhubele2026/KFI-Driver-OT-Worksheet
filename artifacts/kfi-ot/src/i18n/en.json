@@ -905,6 +905,10 @@
     "movedDesc": "Override saved. It will survive Connecteam refreshes until cleared.",
     "moveFailed": "Couldn't move driver"
   },
+  "versionRefresh": {
+    "message": "A new version of the app is available.",
+    "action": "Refresh"
+  },
   "payrollProfile": {
     "cardTitle": "Pay & bill rates (Zenople)",
     "identifiers": "Identifiers",

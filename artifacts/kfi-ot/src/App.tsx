@@ -37,6 +37,7 @@ import Settings from "@/pages/settings";
 import WeekSummary from "@/pages/week-summary";
 import DriverDetail from "@/pages/driver-detail";
 import { CopilotDrawer } from "@/components/copilot-drawer";
+import { VersionRefreshBanner } from "@/components/version-refresh-banner";
 
 const queryClient = new QueryClient();
 
@@ -174,6 +175,7 @@ function App() {
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
           <Router />
         </WouterRouter>
+        <VersionRefreshBanner />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

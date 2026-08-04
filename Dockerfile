@@ -47,8 +47,11 @@ RUN pnpm --filter @workspace/api-server prune --prod || true
 # ---- runtime ----------------------------------------------------------------
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
+# Runtime copy of the build tag so /api/app-version can report it.
+ARG APP_VERSION=
 ENV NODE_ENV=production \
-    PORT=8080
+    PORT=8080 \
+    APP_VERSION=$APP_VERSION
 
 # The app is stateless (uploads in-memory, all state in Postgres); copy the
 # whole built workspace so pnpm's symlinked node_modules stay intact.
