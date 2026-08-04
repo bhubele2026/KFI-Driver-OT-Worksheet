@@ -8104,9 +8104,33 @@ weeksRouter.get("/customer-tz-preferences", requireAuth, async (_req, res) => {
       updatedAt: new Date(r.updatedAt).toISOString(),
       updatedByEmail: r.updatedBy ? emailById.get(r.updatedBy) ?? null : null,
     })),
-    // Active customers only — the tz audit list must mirror the upload
-    // grid, not resurrect legacy/inactive/test rows (2026-08-04).
-    knownCustomers: (await loadActiveCustomers()).map((c) => c.displayName),
+    // The tz audit list must mirror the upload grid's customer universe:
+    // active customers-table rows PLUS every distinct customer tag on the
+    // active Connecteam roster (that's where Burnett Wilson / WB
+    // Manufacturing / Penda Corp etc. come from — they have no table row).
+    // Internal/test tags (zz*) and the "Unknown" placeholder are dropped.
+    knownCustomers: await (async () => {
+      const active = (await loadActiveCustomers()).map((c) => c.displayName);
+      const rosterRows = await db
+        .selectDistinct({ customer: schema.driversTable.customer })
+        .from(schema.driversTable)
+        .where(
+          and(
+            eq(schema.driversTable.isArchived, false),
+            eq(schema.driversTable.deactivated, false),
+          ),
+        );
+      const seen = new Set(active.map((n) => n.toLowerCase()));
+      const merged = [...active];
+      for (const r of rosterRows) {
+        const name = (r.customer ?? "").trim();
+        if (!name || /^zz/i.test(name) || /^unknown$/i.test(name)) continue;
+        if (seen.has(name.toLowerCase())) continue;
+        seen.add(name.toLowerCase());
+        merged.push(name);
+      }
+      return merged.sort((a, b) => a.localeCompare(b));
+    })(),
   });
 });
 
