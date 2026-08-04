@@ -914,7 +914,9 @@
     "savedTitle": "Payroll profile saved",
     "saveFailedTitle": "Failed to save",
     "lastUpdated": "Last updated {{date}}",
-    "lastUpdatedBy": "Last updated {{date}} by {{email}}"
+    "lastUpdatedBy": "Last updated {{date}} by {{email}}",
+    "needsInfo": "Needs info",
+    "needsInfoDetail": "{{fields}} not on file — check the old Replit app / Zenople"
   },
   "adminRealtime": {
     "title": "Realtime snapshot",

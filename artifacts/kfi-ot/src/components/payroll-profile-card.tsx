@@ -16,7 +16,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Edit2, Save, X, DollarSign, ChevronDown } from "lucide-react";
+import { Edit2, Save, X, DollarSign, ChevronDown, AlertTriangle } from "lucide-react";
 
 interface Props {
   kfiId: string;
@@ -158,6 +158,13 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
     return String(v);
   };
 
+  // A rate is "known" only when a value is on file — zeros are deliberate
+  // (driver-bill rates are legitimately $0), nulls mean nobody entered it.
+  const missingRateFields = RATE_FIELDS.filter((fd) => {
+    const v = (profile as Record<string, unknown> | undefined)?.[fd.key];
+    return v == null || v === "";
+  });
+
   const renderEditInputs = (fields: FieldDef[]) => (
     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
       {fields.map((fd) => (
@@ -221,6 +228,25 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="px-4 pb-4">
+        {!editing && missingRateFields.length > 0 ? (
+          <div
+            className="mb-3 flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+            data-testid="banner-payroll-needs-info"
+          >
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <div className="text-xs">
+              <span className="font-semibold">{t("payrollProfile.needsInfo")}</span>
+              <span className="text-[11px] block opacity-80">
+                {t("payrollProfile.needsInfoDetail", {
+                  fields:
+                    missingRateFields.length === RATE_FIELDS.length
+                      ? t("payrollProfile.cardTitle")
+                      : missingRateFields.map((f) => f.label).join(", "),
+                })}
+              </span>
+            </div>
+          </div>
+        ) : null}
         {editing ? (
           <div className="space-y-4">
             {renderEditInputs(RATE_FIELDS)}

@@ -17,6 +17,10 @@ import { startHiddenNotesDigest } from "./lib/hiddenNotesDigest";
 import { initIpBlocklist } from "./lib/ipBlocklist";
 import { startRealtimeHeartbeat } from "./lib/realtime";
 import { seedDriverPayrollProfiles } from "@workspace/db/seedDriverPayrollProfiles";
+import {
+  backfillPayrollProfilesFromZenople,
+  zenopleConfigured,
+} from "./lib/zenopleRates";
 import { recordMutation } from "./lib/dataMutationAudit";
 
 // Captured once at module load so the boot-summary log can scope its
@@ -129,6 +133,36 @@ async function main() {
       logger.warn({ err }, "seedDriverPayrollProfiles failed");
     } finally {
       client.release();
+    }
+
+    // Zenople rate backfill — fills NULL pay/bill fields for active drivers
+    // from AssignmentData/TransactionData. Additive only (never overwrites),
+    // audited, and a silent no-op when ZENOPLE_* env is absent.
+    if (zenopleConfigured()) {
+      const zClient = await pool.connect();
+      const zStartedAt = new Date();
+      try {
+        const zResult = await backfillPayrollProfilesFromZenople(zClient);
+        logger.info({ zResult }, "backfillPayrollProfilesFromZenople complete");
+        await recordMutation({
+          routine: "backfillPayrollProfilesFromZenople",
+          outcome: zResult.fieldsFilled > 0 ? "ok" : "noop",
+          rowsAffected: zResult.driversFilled,
+          startedAt: zStartedAt,
+          detail: `considered=${zResult.driversConsidered} filled=${zResult.driversFilled} fields=${zResult.fieldsFilled} noMatch=${zResult.noZenopleMatch.length}`,
+        });
+      } catch (err) {
+        await recordMutation({
+          routine: "backfillPayrollProfilesFromZenople",
+          outcome: "error",
+          rowsAffected: 0,
+          startedAt: zStartedAt,
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        logger.warn({ err }, "backfillPayrollProfilesFromZenople failed");
+      } finally {
+        zClient.release();
+      }
     }
   })();
 

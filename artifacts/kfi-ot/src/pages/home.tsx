@@ -110,6 +110,15 @@ export default function Home() {
           ))}
         </div>
       </div>
+      {import.meta.env.VITE_APP_VERSION ? (
+        <span
+          className="fixed bottom-2 left-3 z-10 text-[11px] text-neutral-400 fin-num"
+          title={`Build ${import.meta.env.VITE_APP_VERSION}`}
+          data-testid="text-app-version"
+        >
+          {import.meta.env.VITE_APP_VERSION}
+        </span>
+      ) : null}
     </div>
   );
 }

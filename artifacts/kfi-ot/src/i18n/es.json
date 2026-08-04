@@ -914,7 +914,9 @@
     "savedTitle": "Perfil de nómina guardado",
     "saveFailedTitle": "No se pudo guardar",
     "lastUpdated": "Actualizado por última vez {{date}}",
-    "lastUpdatedBy": "Actualizado por última vez {{date}} por {{email}}"
+    "lastUpdatedBy": "Actualizado por última vez {{date}} por {{email}}",
+    "needsInfo": "Falta información",
+    "needsInfoDetail": "{{fields}} sin registrar — consulte la antigua app de Replit / Zenople"
   },
   "adminRealtime": {
     "title": "Instantánea en tiempo real",
