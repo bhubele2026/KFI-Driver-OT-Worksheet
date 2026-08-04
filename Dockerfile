@@ -29,6 +29,10 @@ RUN pnpm install --frozen-lockfile
 # it from `./public` (resolved relative to dist/index.mjs).
 COPY . .
 ENV BASE_PATH=/
+# Temporary public sharing: build with --build-arg VITE_PUBLIC_BYPASS_AUTH=1
+# (and set PUBLIC_BYPASS_AUTH=1 on the container) to skip the login screen.
+ARG VITE_PUBLIC_BYPASS_AUTH=
+ENV VITE_PUBLIC_BYPASS_AUTH=$VITE_PUBLIC_BYPASS_AUTH
 RUN pnpm --filter @workspace/kfi-ot build \
  && pnpm --filter @workspace/api-server build \
  && cp -r artifacts/kfi-ot/dist/public artifacts/api-server/dist/public
