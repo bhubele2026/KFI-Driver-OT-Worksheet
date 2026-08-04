@@ -155,6 +155,14 @@ export interface RosterContext {
     /** The driver's tagged customer — a matching TIEBREAKER, never a gate. */
     customer?: string | null;
   }>;
+  /**
+   * kfiIds that have Connecteam (Driver-source) time for the target week.
+   * When present, customer-file time is HARD-BLOCKED from attaching to any
+   * driver NOT in this list (standing rule 2026-08-04: "don't match to
+   * driver time if they don't have time in Connecteam for the week").
+   * Blocked workers surface as strangers with an explicit reason.
+   */
+  ctActiveKfiIds?: string[];
 }
 
 /**

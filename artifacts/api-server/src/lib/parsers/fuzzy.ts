@@ -61,6 +61,68 @@ export function nameSimilarity(query: string, candidate: string): number {
   return total / q.length;
 }
 
+/**
+ * Structural quality of a name match, computed from the CANDIDATE's side.
+ * `nameSimilarity` alone averages over the query's tokens, so a subset
+ * query ("Juan", "Juan D.") scores a perfect 1.0 against "Juan Disla"
+ * without the surname ever appearing on the document. Auto-assignment
+ * must additionally require last-name agreement (Task: Burnett "both
+ * Juans" / WB Erica Silverio Reyes, 2026-08-04):
+ *  - `strongPairs`: distinct candidate tokens matched by some query token
+ *    at ≥0.8 — ≥2 means first AND last name both agree.
+ *  - `fullCoverage`: EVERY candidate token matched — the document name
+ *    accounts for the driver's whole name (middle initials are already
+ *    dropped by `normalize`). Partial coverage (e.g. "Reyes, Erica" vs
+ *    "Erica Silverio Reyes") is picker material, not auto-assign.
+ */
+export interface NameMatchQuality {
+  score: number;
+  strongPairs: number;
+  candidateTokens: number;
+  fullCoverage: boolean;
+}
+
+const STRONG_TOKEN_FLOOR = 0.8;
+
+export function nameMatchQuality(query: string, candidate: string): NameMatchQuality {
+  const q = normalize(query);
+  const c = normalize(candidate);
+  if (q.length === 0 || c.length === 0) {
+    return { score: 0, strongPairs: 0, candidateTokens: c.length, fullCoverage: false };
+  }
+  let strongPairs = 0;
+  for (const ct of c) {
+    let best = 0;
+    for (const qt of q) {
+      const s = tokenSimilarity(qt, ct);
+      if (s > best) best = s;
+    }
+    if (best >= STRONG_TOKEN_FLOOR) strongPairs++;
+  }
+  return {
+    score: nameSimilarity(query, candidate),
+    strongPairs,
+    candidateTokens: c.length,
+    fullCoverage: strongPairs === c.length,
+  };
+}
+
+/**
+ * Gate for AUTO-assigning a driver from a document name with no badge or
+ * saved alias: the score must clear `scoreFloor` AND the match must be
+ * structurally sound — first and last name both agree and the document
+ * name covers the driver's full name. Single-token names ("Juan") and
+ * partial-surname overlaps can never silently claim a driver.
+ */
+export function isAutoAssignableName(
+  query: string,
+  candidate: string,
+  scoreFloor = 0.85,
+): boolean {
+  const q = nameMatchQuality(query, candidate);
+  return q.score >= scoreFloor && q.strongPairs >= 2 && q.fullCoverage;
+}
+
 export interface DriverMatch {
   kfiId: string;
   name: string;
@@ -231,7 +293,12 @@ export function resolveDriverId(
     ctx.fuzzyPool.map((d) => ({ kfiId: d.kfiId, name: d.name, customer: "" })),
     1,
   )[0];
-  if (best && best.confidence >= 0.85 && ctx.kfiSet.has(best.kfiId)) {
+  if (
+    best &&
+    best.confidence >= 0.85 &&
+    ctx.kfiSet.has(best.kfiId) &&
+    isAutoAssignableName(nameOnDoc, best.name)
+  ) {
     return best.kfiId;
   }
   return null;

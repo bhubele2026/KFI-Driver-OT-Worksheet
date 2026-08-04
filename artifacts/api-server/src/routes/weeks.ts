@@ -180,6 +180,25 @@ async function loadIgnoredExternalIds(
 }
 
 /**
+ * kfiIds that have Connecteam (Driver-source) time for the week. Standing
+ * rule (2026-08-04): customer-file time may NEVER attach to a driver with
+ * no Connecteam time that week — this set backs the hard block in the
+ * census matcher and at every Customer-punch insert site.
+ */
+async function loadCtActiveKfiIds(weekStart: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ kfiId: schema.punchesTable.kfiId })
+    .from(schema.punchesTable)
+    .where(
+      and(
+        eq(schema.punchesTable.weekStart, weekStart),
+        eq(schema.punchesTable.source, "Driver"),
+      ),
+    );
+  return new Set(rows.map((r) => r.kfiId));
+}
+
+/**
  * Returns a lowercased `nameOnDoc → kfiId` map for the given customer's
  * persisted picker decisions. Used by the AI image extractor so a
  * dispatcher's earlier "Cole Hayek → K123" pick auto-resolves on every
@@ -2270,6 +2289,7 @@ weeksRouter.post(
           nameAliasMap,
           log: req.log,
           importRules: customerRules,
+          ctActiveKfiIds: await loadCtActiveKfiIds(startDate),
           aiOpts: {
             budget: aiBudget,
             allowGeminiFallback,
@@ -2763,6 +2783,7 @@ weeksRouter.post(
           nameAliasMap: reNameAliasMap,
           log: req.log,
           importRules: reCustomerRules,
+          ctActiveKfiIds: await loadCtActiveKfiIds(startDate),
           aiOpts: {
             budget: reBudget,
             allowGeminiFallback: reAllowGemini,
@@ -3186,6 +3207,29 @@ weeksRouter.post(
         // zero drivers (everything excluded, or nothing matched), skip
         // the delete entirely; the prior "wipe everything for this
         // customer/week" fallback would silently erase a good import.
+        // Zero-CT hard block (backstop for every row-level resolution lane):
+        // never persist Customer-source time for a driver with no
+        // Connecteam time this week. Blocked rows are dropped loudly.
+        {
+          const ctActive = await loadCtActiveKfiIds(startDate);
+          const blockedNoCt = insertablePunches.filter((p) => !ctActive.has(p.kfiId));
+          if (blockedNoCt.length > 0) {
+            const byDriver = new Map<string, number>();
+            for (const p of blockedNoCt) {
+              byDriver.set(p.kfiId, (byDriver.get(p.kfiId) ?? 0) + 1);
+            }
+            req.log.warn(
+              {
+                weekStart: startDate,
+                customer: reparsed.customer,
+                fileName,
+                blockedNoCt: [...byDriver.entries()].map(([k, n]) => `${k}×${n}`),
+              },
+              "confirm-customer-file: blocked Customer punches for drivers with no Connecteam time this week",
+            );
+            insertablePunches = insertablePunches.filter((p) => ctActive.has(p.kfiId));
+          }
+        }
         const insertableKfiIds = new Set(insertablePunches.map((p) => p.kfiId));
         if (insertableKfiIds.size === 0) {
           req.log.info(
@@ -3916,6 +3960,19 @@ weeksRouter.post("/admin/customers", requireAdmin, async (req, res) => {
   const displayName = parsed.data.displayName.trim();
   if (!displayName) {
     res.status(400).json({ error: "displayName is required" });
+    return;
+  }
+  // Case-insensitive uniqueness — a re-typed spelling ("Delallo" next to
+  // "DeLallo") must not create a twin customer tile (2026-08-04).
+  const dup = await db
+    .select({ id: schema.customersTable.id, displayName: schema.customersTable.displayName })
+    .from(schema.customersTable)
+    .where(sql`lower(${schema.customersTable.displayName}) = lower(${displayName})`)
+    .limit(1);
+  if (dup[0]) {
+    res.status(409).json({
+      error: `Customer "${dup[0].displayName}" already exists (names are case-insensitive).`,
+    });
     return;
   }
   const filenameKeywords = (parsed.data.filenameKeywords ?? [])
@@ -4749,6 +4806,10 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
   const unmappedNames = new Set<string>();
   const lockedKfiIds = await loadLockedKfiIds(startDate);
   const lockedSkipped: string[] = [];
+  // Zero-CT hard block: even an explicit picker assignment cannot attach
+  // customer time to a driver with no Connecteam time this week.
+  const ctActiveKfiIds = await loadCtActiveKfiIds(startDate);
+  const noCtSkipped: string[] = [];
   const toInsert: Array<{
     kfiId: string;
     date: string;
@@ -4779,6 +4840,11 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
     }
     if (lockedKfiIds.has(kfiId)) {
       if (!lockedSkipped.includes(kfiId)) lockedSkipped.push(kfiId);
+      skipped++;
+      continue;
+    }
+    if (!ctActiveKfiIds.has(kfiId)) {
+      if (!noCtSkipped.includes(kfiId)) noCtSkipped.push(kfiId);
       skipped++;
       continue;
     }
@@ -4938,12 +5004,19 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
     customer,
     actor: actorRef(req),
   });
+  if (noCtSkipped.length > 0) {
+    req.log.warn(
+      { weekStart: startDate, customer, noCtSkipped },
+      "confirm-new-customer: blocked Customer punches for drivers with no Connecteam time this week",
+    );
+  }
   res.json({
     customer,
     imported: toInsert.length,
     skippedUnmapped: skipped,
     unmappedNames: [...unmappedNames],
     lockedSkipped,
+    noCtSkipped,
   });
 });
 
@@ -6248,6 +6321,18 @@ weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
     return;
   }
   if (!(await assertNotLocked(res, startDate, parsed.data.kfiId))) return;
+  // Zero-CT hard block: no Customer-source time for a driver with no
+  // Connecteam time this week — even added by hand.
+  if (parsed.data.source === "Customer") {
+    const ctActive = await loadCtActiveKfiIds(startDate);
+    if (!ctActive.has(parsed.data.kfiId)) {
+      res.status(400).json({
+        error:
+          "This driver has no Connecteam time this week, so customer time cannot be attached (zero-Connecteam rule).",
+      });
+      return;
+    }
+  }
   const driverDisplayTz = await loadDriverTz(parsed.data.kfiId);
   const dispTz = resolveDispTz(
     parsed.data.kfiId,
@@ -8825,6 +8910,18 @@ weeksRouter.post(
           const kfiIds = [...new Set(fix.punches.map((p) => p.kfiId))];
           for (const k of kfiIds) {
             if (!(await assertNotLocked(res, startDate, k))) return;
+          }
+          // Zero-CT hard block: chat-proposed Customer punches obey the
+          // same rule as every other lane.
+          {
+            const ctActive = await loadCtActiveKfiIds(startDate);
+            const blocked = kfiIds.filter((k) => !ctActive.has(k));
+            if (blocked.length > 0) {
+              res.status(400).json({
+                error: `No Connecteam time this week for ${blocked.join(", ")} — customer time cannot be attached (zero-Connecteam rule).`,
+              });
+              return;
+            }
           }
           for (const p of fix.punches) {
             if (p.date < startDate || p.date > endDate) {

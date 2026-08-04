@@ -7,7 +7,7 @@ import {
   type AiExtractedRow,
   type RosterContext,
 } from "./aiExtract.js";
-import { nameSimilarity } from "./fuzzy.js";
+import { nameSimilarity, nameMatchQuality } from "./fuzzy.js";
 import { repairZipSizes } from "./zipRepair.js";
 import type { SalvageLogger } from "./jsonSalvage.js";
 import type { IngestionBudgetSummary } from "./ingestionBudget.js";
@@ -188,18 +188,43 @@ function buildExtractPrompt(
  * variants of the same person score ≥0.85.
  * The roster is always the FULL active fleet — customer tags never gate.
  */
-function matchCensusToFleet(
+export function matchCensusToFleet(
   workers: CensusWorker[],
   roster: RosterContext | undefined,
 ): {
   targets: Array<{ name: string; badge: string | null; kfiId: string | null }>;
   strangers: string[];
-  laneCounts: { badge: number; nameAlias: number; fuzzyConfident: number; fuzzyBorderline: number };
+  laneCounts: {
+    badge: number;
+    nameAlias: number;
+    fuzzyConfident: number;
+    fuzzyBorderline: number;
+    zeroCtBlocked: number;
+  };
   laneSamples: string[];
 } {
   const drivers = roster?.drivers ?? [];
-  const laneCounts = { badge: 0, nameAlias: 0, fuzzyConfident: 0, fuzzyBorderline: 0 };
+  const laneCounts = {
+    badge: 0,
+    nameAlias: 0,
+    fuzzyConfident: 0,
+    fuzzyBorderline: 0,
+    zeroCtBlocked: 0,
+  };
   const laneSamples: string[] = [];
+  // Hard zero-CT rule: with the set provided, NO lane may attach customer
+  // time to a driver who has no Connecteam time this week. Returns true
+  // (and files the worker as a stranger with the reason) when blocked.
+  const ctActive = roster?.ctActiveKfiIds ? new Set(roster.ctActiveKfiIds) : null;
+  const zeroCtBlocked = (w: CensusWorker, kfiId: string, strangers: string[]): boolean => {
+    if (!ctActive || ctActive.has(kfiId)) return false;
+    laneCounts.zeroCtBlocked++;
+    if (laneSamples.length < 15) {
+      laneSamples.push(`${w.name}→${kfiId} BLOCKED no-CT-time`);
+    }
+    strangers.push(`${w.name} — matched a driver with no Connecteam time this week`);
+    return true;
+  };
   if (drivers.length === 0) {
     // No fleet context — extract everyone and let the picker sort it out.
     return {
@@ -241,27 +266,36 @@ function matchCensusToFleet(
     }
     const nameHit = byNameAlias.get(w.name.trim().toLowerCase());
     if (badgeHit || nameHit) {
+      const resolved = badgeHit ?? nameHit ?? null;
+      if (resolved && zeroCtBlocked(w, resolved, strangers)) continue;
       if (badgeHit) laneCounts.badge++;
       else laneCounts.nameAlias++;
       if (laneSamples.length < 15) {
         laneSamples.push(
-          `${w.name}|${badge || "-"}→${badgeHit ?? nameHit} via ${badgeHit ? "badge" : "nameAlias"}`,
+          `${w.name}|${badge || "-"}→${resolved} via ${badgeHit ? "badge" : "nameAlias"}`,
         );
       }
-      targets.push({ name: w.name, badge: w.badge, kfiId: badgeHit ?? nameHit ?? null });
+      targets.push({ name: w.name, badge: w.badge, kfiId: resolved });
       continue;
     }
     // Score EVERY driver; a lone winner is confident, but near-ties across
     // DISTINCT drivers must never be settled by array order (that is how a
     // duplicate/same-named person stole punches — 2026-07-23). Tiebreak by
     // the uploaded customer's tag; still ambiguous → picker decides.
+    // AUTO-assign additionally requires the structural gate (first AND
+    // last name agree, document name covers the driver's full name) — a
+    // bare "Juan" scores 1.0 by average but must never claim "Juan Disla".
     const scored = drivers
-      .map((d) => ({ d, s: nameSimilarity(w.name, d.name) }))
-      .sort((a, b) => b.s - a.s);
-    const bestScore = scored[0]?.s ?? 0;
+      .map((d) => ({ d, q: nameMatchQuality(w.name, d.name) }))
+      .sort((a, b) => b.q.score - a.q.score);
+    const bestScore = scored[0]?.q.score ?? 0;
     const bestName = scored[0]?.d.name ?? "";
-    if (bestScore >= 0.85) {
-      const nearTies = scored.filter((x) => bestScore - x.s <= 0.03 && x.s >= 0.85);
+    const assignable = scored.filter(
+      (x) => x.q.score >= 0.85 && x.q.strongPairs >= 2 && x.q.fullCoverage,
+    );
+    if (assignable.length > 0) {
+      const topScore = assignable[0].q.score;
+      const nearTies = assignable.filter((x) => topScore - x.q.score <= 0.03);
       let pick: string | null = null;
       if (nearTies.length === 1) {
         pick = nearTies[0].d.kfiId;
@@ -273,20 +307,29 @@ function matchCensusToFleet(
         if (tagged.length === 1) pick = tagged[0].d.kfiId;
       }
       if (pick) {
+        if (zeroCtBlocked(w, pick, strangers)) continue;
         laneCounts.fuzzyConfident++;
         if (laneSamples.length < 15) {
-          laneSamples.push(`${w.name}→${bestName} @${bestScore.toFixed(2)}`);
+          laneSamples.push(`${w.name}→${bestName} @${topScore.toFixed(2)}`);
         }
         targets.push({ name: w.name, badge: w.badge, kfiId: pick });
       } else {
         // Ambiguous humans — extract the punches, let the picker assign.
         laneCounts.fuzzyBorderline++;
         if (laneSamples.length < 15) {
-          laneSamples.push(`${w.name}⇄AMBIGUOUS @${bestScore.toFixed(2)}`);
+          laneSamples.push(`${w.name}⇄AMBIGUOUS @${topScore.toFixed(2)}`);
         }
         targets.push({ name: w.name, badge: w.badge, kfiId: null });
       }
-    } else if (bestScore >= 0.8) {
+    } else if (
+      bestScore >= 0.8 ||
+      // Partial-surname near-miss: first name plus ONE of a multi-surname
+      // driver's last names agree ("Reyes, Erica" ↔ CT "Erica Silverio").
+      // The averaged score can dip below 0.8 when the document carries the
+      // OTHER surname — extract the rows and let the picker decide instead
+      // of silently discarding a real driver's week (WB, 2026-08-04).
+      scored.some((x) => x.q.strongPairs >= 2)
+    ) {
       // Close enough that a human should look — extract, no id, picker decides.
       laneCounts.fuzzyBorderline++;
       if (laneSamples.length < 15) {

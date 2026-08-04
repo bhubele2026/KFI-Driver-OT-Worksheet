@@ -1,5 +1,5 @@
 import { fmtDT } from "../time.js";
-import { isBadgeMatchTrustworthy, topMatches } from "./fuzzy.js";
+import { isBadgeMatchTrustworthy, isAutoAssignableName, topMatches } from "./fuzzy.js";
 import type {
   ExtractDiagnostics,
   ParseResult,
@@ -36,8 +36,10 @@ export function buildRosterContext(args: {
   drivers: Array<{ kfiId: string; name: string; customer?: string | null }>;
   idMap: Record<string, string>;
   nameAliasMap?: Map<string, string>;
+  /** kfiIds with Connecteam time this week — enables the zero-CT hard block. */
+  ctActiveKfiIds?: ReadonlySet<string>;
 }): RosterContext {
-  const { customer, drivers, idMap, nameAliasMap } = args;
+  const { customer, drivers, idMap, nameAliasMap, ctActiveKfiIds } = args;
   const badgesByKfi = new Map<string, string[]>();
   for (const [externalId, kfiId] of Object.entries(idMap)) {
     const arr = badgesByKfi.get(kfiId) ?? [];
@@ -63,6 +65,7 @@ export function buildRosterContext(args: {
       badges: (badgesByKfi.get(d.kfiId) ?? []).slice(0, 8),
       aliases: (aliasesByKfi.get(d.kfiId) ?? []).slice(0, 8),
     })),
+    ctActiveKfiIds: ctActiveKfiIds ? [...ctActiveKfiIds] : undefined,
   };
 }
 
@@ -181,6 +184,12 @@ export async function extractImageForKnownCustomer(args: {
    * directives are folded into `aiOpts.lessons` by the caller.
    */
   importRules?: CustomerImportRules | null;
+  /**
+   * kfiIds with Connecteam (Driver-source) time for this week. When
+   * provided, the census→fleet matcher hard-blocks customer time from
+   * attaching to any driver not in the set (2026-08-04 standing rule).
+   */
+  ctActiveKfiIds?: ReadonlySet<string>;
 }): Promise<ParseResult & { aiBudgetSummary?: IngestionBudgetSummary }> {
   const {
     fileName,
@@ -196,6 +205,7 @@ export async function extractImageForKnownCustomer(args: {
     log,
     aiOpts,
     importRules,
+    ctActiveKfiIds,
   } = args;
   // The roster sent to the AI is a HINT (id/spelling accuracy), never a
   // filter — so it always contains ALL active drivers. Narrowing it to the
@@ -207,6 +217,7 @@ export async function extractImageForKnownCustomer(args: {
     drivers,
     idMap,
     nameAliasMap,
+    ctActiveKfiIds,
   });
   // Clean-slate default: one model call, no chunking (fastExtractRows).
   // FAST_IMPORT=0 falls back to the legacy chunked extractor for rollback.
@@ -581,8 +592,13 @@ function resolveKfiId(
   // silently attributing punches to the wrong driver. The pool spans ALL
   // active drivers; when two clear the bar in a near-tie, the driver tagged
   // to the uploaded customer wins (customer = tiebreaker, never a gate).
+  // The structural gate additionally requires first AND last name to agree
+  // — a bare first name must never claim a driver (2026-08-04).
   const confident = matches.filter(
-    (m) => m.confidence >= 0.85 && kfiSet.has(m.kfiId),
+    (m) =>
+      m.confidence >= 0.85 &&
+      kfiSet.has(m.kfiId) &&
+      isAutoAssignableName(name, m.name),
   );
   if (confident.length > 0) {
     const uploadedLower = uploadedCustomer.trim().toLowerCase();
