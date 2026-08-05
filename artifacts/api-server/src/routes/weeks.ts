@@ -4888,11 +4888,25 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
       skipped++;
       continue;
     }
+    // Night shifts cross midnight: an out-time at or before the in-time
+    // belongs to the NEXT day (Cerda's Camden 10:55 PM–8:00 AM rows read
+    // backwards on one date otherwise, 2026-08-05).
+    const clockInStr = fmtDT(`${r.date} ${r.clockIn}`);
+    let clockOutStr = fmtDT(`${r.date} ${r.clockOut}`);
+    {
+      const inMs = localStrToSortMs(clockInStr);
+      const outMs = localStrToSortMs(clockOutStr);
+      if (inMs != null && outMs != null && outMs <= inMs) {
+        const next = new Date(`${r.date}T00:00:00Z`);
+        next.setUTCDate(next.getUTCDate() + 1);
+        clockOutStr = fmtDT(`${next.toISOString().slice(0, 10)} ${r.clockOut}`);
+      }
+    }
     toInsert.push({
       kfiId,
       date: r.date,
-      clockIn: fmtDT(`${r.date} ${r.clockIn}`),
-      clockOut: fmtDT(`${r.date} ${r.clockOut}`),
+      clockIn: clockInStr,
+      clockOut: clockOutStr,
       hours: Math.round(hours * 1000) / 1000,
       // Same precedence as confirm-customer-file: upload override → the
       // driver's explicit tz → customer default → CT_TZ.
