@@ -95,6 +95,8 @@ export interface ProfileFill {
   personId?: number;
   assignmentId?: number;
   zenopleCustomer?: string;
+  /** "LASTNAME, FIRST" from the identity assignment (reference style). */
+  personLabel?: string;
   rtPayRate?: number;
   rtBillRate?: number;
   otPayRate?: number;
@@ -152,15 +154,20 @@ export function computeProfileFill(
   const driverTx = transactions.filter((t) => isDriverLane(t.JobPosition));
   const customerTx = transactions.filter((t) => !isDriverLane(t.JobPosition));
 
-  // Customer lane — RT from the assignment (authoritative), falling back to
-  // effective actuals; OT pay falls back to the standard 1.5× only for PAY
-  // (bill OT multiples vary by contract, so bill comes only from actuals).
-  if (customerAsg) {
+  // Customer lane — RT from the assignment when it carries a real (>0)
+  // rate, else effective actuals (some Zenople assignments store PayRate 0
+  // while the true rate only shows in the transactions); OT pay falls back
+  // to the standard 1.5× only for PAY (bill OT multiples vary by contract,
+  // so bill comes only from actuals).
+  if (customerAsg && num(customerAsg.PayRate) > 0) {
     fill.rtPayRate = round2(num(customerAsg.PayRate));
-    fill.rtBillRate = round2(num(customerAsg.BillRate));
   } else {
     const rt = effectiveRate(customerTx, "RTPay", "RTPayHours");
     if (rt != null) fill.rtPayRate = rt;
+  }
+  if (customerAsg && num(customerAsg.BillRate) > 0) {
+    fill.rtBillRate = round2(num(customerAsg.BillRate));
+  } else {
     const rtBill = effectiveRate(customerTx, "RTBill", "RTBillHours");
     if (rtBill != null) fill.rtBillRate = rtBill;
   }
@@ -169,14 +176,19 @@ export function computeProfileFill(
   const otBill = effectiveRate(customerTx, "OTBill", "OTBillHours");
   if (otBill != null) fill.otBillRate = otBill;
 
-  // Driver lane — same shape; Zenople bills driver time at 0, so a 0
-  // assignment BillRate confidently zeroes both driver bill fields.
-  if (driverAsg) {
+  // Driver lane — same shape. A 0 assignment PayRate means "unrated in
+  // AssignmentData" (Disla's $16 only shows in his transactions), so fall
+  // through to actuals; a 0 BillRate is REAL though — driver time is billed
+  // at $0 in Zenople.
+  if (driverAsg && num(driverAsg.PayRate) > 0) {
     fill.driverRtPayRate = round2(num(driverAsg.PayRate));
-    fill.driverRtBillRate = round2(num(driverAsg.BillRate));
   } else {
     const rt = effectiveRate(driverTx, "RTPay", "RTPayHours");
     if (rt != null) fill.driverRtPayRate = rt;
+  }
+  if (driverAsg) {
+    fill.driverRtBillRate = round2(num(driverAsg.BillRate));
+  } else {
     const rtBill = effectiveRate(driverTx, "RTBill", "RTBillHours");
     if (rtBill != null) fill.driverRtBillRate = rtBill;
   }
@@ -190,18 +202,25 @@ export function computeProfileFill(
   fill.driverOtBillRate =
     dOtBill ?? (fill.driverRtBillRate === 0 ? 0 : undefined);
 
-  // Identifiers — prefer the driver assignment (matches the seed's
-  // convention); customer lane fills the customer name.
-  const idAsg = driverAsg ?? customerAsg;
+  // Identifiers — the reference workbook stamps ONE assignment per person
+  // on every row: the ACTIVE customer assignment when there is one (Baez →
+  // 559/2541, not his driver 483/2523), else the active driver assignment
+  // (Disla → 3418, not his ended IWG customer role), else whatever exists.
+  const isActive = (a: Record<string, unknown> | undefined) =>
+    a != null && a.IsActiveToday === true;
+  const idAsg =
+    [customerAsg, driverAsg].find(isActive) ?? customerAsg ?? driverAsg;
   if (idAsg) {
     const ssn = maskSsn(idAsg.SSN);
     if (ssn) fill.ssn = ssn;
     if (num(idAsg.JobId) > 0) fill.jobId = num(idAsg.JobId);
     if (num(idAsg.PersonId) > 0) fill.personId = num(idAsg.PersonId);
     if (num(idAsg.AssignmentId) > 0) fill.assignmentId = num(idAsg.AssignmentId);
+    const org = String(idAsg.Organization ?? "").trim();
+    if (org) fill.zenopleCustomer = org;
+    const label = personLabelFromAssignment(idAsg);
+    if (label) fill.personLabel = label;
   }
-  const org = (customerAsg?.Organization ?? driverAsg?.Organization) as string | undefined;
-  if (org) fill.zenopleCustomer = org;
 
   return fill;
 }
@@ -213,14 +232,19 @@ export function computeProfileFill(
 // trusting the stored profile — the profile is the fallback/override).
 // ---------------------------------------------------------------------------
 
-export interface ZenopleLiveFacts extends ProfileFill {
-  /** "LASTNAME, FIRSTNAME" exactly as the reference workbook renders it. */
-  personLabel?: string;
-}
+export type ZenopleLiveFacts = ProfileFill;
 
 function personLabelFromAssignment(a: Record<string, unknown>): string | undefined {
-  const last = String(a.LastName ?? "").trim();
-  const first = String(a.FirstName ?? "").trim();
+  // Reference style: "LASTNAME, FIRST" uppercased, generational suffixes
+  // dropped ("MEDINA, WILLIE" — not "MEDINA JR, WILLIE"), whitespace
+  // collapsed.
+  const clean = (s: unknown) =>
+    String(s ?? "")
+      .replace(/\b(JR|SR|II|III|IV)\.?\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const last = clean(a.LastName);
+  const first = clean(a.FirstName);
   if (!last || !first) return undefined;
   return `${last}, ${first}`.toUpperCase();
 }
@@ -247,18 +271,10 @@ export async function loadZenopleExportFacts(): Promise<Map<string, ZenopleLiveF
   }
   const pids = new Set([...asgByPerson.keys(), ...txByPerson.keys()]);
   for (const pid of pids) {
-    const asgs = asgByPerson.get(pid) ?? [];
-    const fill = computeProfileFill(asgs, txByPerson.get(pid) ?? []);
-    // Same driver-first assignment preference computeProfileFill uses for
-    // its identifier fields, so the label matches the ids' source row.
-    const driverAsg = pickAssignment(asgs.filter((a) => isDriverLane(a.JobPosition)));
-    const anyAsg = driverAsg ?? pickAssignment(asgs);
-    const facts: ZenopleLiveFacts = { ...fill };
-    if (anyAsg) {
-      const label = personLabelFromAssignment(anyAsg);
-      if (label) facts.personLabel = label;
-    }
-    out.set(pid, facts);
+    out.set(
+      pid,
+      computeProfileFill(asgByPerson.get(pid) ?? [], txByPerson.get(pid) ?? []),
+    );
   }
   return out;
 }

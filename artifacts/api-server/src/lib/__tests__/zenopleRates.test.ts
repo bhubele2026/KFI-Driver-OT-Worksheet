@@ -54,10 +54,51 @@ test("dual-lane person: driver OT bases on the customer RT rate (seed rule)", ()
   assert.equal(fill.otBillRate, undefined); // bill OT only from actuals
   assert.equal(fill.driverRtPayRate, 10);
   assert.equal(fill.driverOtPayRate, 32.9); // 1.5 × customer RT, not 1.5 × 10
-  // identifiers prefer the driver assignment
-  assert.equal(fill.assignmentId, 3167);
+  // identifiers prefer the CUSTOMER assignment (reference-workbook rule)
+  assert.equal(fill.assignmentId, 2541);
+  assert.equal(fill.jobId, 559);
   // customer name comes from the customer lane
   assert.equal(fill.zenopleCustomer, "Burnett Dairy - Grantsburg");
+});
+
+test("identity prefers the ACTIVE assignment: ended customer role loses to active driver (Disla)", () => {
+  const fill = computeProfileFill(
+    [
+      {
+        ...customerAsg,
+        AssignmentId: 3108,
+        JobId: 793,
+        Organization: "International Wire Group, Inc",
+        IsActiveToday: false,
+        StartDate: "2026-01-01",
+      },
+      {
+        ...driverAsg,
+        AssignmentId: 3418,
+        JobId: 862,
+        PayRate: 0, // unrated driver assignment — rate must come from actuals
+        Organization: "International Wire Group, Inc",
+        IsActiveToday: true,
+      },
+    ],
+    [
+      {
+        PersonId: 2005201,
+        JobPosition: "Driver",
+        RTPay: 199.36,
+        RTPayHours: 12.46,
+        RTBill: 0,
+        RTBillHours: 0,
+        OTPay: 0,
+        OTPayHours: 0,
+        OTBill: 0,
+        OTBillHours: 0,
+      },
+    ],
+  );
+  assert.equal(fill.assignmentId, 3418);
+  assert.equal(fill.jobId, 862);
+  assert.equal(fill.driverRtPayRate, 16); // 199.36 / 12.46 from actuals
 });
 
 test("effective OT rates come from transaction actuals when present", () => {
