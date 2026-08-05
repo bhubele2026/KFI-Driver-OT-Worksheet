@@ -64,6 +64,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { shiftWallClock, tzShortLabel } from "@/lib/tz";
 import { formatPersonName } from "@/lib/format-name";
 import { buildSummaryChecks, checksEq } from "@/lib/summaryChecks";
 import { DriversSidebar, DriversSidebarMobileTrigger } from "@/components/drivers-sidebar";
@@ -469,6 +470,23 @@ export default function DriverDetail() {
   // driver-level one above) never clobber each other.
   const [openCustomerTz, setOpenCustomerTz] = useState<string | null>(null);
   const [customerTzDraft, setCustomerTzDraft] = useState<string>("__driver__");
+  // "recorded" = each punch in its own recorded tz (default); otherwise an
+  // IANA zone every punch converts into. Remembered per driver.
+  const [viewTz, setViewTz] = useState<string>(() => {
+    try {
+      return localStorage.getItem(`kfi-ot-view-tz-${kfiId}`) ?? "recorded";
+    } catch {
+      return "recorded";
+    }
+  });
+  const pickViewTz = (tz: string) => {
+    setViewTz(tz);
+    try {
+      localStorage.setItem(`kfi-ot-view-tz-${kfiId}`, tz);
+    } catch {
+      /* private mode */
+    }
+  };
   const [customerShiftHours, setCustomerShiftHours] = useState<string>("1");
 
   const handleRefresh = () => {
@@ -1071,6 +1089,20 @@ export default function DriverDetail() {
       </div>
     );
   }
+
+  // Either/or timezone view (mixed-tz weeks only): every punch renders in
+  // the picked zone, converted from its own recorded dispTz. Display-only —
+  // totals, OT split and day grouping never change.
+  const pageEffectiveTz = data.driver.effectiveDispTz ?? "America/Chicago";
+  const weekTzs = [
+    ...new Set(data.punches.map((p) => p.dispTz ?? pageEffectiveTz)),
+  ].sort();
+  const activeViewTz =
+    viewTz !== "recorded" && weekTzs.includes(viewTz) ? viewTz : "recorded";
+  const displayClock = (value: string, punchTz: string | null | undefined) =>
+    activeViewTz === "recorded"
+      ? value
+      : shiftWallClock(value, punchTz ?? pageEffectiveTz, activeViewTz);
 
   // Chronological sort using the same parser the server hours engine uses, so
   // the running-total split aligns with regularHours / overtimeHours.
@@ -1803,6 +1835,9 @@ export default function DriverDetail() {
                                 data: {
                                   customer: ct.customer,
                                   displayTz: customerTzDraft,
+                                  // Also relabel THIS week's already-imported
+                                  // rows for the customer (display only).
+                                  applyWeekStart: weekStart,
                                 },
                               },
                               {
@@ -1918,6 +1953,33 @@ export default function DriverDetail() {
                 </span>
               );
             })}
+            {weekTzs.length > 1 ? (
+              <span
+                className="print:hidden inline-flex items-center gap-0.5 rounded border border-border/60 bg-muted/40 p-0.5"
+                title={t("driverDetail.tz.viewToggleTitle")}
+                data-testid="toggle-view-tz"
+              >
+                {["recorded", ...weekTzs].map((tz) => (
+                  <button
+                    key={tz}
+                    type="button"
+                    onClick={() => pickViewTz(tz)}
+                    title={tz === "recorded" ? t("driverDetail.tz.viewRecordedTitle") : tz}
+                    data-testid={`button-view-tz-${tz}`}
+                    className={cn(
+                      "rounded px-1.5 py-0.5 text-[11px] transition-colors",
+                      activeViewTz === tz
+                        ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {tz === "recorded"
+                      ? t("driverDetail.tz.viewRecorded")
+                      : tzShortLabel(tz)}
+                  </button>
+                ))}
+              </span>
+            ) : null}
             <span className="hidden print:inline">
               <span className="mx-2 text-muted-foreground/60">·</span>
               {t("common.weekOf", { week: weekStart })}
@@ -2368,7 +2430,7 @@ export default function DriverDetail() {
                             data-testid={`input-edit-clock-in-${p.id}`}
                           />
                         ) : (
-                          formatClockCell(p.clockIn, p.date)
+                          formatClockCell(displayClock(p.clockIn, p.dispTz), p.date)
                         )}
                         </span>
                       </TableCell>
@@ -2394,7 +2456,7 @@ export default function DriverDetail() {
                             data-testid={`input-edit-clock-out-${p.id}`}
                           />
                         ) : (
-                          formatClockCell(p.clockOut, p.date)
+                          formatClockCell(displayClock(p.clockOut, p.dispTz), p.date)
                         )}
                       </TableCell>
                       <TableCell className="text-right fin-num font-medium text-xs">

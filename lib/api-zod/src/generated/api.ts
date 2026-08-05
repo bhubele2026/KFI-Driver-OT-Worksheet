@@ -3892,11 +3892,23 @@ export const ListCustomerTzPreferencesResponse = zod.object({
 export const UpsertCustomerTzPreferenceBody = zod.object({
   customer: zod.string().min(1),
   displayTz: zod.string(),
+  applyWeekStart: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional YYYY-MM-DD week start. When present, the save also RELABELS that week's already-imported Customer-source punches for this customer to the new tz (display label only — wall-clock strings, dates, hours and exports are untouched). Used by the driver-page tz popover so fixing a customer's zone repairs the week being viewed; the Settings page saves future-only.",
+    ),
 });
 
 export const UpsertCustomerTzPreferenceResponse = zod.object({
   customer: zod.string().min(1),
   displayTz: zod.string(),
+  applyWeekStart: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional YYYY-MM-DD week start. When present, the save also RELABELS that week's already-imported Customer-source punches for this customer to the new tz (display label only — wall-clock strings, dates, hours and exports are untouched). Used by the driver-page tz popover so fixing a customer's zone repairs the week being viewed; the Settings page saves future-only.",
+    ),
 });
 
 /**

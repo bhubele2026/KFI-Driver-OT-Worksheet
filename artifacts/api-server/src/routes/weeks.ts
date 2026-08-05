@@ -8138,7 +8138,11 @@ weeksRouter.put(
   "/customer-tz-preferences",
   requireSupervisorOrAdmin,
   async (req, res) => {
-    const body = req.body as { customer?: unknown; displayTz?: unknown };
+    const body = req.body as {
+      customer?: unknown;
+      displayTz?: unknown;
+      applyWeekStart?: unknown;
+    };
     const customer =
       typeof body.customer === "string" ? body.customer.trim() : "";
     if (!customer) {
@@ -8151,8 +8155,13 @@ weeksRouter.put(
         .json({ error: `displayTz must be one of ${ALLOWED_TZS.join(", ")}` });
       return;
     }
+    const applyWeekStart =
+      typeof body.applyWeekStart === "string" && isWeek(body.applyWeekStart)
+        ? body.applyWeekStart
+        : null;
     const displayTz = body.displayTz;
     const userId = req.session.userId ?? null;
+    let relabeled = 0;
     // Case-insensitive upsert: the unique index is on lower(customer), which
     // Drizzle's onConflict can't target directly, so delete-then-insert.
     await db.transaction(async (tx) => {
@@ -8166,10 +8175,28 @@ weeksRouter.put(
         displayTz,
         updatedBy: userId,
       });
+      // Optional: RELABEL the given week's already-imported Customer rows
+      // for this customer. Display label only — the stored wall-clock
+      // strings, dates, hours and exports never change (mixed-tz DeLallo
+      // page, 2026-08-05).
+      if (applyWeekStart) {
+        const updated = await tx
+          .update(schema.punchesTable)
+          .set({ dispTz: displayTz })
+          .where(
+            and(
+              eq(schema.punchesTable.weekStart, applyWeekStart),
+              eq(schema.punchesTable.source, "Customer"),
+              sql`lower(${schema.punchesTable.customer}) = lower(${customer})`,
+            ),
+          )
+          .returning({ id: schema.punchesTable.id });
+        relabeled = updated.length;
+      }
       await tx.insert(schema.userAuditLogTable).values({
         actorUserId: userId,
         targetUserId: null,
-        targetEmail: `customer-tz:${customer}|tz=${displayTz}`,
+        targetEmail: `customer-tz:${customer}|tz=${displayTz}${applyWeekStart ? `|relabeled=${relabeled}@${applyWeekStart}` : ""}`,
         action: "customer-tz-set",
       });
     });

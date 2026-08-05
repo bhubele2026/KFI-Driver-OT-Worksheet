@@ -2057,6 +2057,8 @@ export interface UpsertCustomerTzPreferenceInput {
   /** @minLength 1 */
   customer: string;
   displayTz: string;
+  /** Optional YYYY-MM-DD week start. When present, the save also RELABELS that week's already-imported Customer-source punches for this customer to the new tz (display label only — wall-clock strings, dates, hours and exports are untouched). Used by the driver-page tz popover so fixing a customer's zone repairs the week being viewed; the Settings page saves future-only. */
+  applyWeekStart?: string;
 }
 
 export interface DriverCustomerOverride {
