@@ -64,7 +64,7 @@ export default function Home() {
       <div className="bg-brand-navy shadow-sm">
         <div className="mx-auto flex w-full max-w-[1700px] items-center justify-between gap-4 px-6 py-5 sm:py-6">
           <div>
-            <Logo variant="header" className="h-8 sm:h-10" />
+            <Logo variant="header" className="h-10 sm:h-12" />
             <p className="mt-2.5 text-base font-medium text-white">
               Driver OT Worksheet
               <span className="ml-2 text-sm font-normal text-white/50">
