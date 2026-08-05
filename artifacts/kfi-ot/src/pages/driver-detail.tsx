@@ -1738,7 +1738,10 @@ export default function DriverDetail() {
             {(data.customerTzs ?? []).map((ct) => {
               const popKey = `${ct.customer}|${ct.dispTz}`;
               const isMismatch = !ct.matchesDriver;
-              if (!isMismatch) return null;
+              // Always rendered (quiet when matching): rows can be
+              // UNIFORMLY mislabeled — DeLallo's Eastern sheet stamped
+              // Chicago "matched" the driver, hiding the only control that
+              // could fix it (2026-08-05).
               return (
                 <span key={popKey} className="print:hidden">
                   <Popover
