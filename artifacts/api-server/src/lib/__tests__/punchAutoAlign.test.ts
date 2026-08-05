@@ -89,6 +89,19 @@ test("driver-only or customer-only days: untouched", () => {
   );
 });
 
+test("untrusted customer tz blocks alignment (Brown/IWG case); trusted allows it", () => {
+  const day = [
+    p("Driver", "2026-07-27 5:15 AM", "2026-07-27 5:22 AM", CT, { customer: null }),
+    p("Customer", "2026-07-27 5:23 AM", "2026-07-27 2:34 PM", ET, { customer: "DeLallo" }),
+    p("Driver", "2026-07-27 2:37 PM", "2026-07-27 3:02 PM", CT, { customer: null }),
+  ];
+  // Customer tz not dispatcher-vouched → the same 1h signature could be a
+  // mislabeled SHEET, so the driver punches must not move.
+  assert.equal(decideDayShift(day, CT, new Set()), 0);
+  // Vouched (customer_tz_preferences row exists) → alignment proceeds.
+  assert.equal(decideDayShift(day, CT, new Set(["delallo"])), -1);
+});
+
 test("shiftWallHours: pure wall-clock math, midnight crossing changes the date", () => {
   assert.equal(shiftWallHours("2026-07-27 5:15 AM", -1), "2026-07-27 4:15 AM");
   assert.equal(shiftWallHours("2026-07-27 12:30 AM", -1), "2026-07-26 11:30 PM");

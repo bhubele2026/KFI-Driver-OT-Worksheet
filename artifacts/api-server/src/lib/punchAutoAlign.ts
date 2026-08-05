@@ -120,6 +120,7 @@ export interface AlignPunch {
   dispTz: string | null;
   isManual: boolean;
   edited: boolean | null;
+  customer?: string | null;
 }
 
 interface Interval {
@@ -163,13 +164,32 @@ function layoutScore(
 /**
  * Decide the whole-day shift (in hours) for a day's driver punches, given
  * that day's customer punches. Returns 0 when nothing should change.
+ *
+ * `trustedCustomers` (lower-cased names with a saved customer-tz
+ * preference) gates the whole decision: when the customer side's timezone
+ * label is just the driver default, a mislabeled SHEET produces the exact
+ * same 1-hour signature as a mislabeled DEVICE — and the aligner must
+ * never "fix" the truthful side (Ladonte Brown / IWG - El Paso,
+ * 2026-08-05: Mountain-time sheet labeled Chicago made his correct CT
+ * punches look fast). Only a dispatcher-vouched customer tz makes the
+ * comparison trustworthy.
  */
-export function decideDayShift(punches: AlignPunch[], defaultTz: string): number {
+export function decideDayShift(
+  punches: AlignPunch[],
+  defaultTz: string,
+  trustedCustomers?: ReadonlySet<string>,
+): number {
   const eligible = punches.filter(
     (p) => p.source === "Driver" && !p.isManual && p.edited !== true,
   );
   const customers = punches.filter((p) => p.source === "Customer");
   if (eligible.length === 0 || customers.length === 0) return 0;
+  if (trustedCustomers) {
+    const allTrusted = customers.every((p) =>
+      trustedCustomers.has((p.customer ?? "").trim().toLowerCase()),
+    );
+    if (!allTrusted) return 0;
+  }
 
   const toInterval = (p: AlignPunch, shiftH: number): Interval | null => {
     const tz = p.dispTz ?? defaultTz;
@@ -242,10 +262,17 @@ export async function autoAlignWeek(
     disp_tz: string | null;
     is_manual: boolean;
     edited: boolean | null;
+    customer: string | null;
   }>(
-    `SELECT id, kfi_id, date::text, source, clock_in, clock_out, disp_tz, is_manual, edited
+    `SELECT id, kfi_id, date::text, source, clock_in, clock_out, disp_tz, is_manual, edited, customer
        FROM punches WHERE ${where}`,
     params,
+  );
+  const prefRows = await client.query<{ customer: string }>(
+    `SELECT customer FROM customer_tz_preferences`,
+  );
+  const trustedCustomers = new Set(
+    prefRows.rows.map((r) => r.customer.trim().toLowerCase()),
   );
   const byDriverDay = new Map<string, AlignPunch[]>();
   for (const r of rows.rows) {
@@ -263,7 +290,7 @@ export async function autoAlignWeek(
     byDriverDay.set(key, arr);
   }
   for (const [key, punches] of byDriverDay) {
-    const shift = decideDayShift(punches, "America/Chicago");
+    const shift = decideDayShift(punches, "America/Chicago", trustedCustomers);
     if (shift === 0) continue;
     const targets = punches.filter(
       (p) => p.source === "Driver" && !p.isManual && p.edited !== true,
