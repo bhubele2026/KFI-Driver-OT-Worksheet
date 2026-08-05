@@ -50,10 +50,10 @@ type FilterChip = "unreviewed";
 // DOM (and every existing test selector / keyboard handler) stays exactly
 // where it was. Small weeks render the way they always have.
 const VIRTUAL_SIDEBAR_ROW_THRESHOLD = 50;
-// Keep in sync with the row's vertical padding (py-2 → ~36px tall).
+// Keep in sync with .side-row in index.css (fixed 44px rows).
 const VIRTUAL_SIDEBAR_ROW_STYLE: CSSProperties = {
   contentVisibility: "auto",
-  containIntrinsicSize: "0 36px",
+  containIntrinsicSize: "0 44px",
 };
 
 interface SidebarProps {
@@ -241,16 +241,25 @@ function DriversList({
   }
 
   return (
-    <ul className="py-2">
-      {filteredGroups.map((group) => (
-        <li key={group.customer} className="mb-2">
-          <div className="sticky top-0 z-10 border-b border-border/50 bg-background/95 px-4 py-2 text-xs font-display font-semibold uppercase tracking-wider text-foreground/80 backdrop-blur">
-            {group.customer}
-            <span className="ml-2 fin-num text-[11px] font-normal text-muted-foreground">
+    <ul className="space-y-2.5 p-2.5">
+      {filteredGroups.map((group, groupIndex) => (
+        <li
+          key={group.customer}
+          className="overflow-hidden rounded-xl bg-card ring-1 ring-border rise-in"
+          style={{
+            boxShadow: "var(--shadow-xs)",
+            animationDelay: `${Math.min(groupIndex, 8) * 24}ms`,
+          }}
+        >
+          <div className="sticky top-0 z-10 flex items-baseline justify-between gap-2 bg-card/95 px-3 pb-1.5 pt-2.5 backdrop-blur">
+            <span className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              {group.customer}
+            </span>
+            <span className="fin-num text-[10px] text-muted-foreground/70">
               {group.drivers.length}
             </span>
           </div>
-          <ul>
+          <ul className="pb-1">
             {group.drivers.map((driver) => {
               const isActive = driver.kfiId === selectedKfiId;
               const status = (driver as { reviewStatus?: string }).reviewStatus;
@@ -292,11 +301,21 @@ function DriversList({
                     }}
                     title={t("driversSidebar.rowTitle")}
                     data-testid={`sidebar-driver-${driver.kfiId}`}
+                    data-active={isActive ? "true" : undefined}
+                    data-state={
+                      isBad
+                        ? "bad"
+                        : flaggedCount
+                          ? "flagged"
+                          : driver.reviewed || status === "good"
+                            ? "reviewed"
+                            : undefined
+                    }
                     className={cn(
-                      "w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition-colors group select-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "side-row group flex w-full cursor-pointer select-none items-center gap-2 px-3 text-left text-[13px] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                       isActive
-                        ? "bg-accent text-accent-foreground border-l-2 border-primary pl-[14px] font-medium"
-                        : "hover:bg-accent hover:text-accent-foreground",
+                        ? "bg-primary/[0.07] font-medium text-foreground"
+                        : "hover:bg-muted/60",
                     )}
                   >
                     <button
@@ -328,18 +347,23 @@ function DriversList({
                           : "hover:bg-foreground/10 cursor-pointer",
                       )}
                     >
+                      {/* Status lives on the row's left RAIL (see .side-row
+                          in index.css) — this control stays only as the
+                          review toggle, quiet until you're on the row. */}
                       {isBad ? (
                         <XCircle
                           className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400"
                           data-testid={`sidebar-status-bad-${driver.kfiId}`}
                         />
                       ) : driver.reviewed || status === "good" ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600/70 opacity-0 transition-opacity group-hover:opacity-100" />
                       ) : (
-                        <Circle className="h-3.5 w-3.5 text-transparent transition-colors group-hover:text-muted-foreground/50" />
+                        <Circle className="h-3.5 w-3.5 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground/70" />
                       )}
                     </button>
-                    <span className="flex-1 truncate">{formatPersonName(driver.name)}</span>
+                    <span className="side-name flex-1">
+                      {formatPersonName(driver.name)}
+                    </span>
                     {driver.customerHours > 0 && driver.driverHours <= 0 && (
                       <span
                         className="inline-flex shrink-0"
@@ -352,9 +376,11 @@ function DriversList({
                     {driver.totalHours > 0 && (
                       <span
                         className={cn(
-                          "fin-num text-xs shrink-0 tabular-nums",
+                          // Fixed-width numeral column: every figure in the
+                          // sidebar lines up on one spine.
+                          "w-11 shrink-0 text-right fin-num text-xs tabular-nums",
                           driver.overtimeHours > 0
-                            ? "font-semibold text-warning"
+                            ? "font-medium text-brand-orange"
                             : "text-muted-foreground",
                         )}
                         title={
@@ -374,7 +400,7 @@ function DriversList({
                     )}
                     {flaggedCount ? (
                       <span
-                        className="inline-flex items-center gap-0.5 fin-num text-[11px] font-semibold text-rose-700 dark:text-rose-300 bg-rose-500/15 px-1 rounded"
+                        className="inline-flex h-4 shrink-0 items-center gap-0.5 rounded fin-num text-[10px] font-medium text-brand-orange"
                         title={t(
                           flaggedCount === 1
                             ? "driversSidebar.badge.flaggedTitle_one"
@@ -389,7 +415,7 @@ function DriversList({
                     ) : null}
                     {originalCustomer && (
                       <span
-                        className="fin-num text-[11px] font-semibold text-sky-700 dark:text-sky-300 bg-sky-500/10 px-1 rounded"
+                        className="inline-flex h-4 shrink-0 items-center rounded fin-num text-[10px] font-medium text-sky-600 dark:text-sky-300"
                         title={t("driversSidebar.movedTitle", {
                           from: originalCustomer,
                           by: overrideSetByEmail
