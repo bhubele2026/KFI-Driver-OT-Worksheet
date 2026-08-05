@@ -875,7 +875,7 @@ export default function AdminUsers() {
                   {t("adminUsers.shareLink")}
                 </div>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 font-mono break-all">
+                  <code className="flex-1 fin-num break-all">
                     {latestInvite}
                   </code>
                   <Button
@@ -914,8 +914,8 @@ export default function AdminUsers() {
                       const onCooldown = resendRemaining > 0;
                       return (
                       <TableRow key={inv.id}>
-                        <TableCell className="font-mono">{inv.email}</TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
+                        <TableCell className="fin-num">{inv.email}</TableCell>
+                        <TableCell className="fin-num text-xs text-muted-foreground">
                           {format(new Date(inv.expiresAt), "yyyy-MM-dd HH:mm")}
                         </TableCell>
                         <TableCell className="flex gap-1 justify-end">
@@ -1004,16 +1004,16 @@ export default function AdminUsers() {
                       key={s.ip}
                       className="flex items-center gap-2 flex-wrap text-xs"
                     >
-                      <span className="font-mono font-semibold break-all">
+                      <span className="fin-num font-semibold break-all">
                         {s.ip}
                       </span>
-                      <span className="font-mono text-amber-900/70 dark:text-amber-100/70">
+                      <span className="fin-num text-amber-900/70 dark:text-amber-100/70">
                         {t("adminUsers.lockoutCountLast", {
                           count: s.lockoutCount,
                           date: format(new Date(s.lastBlockedAt), "MMM d, h:mm a"),
                         })}
                       </span>
-                      <span className="font-mono text-[10px] text-amber-900/60 dark:text-amber-100/60">
+                      <span className="fin-num text-[10px] text-amber-900/60 dark:text-amber-100/60">
                         {s.limiters.join(", ")}
                       </span>
                       <span className="ml-auto flex gap-1">
@@ -1084,20 +1084,20 @@ export default function AdminUsers() {
                           <div className="font-medium">
                             {formatBucketLabel(b.name)}
                           </div>
-                          <div className="font-mono text-[10px] text-muted-foreground">
+                          <div className="fin-num text-[10px] text-muted-foreground">
                             {b.name}
                           </div>
                         </TableCell>
-                        <TableCell className="font-mono text-xs break-all">
+                        <TableCell className="fin-num text-xs break-all">
                           {b.key}
                         </TableCell>
                         <TableCell
-                          className={`text-right font-mono text-xs ${b.blocked ? "text-rose-600 dark:text-rose-400 font-semibold" : ""}`}
+                          className={`text-right fin-num text-xs ${b.blocked ? "text-rose-600 dark:text-rose-400 font-semibold" : ""}`}
                         >
                           {b.count}
                           {b.max > 0 ? ` / ${b.max}` : ""}
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
+                        <TableCell className="fin-num text-xs text-muted-foreground">
                           {formatTimeRemaining(b.resetAt)}
                         </TableCell>
                         <TableCell className="flex justify-end">
@@ -1143,7 +1143,7 @@ export default function AdminUsers() {
                         setPressureRangeDays(d);
                         setLockoutDayFilter(null);
                       }}
-                      className={`px-2 py-0.5 text-[11px] font-mono rounded-sm transition-colors ${
+                      className={`px-2 py-0.5 text-[11px] fin-num rounded-sm transition-colors ${
                         pressureRangeDays === d
                           ? "bg-primary text-primary-foreground"
                           : "text-muted-foreground hover:text-foreground"
@@ -1219,16 +1219,16 @@ export default function AdminUsers() {
                             key={`${o.name}::${o.key}`}
                             className="flex items-center gap-2 text-xs"
                           >
-                            <span className="font-mono text-muted-foreground w-4">
+                            <span className="fin-num text-muted-foreground w-4">
                               #{idx + 1}
                             </span>
-                            <span className="font-mono font-semibold tabular-nums w-8">
+                            <span className="fin-num font-semibold tabular-nums w-8">
                               {o.count}
                             </span>
                             <span className="text-muted-foreground">
                               {formatBucketLabel(o.name)}
                             </span>
-                            <span className="font-mono break-all">
+                            <span className="fin-num break-all">
                               {o.key}
                             </span>
                             <span className="ml-auto flex items-center gap-1">
@@ -1313,26 +1313,26 @@ export default function AdminUsers() {
                               <div className="font-medium">
                                 {formatBucketLabel(e.name)}
                               </div>
-                              <div className="font-mono text-[10px] text-muted-foreground">
+                              <div className="fin-num text-[10px] text-muted-foreground">
                                 {e.name}
                               </div>
                             </TableCell>
-                            <TableCell className="font-mono text-xs break-all">
+                            <TableCell className="fin-num text-xs break-all">
                               {e.key}
                             </TableCell>
-                            <TableCell className="text-right font-mono text-xs font-semibold">
+                            <TableCell className="text-right fin-num text-xs font-semibold">
                               {e.count}
                             </TableCell>
-                            <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                            <TableCell className="fin-num text-xs text-muted-foreground whitespace-nowrap">
                               {format(new Date(e.firstBlockedAt), "MMM d, h:mm a")}
                             </TableCell>
-                            <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                            <TableCell className="fin-num text-xs text-muted-foreground whitespace-nowrap">
                               {format(new Date(e.lastBlockedAt), "MMM d, h:mm a")}
                             </TableCell>
                             <TableCell className="flex justify-end">
                               {ip ? (
                                 alreadyBlocked ? (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-rose-700 dark:text-rose-300">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] fin-num uppercase tracking-wider text-rose-700 dark:text-rose-300">
                                     <ShieldX className="h-3 w-3" />
                                     {t("adminUsers.blockedBadge")}
                                   </span>
@@ -1375,9 +1375,9 @@ export default function AdminUsers() {
               </h3>
               <p className="text-xs text-muted-foreground mb-3">
                 {t("adminUsers.ipBlocklistDescBefore")}
-                <code className="font-mono">203.0.113.7</code>
+                <code className="fin-num">203.0.113.7</code>
                 {t("adminUsers.ipBlocklistDescMid")}
-                <code className="font-mono">203.0.113.0/24</code>
+                <code className="fin-num">203.0.113.0/24</code>
                 {t("adminUsers.ipBlocklistDescAfter")}
               </p>
               <form
@@ -1388,7 +1388,7 @@ export default function AdminUsers() {
                   <div className="flex-1 min-w-[180px]">
                     <label
                       htmlFor="manual-block-ip"
-                      className="block text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1"
+                      className="block text-[10px] fin-num uppercase tracking-wider text-muted-foreground mb-1"
                     >
                       {t("adminUsers.ipOrCidrLabel")}
                     </label>
@@ -1400,7 +1400,7 @@ export default function AdminUsers() {
                         if (manualBlockError) setManualBlockError(null);
                       }}
                       placeholder={t("adminUsers.ipOrCidrPlaceholder")}
-                      className="font-mono text-sm"
+                      className="fin-num text-sm"
                       autoComplete="off"
                       spellCheck={false}
                     />
@@ -1408,7 +1408,7 @@ export default function AdminUsers() {
                   <div className="flex-[2] min-w-[200px]">
                     <label
                       htmlFor="manual-block-reason"
-                      className="block text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1"
+                      className="block text-[10px] fin-num uppercase tracking-wider text-muted-foreground mb-1"
                     >
                       {t("adminUsers.reasonOptional")}
                     </label>
@@ -1454,7 +1454,7 @@ export default function AdminUsers() {
                   <TableBody>
                     {ipBlocklist.map((b) => (
                       <TableRow key={b.ip}>
-                        <TableCell className="font-mono text-xs break-all">
+                        <TableCell className="fin-num text-xs break-all">
                           <span className="inline-flex items-center gap-2">
                             {b.ip}
                             {isCidrEntry(b.ip) && (
@@ -1470,10 +1470,10 @@ export default function AdminUsers() {
                         <TableCell className="text-xs text-muted-foreground">
                           {b.reason ?? "—"}
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
+                        <TableCell className="fin-num text-xs text-muted-foreground">
                           {b.createdByEmail ?? "—"}
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        <TableCell className="fin-num text-xs text-muted-foreground whitespace-nowrap">
                           {format(new Date(b.createdAt), "MMM d, h:mm a")}
                         </TableCell>
                         <TableCell className="flex justify-end">
@@ -1562,10 +1562,10 @@ export default function AdminUsers() {
                           <TableCell className="text-sm">
                             {clock.name}
                           </TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground">
+                          <TableCell className="fin-num text-xs text-muted-foreground">
                             {clock.id}
                           </TableCell>
-                          <TableCell className="font-mono text-xs">
+                          <TableCell className="fin-num text-xs">
                             {clock.isArchived ? (
                               <span className="text-muted-foreground">
                                 {t("adminUsers.statusArchived")}
@@ -1598,7 +1598,7 @@ export default function AdminUsers() {
                               </span>
                             )}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
+                          <TableCell className="text-right fin-num text-xs">
                             {clock.lastShiftCount == null
                               ? "—"
                               : clock.lastShiftCount}
@@ -1626,7 +1626,7 @@ export default function AdminUsers() {
                   {t("adminUsers.resetLinkBanner", { email: latestReset.email })}
                 </div>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 font-mono break-all">
+                  <code className="flex-1 fin-num break-all">
                     {latestReset.url}
                   </code>
                   <Button
@@ -1681,7 +1681,7 @@ export default function AdminUsers() {
                             )}
                           </Button>
                         </TableCell>
-                        <TableCell className="font-mono">
+                        <TableCell className="fin-num">
                           {u.email}
                           {isMe && (
                             <span className="ml-2 text-[10px] uppercase text-muted-foreground">
@@ -1692,13 +1692,13 @@ export default function AdminUsers() {
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             <span
-                              className={`text-xs font-mono ${u.isAdmin ? "text-primary" : "text-muted-foreground"}`}
+                              className={`text-xs fin-num ${u.isAdmin ? "text-primary" : "text-muted-foreground"}`}
                             >
                               {u.isAdmin ? t("adminUsers.roleAdmin") : t("adminUsers.roleDispatcher")}
                             </span>
                             <select
                               data-testid={`select-role-${u.id}`}
-                              className="text-[11px] font-mono border border-border bg-background rounded px-1 py-0.5"
+                              className="text-[11px] fin-num border border-border bg-background rounded px-1 py-0.5"
                               value={(u as { role?: string }).role ?? "reviewer"}
                               disabled={updateUser.isPending}
                               onChange={(e) => {
@@ -1734,13 +1734,13 @@ export default function AdminUsers() {
                         <TableCell>
                           <div className="flex flex-col gap-0.5">
                             <span
-                              className={`text-xs font-mono ${u.isActive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
+                              className={`text-xs fin-num ${u.isActive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
                             >
                               {u.isActive ? t("adminUsers.statusActiveBadge") : t("adminUsers.statusDeactivated")}
                             </span>
                             {isLocked && (
                               <span
-                                className="text-[10px] font-mono text-amber-600 dark:text-amber-400"
+                                className="text-[10px] fin-num text-amber-600 dark:text-amber-400"
                                 title={t("adminUsers.lockedAtTitle", {
                                   date: format(new Date(u.lockedAt!), "yyyy-MM-dd HH:mm"),
                                 })}
@@ -1749,13 +1749,13 @@ export default function AdminUsers() {
                               </span>
                             )}
                             {!isLocked && u.failedLoginCount > 0 && (
-                              <span className="text-[10px] font-mono text-muted-foreground">
+                              <span className="text-[10px] fin-num text-muted-foreground">
                                 {t("adminUsers.recentFails", { count: u.failedLoginCount })}
                               </span>
                             )}
                             {u.isAdmin && (
                               <label
-                                className="mt-1 inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground"
+                                className="mt-1 inline-flex items-center gap-1 text-[10px] fin-num text-muted-foreground"
                                 title={t("adminUsers.digestOptInTitle")}
                               >
                                 <input
@@ -1799,7 +1799,7 @@ export default function AdminUsers() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
+                        <TableCell className="fin-num text-xs text-muted-foreground">
                           {u.lastLoginAt
                             ? format(new Date(u.lastLoginAt), "yyyy-MM-dd HH:mm")
                             : "—"}
@@ -1938,14 +1938,14 @@ export default function AdminUsers() {
                 <TableBody>
                   {auditLog.map((entry) => (
                     <TableRow key={entry.id}>
-                      <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      <TableCell className="fin-num text-xs text-muted-foreground whitespace-nowrap">
                         {format(new Date(entry.createdAt), "yyyy-MM-dd HH:mm")}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="fin-num text-xs">
                         {entry.actorEmail ?? "—"}
                       </TableCell>
                       <TableCell>
-                        <span className="text-xs font-mono uppercase tracking-wider text-primary">
+                        <span className="text-xs fin-num uppercase tracking-wider text-primary">
                           {entry.action}
                         </span>
                       </TableCell>
@@ -1957,7 +1957,7 @@ export default function AdminUsers() {
                               : entry.action === "unpin-ai-extract-sample"
                                 ? t("adminUsers.aiSampleUnpinned")
                                 : t("adminUsers.aiSampleDeleted")}
-                            <span className="font-mono">{entry.aiSample.fileName}</span>{" "}
+                            <span className="fin-num">{entry.aiSample.fileName}</span>{" "}
                             <span className="text-muted-foreground">
                               ({entry.aiSample.customer}
                               {entry.aiSample.weekStart
@@ -1967,7 +1967,7 @@ export default function AdminUsers() {
                             </span>
                           </span>
                         ) : renderWeekResetLabel(entry.action, entry.targetEmail, t) ?? renderCustomerTzLabel(entry.action, entry.targetEmail, t) ?? (
-                          <span className="font-mono">{entry.targetEmail ?? "—"}</span>
+                          <span className="fin-num">{entry.targetEmail ?? "—"}</span>
                         )}
                       </TableCell>
                     </TableRow>
@@ -1996,8 +1996,8 @@ export default function AdminUsers() {
             <DialogTitle>Block IP from the API</DialogTitle>
             <DialogDescription>
               Enter a single IP (e.g.{" "}
-              <code className="font-mono">203.0.113.7</code>) or a CIDR range
-              (e.g. <code className="font-mono">203.0.113.0/24</code>) to cover
+              <code className="fin-num">203.0.113.7</code>) or a CIDR range
+              (e.g. <code className="fin-num">203.0.113.0/24</code>) to cover
               the whole subnet.
             </DialogDescription>
           </DialogHeader>
@@ -2005,7 +2005,7 @@ export default function AdminUsers() {
             <div>
               <label
                 htmlFor="block-dialog-ip"
-                className="block text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1"
+                className="block text-[10px] fin-num uppercase tracking-wider text-muted-foreground mb-1"
               >
                 IP or CIDR
               </label>
@@ -2021,13 +2021,13 @@ export default function AdminUsers() {
                   }))
                 }
                 placeholder="203.0.113.7 or 203.0.113.0/24"
-                className="font-mono text-sm"
+                className="fin-num text-sm"
               />
             </div>
             <div>
               <label
                 htmlFor="block-dialog-reason"
-                className="block text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1"
+                className="block text-[10px] fin-num uppercase tracking-wider text-muted-foreground mb-1"
               >
                 Reason (optional)
               </label>
@@ -2145,15 +2145,15 @@ function UserAuditHistory({
         <TableBody>
           {data.map((entry) => (
             <TableRow key={entry.id}>
-              <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap py-1.5">
+              <TableCell className="fin-num text-xs text-muted-foreground whitespace-nowrap py-1.5">
                 {format(new Date(entry.createdAt), "yyyy-MM-dd HH:mm")}
               </TableCell>
-              <TableCell className="font-mono text-xs py-1.5">
+              <TableCell className="fin-num text-xs py-1.5">
                 {entry.actorEmail ?? "—"}
               </TableCell>
               <TableCell className="py-1.5">
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-xs font-mono uppercase tracking-wider text-primary">
+                  <span className="text-xs fin-num uppercase tracking-wider text-primary">
                     {entry.action}
                   </span>
                   {(() => {
@@ -2208,7 +2208,7 @@ function renderWeekResetLabel(
   return (
     <span>
       {t("adminUsers.weekResetPrefix")}{" "}
-      <span className="font-mono">{weekStart}</span>{" "}
+      <span className="fin-num">{weekStart}</span>{" "}
       <span className="text-muted-foreground">
         {t("adminUsers.weekResetMeta", {
           scope: scopeLabel,
@@ -2239,7 +2239,7 @@ function renderCustomerTzLabel(
     return (
       <span>
         {t("adminUsers.customerTzClearedPrefix")}{" "}
-        <span className="font-mono">{customer}</span>{" "}
+        <span className="fin-num">{customer}</span>{" "}
         {t("adminUsers.customerTzClearedSuffix")}
       </span>
     );
@@ -2249,9 +2249,9 @@ function renderCustomerTzLabel(
   return (
     <span>
       {t("adminUsers.customerTzSetPrefix")}{" "}
-      <span className="font-mono">{customer}</span>{" "}
+      <span className="fin-num">{customer}</span>{" "}
       {t("adminUsers.customerTzSetMiddle")}{" "}
-      <span className="font-mono">{tz}</span>
+      <span className="fin-num">{tz}</span>
     </span>
   );
 }

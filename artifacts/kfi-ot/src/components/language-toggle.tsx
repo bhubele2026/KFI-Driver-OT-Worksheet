@@ -56,7 +56,7 @@ export function LanguageToggle({
   const onLight = tone === "light";
   const btnCls = (active: boolean) =>
     cn(
-      "h-6 px-2 rounded-sm text-xs font-mono",
+      "h-6 px-2 rounded-sm text-xs fin-num",
       active
         ? onLight
           ? "bg-primary text-primary-foreground"
@@ -68,7 +68,7 @@ export function LanguageToggle({
   return (
     <div
       className={cn(
-        "inline-flex items-center rounded-md border p-0.5 text-xs font-mono",
+        "inline-flex items-center rounded-md border p-0.5 text-xs fin-num",
         onLight
           ? "border-border bg-background"
           : "border-sidebar-border/60 bg-sidebar-accent/30",

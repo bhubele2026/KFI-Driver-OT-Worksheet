@@ -384,7 +384,7 @@ function ChatMessage(props: {
                 </Badge>
               )}
             </div>
-            <pre className="font-mono text-[10px] whitespace-pre-wrap overflow-x-auto">
+            <pre className="fin-num text-[10px] whitespace-pre-wrap overflow-x-auto">
               {JSON.stringify(fix, null, 2)}
             </pre>
             {evidence && <FileEvidenceBlock evidence={evidence} />}
@@ -573,7 +573,7 @@ function RawSnippetSection({
         </span>
       </button>
       {open && (
-        <pre className="mt-1 font-mono text-[10px] whitespace-pre-wrap break-words bg-background/60 rounded p-1.5 max-h-48 overflow-auto">
+        <pre className="mt-1 fin-num text-[10px] whitespace-pre-wrap break-words bg-background/60 rounded p-1.5 max-h-48 overflow-auto">
           {snippet.snippet}
         </pre>
       )}
@@ -593,7 +593,7 @@ function EvidenceTable(props: {
         {props.caption}
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full font-mono text-[10px]">
+        <table className="w-full fin-num text-[10px]">
           <thead>
             <tr className="text-muted-foreground">
               {props.headers.map((h) => (

@@ -207,7 +207,7 @@ export default function AdminAiSamples() {
           <CardContent className="space-y-4">
             <p className="text-xs text-muted-foreground">
               {t("adminAiExtra.descriptionPart1")}
-              <code className="font-mono">
+              <code className="fin-num">
                 docs/promote-ai-customer-to-parser.md
               </code>
               {t("adminAiExtra.descriptionPart2")}
@@ -263,7 +263,7 @@ export default function AdminAiSamples() {
                       <h3 className="font-display font-semibold text-sm">
                         {customer}
                       </h3>
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      <span className="text-[10px] fin-num uppercase tracking-wider text-muted-foreground">
                         {rows.length === 1
                           ? t("adminAiExtra.sampleOne", { count: rows.length })
                           : t("adminAiExtra.sampleOther", { count: rows.length })}
@@ -300,16 +300,16 @@ export default function AdminAiSamples() {
                                   : undefined
                               }
                             >
-                              <TableCell className="font-mono text-xs">
+                              <TableCell className="fin-num text-xs">
                                 {s.weekStart}
                               </TableCell>
-                              <TableCell className="text-sm font-mono break-all">
+                              <TableCell className="text-sm fin-num break-all">
                                 {s.fileName}
                               </TableCell>
-                              <TableCell className="font-mono text-xs text-muted-foreground">
+                              <TableCell className="fin-num text-xs text-muted-foreground">
                                 {formatBytes(s.sizeBytes)}
                               </TableCell>
-                              <TableCell className="font-mono text-xs text-muted-foreground">
+                              <TableCell className="fin-num text-xs text-muted-foreground">
                                 {new Date(s.uploadedAt).toLocaleString()}
                               </TableCell>
                               <TableCell className="text-xs text-muted-foreground break-all">
@@ -472,21 +472,21 @@ export default function AdminAiSamples() {
                 <TableBody>
                   {recentDeletions.map((entry) => (
                     <TableRow key={entry.id}>
-                      <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      <TableCell className="fin-num text-xs text-muted-foreground whitespace-nowrap">
                         {format(new Date(entry.createdAt), "yyyy-MM-dd HH:mm")}
                       </TableCell>
-                      <TableCell className="font-mono text-xs break-all">
+                      <TableCell className="fin-num text-xs break-all">
                         {entry.actorEmail ?? (
                           <span className="italic">{t("adminAiExtra.unknown")}</span>
                         )}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="fin-num text-xs">
                         {entry.aiSample?.weekStart || "—"}
                       </TableCell>
                       <TableCell className="text-xs">
                         {entry.aiSample?.customer}
                       </TableCell>
-                      <TableCell className="font-mono text-xs break-all">
+                      <TableCell className="fin-num text-xs break-all">
                         {entry.aiSample?.fileName}
                       </TableCell>
                     </TableRow>

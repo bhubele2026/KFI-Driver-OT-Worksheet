@@ -149,20 +149,20 @@ export default function AdminDriverCustomerOverrides() {
                     >
                       <TableCell className="text-sm font-medium">
                         {r.driverName ?? r.kfiId}
-                        <div className="text-[10px] font-mono text-muted-foreground">
+                        <div className="text-[10px] fin-num text-muted-foreground">
                           {r.kfiId}
                         </div>
                       </TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground">
+                      <TableCell className="text-xs fin-num text-muted-foreground">
                         {r.originalCustomer ?? "—"}
                       </TableCell>
-                      <TableCell className="text-xs font-mono">
+                      <TableCell className="text-xs fin-num">
                         {r.overrideCustomer}
                       </TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground whitespace-nowrap">
+                      <TableCell className="text-xs fin-num text-muted-foreground whitespace-nowrap">
                         {format(new Date(r.setAt), "yyyy-MM-dd HH:mm")}
                       </TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground">
+                      <TableCell className="text-xs fin-num text-muted-foreground">
                         {r.setByEmail ?? "—"}
                       </TableCell>
                       <TableCell>

@@ -96,11 +96,11 @@ export default function AdminBootAudit() {
               <code>KFI_ALLOW_BULK_PUNCH_DELETE=1</code> opt-in).
             </p>
             <div className="flex flex-wrap gap-2 mb-4 text-xs">
-              <Badge variant="secondary" className="font-mono">
+              <Badge variant="secondary" className="fin-num">
                 {rows.length} row{rows.length === 1 ? "" : "s"}
               </Badge>
               {lastClean && (
-                <Badge variant="outline" className="font-mono">
+                <Badge variant="outline" className="fin-num">
                   Last clean boot row:{" "}
                   {format(new Date(lastClean.startedAt), "yyyy-MM-dd HH:mm")}
                 </Badge>
@@ -134,27 +134,27 @@ export default function AdminBootAudit() {
                         key={r.id}
                         data-testid={`row-boot-audit-${r.id}`}
                       >
-                        <TableCell className="text-xs align-top font-mono whitespace-nowrap text-muted-foreground">
+                        <TableCell className="text-xs align-top fin-num whitespace-nowrap text-muted-foreground">
                           {format(
                             new Date(r.startedAt),
                             "yyyy-MM-dd HH:mm:ss",
                           )}
                         </TableCell>
-                        <TableCell className="text-xs align-top font-mono">
+                        <TableCell className="text-xs align-top fin-num">
                           {r.routine}
                         </TableCell>
                         <TableCell className="align-top">
                           <Badge
                             variant={badge.variant}
-                            className="font-mono text-[10px]"
+                            className="fin-num text-[10px]"
                           >
                             {badge.label}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-xs align-top text-right font-mono">
+                        <TableCell className="text-xs align-top text-right fin-num">
                           {r.rowsAffected}
                         </TableCell>
-                        <TableCell className="text-[10px] align-top font-mono text-muted-foreground">
+                        <TableCell className="text-[10px] align-top fin-num text-muted-foreground">
                           {r.deploymentId ? (
                             <div>{r.deploymentId.slice(0, 12)}</div>
                           ) : (
@@ -164,7 +164,7 @@ export default function AdminBootAudit() {
                           {r.gitSha && <div>{r.gitSha.slice(0, 8)}</div>}
                         </TableCell>
                         <TableCell className="text-xs align-top">
-                          <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-muted-foreground max-w-[60ch]">
+                          <pre className="whitespace-pre-wrap break-words fin-num text-[11px] text-muted-foreground max-w-[60ch]">
                             {r.detail ?? ""}
                           </pre>
                         </TableCell>

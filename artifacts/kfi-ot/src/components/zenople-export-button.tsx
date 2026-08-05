@@ -82,7 +82,7 @@ export function ZenopleExportButton({ weekStart }: Props) {
                       count: readiness.unreviewedKfiIds.length,
                     })}
                   </div>
-                  <ul className="list-disc pl-5 font-mono text-xs space-y-0.5 max-h-40 overflow-auto">
+                  <ul className="list-disc pl-5 fin-num text-xs space-y-0.5 max-h-40 overflow-auto">
                     {readiness.unreviewedKfiIds.map((id) => (
                       <li key={id}>{id}</li>
                     ))}
@@ -99,7 +99,7 @@ export function ZenopleExportButton({ weekStart }: Props) {
                   <ul className="list-disc pl-5 text-xs space-y-0.5 max-h-40 overflow-auto">
                     {readiness.missingProfileKfiIds.map((m) => (
                       <li key={m.kfiId}>
-                        <span className="font-mono">{m.kfiId}</span>
+                        <span className="fin-num">{m.kfiId}</span>
                         {m.missing && m.missing.length > 0 ? (
                           <span className="text-muted-foreground">
                             {" "}

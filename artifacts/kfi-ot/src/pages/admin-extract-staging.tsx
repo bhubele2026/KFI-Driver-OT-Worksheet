@@ -111,7 +111,7 @@ export default function AdminExtractStaging() {
               can re-upload the file from scratch.
             </p>
             <div className="flex flex-wrap gap-2 mb-4 text-xs">
-              <Badge variant="secondary" className="font-mono">
+              <Badge variant="secondary" className="fin-num">
                 {rows.length === LIMIT
                   ? `${rows.length}+ uploads in flight`
                   : `${rows.length} upload${rows.length === 1 ? "" : "s"} in flight`}
@@ -149,19 +149,19 @@ export default function AdminExtractStaging() {
                       <TableCell className="text-xs align-top">
                         {r.customer}
                       </TableCell>
-                      <TableCell className="text-xs align-top whitespace-nowrap font-mono text-muted-foreground">
+                      <TableCell className="text-xs align-top whitespace-nowrap fin-num text-muted-foreground">
                         {r.weekStart}
                       </TableCell>
                       <TableCell className="text-sm align-top">
                         <p className="break-words max-w-[40ch]">{r.fileName}</p>
-                        <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                        <div className="text-[10px] text-muted-foreground fin-num mt-0.5">
                           key {r.uploadKey}
                         </div>
                       </TableCell>
-                      <TableCell className="text-xs align-top whitespace-nowrap font-mono">
+                      <TableCell className="text-xs align-top whitespace-nowrap fin-num">
                         {r.chunksStaged}/{r.chunkCount}
                       </TableCell>
-                      <TableCell className="text-xs align-top whitespace-nowrap font-mono text-muted-foreground">
+                      <TableCell className="text-xs align-top whitespace-nowrap fin-num text-muted-foreground">
                         {format(new Date(r.lastTouchedAt), "yyyy-MM-dd HH:mm")}
                         <div className="text-[10px] mt-0.5">
                           started{" "}

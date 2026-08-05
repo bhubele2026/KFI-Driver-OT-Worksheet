@@ -480,7 +480,7 @@ export function NewCustomerDialog({
                               ) : null}
                             </div>
                           </TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground">
+                          <TableCell className="fin-num text-xs text-muted-foreground">
                             {s.badgeOrId ?? "—"}
                           </TableCell>
                           <TableCell>
@@ -504,7 +504,7 @@ export function NewCustomerDialog({
                                   <SelectItem key={m.kfiId} value={m.kfiId}>
                                     <span className="flex items-center gap-2">
                                       <span>{formatPersonName(m.name)}</span>
-                                      <span className="text-muted-foreground font-mono text-[10px]">
+                                      <span className="text-muted-foreground fin-num text-[10px]">
                                         {m.kfiId}
                                       </span>
                                       {s.savedKfiId === m.kfiId &&
@@ -594,7 +594,7 @@ export function NewCustomerDialog({
                                 onChange={(e) =>
                                   updateRow(idx, { date: e.target.value })
                                 }
-                                className="h-7 font-mono text-xs w-[110px]"
+                                className="h-7 fin-num text-xs w-[110px]"
                               />
                             </TableCell>
                             <TableCell>
@@ -604,7 +604,7 @@ export function NewCustomerDialog({
                                   updateRow(idx, { timeIn: e.target.value })
                                 }
                                 placeholder="7:00 AM"
-                                className="h-7 font-mono text-xs w-[90px]"
+                                className="h-7 fin-num text-xs w-[90px]"
                               />
                             </TableCell>
                             <TableCell>
@@ -614,10 +614,10 @@ export function NewCustomerDialog({
                                   updateRow(idx, { timeOut: e.target.value })
                                 }
                                 placeholder="3:30 PM"
-                                className="h-7 font-mono text-xs w-[90px]"
+                                className="h-7 fin-num text-xs w-[90px]"
                               />
                             </TableCell>
-                            <TableCell className="text-right font-mono text-xs">
+                            <TableCell className="text-right fin-num text-xs">
                               {r.hours != null ? r.hours.toFixed(2) : "—"}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">

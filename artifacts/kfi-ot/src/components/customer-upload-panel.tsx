@@ -1621,7 +1621,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-[11px] truncate">
+                      <span className="fin-num text-[11px] truncate">
                         {item.file.name}
                       </span>
                       {item.customer && (
@@ -1973,12 +1973,12 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                             {me?.isAdmin ? (
                               <Link
                                 href={`/admin/driver-id-aliases?${params.toString()}`}
-                                className="font-mono underline decoration-dotted hover:text-destructive/80"
+                                className="fin-num underline decoration-dotted hover:text-destructive/80"
                               >
                                 {label}
                               </Link>
                             ) : (
-                              <span className="font-mono">{label}</span>
+                              <span className="fin-num">{label}</span>
                             )}
                           </span>
                         );
@@ -2038,7 +2038,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
                     : 0;
                 return (
                   <span
-                    className="text-xs text-muted-foreground font-mono tabular-nums whitespace-nowrap"
+                    className="text-xs text-muted-foreground fin-num tabular-nums whitespace-nowrap"
                     aria-live="polite"
                     data-testid={`upload-elapsed-${s.customer}`}
                     title={hint ?? undefined}

@@ -132,7 +132,7 @@ export default function AdminDeletedNotes() {
               {t("adminDeletedNotesExtra.description")}
             </p>
             <div className="flex flex-wrap gap-2 mb-4 text-xs">
-              <Badge variant="secondary" className="font-mono">
+              <Badge variant="secondary" className="fin-num">
                 {notes.length === LIMIT
                   ? t("adminDeletedNotesExtra.hiddenCountMore", { count: notes.length })
                   : t("adminDeletedNotesExtra.hiddenCount", { count: notes.length })}
@@ -160,7 +160,7 @@ export default function AdminDeletedNotes() {
                 <TableBody>
                   {notes.map((n) => (
                     <TableRow key={n.id} data-testid={`row-deleted-note-${n.id}`}>
-                      <TableCell className="text-xs align-top whitespace-nowrap font-mono text-muted-foreground">
+                      <TableCell className="text-xs align-top whitespace-nowrap fin-num text-muted-foreground">
                         <Link
                           href={`/weeks/${n.weekStart}`}
                           className="underline decoration-dotted hover:text-foreground"
@@ -168,7 +168,7 @@ export default function AdminDeletedNotes() {
                           {n.weekStart}
                         </Link>
                       </TableCell>
-                      <TableCell className="text-xs align-top whitespace-nowrap font-mono">
+                      <TableCell className="text-xs align-top whitespace-nowrap fin-num">
                         <Link
                           href={`/weeks/${n.weekStart}/drivers/${n.kfiId}`}
                           className="underline decoration-dotted hover:text-foreground"
@@ -192,22 +192,22 @@ export default function AdminDeletedNotes() {
                       <TableCell className="text-xs align-top">
                         <Badge
                           variant={roleBadgeVariant(n.authorRole)}
-                          className="font-mono text-[10px] mr-1.5 capitalize"
+                          className="fin-num text-[10px] mr-1.5 capitalize"
                         >
                           {n.authorRole}
                         </Badge>
-                        <span className="font-mono text-muted-foreground">
+                        <span className="fin-num text-muted-foreground">
                           {n.authorEmail ?? t("common.deletedUser")}
                         </span>
-                        <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                        <div className="text-[10px] text-muted-foreground fin-num mt-0.5">
                           {t("adminDeletedNotesExtra.wrote", { time: format(new Date(n.createdAt), "yyyy-MM-dd HH:mm") })}
                         </div>
                       </TableCell>
                       <TableCell className="text-xs align-top">
-                        <span className="font-mono text-muted-foreground">
+                        <span className="fin-num text-muted-foreground">
                           {n.deletedByEmail ?? t("common.deletedUser")}
                         </span>
-                        <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                        <div className="text-[10px] text-muted-foreground fin-num mt-0.5">
                           {format(new Date(n.deletedAt), "yyyy-MM-dd HH:mm")}
                         </div>
                       </TableCell>

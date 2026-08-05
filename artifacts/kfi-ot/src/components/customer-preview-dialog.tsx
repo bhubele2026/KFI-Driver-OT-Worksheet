@@ -358,7 +358,7 @@ export function CustomerPreviewDialog({
             {t("customerPreview.reviewTitle", { customer: preview.customer })}
           </DialogTitle>
           <DialogDescription>
-            <span className="font-mono text-xs">{preview.fileName}</span> ·{" "}
+            <span className="fin-num text-xs">{preview.fileName}</span> ·{" "}
             {t("customerPreview.description")}
           </DialogDescription>
         </DialogHeader>
@@ -511,7 +511,7 @@ export function CustomerPreviewDialog({
                             ? formatPersonName(u.sampleName)
                             : t("customerPreview.noNameOnDoc")}
                         </span>
-                        <span className="font-mono text-[10px] text-muted-foreground">
+                        <span className="fin-num text-[10px] text-muted-foreground">
                           {u.id.startsWith("name:")
                             ? t("customerPreview.rows", { count: u.count })
                             : t("customerPreview.rowsWithId", {
@@ -735,7 +735,7 @@ function DroppedBreakdown({
               <button
                 type="button"
                 onClick={() => onToggle(reason)}
-                className="text-[11px] underline-offset-2 hover:underline font-mono"
+                className="text-[11px] underline-offset-2 hover:underline fin-num"
                 data-testid={`button-drop-reason-${reason}`}
                 aria-expanded={isOpen}
               >
@@ -761,7 +761,7 @@ function DroppedBreakdown({
                       {items.map((r, i) => (
                         <tr
                           key={i}
-                          className="border-t border-amber-500/10 font-mono"
+                          className="border-t border-amber-500/10 fin-num"
                         >
                           <td className="px-2 py-1">
                             {r.rawRow.driverNameOnDoc ?? "—"}

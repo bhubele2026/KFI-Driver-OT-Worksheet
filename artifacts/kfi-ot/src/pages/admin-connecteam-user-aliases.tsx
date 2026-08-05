@@ -206,9 +206,9 @@ export default function AdminConnecteamUserAliases() {
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
               {t("adminConnecteamAliases.addDescPart1")}
-              <code className="font-mono">userId</code>
+              <code className="fin-num">userId</code>
               {t("adminConnecteamAliases.addDescPart2")}
-              <code className="font-mono"> USER_ID_ALIASES_LD</code>
+              <code className="fin-num"> USER_ID_ALIASES_LD</code>
               {t("adminConnecteamAliases.addDescPart3")}
             </p>
             <div className="grid gap-3 md:grid-cols-2">
@@ -220,7 +220,7 @@ export default function AdminConnecteamUserAliases() {
                   value={newCtUserId}
                   onChange={(e) => setNewCtUserId(e.target.value)}
                   placeholder={t("adminConnecteamAliases.ctIdPlaceholder")}
-                  className="font-mono"
+                  className="fin-num"
                   inputMode="numeric"
                   data-testid="input-new-ct-user-id"
                 />
@@ -249,7 +249,7 @@ export default function AdminConnecteamUserAliases() {
                         <span className="font-medium">
                           {formatPersonName(d.name)}
                         </span>
-                        <span className="font-mono text-[10px] text-muted-foreground ml-2">
+                        <span className="fin-num text-[10px] text-muted-foreground ml-2">
                           {d.kfiId}
                           {d.customer ? ` · ${d.customer}` : ""}
                         </span>
@@ -309,19 +309,19 @@ export default function AdminConnecteamUserAliases() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2 mb-4 text-xs">
-              <Badge variant="secondary" className="font-mono">
+              <Badge variant="secondary" className="fin-num">
                 {t("adminConnecteamAliases.totalBadge", { count: aliases.length })}
               </Badge>
               {seeded > 0 && (
                 <Badge
                   variant="outline"
-                  className="font-mono border-sky-500/50 text-sky-700 dark:text-sky-400"
+                  className="fin-num border-sky-500/50 text-sky-700 dark:text-sky-400"
                 >
                   {t("adminConnecteamAliases.seededBadge", { count: seeded })}
                 </Badge>
               )}
               {orphans > 0 && (
-                <Badge variant="destructive" className="font-mono">
+                <Badge variant="destructive" className="fin-num">
                   {t("adminConnecteamAliases.orphansBadge", { count: orphans })}
                 </Badge>
               )}
@@ -353,10 +353,10 @@ export default function AdminConnecteamUserAliases() {
                     return (
                       <Fragment key={a.ctUserId}>
                         <TableRow data-testid={`row-alias-${a.ctUserId}`}>
-                          <TableCell className="font-mono text-xs align-top">
+                          <TableCell className="fin-num text-xs align-top">
                             {a.ctUserId}
                             {a.seededFromStatic && (
-                              <div className="text-[10px] uppercase tracking-wider text-sky-700 dark:text-sky-400 font-mono mt-1">
+                              <div className="text-[10px] uppercase tracking-wider text-sky-700 dark:text-sky-400 fin-num mt-1">
                                 {t("adminConnecteamAliases.staticSeed")}
                               </div>
                             )}
@@ -367,14 +367,14 @@ export default function AdminConnecteamUserAliases() {
                                 <span className="font-medium">
                                   {formatPersonName(a.driverName)}
                                 </span>
-                                <span className="font-mono text-[10px] text-muted-foreground">
+                                <span className="fin-num text-[10px] text-muted-foreground">
                                   {a.kfiId}
                                   {a.driverCustomer
                                     ? ` · ${a.driverCustomer}`
                                     : ""}
                                 </span>
                                 {a.driverIsArchived && (
-                                  <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono flex items-center gap-1">
+                                  <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 fin-num flex items-center gap-1">
                                     <AlertTriangle className="h-3 w-3" />
                                     {t("adminConnecteamAliases.archivedDriver")}
                                   </span>
@@ -382,10 +382,10 @@ export default function AdminConnecteamUserAliases() {
                               </div>
                             ) : (
                               <div className="flex flex-col gap-0.5">
-                                <span className="font-mono text-[10px]">
+                                <span className="fin-num text-[10px]">
                                   {a.kfiId}
                                 </span>
-                                <span className="text-[10px] uppercase tracking-wider text-rose-600 dark:text-rose-400 font-mono flex items-center gap-1">
+                                <span className="text-[10px] uppercase tracking-wider text-rose-600 dark:text-rose-400 fin-num flex items-center gap-1">
                                   <AlertTriangle className="h-3 w-3" />
                                   {t("adminConnecteamAliases.noLongerInRoster")}
                                 </span>
@@ -410,14 +410,14 @@ export default function AdminConnecteamUserAliases() {
                               </span>
                             ) : (
                               <>
-                                <div className="font-mono text-muted-foreground">
+                                <div className="fin-num text-muted-foreground">
                                   {format(
                                     new Date(a.updatedAt),
                                     "yyyy-MM-dd HH:mm",
                                   )}
                                 </div>
                                 {a.updatedByEmail && (
-                                  <div className="font-mono text-[10px] text-muted-foreground">
+                                  <div className="fin-num text-[10px] text-muted-foreground">
                                     {t("adminConnecteamAliases.byEmail", { email: a.updatedByEmail })}
                                   </div>
                                 )}
@@ -478,7 +478,7 @@ export default function AdminConnecteamUserAliases() {
                                         <span className="font-medium">
                                           {formatPersonName(d.name)}
                                         </span>
-                                        <span className="font-mono text-[10px] text-muted-foreground ml-2">
+                                        <span className="fin-num text-[10px] text-muted-foreground ml-2">
                                           {d.kfiId}
                                           {d.customer ? ` · ${d.customer}` : ""}
                                         </span>

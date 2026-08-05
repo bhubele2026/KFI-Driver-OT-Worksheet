@@ -16,7 +16,7 @@ export function ReviewedPill({ reviewed, total, className, testId }: ReviewedPil
     <span
       data-testid={testId}
       className={cn(
-        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-medium border",
+        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs fin-num font-medium border",
         allDone
           ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
           : "bg-muted text-muted-foreground border-border",

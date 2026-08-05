@@ -169,9 +169,25 @@ function formatClockCell(value: string, rowDate?: string): string {
   if (!value) return "";
   const m = value.match(/^(\d{4})-(\d{2})-(\d{2})\s+(.+)$/);
   if (!m) return value;
-  const [, yyyy, mm, dd, time] = m;
-  if (rowDate && `${yyyy}-${mm}-${dd}` === rowDate) return to12HourTime(time);
-  return `${mm}/${dd}, ${to12HourTime(time)}`;
+  return to12HourTime(m[4]);
+}
+
+/**
+ * EVERY clock cell renders the same "h:MM AM" shape (Brad, 2026-08-05:
+ * "make sure all time formats are the same") — a cell that lands on a
+ * different calendar day than its row no longer switches to a
+ * "MM/DD, h:MM AM" format. The day difference is carried by a separate
+ * small marker instead, so the times themselves stay uniform and aligned.
+ * Returns the number of days the value sits past `rowDate` (0 = same day).
+ */
+function clockDayOffset(value: string, rowDate?: string): number {
+  if (!value || !rowDate) return 0;
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})\s+/);
+  if (!m) return 0;
+  const cell = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const [ry, rm, rd] = rowDate.split("-").map(Number);
+  if (!ry || !rm || !rd) return 0;
+  return Math.round((cell - Date.UTC(ry, rm - 1, rd)) / 86_400_000);
 }
 
 /**
@@ -2314,8 +2330,9 @@ export default function DriverDetail() {
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60 [&>th]:h-9 [&>th]:h-10 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-muted-foreground">
-                  <TableHead className="uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.clockIn")}</TableHead>
-                  <TableHead className="uppercase text-[11px] tracking-wider">{t("driverDetail.punchTable.clockOut")}</TableHead>
+                  <TableHead className="uppercase text-[11px] tracking-wider w-[110px]">{t("driverDetail.punchTable.source")}</TableHead>
+                  <TableHead className="uppercase text-[11px] tracking-wider w-[120px]">{t("driverDetail.punchTable.clockIn")}</TableHead>
+                  <TableHead className="uppercase text-[11px] tracking-wider w-[120px]">{t("driverDetail.punchTable.clockOut")}</TableHead>
                   <TableHead className="text-right uppercase text-[11px] tracking-wider w-[80px]">{t("driverDetail.punchTable.hours")}</TableHead>
                   <TableHead className="text-right uppercase text-[11px] tracking-wider w-[90px]">{t("driverDetail.punchTable.running")}</TableHead>
                   <TableHead className="text-right w-[90px] print:hidden"></TableHead>
@@ -2324,7 +2341,7 @@ export default function DriverDetail() {
               <TableBody>
                 {rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
                       {t("driverDetail.noPunches")}
                     </TableCell>
                   </TableRow>
@@ -2359,7 +2376,7 @@ export default function DriverDetail() {
                         id={`day-${p.date}`}
                         className="scroll-mt-24 border-b border-border bg-muted/40 hover:bg-muted/40"
                       >
-                        <TableCell colSpan={5} className="py-1.5">
+                        <TableCell colSpan={6} className="py-1.5">
                           <div className="flex items-baseline justify-between gap-3">
                             <span className="font-display text-xs font-semibold uppercase tracking-wider text-foreground/80">
                               {format(parseISO(p.date), "EEE · MMM d")}
@@ -2382,35 +2399,54 @@ export default function DriverDetail() {
                       }
                       style={rowStyle}
                       className={cn(
-                        "group/row scroll-mt-24 border-b border-border/40 transition-colors hover:bg-muted/50 [&>td]:py-2",
+                        "group/row scroll-mt-24 border-b border-border/25 transition-colors hover:bg-muted/50 [&>td]:py-2",
                         isOt && "bg-brand-orange/[0.05] hover:bg-brand-orange/10",
                         (p as { flagged?: boolean }).flagged &&
                           "border-l-2 border-l-rose-400 bg-rose-500/[0.05] hover:bg-rose-500/10",
                       )}
                     >
+                      {/* Source is NAMED, not a bare dot (Brad, 2026-08-05):
+                          a thin color bar carries the scan, the word carries
+                          the meaning. Badges live here so a MANUAL/EDITED row
+                          never pushes its clock time sideways. */}
+                      <TableCell className="text-xs whitespace-nowrap align-top">
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            aria-hidden
+                            className={cn(
+                              "h-3.5 w-[3px] shrink-0 rounded-full",
+                              isDriver ? "bg-brand-navy" : "bg-sky-500",
+                            )}
+                          />
+                          <span
+                            className={cn(
+                              "font-medium",
+                              isDriver ? "text-brand-navy" : "text-sky-600",
+                            )}
+                            data-testid={`text-punch-source-${p.id}`}
+                          >
+                            {isDriver
+                              ? t("driverDetail.driverConnect")
+                              : t("driverDetail.customerSource")}
+                          </span>
+                        </span>
+                        {(p.isManual || p.edited) && (
+                          <span className="mt-0.5 flex flex-wrap gap-1 pl-[10px]">
+                            {p.isManual && (
+                              <span className="text-[9px] uppercase tracking-wider px-1 py-0 rounded border border-border text-muted-foreground">
+                                {t("driverDetail.manualBadge")}
+                              </span>
+                            )}
+                            {p.edited && (
+                              <span className="text-[9px] uppercase tracking-wider px-1 py-0 rounded border border-border text-muted-foreground">
+                                {t("driverDetail.editedBadge")}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell className="fin-num text-xs whitespace-nowrap">
                         <span className="inline-flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "h-2 w-2 shrink-0 rounded-full",
-                            isDriver ? "bg-brand-navy" : "bg-sky-500",
-                          )}
-                          title={
-                            isDriver
-                              ? t("driverDetail.driverConnect")
-                              : t("driverDetail.customerSource")
-                          }
-                        />
-                        {p.isManual && (
-                          <span className="text-[9px] uppercase tracking-wider px-1 py-0 rounded border border-border text-muted-foreground">
-                            {t("driverDetail.manualBadge")}
-                          </span>
-                        )}
-                        {p.edited && (
-                          <span className="text-[9px] uppercase tracking-wider px-1 py-0 rounded border border-border text-muted-foreground">
-                            {t("driverDetail.editedBadge")}
-                          </span>
-                        )}
                         {isEditing ? (
                           <Input
                             autoFocus
@@ -2459,7 +2495,24 @@ export default function DriverDetail() {
                             data-testid={`input-edit-clock-out-${p.id}`}
                           />
                         ) : (
-                          formatClockCell(displayClock(p.clockOut, p.dispTz), p.date)
+                          (() => {
+                            const shown = displayClock(p.clockOut, p.dispTz);
+                            const off = clockDayOffset(shown, p.date);
+                            return (
+                              <span className="inline-flex items-baseline gap-1">
+                                {formatClockCell(shown, p.date)}
+                                {off > 0 ? (
+                                  <span
+                                    className="text-[9px] font-medium text-muted-foreground"
+                                    title={t("driverDetail.nextDayTitle")}
+                                    data-testid={`text-next-day-${p.id}`}
+                                  >
+                                    +{off}d
+                                  </span>
+                                ) : null}
+                              </span>
+                            );
+                          })()
                         )}
                       </TableCell>
                       <TableCell className="text-right fin-num font-medium text-xs">
@@ -2728,7 +2781,7 @@ export default function DriverDetail() {
                         className="bg-muted/30 hover:bg-muted/30"
                         data-testid={`row-punch-notes-${p.id}`}
                       >
-                        <TableCell colSpan={5} className="px-4 py-3">
+                        <TableCell colSpan={6} className="px-4 py-3">
                           <div className="space-y-2">
                             {punchNotes.length > 0 && (
                               <ul className="space-y-2">

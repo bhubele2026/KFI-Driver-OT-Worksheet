@@ -203,18 +203,18 @@ export default function AdminCustomerAliases() {
               {t("adminCustomerAliasesExtra.description")}
             </p>
             <div className="flex flex-wrap gap-2 mb-4 text-xs">
-              <Badge variant="secondary" className="font-mono">
+              <Badge variant="secondary" className="fin-num">
                 {t("adminCustomerAliasesExtra.totalBadge", { count: totalAliases })}
               </Badge>
               {orphans > 0 && (
-                <Badge variant="destructive" className="font-mono">
+                <Badge variant="destructive" className="fin-num">
                   {t("adminCustomerAliasesExtra.orphansBadge", { count: orphans })}
                 </Badge>
               )}
               {archived > 0 && (
                 <Badge
                   variant="outline"
-                  className="font-mono border-amber-500/50 text-amber-700 dark:text-amber-400"
+                  className="fin-num border-amber-500/50 text-amber-700 dark:text-amber-400"
                 >
                   {t("adminCustomerAliasesExtra.archivedBadge", { count: archived })}
                 </Badge>
@@ -222,7 +222,7 @@ export default function AdminCustomerAliases() {
               {staleCount > 0 && (
                 <Badge
                   variant="outline"
-                  className="font-mono border-amber-500/50 text-amber-700 dark:text-amber-400"
+                  className="fin-num border-amber-500/50 text-amber-700 dark:text-amber-400"
                 >
                   {t("adminCustomerAliasesExtra.staleBadge", { count: staleCount, days: STALE_AFTER_DAYS })}
                 </Badge>
@@ -241,7 +241,7 @@ export default function AdminCustomerAliases() {
                   <div key={customer}>
                     <h2 className="font-display text-sm font-semibold mb-2 flex items-center gap-2">
                       {customer}
-                      <span className="text-xs font-mono text-muted-foreground">
+                      <span className="text-xs fin-num text-muted-foreground">
                         · {rows.length}
                       </span>
                     </h2>
@@ -263,7 +263,7 @@ export default function AdminCustomerAliases() {
                           return (
                             <Fragment key={`${a.customer}::${a.nameOnDoc}`}>
                               <TableRow>
-                                <TableCell className="font-mono text-xs align-top">
+                                <TableCell className="fin-num text-xs align-top">
                                   {formatPersonName(a.nameOnDoc)}
                                 </TableCell>
                                 <TableCell className="text-xs align-top">
@@ -272,14 +272,14 @@ export default function AdminCustomerAliases() {
                                       <span className="font-medium">
                                         {formatPersonName(a.driverName)}
                                       </span>
-                                      <span className="font-mono text-[10px] text-muted-foreground">
+                                      <span className="fin-num text-[10px] text-muted-foreground">
                                         {a.kfiId}
                                         {a.driverCustomer
                                           ? ` · ${a.driverCustomer}`
                                           : ""}
                                       </span>
                                       {a.driverIsArchived && (
-                                        <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono flex items-center gap-1">
+                                        <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 fin-num flex items-center gap-1">
                                           <AlertTriangle className="h-3 w-3" />
                                           {t("adminCustomerAliasesExtra.archivedDriver")}
                                         </span>
@@ -287,10 +287,10 @@ export default function AdminCustomerAliases() {
                                     </div>
                                   ) : (
                                     <div className="flex flex-col gap-0.5">
-                                      <span className="font-mono text-[10px]">
+                                      <span className="fin-num text-[10px]">
                                         {a.kfiId}
                                       </span>
-                                      <span className="text-[10px] uppercase tracking-wider text-rose-600 dark:text-rose-400 font-mono flex items-center gap-1">
+                                      <span className="text-[10px] uppercase tracking-wider text-rose-600 dark:text-rose-400 fin-num flex items-center gap-1">
                                         <AlertTriangle className="h-3 w-3" />
                                         {t("adminCustomerAliasesExtra.noLongerInRoster")}
                                       </span>
@@ -298,14 +298,14 @@ export default function AdminCustomerAliases() {
                                   )}
                                 </TableCell>
                                 <TableCell className="text-xs align-top whitespace-nowrap">
-                                  <div className="font-mono text-muted-foreground">
+                                  <div className="fin-num text-muted-foreground">
                                     {format(
                                       new Date(a.updatedAt),
                                       "yyyy-MM-dd HH:mm",
                                     )}
                                   </div>
                                   {a.updatedByEmail && (
-                                    <div className="font-mono text-[10px] text-muted-foreground">
+                                    <div className="fin-num text-[10px] text-muted-foreground">
                                       {t("adminCustomerAliasesExtra.byEmail", { email: a.updatedByEmail })}
                                     </div>
                                   )}
@@ -313,26 +313,26 @@ export default function AdminCustomerAliases() {
                                 <TableCell className="text-xs align-top whitespace-nowrap">
                                   {a.lastUsedWeek ? (
                                     <div className="flex flex-col gap-0.5">
-                                      <span className="font-mono text-muted-foreground">
+                                      <span className="fin-num text-muted-foreground">
                                         {t("adminCustomerAliasesExtra.weekOf", { week: a.lastUsedWeek })}
                                       </span>
-                                      <span className="font-mono text-[10px] text-muted-foreground">
+                                      <span className="fin-num text-[10px] text-muted-foreground">
                                         {a.weeksUsedCount === 1
                                           ? t("adminCustomerAliasesExtra.weekOne", { count: a.weeksUsedCount })
                                           : t("adminCustomerAliasesExtra.weekOther", { count: a.weeksUsedCount })}
                                       </span>
                                       {isStale(a.lastUsedWeek) && (
-                                        <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono">
+                                        <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 fin-num">
                                           {t("adminCustomerAliasesExtra.stale")}
                                         </span>
                                       )}
                                     </div>
                                   ) : (
                                     <div className="flex flex-col gap-0.5">
-                                      <span className="font-mono text-[10px] text-muted-foreground italic">
+                                      <span className="fin-num text-[10px] text-muted-foreground italic">
                                         {t("adminCustomerAliasesExtra.neverSeen")}
                                       </span>
-                                      <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono">
+                                      <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 fin-num">
                                         {t("adminCustomerAliasesExtra.stale")}
                                       </span>
                                     </div>
@@ -429,15 +429,15 @@ export default function AdminCustomerAliases() {
                 <TableBody>
                   {auditLog.map((entry) => (
                     <TableRow key={entry.id}>
-                      <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap align-top">
+                      <TableCell className="fin-num text-xs text-muted-foreground whitespace-nowrap align-top">
                         {format(new Date(entry.createdAt), "yyyy-MM-dd HH:mm")}
                       </TableCell>
-                      <TableCell className="font-mono text-xs align-top">
+                      <TableCell className="fin-num text-xs align-top">
                         {entry.actorEmail ?? "—"}
                       </TableCell>
                       <TableCell className="align-top">
                         <span
-                          className={`text-xs font-mono uppercase tracking-wider ${
+                          className={`text-xs fin-num uppercase tracking-wider ${
                             entry.action === "forget"
                               ? "text-rose-600 dark:text-rose-400"
                               : "text-primary"
@@ -448,7 +448,7 @@ export default function AdminCustomerAliases() {
                       </TableCell>
                       <TableCell className="text-xs align-top">
                         <div className="font-medium">{entry.customer}</div>
-                        <div className="font-mono text-[10px] text-muted-foreground">
+                        <div className="fin-num text-[10px] text-muted-foreground">
                           {formatPersonName(entry.nameOnDoc)}
                         </div>
                       </TableCell>
@@ -491,7 +491,7 @@ function KfiIdLabel({
   const { t } = useTranslation();
   if (!kfiId) {
     return (
-      <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">
+      <span className="text-[10px] uppercase tracking-wider fin-num text-muted-foreground">
         {t("adminCustomerAliasesExtra.noneLabel")}
       </span>
     );
@@ -499,7 +499,7 @@ function KfiIdLabel({
   return (
     <span className="inline-flex flex-col">
       <span className="font-medium">{driverName ? formatPersonName(driverName) : t("adminCustomerAliasesExtra.unknownDriver")}</span>
-      <span className="font-mono text-[10px] text-muted-foreground">
+      <span className="fin-num text-[10px] text-muted-foreground">
         {kfiId}
       </span>
     </span>
@@ -538,7 +538,7 @@ function EditDriverRow({
             {drivers.map((d) => (
               <SelectItem key={d.kfiId} value={d.kfiId}>
                 <span className="font-medium">{formatPersonName(d.name)}</span>
-                <span className="font-mono text-[10px] text-muted-foreground ml-2">
+                <span className="fin-num text-[10px] text-muted-foreground ml-2">
                   {d.kfiId} · {d.customer}
                 </span>
               </SelectItem>

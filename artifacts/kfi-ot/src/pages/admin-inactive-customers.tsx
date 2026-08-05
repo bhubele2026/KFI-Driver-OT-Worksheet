@@ -136,10 +136,10 @@ export default function AdminInactiveCustomers() {
                       <TableCell className="text-sm font-medium">
                         {c.customer}
                       </TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground whitespace-nowrap">
+                      <TableCell className="text-xs fin-num text-muted-foreground whitespace-nowrap">
                         {format(new Date(c.inactiveAt), "yyyy-MM-dd HH:mm")}
                       </TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground">
+                      <TableCell className="text-xs fin-num text-muted-foreground">
                         {c.inactiveByEmail ?? "—"}
                       </TableCell>
                       <TableCell>

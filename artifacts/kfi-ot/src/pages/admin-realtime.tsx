@@ -89,7 +89,7 @@ export default function AdminRealtime() {
       </div>
       {err && (
         <Card>
-          <CardContent className="py-4 text-sm text-destructive font-mono">
+          <CardContent className="py-4 text-sm text-destructive fin-num">
             {err}
           </CardContent>
         </Card>
@@ -101,7 +101,7 @@ export default function AdminRealtime() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">{t("adminRealtime.sseClients")}</CardTitle>
               </CardHeader>
-              <CardContent className="font-mono text-2xl">
+              <CardContent className="fin-num text-2xl">
                 {data.clientCount}
               </CardContent>
             </Card>
@@ -109,7 +109,7 @@ export default function AdminRealtime() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">{t("adminRealtime.activeViewers")}</CardTitle>
               </CardHeader>
-              <CardContent className="font-mono text-2xl">
+              <CardContent className="fin-num text-2xl">
                 {data.presenceCount}
               </CardContent>
             </Card>
@@ -117,7 +117,7 @@ export default function AdminRealtime() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">{t("adminRealtime.editingLocks")}</CardTitle>
               </CardHeader>
-              <CardContent className="font-mono text-2xl">
+              <CardContent className="fin-num text-2xl">
                 {data.editingCount}
               </CardContent>
             </Card>
@@ -131,7 +131,7 @@ export default function AdminRealtime() {
               {data.clients.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t("adminRealtime.noClients")}</p>
               ) : (
-                <table className="w-full text-xs font-mono">
+                <table className="w-full text-xs fin-num">
                   <thead>
                     <tr className="text-left text-muted-foreground">
                       <th className="py-1">{t("adminRealtime.email")}</th>
@@ -163,7 +163,7 @@ export default function AdminRealtime() {
               {data.editing.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t("adminRealtime.noEditing")}</p>
               ) : (
-                <table className="w-full text-xs font-mono">
+                <table className="w-full text-xs fin-num">
                   <thead>
                     <tr className="text-left text-muted-foreground">
                       <th className="py-1">{t("adminRealtime.email")}</th>

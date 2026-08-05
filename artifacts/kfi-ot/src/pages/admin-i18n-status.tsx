@@ -42,7 +42,7 @@ export default function AdminI18nStatus() {
         <div className="space-y-1">
           <h1 className="text-2xl font-bold font-display tracking-tight">{t("adminI18n.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("adminI18n.description")}</p>
-          <p className="text-xs text-muted-foreground font-mono">
+          <p className="text-xs text-muted-foreground fin-num">
             {t("adminI18n.summary", { total: report.totalKeys, locales: report.locales.length })}
           </p>
         </div>
@@ -51,7 +51,7 @@ export default function AdminI18nStatus() {
           <Card key={row.locale} data-testid={`card-locale-${row.locale}`}>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-lg flex items-center gap-2 font-mono uppercase">
+                <CardTitle className="text-lg flex items-center gap-2 fin-num uppercase">
                   {row.locale}
                   {row.keys.length === 0 && row.machineTranslated.length === 0 ? (
                     <CheckCircle2 className="h-4 w-4 text-emerald-500" />
@@ -60,10 +60,10 @@ export default function AdminI18nStatus() {
                   )}
                 </CardTitle>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="font-mono">
+                  <Badge variant="outline" className="fin-num">
                     {row.keys.length} missing
                   </Badge>
-                  <Badge variant="outline" className="font-mono">
+                  <Badge variant="outline" className="fin-num">
                     {row.machineTranslated.length} machine
                   </Badge>
                 </div>
@@ -79,7 +79,7 @@ export default function AdminI18nStatus() {
                 <div>
                   <h3 className="text-sm font-semibold mb-2">{t("adminI18n.missingHeading")}</h3>
                   <ul
-                    className="text-xs font-mono bg-muted/40 rounded-md p-3 space-y-1 max-h-72 overflow-auto"
+                    className="text-xs fin-num bg-muted/40 rounded-md p-3 space-y-1 max-h-72 overflow-auto"
                     data-testid={`list-missing-${row.locale}`}
                   >
                     {row.keys.map((k) => (
@@ -95,7 +95,7 @@ export default function AdminI18nStatus() {
                   <h3 className="text-sm font-semibold mb-1">{t("adminI18n.machineHeading")}</h3>
                   <p className="text-xs text-muted-foreground mb-2">{t("adminI18n.machineDescription")}</p>
                   <ul
-                    className="text-xs font-mono bg-muted/40 rounded-md p-3 space-y-1 max-h-72 overflow-auto"
+                    className="text-xs fin-num bg-muted/40 rounded-md p-3 space-y-1 max-h-72 overflow-auto"
                     data-testid={`list-machine-${row.locale}`}
                   >
                     {row.machineTranslated.map((k) => (

@@ -129,7 +129,7 @@ export function DriverPicker({
                     )}
                   />
                   <span className="font-medium">{formatPersonName(d.name)}</span>
-                  <span className="ml-2 font-mono text-[10px] text-muted-foreground">
+                  <span className="ml-2 fin-num text-[10px] text-muted-foreground">
                     {d.kfiId} · {d.customer}
                   </span>
                   {d.kfiId === suggestedKfiId ? (

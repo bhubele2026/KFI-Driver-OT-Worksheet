@@ -212,14 +212,14 @@ export default function AdminCustomerLessons() {
             </p>
 
             <div className="flex flex-wrap gap-2 text-xs">
-              <Badge variant="secondary" className="font-mono">
+              <Badge variant="secondary" className="fin-num">
                 {lessons.length} total
               </Badge>
-              <Badge variant="secondary" className="font-mono">
+              <Badge variant="secondary" className="fin-num">
                 {activeCount} active
               </Badge>
               {inactiveCount > 0 && (
-                <Badge variant="outline" className="font-mono">
+                <Badge variant="outline" className="fin-num">
                   {inactiveCount} inactive
                 </Badge>
               )}
@@ -229,7 +229,7 @@ export default function AdminCustomerLessons() {
               className="rounded-md border p-3 space-y-2"
               data-testid="lesson-budget"
             >
-              <div className="flex items-center justify-between text-xs font-mono">
+              <div className="flex items-center justify-between text-xs fin-num">
                 <span className="uppercase tracking-wider text-muted-foreground">
                   Prompt budget
                 </span>
@@ -311,7 +311,7 @@ export default function AdminCustomerLessons() {
                               }
                               rows={4}
                               maxLength={1000}
-                              className="text-xs font-mono"
+                              className="text-xs fin-num"
                               data-testid={`lesson-edit-${l.id}`}
                             />
                           ) : (
@@ -319,7 +319,7 @@ export default function AdminCustomerLessons() {
                               {l.lessonText}
                             </p>
                           )}
-                          <p className="text-[10px] font-mono text-muted-foreground mt-1">
+                          <p className="text-[10px] fin-num text-muted-foreground mt-1">
                             {l.lessonText.length} chars
                             {l.createdByEmail ? ` · by ${l.createdByEmail}` : ""}
                           </p>
@@ -329,7 +329,7 @@ export default function AdminCustomerLessons() {
                             <div className="text-[11px] space-y-1">
                               <div className="flex items-center gap-1 text-muted-foreground">
                                 <MessageSquare className="h-3 w-3" />
-                                <span className="font-mono">
+                                <span className="fin-num">
                                   {l.sourceWeekStart
                                     ? `week of ${l.sourceWeekStart}`
                                     : "chat message"}
@@ -340,7 +340,7 @@ export default function AdminCustomerLessons() {
                               </p>
                             </div>
                           ) : (
-                            <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">
+                            <span className="text-[10px] uppercase tracking-wider fin-num text-muted-foreground">
                               {l.createdFromChatMessageId
                                 ? "source removed"
                                 : "manual / condensed"}
@@ -348,11 +348,11 @@ export default function AdminCustomerLessons() {
                           )}
                         </TableCell>
                         <TableCell className="align-top whitespace-nowrap">
-                          <div className="font-mono text-[11px] text-muted-foreground">
+                          <div className="fin-num text-[11px] text-muted-foreground">
                             {format(new Date(l.createdAt), "yyyy-MM-dd HH:mm")}
                           </div>
                           {l.updatedAt !== l.createdAt && (
-                            <div className="font-mono text-[10px] text-muted-foreground">
+                            <div className="fin-num text-[10px] text-muted-foreground">
                               edited{" "}
                               {format(new Date(l.updatedAt), "yyyy-MM-dd HH:mm")}
                               {l.updatedByEmail ? ` · ${l.updatedByEmail}` : ""}
@@ -361,9 +361,9 @@ export default function AdminCustomerLessons() {
                         </TableCell>
                         <TableCell className="align-top">
                           {l.active ? (
-                            <Badge className="font-mono">active</Badge>
+                            <Badge className="fin-num">active</Badge>
                           ) : (
-                            <Badge variant="outline" className="font-mono">
+                            <Badge variant="outline" className="fin-num">
                               inactive
                             </Badge>
                           )}

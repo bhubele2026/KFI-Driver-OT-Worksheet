@@ -305,7 +305,7 @@ export default function AdminTimezones() {
             ) : customerRows.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">
                 {t("adminTimezones.noPrefsBefore")}
-                <span className="font-mono">{DEFAULT_TZ_FALLBACK}</span>
+                <span className="fin-num">{DEFAULT_TZ_FALLBACK}</span>
                 {t("adminTimezones.noPrefsAfter")}
               </p>
             ) : (
@@ -371,12 +371,12 @@ export default function AdminTimezones() {
                             </SelectContent>
                           </Select>
                         </TableCell>
-                        <TableCell className="text-xs font-mono text-muted-foreground whitespace-nowrap">
+                        <TableCell className="text-xs fin-num text-muted-foreground whitespace-nowrap">
                           {hasPref
                             ? format(new Date(p!.updatedAt), "yyyy-MM-dd HH:mm")
                             : "—"}
                         </TableCell>
-                        <TableCell className="text-xs font-mono text-muted-foreground">
+                        <TableCell className="text-xs fin-num text-muted-foreground">
                           {hasPref ? p!.updatedByEmail ?? "—" : "—"}
                         </TableCell>
                         <TableCell>
@@ -430,7 +430,7 @@ export default function AdminTimezones() {
                     <TableRow key={d.kfiId}>
                       <TableCell className="text-sm">
                         <div className="font-medium">{d.name}</div>
-                        <div className="text-[10px] font-mono text-muted-foreground">
+                        <div className="text-[10px] fin-num text-muted-foreground">
                           {d.kfiId}
                         </div>
                       </TableCell>
@@ -471,7 +471,7 @@ export default function AdminTimezones() {
                         </Select>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="font-mono text-[10px]">
+                        <Badge variant="outline" className="fin-num text-[10px]">
                           {d.effectiveDispTz}
                         </Badge>
                       </TableCell>

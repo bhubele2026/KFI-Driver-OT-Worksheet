@@ -85,7 +85,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-        <p className="text-sm text-muted-foreground font-mono">{t("auth.initializing")}</p>
+        <p className="text-sm text-muted-foreground fin-num">{t("auth.initializing")}</p>
       </div>
     );
   }

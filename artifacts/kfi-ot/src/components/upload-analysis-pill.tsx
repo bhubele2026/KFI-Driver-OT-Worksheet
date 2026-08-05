@@ -129,7 +129,7 @@ export function UploadAnalysisPill({ weekStart, customer, summary }: PillProps) 
               {summary.summary || "No summary provided."}
             </DialogDescription>
           </DialogHeader>
-          <div className="text-xs text-muted-foreground font-mono">
+          <div className="text-xs text-muted-foreground fin-num">
             verdict: {summary.verdict} · lane: {summary.lane} · prompt:{" "}
             {summary.promptVersion} ·{" "}
             {new Date(summary.createdAt).toLocaleString()}
@@ -173,7 +173,7 @@ export function UploadAnalysisPill({ weekStart, customer, summary }: PillProps) 
                     </div>
                     <div className="mt-1">{f.message}</div>
                     {f.evidence && (
-                      <div className="mt-1 text-xs text-muted-foreground font-mono">
+                      <div className="mt-1 text-xs text-muted-foreground fin-num">
                         {f.evidence.driver && <>driver: {f.evidence.driver} · </>}
                         {f.evidence.kfiId && <>kfiId: {f.evidence.kfiId} · </>}
                         {f.evidence.date && <>date: {f.evidence.date} · </>}

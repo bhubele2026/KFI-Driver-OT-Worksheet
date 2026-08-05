@@ -252,6 +252,7 @@
     "needsRoster": "Needs roster cleanup",
     "customer": "Customer:",
     "kfiId": "KFI ID:",
+    "nextDayTitle": "Ends the next calendar day",
     "driverConnect": "Driver",
     "customerSource": "Customer",
     "overtimeThreshold": "Overtime threshold",

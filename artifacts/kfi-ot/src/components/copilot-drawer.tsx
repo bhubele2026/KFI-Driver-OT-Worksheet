@@ -391,7 +391,7 @@ function ToolSteps({ steps }: { steps: CopilotToolStep[] }) {
               ) : (
                 <XCircle className="h-3 w-3 mt-0.5 text-destructive shrink-0" />
               )}
-              <span className="font-mono text-[10px]">{s.tool}</span>
+              <span className="fin-num text-[10px]">{s.tool}</span>
               {s.summary && (
                 <span className="text-muted-foreground">— {s.summary}</span>
               )}
@@ -433,7 +433,7 @@ function PendingActionCard(props: {
       </ul>
       <ul className="mb-2 space-y-0.5">
         {action.calls.map((c, i) => (
-          <li key={`${c.label}-${i}`} className="font-mono text-[10px]">
+          <li key={`${c.label}-${i}`} className="fin-num text-[10px]">
             {c.label}
           </li>
         ))}

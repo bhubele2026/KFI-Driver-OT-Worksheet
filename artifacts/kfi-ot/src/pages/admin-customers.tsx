@@ -228,7 +228,7 @@ export default function AdminCustomers() {
             }}
             data-testid={`${keyPrefix}-ext-${ext}`}
           />
-          <span className="font-mono">.{ext}</span>
+          <span className="fin-num">.{ext}</span>
         </label>
       ))}
     </div>
@@ -353,7 +353,7 @@ export default function AdminCustomers() {
                             data-testid={`customer-active-${c.id}`}
                           />
                         </TableCell>
-                        <TableCell className="text-[11px] font-mono text-muted-foreground">
+                        <TableCell className="text-[11px] fin-num text-muted-foreground">
                           {new Date(c.updatedAt).toLocaleString()}
                           {c.updatedByEmail && (
                             <div className="text-muted-foreground/80">

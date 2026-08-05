@@ -197,7 +197,7 @@ export default function AdminClockOffsets() {
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
               Add an hour offset for a Connecteam{" "}
-              <code className="font-mono">clock_id</code> whose raw timestamps
+              <code className="fin-num">clock_id</code> whose raw timestamps
               drift from the wall-clock the driver actually punched. The offset
               (positive or negative, fractions allowed) is added to every punch
               from that clock on the next refresh. Saving the same clock id
@@ -212,7 +212,7 @@ export default function AdminClockOffsets() {
                   value={newClockId}
                   onChange={(e) => setNewClockId(e.target.value)}
                   placeholder="e.g. 2005033"
-                  className="font-mono"
+                  className="fin-num"
                   inputMode="numeric"
                   data-testid="input-new-clock-id"
                 />
@@ -232,7 +232,7 @@ export default function AdminClockOffsets() {
                   value={newHours}
                   onChange={(e) => setNewHours(e.target.value)}
                   placeholder="e.g. 1 or -0.5"
-                  className="font-mono"
+                  className="fin-num"
                   inputMode="decimal"
                   type="number"
                   step="0.25"
@@ -291,7 +291,7 @@ export default function AdminClockOffsets() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2 mb-4 text-xs">
-              <Badge variant="secondary" className="font-mono">
+              <Badge variant="secondary" className="fin-num">
                 {rows.length} total
               </Badge>
             </div>
@@ -323,10 +323,10 @@ export default function AdminClockOffsets() {
                     return (
                       <Fragment key={r.clockId}>
                         <TableRow data-testid={`row-clock-offset-${r.clockId}`}>
-                          <TableCell className="font-mono text-xs align-top">
+                          <TableCell className="fin-num text-xs align-top">
                             {r.clockId}
                           </TableCell>
-                          <TableCell className="font-mono text-xs align-top">
+                          <TableCell className="fin-num text-xs align-top">
                             {formatOffset(r.hoursOffset)}
                           </TableCell>
                           <TableCell className="text-xs align-top">
@@ -341,14 +341,14 @@ export default function AdminClockOffsets() {
                             )}
                           </TableCell>
                           <TableCell className="text-xs align-top whitespace-nowrap">
-                            <div className="font-mono text-muted-foreground">
+                            <div className="fin-num text-muted-foreground">
                               {format(
                                 new Date(r.updatedAt),
                                 "yyyy-MM-dd HH:mm",
                               )}
                             </div>
                             {r.updatedByEmail && (
-                              <div className="font-mono text-[10px] text-muted-foreground">
+                              <div className="fin-num text-[10px] text-muted-foreground">
                                 by {r.updatedByEmail}
                               </div>
                             )}
@@ -401,7 +401,7 @@ export default function AdminClockOffsets() {
                                       hoursOffset: e.target.value,
                                     })
                                   }
-                                  className="font-mono max-w-[10rem]"
+                                  className="fin-num max-w-[10rem]"
                                   inputMode="decimal"
                                   type="number"
                                   step="0.25"

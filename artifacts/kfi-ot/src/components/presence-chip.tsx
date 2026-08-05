@@ -47,7 +47,7 @@ export function PresenceChip({ viewers, selfEmail }: Props) {
       <Tooltip>
         <TooltipTrigger asChild>
           <div
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2 py-1 text-xs font-mono"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2 py-1 text-xs fin-num"
             data-testid="presence-chip"
           >
             <Users className="h-3.5 w-3.5 text-muted-foreground" />
@@ -84,7 +84,7 @@ export function PresenceChip({ viewers, selfEmail }: Props) {
                 <span
                   className={`inline-block h-2 w-2 rounded-full ${colorFor(v.email)}`}
                 />
-                <span className="font-mono">{v.email}</span>
+                <span className="fin-num">{v.email}</span>
                 {v.kfiId && (
                   <span className="text-muted-foreground">· {v.kfiId}</span>
                 )}

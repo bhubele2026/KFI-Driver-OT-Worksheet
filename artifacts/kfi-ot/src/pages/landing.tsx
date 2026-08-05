@@ -50,7 +50,7 @@ export default function Landing() {
             <LanguageToggle tone="navy" />
           </div>
           <div className="max-w-2xl py-14 sm:py-20">
-            <p className="font-mono text-xs uppercase tracking-[0.18em] text-sidebar-primary">
+            <p className="fin-num text-xs uppercase tracking-[0.18em] text-sidebar-primary">
               KFI Workforce Deployment
             </p>
             <h1 className="mt-3 font-display text-4xl font-bold leading-[1.05] sm:text-5xl">
@@ -99,7 +99,7 @@ export default function Landing() {
       </main>
 
       <footer className="mt-auto border-t border-border">
-        <div className="mx-auto w-full max-w-5xl px-6 py-5 font-mono text-xs text-muted-foreground">
+        <div className="mx-auto w-full max-w-5xl px-6 py-5 fin-num text-xs text-muted-foreground">
           KFI Workforce Deployment · internal payroll tool
         </div>
       </footer>

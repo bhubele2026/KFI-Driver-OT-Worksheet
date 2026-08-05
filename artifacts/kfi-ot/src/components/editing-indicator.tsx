@@ -14,7 +14,7 @@ export function EditingIndicator({ emails }: Props) {
       : t("editingIndicator.plural", { count: emails.length });
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-mono text-amber-700 dark:text-amber-300"
+      className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] fin-num text-amber-700 dark:text-amber-300"
       data-testid="editing-indicator"
       title={emails.join(", ")}
     >

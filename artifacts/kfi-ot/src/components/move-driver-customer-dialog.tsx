@@ -127,7 +127,7 @@ export function MoveDriverCustomerDialog({
           </DialogTitle>
           <DialogDescription>
             {t("moveDriverDialog.descriptionBefore", { name: driver.name })}
-            <span className="font-mono">{rosterCustomer}</span>
+            <span className="fin-num">{rosterCustomer}</span>
             {t("moveDriverDialog.descriptionAfter")}
           </DialogDescription>
         </DialogHeader>

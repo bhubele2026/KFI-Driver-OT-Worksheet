@@ -259,7 +259,7 @@ export default function AdminDriverIdAliases() {
                   value={newExternalId}
                   onChange={(e) => setNewExternalId(e.target.value)}
                   placeholder={t("adminDriverIdsExtra.externalIdPlaceholder")}
-                  className="font-mono"
+                  className="fin-num"
                 />
                 {conflictingExisting && (
                   <div className="text-[10px] text-amber-700 dark:text-amber-400 flex items-center gap-1">
@@ -282,7 +282,7 @@ export default function AdminDriverIdAliases() {
                     {drivers.map((d) => (
                       <SelectItem key={d.kfiId} value={d.kfiId}>
                         <span className="font-medium">{formatPersonName(d.name)}</span>
-                        <span className="font-mono text-[10px] text-muted-foreground ml-2">
+                        <span className="fin-num text-[10px] text-muted-foreground ml-2">
                           {d.kfiId} · {d.customer}
                         </span>
                       </SelectItem>
@@ -350,18 +350,18 @@ export default function AdminDriverIdAliases() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2 mb-4 text-xs">
-              <Badge variant="secondary" className="font-mono">
+              <Badge variant="secondary" className="fin-num">
                 {t("adminDriverIdsExtra.totalBadge", { count: aliases.length })}
               </Badge>
               {orphans > 0 && (
-                <Badge variant="destructive" className="font-mono">
+                <Badge variant="destructive" className="fin-num">
                   {t("adminDriverIdsExtra.orphansBadge", { count: orphans })}
                 </Badge>
               )}
               {archived > 0 && (
                 <Badge
                   variant="outline"
-                  className="font-mono border-amber-500/50 text-amber-700 dark:text-amber-400"
+                  className="fin-num border-amber-500/50 text-amber-700 dark:text-amber-400"
                 >
                   {t("adminDriverIdsExtra.archivedBadge", { count: archived })}
                 </Badge>
@@ -391,7 +391,7 @@ export default function AdminDriverIdAliases() {
                     return (
                       <Fragment key={a.externalId}>
                         <TableRow>
-                          <TableCell className="font-mono text-xs align-top">
+                          <TableCell className="fin-num text-xs align-top">
                             {a.externalId}
                           </TableCell>
                           <TableCell className="text-xs align-top">
@@ -400,14 +400,14 @@ export default function AdminDriverIdAliases() {
                                 <span className="font-medium">
                                   {formatPersonName(a.driverName)}
                                 </span>
-                                <span className="font-mono text-[10px] text-muted-foreground">
+                                <span className="fin-num text-[10px] text-muted-foreground">
                                   {a.kfiId}
                                   {a.driverCustomer
                                     ? ` · ${a.driverCustomer}`
                                     : ""}
                                 </span>
                                 {a.driverIsArchived && (
-                                  <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono flex items-center gap-1">
+                                  <span className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 fin-num flex items-center gap-1">
                                     <AlertTriangle className="h-3 w-3" />
                                     {t("adminDriverIdsExtra.archivedDriver")}
                                   </span>
@@ -415,10 +415,10 @@ export default function AdminDriverIdAliases() {
                               </div>
                             ) : (
                               <div className="flex flex-col gap-0.5">
-                                <span className="font-mono text-[10px]">
+                                <span className="fin-num text-[10px]">
                                   {a.kfiId}
                                 </span>
-                                <span className="text-[10px] uppercase tracking-wider text-rose-600 dark:text-rose-400 font-mono flex items-center gap-1">
+                                <span className="text-[10px] uppercase tracking-wider text-rose-600 dark:text-rose-400 fin-num flex items-center gap-1">
                                   <AlertTriangle className="h-3 w-3" />
                                   {t("adminDriverIdsExtra.noLongerInRoster")}
                                 </span>
@@ -434,7 +434,7 @@ export default function AdminDriverIdAliases() {
                                   </span>
                                 )}
                                 {a.sampleName && (
-                                  <span className="font-mono text-[10px] text-muted-foreground">
+                                  <span className="fin-num text-[10px] text-muted-foreground">
                                     {a.sampleName}
                                   </span>
                                 )}
@@ -446,14 +446,14 @@ export default function AdminDriverIdAliases() {
                             )}
                           </TableCell>
                           <TableCell className="text-xs align-top whitespace-nowrap">
-                            <div className="font-mono text-muted-foreground">
+                            <div className="fin-num text-muted-foreground">
                               {format(
                                 new Date(a.updatedAt),
                                 "yyyy-MM-dd HH:mm",
                               )}
                             </div>
                             {a.updatedByEmail && (
-                              <div className="font-mono text-[10px] text-muted-foreground">
+                              <div className="fin-num text-[10px] text-muted-foreground">
                                 {t("adminDriverIdsExtra.byEmail", { email: a.updatedByEmail })}
                               </div>
                             )}
@@ -552,12 +552,12 @@ export default function AdminDriverIdAliases() {
                       <TableCell className="text-xs align-top font-medium">
                         {r.customer}
                       </TableCell>
-                      <TableCell className="font-mono text-xs align-top">
+                      <TableCell className="fin-num text-xs align-top">
                         {r.externalId}
                       </TableCell>
                       <TableCell className="text-xs align-top">
                         {r.sampleName ? (
-                          <span className="font-mono text-[11px]">
+                          <span className="fin-num text-[11px]">
                             {r.sampleName}
                           </span>
                         ) : (
@@ -567,11 +567,11 @@ export default function AdminDriverIdAliases() {
                         )}
                       </TableCell>
                       <TableCell className="text-xs align-top whitespace-nowrap">
-                        <div className="font-mono text-muted-foreground">
+                        <div className="fin-num text-muted-foreground">
                           {format(new Date(r.createdAt), "yyyy-MM-dd HH:mm")}
                         </div>
                         {r.createdByEmail && (
-                          <div className="font-mono text-[10px] text-muted-foreground">
+                          <div className="fin-num text-[10px] text-muted-foreground">
                             by {r.createdByEmail}
                           </div>
                         )}
@@ -637,7 +637,7 @@ function EditDriverRow({
             {drivers.map((d) => (
               <SelectItem key={d.kfiId} value={d.kfiId}>
                 <span className="font-medium">{formatPersonName(d.name)}</span>
-                <span className="font-mono text-[10px] text-muted-foreground ml-2">
+                <span className="fin-num text-[10px] text-muted-foreground ml-2">
                   {d.kfiId} · {d.customer}
                 </span>
               </SelectItem>

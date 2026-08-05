@@ -61,7 +61,7 @@ export function HiddenNotesBadge({ variant = "nav" }: { variant?: Variant }) {
         {count > 0 && (
           <Badge
             variant="destructive"
-            className="ml-2 px-1.5 h-5 min-w-5 font-mono text-[10px] tabular-nums"
+            className="ml-2 px-1.5 h-5 min-w-5 fin-num text-[10px] tabular-nums"
             data-testid="badge-hidden-notes-unseen"
           >
             {count > 99 ? "99+" : count}
