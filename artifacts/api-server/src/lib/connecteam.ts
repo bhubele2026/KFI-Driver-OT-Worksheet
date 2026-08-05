@@ -382,14 +382,14 @@ export async function fetchPunchesForWeek(
         const rawStartMs = startTs * 1000 + shiftFix;
         const rawEndMs = endTs * 1000 + shiftFix;
         if (rawEndMs <= rawStartMs) continue;
-        // Clock STRINGS are floored to the minute — Connecteam's on-screen
-        // HH:MM wall clock drops the seconds, so the shown in/out matches
-        // their screen. DURATION however comes from the RAW second
-        // timestamps: Connecteam sums raw seconds and rounds only at each
-        // display level (proof, Alvarado wk 7/26: their Tue rows display
-        // 0.42+0.42 yet the daily says 0.83, and the weekly header 7.37 ≠
-        // Σ displayed dailies 7.36). Flooring durations undercounted many-
-        // short-punch weeks by ~0.02h vs CT's header total (2026-08-05).
+        // Connecteam's model, reverse-engineered from Alvarado wk 7/26
+        // (whose 442 floored minutes = 7.3667 = their 7.37 header, with
+        // every daily matching: Wed 49min→0.8166→0.82, Tue 50min→0.83):
+        // durations are the FLOORED-minute spans (matching the displayed
+        // HH:MM in/out), kept at FULL precision and summed, rounding only
+        // at each display level. Storing per-punch 2dp (0.4166→0.42) bled
+        // ~0.02h/week; raw-seconds durations were also wrong (7.32) — CT
+        // grants whole minutes. So: floored timestamps, 3dp storage.
         const startMs = Math.floor(rawStartMs / 60_000) * 60_000;
         const endMs = Math.floor(rawEndMs / 60_000) * 60_000;
         if (endMs <= startMs) continue;
@@ -402,9 +402,9 @@ export async function fetchPunchesForWeek(
           date,
           clockIn: msToLocalStr(startMs, dispTz),
           clockOut: msToLocalStr(endMs, dispTz),
-          // 3 decimals of the RAW duration (numeric(7,3) column) so weekly
-          // sums land on Connecteam's header total; displays round to 2dp.
-          hours: Math.round(((rawEndMs - rawStartMs) / 3_600_000) * 1000) / 1000,
+          // 3 decimals of the FLOORED-minute duration (numeric(7,3)) so
+          // weekly sums land on CT's header total; displays round to 2dp.
+          hours: Math.round(((endMs - startMs) / 3_600_000) * 1000) / 1000,
           dispTz,
           // IMPORTANT: key on the RAW (second-precision) timestamps, not the
           // minute-rounded ones used for display/duration. Connecteam

@@ -80,10 +80,12 @@ test("fetchPunchesForWeek: dynamic clocks, alias merging, per-clock counts", asy
   assert.deepEqual(result.unresolved[0].clockIds, [100]);
 });
 
-test("fetchPunchesForWeek: hours use RAW seconds; clock strings stay minute-floored", async () => {
-  // 13:11:23 → 15:07:44 = 6981s = 1.93916̄h. Connecteam sums raw seconds
-  // (weekly header 7.37 vs floored 7.35, Alvarado wk 7/26) — so stored
-  // hours must be the raw duration at 3dp while the shown in/out floors.
+test("fetchPunchesForWeek: hours = FLOORED-minute span at 3dp; clock strings floored", async () => {
+  // 13:11:23 → 15:07:44 floors to 13:11 → 15:07 = 116 min = 1.9333h.
+  // Connecteam grants whole floored minutes and sums them at full
+  // precision (Alvarado wk 7/26: 442 min = 7.3667 = their 7.37 header;
+  // Wed 49 min → 0.8166 → their 0.82 daily). Storing 2dp per punch
+  // (1.9333→1.93) bled ~0.02h/week; raw seconds (1.939) overshoot.
   const clocks = [makeClock(100, "Main")];
   const startSec = Math.floor(new Date("2026-01-05T13:11:23Z").getTime() / 1000);
   const endSec = Math.floor(new Date("2026-01-05T15:07:44Z").getTime() / 1000);
@@ -105,7 +107,7 @@ test("fetchPunchesForWeek: hours use RAW seconds; clock strings stay minute-floo
   );
   assert.equal(result.punches.length, 1);
   const p = result.punches[0];
-  assert.equal(p.hours, 1.939);
+  assert.equal(p.hours, 1.933);
   // Floored display minutes (UTC 13:11 / 15:07 rendered in the driver tz).
   assert.ok(/:11 [AP]M$/.test(p.clockIn), p.clockIn);
   assert.ok(/:07 [AP]M$/.test(p.clockOut), p.clockOut);
