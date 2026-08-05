@@ -382,14 +382,14 @@ export async function fetchPunchesForWeek(
         const rawStartMs = startTs * 1000 + shiftFix;
         const rawEndMs = endTs * 1000 + shiftFix;
         if (rawEndMs <= rawStartMs) continue;
-        // TRUNCATE (floor) each punch to the minute before computing duration.
-        // Connecteam's on-screen HH:MM wall clock drops the seconds (floors),
-        // and its per-shift / daily / weekly totals are the sum of those
-        // displayed minute values. Rounding to the NEAREST minute pushed a
-        // punch whose seconds were ≥30 to the next minute, so both the shown
-        // in/out time and the total drifted from Connecteam (~0.03h/week, e.g.
-        // 4.54 vs 4.57). Flooring makes the stored in/out minutes and the
-        // summed hours match exactly what the dispatcher sees in Connecteam.
+        // Clock STRINGS are floored to the minute — Connecteam's on-screen
+        // HH:MM wall clock drops the seconds, so the shown in/out matches
+        // their screen. DURATION however comes from the RAW second
+        // timestamps: Connecteam sums raw seconds and rounds only at each
+        // display level (proof, Alvarado wk 7/26: their Tue rows display
+        // 0.42+0.42 yet the daily says 0.83, and the weekly header 7.37 ≠
+        // Σ displayed dailies 7.36). Flooring durations undercounted many-
+        // short-punch weeks by ~0.02h vs CT's header total (2026-08-05).
         const startMs = Math.floor(rawStartMs / 60_000) * 60_000;
         const endMs = Math.floor(rawEndMs / 60_000) * 60_000;
         if (endMs <= startMs) continue;
@@ -402,8 +402,9 @@ export async function fetchPunchesForWeek(
           date,
           clockIn: msToLocalStr(startMs, dispTz),
           clockOut: msToLocalStr(endMs, dispTz),
-          // Store as 2 decimals to match Connecteam's display rounding.
-          hours: Math.round(((endMs - startMs) / 3_600_000) * 100) / 100,
+          // 3 decimals of the RAW duration (numeric(7,3) column) so weekly
+          // sums land on Connecteam's header total; displays round to 2dp.
+          hours: Math.round(((rawEndMs - rawStartMs) / 3_600_000) * 1000) / 1000,
           dispTz,
           // IMPORTANT: key on the RAW (second-precision) timestamps, not the
           // minute-rounded ones used for display/duration. Connecteam

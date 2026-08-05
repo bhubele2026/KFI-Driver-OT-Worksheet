@@ -1418,13 +1418,15 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
         const key = `${p.kfiId}|${p.date}`;
         const prev = snapshotByKey.get(key);
         if (prev) {
-          prev.hours = Math.round((prev.hours + p.hours) * 100) / 100;
+          // Accumulate raw; round ONCE at insert — per-step 2dp rounding
+          // drifted the baseline off Connecteam's raw-seconds dailies.
+          prev.hours = prev.hours + p.hours;
         } else {
           snapshotByKey.set(key, {
             weekStart: startDate,
             kfiId: p.kfiId,
             date: p.date,
-            hours: Math.round(p.hours * 100) / 100,
+            hours: p.hours,
           });
         }
       }
@@ -1455,7 +1457,7 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
         weekStart: r.weekStart,
         kfiId: r.kfiId,
         date: r.date,
-        hours: String(r.hours),
+        hours: String(Math.round(r.hours * 1000) / 1000),
         refreshedAt,
       }));
       if (snapshotRows.length > 0) {
@@ -7942,14 +7944,11 @@ weeksRouter.post(
           // punches for the same shifts so they don't orphan on refresh.
           await remapNotesAfterRefresh(tx, startDate, deletedRows, insertedRows);
         }
-        // Refresh the per-day snapshot for this driver only.
+        // Refresh the per-day snapshot for this driver only. Accumulate
+        // raw and round once at insert (per-step rounding drifts).
         const snapshotByDate = new Map<string, number>();
         for (const p of deduped) {
-          snapshotByDate.set(
-            p.date,
-            Math.round(((snapshotByDate.get(p.date) ?? 0) + p.hours) * 100) /
-              100,
-          );
+          snapshotByDate.set(p.date, (snapshotByDate.get(p.date) ?? 0) + p.hours);
         }
         await tx
           .delete(schema.connecteamDailySnapshotsTable)
@@ -7965,7 +7964,7 @@ weeksRouter.post(
               weekStart: startDate,
               kfiId,
               date,
-              hours: String(hours),
+              hours: String(Math.round(hours * 1000) / 1000),
               refreshedAt,
             })),
           );
