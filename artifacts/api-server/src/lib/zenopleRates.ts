@@ -207,6 +207,63 @@ export function computeProfileFill(
 }
 
 // ---------------------------------------------------------------------------
+// Export-time live facts (Zenople is the system of record for the weekly
+// Driver_Pay_Units workbook: rates, bill rates, JobId and AssignmentId all
+// drift week to week in Zenople, so the export pulls them fresh instead of
+// trusting the stored profile — the profile is the fallback/override).
+// ---------------------------------------------------------------------------
+
+export interface ZenopleLiveFacts extends ProfileFill {
+  /** "LASTNAME, FIRSTNAME" exactly as the reference workbook renders it. */
+  personLabel?: string;
+}
+
+function personLabelFromAssignment(a: Record<string, unknown>): string | undefined {
+  const last = String(a.LastName ?? "").trim();
+  const first = String(a.FirstName ?? "").trim();
+  if (!last || !first) return undefined;
+  return `${last}, ${first}`.toUpperCase();
+}
+
+/** Per-PersonId live facts for the Zenople export. Empty map when not configured. */
+export async function loadZenopleExportFacts(): Promise<Map<string, ZenopleLiveFacts>> {
+  const out = new Map<string, ZenopleLiveFacts>();
+  if (!zenopleConfigured()) return out;
+  const [assignments, transactions] = await Promise.all([
+    fetchAction("AssignmentData"),
+    fetchAction("TransactionData"),
+  ]);
+  const asgByPerson = new Map<string, Record<string, unknown>[]>();
+  for (const a of assignments) {
+    const pid = String(a.PersonId ?? "");
+    if (!pid) continue;
+    (asgByPerson.get(pid) ?? asgByPerson.set(pid, []).get(pid)!).push(a);
+  }
+  const txByPerson = new Map<string, Record<string, unknown>[]>();
+  for (const t of transactions) {
+    const pid = String(t.PersonId ?? "");
+    if (!pid) continue;
+    (txByPerson.get(pid) ?? txByPerson.set(pid, []).get(pid)!).push(t);
+  }
+  const pids = new Set([...asgByPerson.keys(), ...txByPerson.keys()]);
+  for (const pid of pids) {
+    const asgs = asgByPerson.get(pid) ?? [];
+    const fill = computeProfileFill(asgs, txByPerson.get(pid) ?? []);
+    // Same driver-first assignment preference computeProfileFill uses for
+    // its identifier fields, so the label matches the ids' source row.
+    const driverAsg = pickAssignment(asgs.filter((a) => isDriverLane(a.JobPosition)));
+    const anyAsg = driverAsg ?? pickAssignment(asgs);
+    const facts: ZenopleLiveFacts = { ...fill };
+    if (anyAsg) {
+      const label = personLabelFromAssignment(anyAsg);
+      if (label) facts.personLabel = label;
+    }
+    out.set(pid, facts);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Boot backfill
 // ---------------------------------------------------------------------------
 

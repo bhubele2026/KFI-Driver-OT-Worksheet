@@ -5,11 +5,12 @@ import type { Punch } from "@workspace/db/schema";
 
 import {
   ZENOPLE_HEADER,
+  SHIFT_DIFF_CUSTOMERS,
   buildZenopleRows,
   buildZenopleWorkbook,
   isoToExcelSerial,
+  mergeProfileWithLive,
   missingProfileFields,
-  payPeriodEndDowFor,
   rosterNameToZenople,
   rowsToAoA,
   zenopleFileName,
@@ -72,30 +73,13 @@ test("isoToExcelSerial: 1900-03-01 = 61 (Excel leap bug compat)", () => {
   assert.equal(isoToExcelSerial("1900-03-01"), 61);
 });
 
-test("payPeriodEndDowFor: the 4 reference Sunday customers end Sun(0), others Sat(6)", () => {
-  for (const c of ["Adient", "DeLallo Foods", "Schuette Metals", "WB Manufacturing"]) {
-    assert.equal(payPeriodEndDowFor(c), 0, `${c} should end Sunday`);
-  }
-  for (const c of [
-    "Burnett Dairy - Grantsburg",
-    "International Wire Group, Inc",
-    "Landscape Structures",
-    "Penda Corp",
-    "Trienda Holdings",
-    "Shuster's Building Components",
-    "",
-  ]) {
-    assert.equal(payPeriodEndDowFor(c), 6, `${c} should end Saturday`);
-  }
-});
-
-test("periodEndFor: Sat customer keeps the week-end; Sun customer shifts +1 day", () => {
+test("PPE is the uniform week-end Saturday (PD 07.24/07.31 reference rule)", () => {
   // App week 2026-05-10 (Sun) .. 2026-05-16 (Sat).
-  assert.equal(periodEndFor("2026-05-10", 6), "2026-05-16"); // Saturday
-  assert.equal(periodEndFor("2026-05-10", 0), "2026-05-17"); // Sunday (+1)
-  // Serials the export stamps.
+  assert.equal(periodEndFor("2026-05-10", 6), "2026-05-16");
   assert.equal(isoToExcelSerial(periodEndFor("2026-05-10", 6)), 46158);
-  assert.equal(isoToExcelSerial(periodEndFor("2026-05-10", 0)), 46159);
+  // Week 2026-07-19 → PPE Saturday 2026-07-25 → serial 46228 (the
+  // PD 07.31.2026 reference file's PPE on every row).
+  assert.equal(isoToExcelSerial(periodEndFor("2026-07-19", 6)), 46228);
 });
 
 test("rosterNameToZenople: 'Jose Angulo Alfaro' -> 'ANGULO ALFARO, JOSE'", () => {
@@ -262,9 +246,8 @@ test("buildZenopleRows: omits zero-hour buckets and sorts by customer then perso
   assert.equal(rows[1].customer, "Burnett");
   assert.equal(rows[1].code, "RT");
   assert.equal(rows[1].payUnit, 5);
-  // PPE is per-customer: Adient ends Sunday (week-end + 1 = 05-17 -> 46159),
-  // Burnett ends Saturday (week-end 05-16 -> 46158).
-  assert.equal(rows[0].ppe, 46159);
+  // Uniform PPE: every customer stamps the week-end Saturday (05-16 -> 46158).
+  assert.equal(rows[0].ppe, 46158);
   assert.equal(rows[1].ppe, 46158);
 });
 
@@ -321,9 +304,76 @@ test("buildZenopleWorkbook: round-trips through XLSX and preserves header verbat
   assert.equal(aoa.length, 2);
   assert.equal(aoa[1][5], "RT");
   assert.equal(aoa[1][6], 4);
-  // FULL_PROFILE customer is Adient (Sunday-ending) -> PPE = week-end + 1
-  // = 2026-05-17 -> serial 46159.
-  assert.equal(aoa[1][12], 46159);
+  // Uniform PPE = the week-end Saturday 2026-05-16 -> serial 46158.
+  assert.equal(aoa[1][12], 46158);
+});
+
+test("shift-diff customer: SD pair replaces RT/OT, sized by DriverRT hours (Lunar case)", () => {
+  const profile: ZenopleProfile = {
+    ssn: "XXX-XX-6454",
+    jobId: 850,
+    personId: 2005940,
+    assignmentId: 3454,
+    zenopleCustomer: "Shuster's Building Components",
+    rtPayRate: 18,
+    rtBillRate: 25.92,
+    otPayRate: 27,
+    otBillRate: 37.8,
+    driverRtPayRate: 10,
+    driverRtBillRate: 0,
+    driverOtPayRate: 27,
+    driverOtBillRate: 0,
+  };
+  assert.ok(SHIFT_DIFF_CUSTOMERS.has(profile.zenopleCustomer!));
+  const driver: ZenopleDriverInput = {
+    kfiId: "2005940",
+    name: "Aldo Lunar",
+    zenopleName: "LUNAR, ALDO",
+    profile,
+    // Driver punch 7.67h; a Customer punch too — its RT row must be
+    // SUPPRESSED for a shift-diff customer (reference files carry none).
+    punches: [
+      p("Driver", "2026-07-20", "2026-07-20 6:00 AM", "2026-07-20 1:40 PM", 7.67),
+      p("Customer", "2026-07-21", "2026-07-21 6:00 AM", "2026-07-21 11:00 AM", 5),
+    ],
+  };
+  const rows = buildZenopleRows([driver], "2026-07-19");
+  const codes = rows.map((r) => r.code);
+  assert.deepEqual(codes, ["ShiftDifferential", "ShiftDifferentialOT", "DriverRT"]);
+  const [sd, sdot, drt] = rows;
+  assert.equal(sd.payUnit, -7.67);
+  assert.equal(sd.payRate, 18);
+  assert.equal(sd.billRate, 25.92);
+  assert.equal(sdot.payUnit, 7.67);
+  assert.equal(sdot.payRate, 27);
+  assert.equal(sdot.billRate, 37.8);
+  assert.equal(drt.payUnit, 7.67);
+  assert.equal(drt.payRate, 10);
+  // PPE for week 2026-07-19 = Saturday 7/25 = 46228 (reference file).
+  assert.equal(sd.ppe, 46228);
+});
+
+test("mergeProfileWithLive: live wins per field, profile fills the gaps", () => {
+  const stored: ZenopleProfile = {
+    ...FULL_PROFILE,
+    jobId: 820, // stale seed value
+    assignmentId: 3203, // stale seed value
+    driverRtPayRate: 13.75,
+    otBillRate: 37.24,
+  };
+  const merged = mergeProfileWithLive(stored, {
+    jobId: 863,
+    assignmentId: 3460,
+    driverRtPayRate: 15,
+    // otBillRate absent from live → stored survives
+  });
+  assert.equal(merged.jobId, 863);
+  assert.equal(merged.assignmentId, 3460);
+  assert.equal(merged.driverRtPayRate, 15);
+  assert.equal(merged.otBillRate, 37.24);
+  assert.equal(merged.ssn, stored.ssn);
+  // No live facts → stored returned untouched.
+  assert.deepEqual(mergeProfileWithLive(stored, null), stored);
 });
 
 test("seed fingerprint matcher: 'ANGULO ALFARO, JOSE R' matches 'Jose R. Angulo Alfaro'", () => {

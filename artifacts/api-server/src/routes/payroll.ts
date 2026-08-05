@@ -17,11 +17,16 @@ import {
 import {
   buildZenopleWorkbook,
   isoToExcelSerial,
+  mergeProfileWithLive,
   missingProfileFields,
   zenopleFileName,
   type ZenopleDriverInput,
   type ZenopleProfile,
 } from "../lib/zenopleExport.js";
+import {
+  loadZenopleExportFacts,
+  type ZenopleLiveFacts,
+} from "../lib/zenopleRates.js";
 
 const router = Router();
 
@@ -317,22 +322,54 @@ router.get(
     }
     const { drivers, profiles, punchesByKfi } =
       await loadWeekDriverInputs(sunday);
+    // Live Zenople facts win field-by-field over the stored profile —
+    // Zenople's rates/ids drift week to week and this workbook is imported
+    // back into Zenople. Profile-only (with a loud log) when the API is
+    // unreachable or unconfigured.
+    let liveFacts = new Map<string, ZenopleLiveFacts>();
+    try {
+      liveFacts = await loadZenopleExportFacts();
+    } catch (err) {
+      req.log.warn(
+        { err },
+        "zenople-export: live Zenople fetch failed — exporting from stored profiles only",
+      );
+    }
+    const factsFor = (
+      kfiId: string,
+      profile: ZenopleProfile,
+    ): ZenopleLiveFacts | undefined =>
+      liveFacts.get(kfiId) ??
+      (profile.personId != null
+        ? liveFacts.get(String(profile.personId))
+        : undefined);
     const inputs: ZenopleDriverInput[] = drivers
-      .map((d) => ({
-        kfiId: d.kfiId,
-        name: d.name,
-        zenopleName: null,
-        profile: profileFromRow(profiles.get(d.kfiId) ?? null),
-        punches: punchesByKfi.get(d.kfiId) ?? [],
-      }))
+      .map((d) => {
+        const stored = profileFromRow(profiles.get(d.kfiId) ?? null);
+        const live = factsFor(d.kfiId, stored);
+        return {
+          kfiId: d.kfiId,
+          name: d.name,
+          zenopleName: live?.personLabel ?? null,
+          profile: mergeProfileWithLive(stored, live),
+          punches: punchesByKfi.get(d.kfiId) ?? [],
+        };
+      })
       // Drop drivers with no hours so we don't emit empty rows.
       .filter((d) => {
         const t = computeDriverTotals(d.punches);
         return t.custRt + t.custOt + t.driverRt + t.driverOt > 0;
       });
-    // PPE is stamped per-customer inside the builder (most end Saturday, a
-    // few end Sunday), so it needs the week START; the filename keeps the
-    // week's Saturday serial to match the reference naming convention.
+    req.log.info(
+      {
+        weekStart: sunday,
+        drivers: inputs.length,
+        liveFactsLoaded: liveFacts.size,
+        liveMatched: inputs.filter((i) => factsFor(i.kfiId, i.profile)).length,
+      },
+      "zenople-export: live-merge summary",
+    );
+    // PPE is the week's Saturday for every customer (uniform since PD 07.24).
     const buffer = buildZenopleWorkbook(inputs, sunday);
     const fileName = zenopleFileName(new Date(), readiness.weekEnd);
 

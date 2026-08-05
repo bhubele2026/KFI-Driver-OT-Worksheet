@@ -4,26 +4,23 @@ import { computeDriverTotals } from "./hoursEngine.js";
 import { periodEndFor } from "./time.js";
 
 /**
- * Zenople stamps each assignment's own pay-period-END date in the PPE
- * column, and not every customer runs a Saturday-ending week. In the
- * reference file most customers end Saturday, but these four end Sunday
- * (their PPE is the day after the app's Sat week-end). Keyed by the exact
- * `zenopleCustomer` label (same string that lands in the Customer column).
- * The app does NOT re-bucket the week for these — this only shifts the
- * stamped date (Brad's call: label only). Edit this set if a customer's
- * pay-period-end day changes.
+ * PPE is the app week's Saturday for EVERY customer. The earlier
+ * per-customer Sunday shift (Adient/DeLallo/Schuette/WB) matched a May
+ * reference, but the PD 07.24 and PD 07.31 files both stamp one uniform
+ * Saturday on every row — the Sunday rule is retired (2026-08-05).
  */
-const SUNDAY_ENDING_CUSTOMERS = new Set<string>([
-  "Adient",
-  "DeLallo Foods",
-  "Schuette Metals",
-  "WB Manufacturing",
-]);
 
-/** Pay-period-end day-of-week (0=Sun … 6=Sat) for a Zenople customer. */
-export function payPeriodEndDowFor(zenopleCustomer: string): number {
-  return SUNDAY_ENDING_CUSTOMERS.has(zenopleCustomer) ? 0 : 6;
-}
+/**
+ * Customers whose export replaces the RT/OT rows with a shift-differential
+ * re-rating pair (see the reference files): per driver,
+ *   ShiftDifferential    −X @ RT pay rate  (RT bill rate)
+ *   ShiftDifferentialOT  +X @ OT pay rate  (OT bill rate)
+ * where X = that driver's DriverRT hours; the normal DriverRT/DriverOT rows
+ * still follow. Keyed by the exact Zenople customer label.
+ */
+export const SHIFT_DIFF_CUSTOMERS = new Set<string>([
+  "Shuster's Building Components",
+]);
 
 // Exact header strings from the attached Zenople sample
 // (Driver_Pay_Units_customer_and_Driver_time_PD_05.15.2026_…xlsx).
@@ -49,7 +46,13 @@ export const ZENOPLE_HEADER = [
   " Assignment Id",
 ] as const;
 
-export type ZenopleTxnCode = "RT" | "OT" | "DriverRT" | "DriverOT";
+export type ZenopleTxnCode =
+  | "RT"
+  | "OT"
+  | "DriverRT"
+  | "DriverOT"
+  | "ShiftDifferential"
+  | "ShiftDifferentialOT";
 
 export interface ZenopleProfile {
   ssn: string | null;
@@ -120,12 +123,15 @@ function rateFor(
   code: ZenopleTxnCode,
 ): { pay: number; bill: number } {
   switch (code) {
+    // The shift-diff pair re-rates hours at the plain RT/OT rates.
     case "RT":
+    case "ShiftDifferential":
       return {
         pay: Number(profile.rtPayRate ?? 0),
         bill: Number(profile.rtBillRate ?? 0),
       };
     case "OT":
+    case "ShiftDifferentialOT":
       return {
         pay: Number(profile.otPayRate ?? 0),
         bill: Number(profile.otBillRate ?? 0),
@@ -155,26 +161,34 @@ export function buildZenopleRows(
   weekStartIso: string,
 ): ZenopleRow[] {
   const out: ZenopleRow[] = [];
+  // Uniform PPE: the app week's Saturday, for every customer.
+  const ppe = isoToExcelSerial(periodEndFor(weekStartIso, 6));
   for (const d of drivers) {
     if (!d.profile) continue;
     const totals = computeDriverTotals(d.punches);
-    const buckets: Array<[ZenopleTxnCode, number]> = [
-      ["RT", totals.custRt],
-      ["OT", totals.custOt],
-      ["DriverRT", totals.driverRt],
-      ["DriverOT", totals.driverOt],
-    ];
+    const customer = d.profile.zenopleCustomer ?? "";
+    let buckets: Array<[ZenopleTxnCode, number]>;
+    if (SHIFT_DIFF_CUSTOMERS.has(customer)) {
+      // Shift-diff customers: no RT/OT rows; the pair re-rates the driver
+      // hours (negative at RT, positive at OT), then the driver rows.
+      const x = r2(totals.driverRt);
+      buckets = x > 0 ? [["ShiftDifferential", -x], ["ShiftDifferentialOT", x]] : [];
+      buckets.push(["DriverRT", totals.driverRt], ["DriverOT", totals.driverOt]);
+    } else {
+      buckets = [
+        ["RT", totals.custRt],
+        ["OT", totals.custOt],
+        ["DriverRT", totals.driverRt],
+        ["DriverOT", totals.driverOt],
+      ];
+    }
     const person =
       (d.zenopleName && d.zenopleName.trim()) || rosterNameToZenople(d.name);
-    const customer = d.profile.zenopleCustomer ?? "";
-    // PPE is per-customer: most end Saturday (the app week-end), a few end
-    // Sunday (week-end + 1). See payPeriodEndDowFor / periodEndFor.
-    const ppe = isoToExcelSerial(
-      periodEndFor(weekStartIso, payPeriodEndDowFor(customer)),
-    );
     for (const [code, hoursRaw] of buckets) {
       const hours = r2(hoursRaw);
-      if (hours <= 0) continue;
+      // Zero-hour buckets are dropped; the ShiftDifferential row is the one
+      // legitimately NEGATIVE bucket and must survive the filter.
+      if (hours === 0 || (hours < 0 && code !== "ShiftDifferential")) continue;
       const { pay, bill } = rateFor(d.profile, code);
       out.push({
         customer,
@@ -276,6 +290,51 @@ export const IDENTITY_PROFILE_FIELDS = [
   "assignmentId",
   "zenopleCustomer",
 ] as const;
+
+/**
+ * Field-wise merge: live Zenople facts win, the stored profile fills the
+ * gaps. Zenople is the system of record for this workbook (it gets imported
+ * back INTO Zenople), and its rates / bill rates / JobId / AssignmentId
+ * drift week to week — a stored profile is only the fallback for people the
+ * live fetch can't see (or when the API is down).
+ */
+export interface ZenopleLiveOverlay {
+  ssn?: string;
+  jobId?: number;
+  personId?: number;
+  assignmentId?: number;
+  zenopleCustomer?: string;
+  rtPayRate?: number;
+  rtBillRate?: number;
+  otPayRate?: number;
+  otBillRate?: number;
+  driverRtPayRate?: number;
+  driverRtBillRate?: number;
+  driverOtPayRate?: number;
+  driverOtBillRate?: number;
+}
+
+export function mergeProfileWithLive(
+  profile: ZenopleProfile,
+  live: ZenopleLiveOverlay | null | undefined,
+): ZenopleProfile {
+  if (!live) return profile;
+  return {
+    ssn: live.ssn ?? profile.ssn,
+    jobId: live.jobId ?? profile.jobId,
+    personId: live.personId ?? profile.personId,
+    assignmentId: live.assignmentId ?? profile.assignmentId,
+    zenopleCustomer: live.zenopleCustomer ?? profile.zenopleCustomer,
+    rtPayRate: live.rtPayRate ?? profile.rtPayRate,
+    rtBillRate: live.rtBillRate ?? profile.rtBillRate,
+    otPayRate: live.otPayRate ?? profile.otPayRate,
+    otBillRate: live.otBillRate ?? profile.otBillRate,
+    driverRtPayRate: live.driverRtPayRate ?? profile.driverRtPayRate,
+    driverRtBillRate: live.driverRtBillRate ?? profile.driverRtBillRate,
+    driverOtPayRate: live.driverOtPayRate ?? profile.driverOtPayRate,
+    driverOtBillRate: live.driverOtBillRate ?? profile.driverOtBillRate,
+  };
+}
 
 export function missingProfileFields(profile: ZenopleProfile | null): string[] {
   if (!profile) return [...IDENTITY_PROFILE_FIELDS];

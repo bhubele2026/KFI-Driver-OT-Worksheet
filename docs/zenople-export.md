@@ -23,36 +23,40 @@ each driver's summary page. The 17-column header and layout are byte-matched to
 the reference file
 `attached_assets/Driver_Pay_Units_customer_and_Driver_time_PD_05.15.2026_…xlsx`.
 
-Per-driver identity + rates (SSN, JobId, PersonId, Assignment, 8 pay/bill rates)
-come from `driver_payroll_profiles`. Export is gated by `computeReadiness`:
-every driver with hours must be marked **good** and have the 5 identity fields.
+Per-driver identity + rates (SSN, JobId, PersonId, Assignment, 8 pay/bill
+rates, the Zenople customer label and the "LASTNAME, FIRST" person label) are
+pulled **LIVE from Zenople at export time** (`loadZenopleExportFacts()` in
+`lib/zenopleRates.ts` — AssignmentData for RT pay/bill + ids, recent
+TransactionData for effective OT rates) and merged field-by-field over the
+stored `driver_payroll_profiles` row (`mergeProfileWithLive`). Live wins
+because Zenople's rates, bill rates, JobId and AssignmentId drift week to
+week (verified against the PD 07.24 vs PD 07.31 reference files) and this
+workbook is imported back into Zenople. The stored profile is the fallback —
+used when the Zenople API is unreachable/unconfigured or the person isn't in
+the live data. Export is gated by `computeReadiness`: every driver with hours
+must be marked **good** and have the 5 identity fields (checked against the
+stored profile, which the boot backfill keeps populated).
 
-## PPE column — per-customer pay-period-end date
+## PPE column — uniform week-end Saturday
 
-Zenople stamps each assignment's own pay-period-END date. Most KFI customers end
-their week on **Saturday** (the app's Sun→Sat week-end), but four end on
-**Sunday**: **Adient, DeLallo Foods, Schuette Metals, WB Manufacturing**. The
-export stamps the Sunday customers one day later (week-end + 1); it does **not**
-re-bucket their hours into a different week — only the stamped date shifts.
+Every row stamps the app week's **Saturday** (e.g. week 2026-07-19 → PPE
+2026-07-25 → serial 46228). An earlier per-customer Sunday shift
+(Adient/DeLallo/Schuette/WB) matched a May reference but the PD 07.24 and
+PD 07.31 files both stamp one uniform Saturday — the Sunday rule is retired
+(2026-08-05).
 
-- Config: `SUNDAY_ENDING_CUSTOMERS` / `payPeriodEndDowFor()` in
-  `zenopleExport.ts` (keyed by the exact `zenopleCustomer` label).
-- Date math: `periodEndFor(weekStart, endDow)` in `lib/time.ts`.
-- If a customer's pay-period-end day changes, edit `SUNDAY_ENDING_CUSTOMERS`.
+## Shift differential — AUTOMATED for Shuster's
 
-## Shift differential — MANUAL step (not automated)
-
-A few **Shuster's Building Components** drivers earn a shift differential that
-Zenople records as a re-rating pair the app does **not** generate:
+Customers in `SHIFT_DIFF_CUSTOMERS` (`zenopleExport.ts`, keyed by the Zenople
+label — currently only **Shuster's Building Components**) get NO RT/OT rows.
+Instead the export emits, per driver with `DriverRT` hours `X > 0`:
 
 ```
-ShiftDifferential     −X   @ $18.00     (backs the hours out of the base rate)
-ShiftDifferentialOT   +X   @ $25.50     (re-adds them at the differential OT rate)
+ShiftDifferential     −X   @ RT pay rate   (RT bill rate)
+ShiftDifferentialOT   +X   @ OT pay rate   (OT bill rate)
+DriverRT               X   @ driver RT rate
+DriverOT               …   @ driver OT rate (when present)
 ```
 
-where `X` = that driver's `DriverRT` hours (e.g. Balderas 7.48, Moody 18.0 in
-the reference). Net pay units are 0; only the rate changes. This was hand-entered
-in Zenople historically and remains a **manual post-export step**: after
-downloading the workbook, add the two rows per affected Shuster's driver by hand,
-matching the pattern above. Revisit automation only if this recurs across more
-drivers/customers.
+matching the reference files exactly (Lunar: −7.67@18 / +7.67@27 /
+DriverRT 7.67@10 in PD 07.31). No manual post-export step anymore.
