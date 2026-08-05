@@ -3290,12 +3290,18 @@ weeksRouter.post(
               clockOut: p.clockOut,
               hours: String(p.hours),
               payType: p.payType,
+              // Precedence: per-upload override → the DRIVER's explicit
+              // display tz → the customer default → CT_TZ. A driver pinned
+              // to a zone keeps it even on a multi-plant file whose
+              // customer default differs (Cerda: Camden-NY pages inside
+              // the "IWG El Paso" upload, 2026-08-05).
               dispTz:
                 overrideTzC ??
+                driverTzByKfi.get(p.kfiId) ??
                 customerTzPrefC ??
                 (p.noTz
                   ? "America/New_York"
-                  : resolveDispTz(p.kfiId, driverTzByKfi.get(p.kfiId) ?? null)),
+                  : resolveDispTz(p.kfiId, null)),
               isManual: false,
               fileOrigin: fileName,
               createdBy: req.session.userId ?? null,
@@ -4888,10 +4894,13 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
       clockIn: fmtDT(`${r.date} ${r.clockIn}`),
       clockOut: fmtDT(`${r.date} ${r.clockOut}`),
       hours: Math.round(hours * 1000) / 1000,
+      // Same precedence as confirm-customer-file: upload override → the
+      // driver's explicit tz → customer default → CT_TZ.
       dispTz:
         overrideTz ??
+        driverTzByKfi.get(kfiId) ??
         customerTzPref ??
-        resolveDispTz(kfiId, driverTzByKfi.get(kfiId) ?? null, null),
+        resolveDispTz(kfiId, null, null),
     });
   }
 
