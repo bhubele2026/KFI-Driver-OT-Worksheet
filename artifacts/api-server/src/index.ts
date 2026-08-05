@@ -22,6 +22,7 @@ import {
   zenopleConfigured,
 } from "./lib/zenopleRates";
 import { recordMutation } from "./lib/dataMutationAudit";
+import { autoAlignWeek } from "./lib/punchAutoAlign";
 
 // Captured once at module load so the boot-summary log can scope its
 // audit query to "rows whose startedAt >= this boot's start" — see the
@@ -133,6 +134,59 @@ async function main() {
       logger.warn({ err }, "seedDriverPayrollProfiles failed");
     } finally {
       client.release();
+    }
+
+    // Auto-align sweep: heal whole-day ±1h Connecteam device-clock errors
+    // for the current + previous two weeks (idempotent — an aligned week
+    // has nothing left in the ±1h anomaly band). Audited like every boot
+    // write (republish-safety).
+    {
+      const alignClient = await pool.connect();
+      const alignStartedAt = new Date();
+      try {
+        const weeks: string[] = [];
+        {
+          const now = new Date();
+          const sunday = new Date(now);
+          sunday.setUTCDate(now.getUTCDate() - now.getUTCDay());
+          for (let i = 0; i < 3; i++) {
+            const d = new Date(sunday);
+            d.setUTCDate(sunday.getUTCDate() - 7 * i);
+            weeks.push(d.toISOString().slice(0, 10));
+          }
+        }
+        let daysShifted = 0;
+        let punchesShifted = 0;
+        const details: string[] = [];
+        for (const wk of weeks) {
+          const r = await autoAlignWeek(alignClient, wk);
+          daysShifted += r.daysShifted;
+          punchesShifted += r.punchesShifted;
+          details.push(...r.details);
+        }
+        logger.info(
+          { weeks, daysShifted, punchesShifted, details },
+          "punch auto-align sweep complete",
+        );
+        await recordMutation({
+          routine: "punchAutoAlignSweep",
+          outcome: daysShifted > 0 ? "ok" : "noop",
+          rowsAffected: punchesShifted,
+          startedAt: alignStartedAt,
+          detail: `weeks=${weeks.join(",")} days=${daysShifted} punches=${punchesShifted} ${details.join("; ")}`,
+        });
+      } catch (err) {
+        await recordMutation({
+          routine: "punchAutoAlignSweep",
+          outcome: "error",
+          rowsAffected: 0,
+          startedAt: alignStartedAt,
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        logger.warn({ err }, "punch auto-align sweep failed");
+      } finally {
+        alignClient.release();
+      }
     }
 
     // Zenople rate backfill — fills NULL pay/bill fields for active drivers

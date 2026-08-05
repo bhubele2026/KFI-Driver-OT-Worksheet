@@ -25,7 +25,8 @@ import {
   UpdateConnecteamUserAliasBody,
   UpdateDriverIdAliasBody,
 } from "@workspace/api-zod";
-import { db, schema } from "../lib/db.js";
+import { db, pool, schema } from "../lib/db.js";
+import { autoAlignWeek } from "../lib/punchAutoAlign.js";
 import { reconcileDriverIdentities } from "../lib/driverIdentity.js";
 import { guardBulkPunchDelete } from "../lib/safeBulkDelete.js";
 import {
@@ -1501,6 +1502,16 @@ weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
           });
       }
     });
+    // Self-heal whole-day ±1h Connecteam device-clock errors against the
+    // week's customer shifts (durations/pay unchanged; see punchAutoAlign).
+    try {
+      const aligned = await autoAlignWeek(pool, startDate);
+      if (aligned.daysShifted > 0) {
+        req.log.warn({ weekStart: startDate, aligned }, "auto-aligned driver punches");
+      }
+    } catch (err) {
+      req.log.warn({ err }, "punch auto-align failed (refresh continues)");
+    }
     publishRealtime({
       type: "week-refreshed",
       weekStart: startDate,
@@ -3377,6 +3388,16 @@ weeksRouter.post(
       lane: verdictLane,
       triggeredBy: req.session.userId ?? null,
     });
+    // Customer rows just landed — re-check the week for whole-day ±1h
+    // driver-punch clock errors now that both sides exist to compare.
+    try {
+      const aligned = await autoAlignWeek(pool, startDate);
+      if (aligned.daysShifted > 0) {
+        req.log.warn({ weekStart: startDate, aligned }, "auto-aligned driver punches");
+      }
+    } catch (err) {
+      req.log.warn({ err }, "punch auto-align failed (confirm continues)");
+    }
     res.json({
       customer: result.customer,
       fileName,
@@ -7950,6 +7971,14 @@ weeksRouter.post(
           );
         }
       });
+      try {
+        const aligned = await autoAlignWeek(pool, startDate, kfiId);
+        if (aligned.daysShifted > 0) {
+          req.log.warn({ weekStart: startDate, kfiId, aligned }, "auto-aligned driver punches");
+        }
+      } catch (err) {
+        req.log.warn({ err }, "punch auto-align failed (refresh continues)");
+      }
       publishRealtime({
         type: "punch-changed",
         weekStart: startDate,
