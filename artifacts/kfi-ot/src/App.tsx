@@ -36,7 +36,6 @@ import History from "@/pages/history";
 import Settings from "@/pages/settings";
 import WeekSummary from "@/pages/week-summary";
 import DriverDetail from "@/pages/driver-detail";
-import { CopilotDrawer } from "@/components/copilot-drawer";
 import { VersionRefreshBanner } from "@/components/version-refresh-banner";
 
 // Defaults matter here: react-query's out-of-the-box staleTime is 0, so every
@@ -126,12 +125,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     return <Redirect to="/" />;
   }
 
-  return (
-    <>
-      {children}
-      {user && <CopilotDrawer />}
-    </>
-  );
+  return <>{children}</>;
 }
 
 function Router() {

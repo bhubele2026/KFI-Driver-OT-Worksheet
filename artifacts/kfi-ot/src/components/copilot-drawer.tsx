@@ -62,6 +62,11 @@ function deriveContext(location: string): {
   return { weekStart: null, kfiId: null };
 }
 
+// NOT MOUNTED ANYWHERE (2026-08-05, owner request: "remove the co pilot
+// button"). This component owns both the floating button and the sheet it
+// opens, so unmounting it in App.tsx removes the whole surface. Kept intact
+// rather than deleted so it can be restored with one import + <CopilotDrawer />.
+// The server-side /api/copilot/* routes are untouched and still work.
 export function CopilotDrawer() {
   const [open, setOpen] = useState(false);
   return (
