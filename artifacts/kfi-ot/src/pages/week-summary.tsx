@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useLocation, Link, useParams } from "wouter";
 import {
   useGetWeekSummary,
@@ -18,7 +18,6 @@ import { DriversSidebar } from "@/components/drivers-sidebar";
 import { AppShell } from "@/components/app-shell";
 import { WeekToolbar } from "@/components/week-toolbar";
 import { StatTile } from "@/components/stat-tile";
-import { useCountUp } from "@/hooks/use-count-up";
 import { payWeekStart } from "@/lib/pay-week";
 import { ReviewedPill } from "@/components/reviewed-pill";
 import {
@@ -76,7 +75,6 @@ import {
   Globe,
   MoreHorizontal,
   Flag,
-  Users,
   Download,
   Check,
   X as XIcon,
@@ -851,118 +849,155 @@ export default function WeekSummary() {
                 </span>
               </div>
 
-              {/* Customers at a glance — fills the page with the week's real
-                  status instead of dead space. Each tile jumps into that
-                  customer's first driver. Pure derivation from `summary`. */}
+              {/* The week, one row per DRIVER, grouped under its customer.
+                  This replaced a grid of customer cards (v72). Two things were
+                  wrong with those: the drivers sidebar on this same page
+                  already lists every customer and its drivers, so the cards
+                  restated it at ~4x the height; and a card's click went to
+                  `drivers[0]` — whichever driver sorted first — so clicking
+                  "Orgill" landed you on an arbitrary one of its three.
+                  Customers are labels here, drivers are the rows, and every
+                  row goes to that driver. Same derivation from `summary`. */}
               {summary.customers.some((c) => c.drivers.length > 0) ? (
-                <section className="space-y-3">
-                  <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                    {summary.customers
-                      .filter((c) => c.drivers.length > 0)
-                      // Customers A→Z, same as the drivers sidebar.
-                      .slice()
-                      .sort((a, b) =>
-                        a.customer.localeCompare(b.customer, undefined, {
-                          sensitivity: "base",
-                        }),
-                      )
-                      .map((c) => {
-                        const hours = c.drivers.reduce((a, d) => a + d.totalHours, 0);
-                        const ot = c.drivers.reduce((a, d) => a + d.overtimeHours, 0);
-                        const reviewedN = c.drivers.filter((d) => d.reviewed).length;
-                        const flagged = c.drivers.reduce(
-                          (a, d) => a + (d.flaggedPunchCount ?? 0),
-                          0,
-                        );
-                        const lockedN = c.drivers.filter((d) => d.locked).length;
-                        const noCtN = c.drivers.filter(
-                          (d) => d.customerHours > 0 && d.driverHours <= 0,
-                        ).length;
-                        const pct =
-                          c.drivers.length > 0
-                            ? Math.round((reviewedN / c.drivers.length) * 100)
-                            : 0;
-                        return (
-                          <button
-                            key={c.customer}
-                            type="button"
-                            className="tile-action flex flex-col gap-3 p-5 text-left"
-                            data-testid={`tile-customer-${c.customer}`}
-                            onClick={() =>
-                              setLocation(
-                                `/weeks/${weekStart}/drivers/${c.drivers[0].kfiId}`,
-                              )
-                            }
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <span className="truncate font-display text-base font-semibold text-foreground">
-                                {c.customer}
-                              </span>
-                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-xs fin-num text-muted-foreground">
-                                <Users className="h-3 w-3" />
-                                {c.drivers.length}
-                              </span>
-                            </div>
-                            <div className="flex items-baseline gap-4">
-                              <span>
-                                <AnimatedHours value={hours} />{" "}
-                                <span className="text-xs text-muted-foreground">
-                                  {t("weekSummary.tileHours", { defaultValue: "hrs" })}
-                                </span>
-                              </span>
-                              {ot > 0 ? (
-                                <span className="fin-num text-sm font-semibold text-warning">
-                                  {t("weekSummary.tileOt", {
-                                    defaultValue: "{{hours}} OT",
-                                    hours: ot.toFixed(2),
-                                  })}
-                                </span>
-                              ) : null}
-                              {noCtN > 0 ? (
-                                <span
-                                  className="inline-flex items-center gap-1 fin-num text-sm font-semibold text-warning"
-                                  title={t("weekSummary.tileNoCtTitle", { count: noCtN })}
-                                >
-                                  <AlertTriangle className="h-3.5 w-3.5" />
-                                  {t("weekSummary.tileNoCt", { count: noCtN })}
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="mt-auto space-y-1.5">
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="inline-flex items-center gap-1 fin-num text-muted-foreground">
-                                  <Check className="h-3 w-3" />
-                                  {t("weekSummary.tileReviewed", {
-                                    n: reviewedN,
-                                    total: c.drivers.length,
-                                  })}
-                                </span>
-                                <span className="flex items-center gap-2">
-                                  {flagged > 0 ? (
-                                    <span className="inline-flex items-center gap-1 fin-num text-rose-600">
-                                      <Flag className="h-3 w-3" />
-                                      {flagged}
-                                    </span>
-                                  ) : null}
-                                  {lockedN > 0 ? (
-                                    <span className="inline-flex items-center gap-1 fin-num text-muted-foreground">
-                                      <Lock className="h-3 w-3" />
-                                      {lockedN}
-                                    </span>
-                                  ) : null}
-                                </span>
-                              </div>
-                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                                <div
-                                  className={`grow-bar h-full rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : "bg-primary"}`}
-                                  style={{ width: `${pct}%` }}
-                                />
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
-                  </div>
+                <section className="tile rise-in overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-[10px] uppercase tracking-[0.12em] text-muted-foreground [&>th]:px-5 [&>th]:py-2.5">
+                        <th className="text-left font-medium">
+                          {t("weekSummary.rowCustomerDriver", {
+                            defaultValue: "Customer / Driver",
+                          })}
+                        </th>
+                        <th className="text-right font-medium">
+                          {t("weekSummary.rowHours", { defaultValue: "Hours" })}
+                        </th>
+                        <th className="text-right font-medium">
+                          {t("weekSummary.rowOt", { defaultValue: "OT" })}
+                        </th>
+                        <th className="text-right font-medium">
+                          {t("weekSummary.rowDriver", { defaultValue: "Driver" })}
+                        </th>
+                        <th className="text-right font-medium">
+                          {t("weekSummary.rowCustomer", { defaultValue: "Customer" })}
+                        </th>
+                        <th className="w-28 text-right font-medium">
+                          {t("weekSummary.rowStatus", { defaultValue: "Status" })}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {summary.customers
+                        .filter((c) => c.drivers.length > 0)
+                        // Customers A→Z, same as the drivers sidebar.
+                        .slice()
+                        .sort((a, b) =>
+                          a.customer.localeCompare(b.customer, undefined, {
+                            sensitivity: "base",
+                          }),
+                        )
+                        .map((c) => {
+                          const hours = c.drivers.reduce((a, d) => a + d.totalHours, 0);
+                          const ot = c.drivers.reduce((a, d) => a + d.overtimeHours, 0);
+                          const reviewedN = c.drivers.filter((d) => d.reviewed).length;
+                          const drivers = c.drivers
+                            .slice()
+                            .sort((a, b) =>
+                              a.name.localeCompare(b.name, undefined, {
+                                sensitivity: "base",
+                              }),
+                            );
+                          return (
+                            <Fragment key={c.customer}>
+                              {/* Group label — a heading, not a link. Same band
+                                  treatment as the day rows on driver-detail. */}
+                              <tr
+                                className="border-none bg-muted/40 text-[10px] uppercase tracking-[0.12em] text-muted-foreground [&>td]:px-5 [&>td]:py-1.5"
+                                data-testid={`row-customer-${c.customer}`}
+                              >
+                                <td className="font-semibold text-foreground/70">
+                                  {c.customer}
+                                </td>
+                                <td className="text-right fin-num">{hours.toFixed(2)}</td>
+                                <td className="text-right fin-num text-warning">
+                                  {ot > 0 ? ot.toFixed(2) : ""}
+                                </td>
+                                <td />
+                                <td />
+                                <td className="text-right fin-num">
+                                  {reviewedN}/{c.drivers.length}
+                                </td>
+                              </tr>
+                              {drivers.map((d) => {
+                                const noCt = d.customerHours > 0 && d.driverHours <= 0;
+                                const flagged = d.flaggedPunchCount ?? 0;
+                                return (
+                                  <tr
+                                    key={d.kfiId}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() =>
+                                      setLocation(
+                                        `/weeks/${weekStart}/drivers/${d.kfiId}`,
+                                      )
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        setLocation(
+                                          `/weeks/${weekStart}/drivers/${d.kfiId}`,
+                                        );
+                                      }
+                                    }}
+                                    className="cursor-pointer border-b border-border/25 transition-colors last:border-0 hover:bg-muted/40 [&>td]:px-5 [&>td]:py-2"
+                                    data-testid={`row-driver-${d.kfiId}`}
+                                  >
+                                    <td className="font-medium">{d.name}</td>
+                                    <td className="text-right fin-num">
+                                      {d.totalHours.toFixed(2)}
+                                    </td>
+                                    <td className="text-right fin-num text-warning">
+                                      {d.overtimeHours > 0
+                                        ? d.overtimeHours.toFixed(2)
+                                        : ""}
+                                    </td>
+                                    <td className="text-right fin-num text-muted-foreground">
+                                      {d.driverHours.toFixed(2)}
+                                    </td>
+                                    <td className="text-right fin-num text-muted-foreground">
+                                      {d.customerHours.toFixed(2)}
+                                    </td>
+                                    <td>
+                                      <span className="flex items-center justify-end gap-2">
+                                        {noCt ? (
+                                          <AlertTriangle
+                                            className="h-3.5 w-3.5 text-warning"
+                                            aria-label={t("weekSummary.tileNoCt", {
+                                              count: 1,
+                                            })}
+                                          />
+                                        ) : null}
+                                        {flagged > 0 ? (
+                                          <span className="inline-flex items-center gap-1 fin-num text-xs text-rose-600">
+                                            <Flag className="h-3 w-3" />
+                                            {flagged}
+                                          </span>
+                                        ) : null}
+                                        {d.locked ? (
+                                          <Lock className="h-3 w-3 text-muted-foreground" />
+                                        ) : null}
+                                        {d.reviewed ? (
+                                          <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                        ) : null}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </Fragment>
+                          );
+                        })}
+                    </tbody>
+                  </table>
                 </section>
               ) : null}
             </>
@@ -970,16 +1005,5 @@ export default function WeekSummary() {
         </main>
       </div>
     </AppShell>
-  );
-}
-
-
-/** Count-up hours figure for the customer tiles ("appear live" pass). */
-function AnimatedHours({ value }: { value: number }) {
-  const animated = useCountUp(value);
-  return (
-    <span className="fin-num text-2xl font-semibold text-foreground">
-      {animated.toFixed(2)}
-    </span>
   );
 }
