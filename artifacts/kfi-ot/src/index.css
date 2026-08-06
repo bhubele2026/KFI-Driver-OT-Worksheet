@@ -326,6 +326,11 @@
 .scroll-hover:hover,
 .scroll-hover:focus-within { scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent; }
 
+/* Opt-in: no bar at all, and no gutter reserved for one — the element still
+   scrolls by wheel/trackpad/keyboard. Used on the driver page's main column,
+   where the bar and its reserved strip were reading as dead space. */
+.no-scrollbar { scrollbar-width: none; }
+
 /* Older Safari (no standard `scrollbar-color`) — Chrome/FF/Safari 18.2+
    ignore these pseudo-elements once the standard props above are set, so
    gating on @supports keeps the two models from fighting. */
@@ -342,6 +347,7 @@
     transition: background 160ms ease-out;
   }
   .scroll-hover:hover::-webkit-scrollbar-thumb { background: hsl(var(--muted-foreground) / 0.28); }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

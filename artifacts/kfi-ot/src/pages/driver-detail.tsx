@@ -1293,7 +1293,13 @@ export default function DriverDetail() {
           />
         </div>
 
-        <main className="print-sheet flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] print:p-0 print:max-w-none print:mx-0 print:overflow-visible print:space-y-4">
+        {/* max-w-[1700px] matches every other surface (home, week-summary,
+            app-shell). This page was the lone hold-out at max-w-7xl (1280px),
+            which left mx-auto splitting ~158px into two empty side gutters —
+            103px of dead space on the left, 114px on the right at a 1726px
+            window. no-scrollbar hides the bar outright (and reserves no
+            gutter for it); scrolling itself is untouched. */}
+        <main className="print-sheet no-scrollbar flex-1 px-6 py-4 max-w-[1700px] mx-auto w-full space-y-4 overflow-y-auto overflow-x-hidden print:p-0 print:max-w-none print:mx-0 print:overflow-visible">
           <AllReviewedSplash
             visible={allReviewedSplashVisible}
             onDismiss={dismissAllReviewedSplash}
@@ -2286,7 +2292,7 @@ export default function DriverDetail() {
 
         {/* Card B — the seven days as chips (click jumps to the day) */}
         <div
-          className="tile rise-in mt-3 flex gap-2 overflow-x-auto p-3 print:hidden"
+          className="tile rise-in flex gap-2 overflow-x-auto p-3 print:hidden"
           style={{ animationDelay: "24ms" }}
           data-testid="week-strip"
         >
@@ -2335,7 +2341,7 @@ export default function DriverDetail() {
 
         {/* Card C — the punches */}
           <div
-            className="tile rise-in mt-3 overflow-hidden"
+            className="tile rise-in overflow-hidden"
             style={{ animationDelay: "48ms" }}
           >
           <div className="overflow-x-auto">
