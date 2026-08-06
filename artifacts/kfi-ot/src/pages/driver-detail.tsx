@@ -2275,15 +2275,21 @@ export default function DriverDetail() {
 
         {/* Summary + Checks panels — surface the per-source RT/OT split and an
             independent re-derivation, so any divergence is obvious. */}
+        {/* Card A — the week's bottom line */}
         <div className="tile rise-in overflow-hidden">
         <SummaryAndChecks
           totals={data.totals}
           rowHoursSum={rows.length > 0 ? rows[rows.length - 1].after : 0}
           connecteamParity={data.connecteamParity ?? null}
         />
+        </div>
 
-        {/* Week strip — the seven days at a glance; click jumps to the day */}
-        <div className="stagger flex divide-x divide-border border-t border-border overflow-x-auto print:hidden" data-testid="week-strip">
+        {/* Card B — the seven days as chips (click jumps to the day) */}
+        <div
+          className="tile rise-in mt-3 flex gap-2 overflow-x-auto p-3 print:hidden"
+          style={{ animationDelay: "24ms" }}
+          data-testid="week-strip"
+        >
           {Array.from({ length: 7 }, (_, i) => {
             const d = addDays(parseISO(weekStart), i);
             const iso = format(d, "yyyy-MM-dd");
@@ -2300,8 +2306,10 @@ export default function DriverDetail() {
                     ?.scrollIntoView({ behavior: "smooth", block: "start" })
                 }
                 className={cn(
-                  "min-w-[88px] flex-1 px-3 py-2.5 text-left transition-colors",
-                  info ? "cursor-pointer hover:bg-accent" : "opacity-50",
+                  "min-w-[88px] flex-1 rounded-lg px-3 py-2.5 text-left transition-colors",
+                  info
+                    ? "cursor-pointer bg-muted/40 hover:bg-muted"
+                    : "bg-muted/20 opacity-45",
                 )}
               >
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -2325,11 +2333,15 @@ export default function DriverDetail() {
           })}
         </div>
 
-        {/* Punch table */}
-          <div className="border-t border-border overflow-x-auto">
+        {/* Card C — the punches */}
+          <div
+            className="tile rise-in mt-3 overflow-hidden"
+            style={{ animationDelay: "48ms" }}
+          >
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60 [&>th]:h-9 [&>th]:h-10 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-muted-foreground">
+                <TableRow className="border-b border-border/60 bg-transparent hover:bg-transparent [&>th]:h-10 [&>th]:px-5 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-muted-foreground">
                   <TableHead className="uppercase text-[11px] tracking-wider w-[110px]">{t("driverDetail.punchTable.source")}</TableHead>
                   <TableHead className="uppercase text-[11px] tracking-wider w-[120px]">{t("driverDetail.punchTable.clockIn")}</TableHead>
                   <TableHead className="uppercase text-[11px] tracking-wider w-[120px]">{t("driverDetail.punchTable.clockOut")}</TableHead>
@@ -2374,11 +2386,11 @@ export default function DriverDetail() {
                     {isNewDay && (
                       <TableRow
                         id={`day-${p.date}`}
-                        className="scroll-mt-24 border-b border-border bg-muted/40 hover:bg-muted/40"
+                        className="scroll-mt-24 border-none bg-muted/40 hover:bg-muted/40"
                       >
-                        <TableCell colSpan={6} className="py-1.5">
+                        <TableCell colSpan={6} className="px-5 py-1.5">
                           <div className="flex items-baseline justify-between gap-3">
-                            <span className="font-display text-xs font-semibold uppercase tracking-wider text-foreground/80">
+                            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                               {format(parseISO(p.date), "EEE · MMM d")}
                             </span>
                             <span className="fin-num text-xs text-muted-foreground">
@@ -2399,7 +2411,7 @@ export default function DriverDetail() {
                       }
                       style={rowStyle}
                       className={cn(
-                        "group/row scroll-mt-24 border-b border-border/25 transition-colors hover:bg-muted/50 [&>td]:py-2",
+                        "group/row scroll-mt-24 border-b border-border/25 transition-colors hover:bg-muted/50 [&>td]:py-2 [&>td]:px-5",
                         isOt && "bg-brand-orange/[0.05] hover:bg-brand-orange/10",
                         (p as { flagged?: boolean }).flagged &&
                           "border-l-2 border-l-rose-400 bg-rose-500/[0.05] hover:bg-rose-500/10",
@@ -3259,17 +3271,17 @@ function SummaryAndChecks({
           </div>
         </div>
 
-        <div className="hidden h-14 w-px shrink-0 bg-border lg:block" />
+        {/* separation = whitespace + card edges, no ad-hoc rules */}
 
         {/* Zone 2 — where the hours came from (mismatch is VISIBLE) */}
         <div className="min-w-[240px] flex-1 space-y-2.5">
           <div>
-            <div className="flex items-baseline justify-between text-xs">
+            <div className="flex items-baseline gap-2 text-xs">
               <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                 <span className="h-2 w-2 rounded-full bg-brand-navy" />
                 {t("driverDetail.driverConnect")}
               </span>
-              <span className="fin-num font-semibold text-foreground" data-testid="row-summary-total-driver">
+              <span className="fin-num text-sm font-semibold text-foreground" data-testid="row-summary-total-driver">
                 {drvAnim.toFixed(2)}
               </span>
             </div>
@@ -3286,12 +3298,12 @@ function SummaryAndChecks({
             </div>
           </div>
           <div>
-            <div className="flex items-baseline justify-between text-xs">
+            <div className="flex items-baseline gap-2 text-xs">
               <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                 <span className="h-2 w-2 rounded-full bg-sky-500" />
                 {t("driverDetail.customerSource")}
               </span>
-              <span className="fin-num font-semibold text-foreground" data-testid="row-summary-total-customer">
+              <span className="fin-num text-sm font-semibold text-foreground" data-testid="row-summary-total-customer">
                 {custAnim.toFixed(2)}
               </span>
             </div>
@@ -3309,7 +3321,7 @@ function SummaryAndChecks({
           </div>
         </div>
 
-        <div className="hidden h-14 w-px shrink-0 bg-border lg:block" />
+        {/* separation = whitespace + card edges, no ad-hoc rules */}
 
         {/* Zone 3 — does it reconcile? */}
         <div className="flex shrink-0 flex-row flex-wrap items-center gap-2 lg:flex-col lg:items-end">
