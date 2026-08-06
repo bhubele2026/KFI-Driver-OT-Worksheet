@@ -81,6 +81,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@sentry/react": "^10.69.0",
     "i18next": "^26.0.10",
     "react-i18next": "^17.0.7"
   }

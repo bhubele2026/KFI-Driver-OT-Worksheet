@@ -1,0 +1,66 @@
+# CI: green gate + security scanning on every push.
+# NOTE: private repo on a free personal plan — there are no required checks, so CI is
+# ADVISORY. Deploys are manual (az acr build); check Actions is green before deploying.
+# Docker image tags in `run:` steps (semgrep/gitleaks) are NOT managed by Dependabot — bump quarterly.
+name: ci
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Green gate: the SPA must build and the server must typecheck.
+  # `pnpm -r typecheck` is deliberately NOT run yet — it fails on pre-existing errors
+  # (stale generated api-client, test fixtures missing `deactivated`) that predate this
+  # workflow. Add it here once those are cleared; see docs/SECURITY-AUDIT.md.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # pnpm/action-setup must run BEFORE setup-node when cache: pnpm is used.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/kfi-ot exec vite build
+      - run: pnpm --filter @workspace/api-server build
+      # Fails only on high/critical advisories in production deps.
+      - run: pnpm audit --prod --audit-level high
+
+  # Semgrep SAST — free OSS rules, no SaaS account. ERROR severity only (high precision).
+  # p/secrets is deliberately omitted: gitleaks owns the secrets lane.
+  semgrep:
+    runs-on: ubuntu-latest
+    container: semgrep/semgrep:1.131.0
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          rc=0
+          semgrep scan \
+            --config p/default --config p/typescript --config p/react --config p/expressjs \
+            --metrics=off --severity ERROR --error --text --output findings.txt || rc=$?
+          echo "## Semgrep (ERROR severity)" >> "$GITHUB_STEP_SUMMARY"
+          { echo '```'; cat findings.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cat findings.txt
+          exit "$rc"
+
+  # Secret scanning over the FULL git history on every push (fetch-depth: 0).
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          docker run --rm -v "$PWD:/repo" --entrypoint sh ghcr.io/gitleaks/gitleaks:v8.28.0 \
+            -c "git config --global --add safe.directory /repo && gitleaks git /repo --redact --no-banner --exit-code 1"

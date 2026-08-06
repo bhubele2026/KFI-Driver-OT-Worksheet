@@ -36,6 +36,10 @@ ENV VITE_PUBLIC_BYPASS_AUTH=$VITE_PUBLIC_BYPASS_AUTH
 # Version tag shown bottom-left of the home page; pass --build-arg APP_VERSION=vNN.
 ARG APP_VERSION=
 ENV VITE_APP_VERSION=$APP_VERSION
+# Browser-side Sentry DSN, baked into the bundle at build time (DSNs are public
+# by design). Omit it and the client-side Sentry init no-ops.
+ARG VITE_SENTRY_DSN=
+ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN
 RUN pnpm --filter @workspace/kfi-ot build \
  && pnpm --filter @workspace/api-server build \
  && cp -r artifacts/kfi-ot/dist/public artifacts/api-server/dist/public
@@ -55,9 +59,18 @@ ENV NODE_ENV=production \
 
 # The app is stateless (uploads in-memory, all state in Postgres); copy the
 # whole built workspace so pnpm's symlinked node_modules stay intact.
-COPY --from=builder /app /app
+# Owned by the built-in `node` user so the runtime doesn't need root.
+COPY --from=builder --chown=node:node /app /app
+
+# Drop root. Nothing here writes outside /tmp and the port is 8080 (>1024), so
+# there is no reason for the process to keep root privileges.
+USER node
 
 EXPOSE 8080
+# Container Apps has its own probes, but this makes `docker run` locally and any
+# non-ACA runtime surface a wedged process instead of a black box.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:8080/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 # Deploy-time secrets (DATABASE_URL, SESSION_SECRET, APP_BASE_URL,
 # ANTHROPIC_API_KEY, CONNECTEAM_API_TOKEN) are injected by Container Apps.
 CMD ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]

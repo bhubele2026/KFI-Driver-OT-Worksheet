@@ -39,7 +39,25 @@ import DriverDetail from "@/pages/driver-detail";
 import { CopilotDrawer } from "@/components/copilot-drawer";
 import { VersionRefreshBanner } from "@/components/version-refresh-banner";
 
-const queryClient = new QueryClient();
+// Defaults matter here: react-query's out-of-the-box staleTime is 0, so every
+// click between drivers in the sidebar refetched the week, the roster and the
+// punch list even though none of it had changed — that's the "loading" you
+// feel moving around inside the app.
+//
+// A 30s stale window is only safe because invalidation is already thorough:
+// ~33 modules call invalidateQueries on mutation, and use-live-updates.ts
+// fires 27 of them off the SSE stream. Any real edit still busts its keys
+// immediately, so hours are never shown stale after a change.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 // Auto-call /api/auth/dev-bypass on load when:
 //  - running in Vite dev mode, OR

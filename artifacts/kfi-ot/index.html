@@ -6,9 +6,10 @@
     <title>KFI Staffing · Driver OT Worksheet</title>
     <meta name="description" content="KFI Staffing dispatcher tool for reconciling driver punches before payroll." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- No Google Fonts link: Inter is self-hosted as InterVariable.woff2 via
+         @font-face in index.css, and --app-font-sans names "InterVariable", so
+         the remote "Inter" family was never actually used — it just cost two
+         preconnects and a blocking stylesheet request on every page load. -->
   </head>
   <body>
     <div id="root"></div>

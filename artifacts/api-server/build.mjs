@@ -88,6 +88,13 @@ async function buildAll() {
       "googleapis",
       "firebase-admin",
       "@parcel/watcher",
+      // @sentry/node must stay external. It imports @opentelemetry/api, which
+      // is already externalized above — so bundling Sentry produced a
+      // dist/index.mjs with a bare `@opentelemetry/api` import that pnpm's
+      // strict node_modules layout can't resolve from the api-server package
+      // (it only exists under @sentry/node's own tree). Left external, Node
+      // resolves @sentry/node normally and its deps come along with it.
+      "@sentry/*",
       "@sentry/profiling-node",
       "@tree-sitter/*",
       "aws-sdk",

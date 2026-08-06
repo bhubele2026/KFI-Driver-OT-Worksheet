@@ -1,3 +1,6 @@
+// MUST stay first — Sentry.init has to run before anything else is imported.
+import "./instrument";
+import * as Sentry from "@sentry/node";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { initMailer } from "./lib/mailer";
@@ -234,6 +237,10 @@ async function main() {
         ),
       );
   });
+
+  // Registered after every route/middleware is mounted (app.ts wires them at
+  // import time) and before listen. No-ops when SENTRY_DSN is absent.
+  Sentry.setupExpressErrorHandler(app);
 
   app.listen(port, (err) => {
     if (err) {
