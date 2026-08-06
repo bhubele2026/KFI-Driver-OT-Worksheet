@@ -96,7 +96,7 @@ export default function Home() {
               type="button"
               onClick={() => setLocation(tile.href)}
               style={{ animationDelay: `${i * 28}ms` }}
-              className="tile-in group flex h-full flex-col rounded-2xl bg-white p-6 text-left shadow-md ring-1 ring-brand-line transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-1 hover:shadow-xl hover:ring-brand-navy/25"
+              className="tile-in group flex h-full flex-col rounded-lg bg-white p-6 text-left shadow-sm ring-1 ring-brand-line transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-1 hover:shadow-md hover:ring-brand-navy/25"
             >
               <span className="text-base font-semibold text-brand-navy">{tile.title}</span>
               <span className="mt-1.5 text-sm text-neutral-500">{tile.blurb}</span>

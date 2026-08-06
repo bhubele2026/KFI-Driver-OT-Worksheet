@@ -1293,7 +1293,7 @@ export default function DriverDetail() {
           />
         </div>
 
-        <main className="print-sheet flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-y-auto overflow-x-hidden print:p-0 print:max-w-none print:mx-0 print:overflow-visible print:space-y-4">
+        <main className="print-sheet flex-1 p-6 max-w-7xl mx-auto w-full space-y-6 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] print:p-0 print:max-w-none print:mx-0 print:overflow-visible print:space-y-4">
           <AllReviewedSplash
             visible={allReviewedSplashVisible}
             onDismiss={dismissAllReviewedSplash}
@@ -1323,7 +1323,7 @@ export default function DriverDetail() {
             </div>
             <div className="flex items-center gap-2 flex-wrap print:hidden">
               <div
-                className="inline-flex items-center gap-0.5 rounded-xl border border-border bg-card p-0.5"
+                className="inline-flex items-center gap-0.5 rounded-md border border-border bg-card p-0.5"
                 data-testid="status-tristate"
               >
                 <button
@@ -1336,7 +1336,7 @@ export default function DriverDetail() {
                   aria-label={t("driverDetail.markGoodAria")}
                   title={t("driverDetail.good")}
                   className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                    "px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
                     driverStatus === "good"
                       ? "bg-emerald-600 text-white shadow-sm"
                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -1353,7 +1353,7 @@ export default function DriverDetail() {
                   data-testid="button-status-bad"
                   title={t("driverDetail.markBadTitleShort")}
                   className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                    "px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
                     driverStatus === "bad"
                       ? "bg-rose-600 text-white shadow-sm"
                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2306,7 +2306,7 @@ export default function DriverDetail() {
                     ?.scrollIntoView({ behavior: "smooth", block: "start" })
                 }
                 className={cn(
-                  "min-w-[88px] flex-1 rounded-lg px-3 py-2.5 text-left transition-colors",
+                  "min-w-[88px] flex-1 rounded-md px-3 py-2.5 text-left transition-colors",
                   info
                     ? "cursor-pointer bg-muted/40 hover:bg-muted"
                     : "bg-muted/20 opacity-45",

@@ -1776,7 +1776,7 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
               onDrop={(e) => handleRowDrop(s.customer, e)}
             >
               {isRowDragTarget && (
-                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-primary/5">
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-primary/5">
                   <div className="flex items-center gap-2 rounded-xl border-2 border-dashed border-primary bg-background/95 px-3 py-1.5 text-xs font-semibold shadow">
                     <UploadCloud className="h-4 w-4 text-primary" />
                     {t("customerUpload.dropToUploadAs", { customer: s.customer })}

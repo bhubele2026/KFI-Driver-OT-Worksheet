@@ -250,7 +250,7 @@ function DriversList({
       {filteredGroups.map((group, groupIndex) => (
         <li
           key={group.customer}
-          className="overflow-hidden rounded-xl bg-card ring-1 ring-border rise-in"
+          className="overflow-hidden rounded-lg bg-card ring-1 ring-border rise-in"
           style={{
             boxShadow: "var(--shadow-xs)",
             animationDelay: `${Math.min(groupIndex, 8) * 24}ms`,
@@ -767,7 +767,7 @@ export function DriversSidebar({ weekStart, selectedKfiId, collapsed, onToggle }
 
   return (
     <aside
-      className="w-72 shrink-0 border-r border-border bg-muted/20 overflow-y-auto hidden md:block"
+      className="scroll-hover w-72 shrink-0 border-r border-border bg-muted/20 overflow-y-auto hidden md:block"
       data-testid="drivers-sidebar"
     >
       <SidebarHeader onCollapse={onToggle} />
@@ -817,7 +817,7 @@ export function DriversSidebarMobileTrigger({
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           side="left"
-          className="p-0 w-80 max-w-[85vw] bg-muted/20 overflow-y-auto"
+          className="scroll-hover p-0 w-80 max-w-[85vw] bg-muted/20 overflow-y-auto"
         >
           <SidebarHeader />
           <FilterControls

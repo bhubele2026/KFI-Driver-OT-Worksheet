@@ -41,7 +41,7 @@ export function FullyReconciledSplash({ visible, onDismiss }: Props) {
       role="status"
       aria-live="polite"
       data-testid="fully-reconciled-splash"
-      className="fixed top-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 rounded-2xl border-2 border-amber-400/60 bg-gradient-to-br from-amber-400/25 via-amber-300/15 to-amber-500/25 px-6 py-4 shadow-2xl backdrop-blur ring-1 ring-amber-200/30 dark:from-amber-500/25 dark:via-amber-400/15 dark:to-amber-600/25"
+      className="fixed top-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 rounded-lg border-2 border-amber-400/60 bg-gradient-to-br from-amber-400/25 via-amber-300/15 to-amber-500/25 px-6 py-4 shadow-2xl backdrop-blur ring-1 ring-amber-200/30 dark:from-amber-500/25 dark:via-amber-400/15 dark:to-amber-600/25"
     >
       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-400/30 text-amber-700 dark:text-amber-200">
         <PartyPopper className="h-5 w-5" />

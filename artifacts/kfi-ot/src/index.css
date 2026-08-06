@@ -157,7 +157,10 @@
   --app-font-display: "InterVariable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --app-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --radius: 1rem;
+  /* Light round, not bubbly: cards land at 8px (`lg`), buttons/inputs 6px
+     (`md`), badges/chips 4px (`sm`). A payroll worksheet reads professional
+     at this scale; the old 1rem put every badge close to a pill. */
+  --radius: 0.5rem;
 
   /* Soft two-layer depth: tiles rest on a gentle ambient + key shadow and
      lift on hover. Crisper than the old near-flat scale without going heavy. */
@@ -201,20 +204,20 @@
    ring; interactive tiles lift on hover. Use `.tile` for static surfaces and
    `.tile-action` for clickable ones. */
 .tile {
-  @apply rounded-2xl bg-card ring-1 ring-border;
-  box-shadow: var(--shadow-sm);
+  @apply rounded-lg bg-card ring-1 ring-border;
+  box-shadow: var(--shadow-xs);
 }
 .tile-action {
-  @apply rounded-2xl bg-card ring-1 ring-border cursor-pointer;
-  box-shadow: var(--shadow-sm);
+  @apply rounded-lg bg-card ring-1 ring-border cursor-pointer;
+  box-shadow: var(--shadow-xs);
   transition:
     box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1),
     transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
     ring-color 150ms;
 }
 .tile-action:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 .tile-action:active {
   transform: translateY(0);
@@ -305,6 +308,40 @@
   white-space: nowrap;
   mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent 100%);
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent 100%);
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────
+   Unstyled scrollers render the raw OS bar (~15px, opaque grey) — and on
+   macOS with a mouse attached the system default is "always show", so two
+   fat bars sat on the timesheet page at all times (sidebar + main column).
+   Thin, transparent-track, quiet thumb everywhere. `:where()` keeps this at
+   zero specificity so any component can still override it. */
+:where(*) {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent;
+}
+/* Opt-in: the bar stays invisible until you're actually in that pane.
+   Used on the drivers sidebar so only one bar is ever visible at rest. */
+.scroll-hover { scrollbar-color: transparent transparent; }
+.scroll-hover:hover,
+.scroll-hover:focus-within { scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent; }
+
+/* Older Safari (no standard `scrollbar-color`) — Chrome/FF/Safari 18.2+
+   ignore these pseudo-elements once the standard props above are set, so
+   gating on @supports keeps the two models from fighting. */
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.28);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.45); }
+  .scroll-hover::-webkit-scrollbar-thumb {
+    background: transparent;
+    transition: background 160ms ease-out;
+  }
+  .scroll-hover:hover::-webkit-scrollbar-thumb { background: hsl(var(--muted-foreground) / 0.28); }
 }
 
 @media (prefers-reduced-motion: reduce) {

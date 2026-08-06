@@ -29,7 +29,7 @@ export function StatTile({
   return (
     <div
       className={cn(
-        "rounded-2xl p-4 shadow-sm ring-1",
+        "rounded-lg p-4 shadow-sm ring-1",
         highlight ? "bg-warning/5 ring-warning/40" : "bg-card ring-border",
       )}
       data-testid={testId}

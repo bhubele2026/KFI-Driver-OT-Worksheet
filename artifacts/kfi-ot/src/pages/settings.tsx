@@ -76,7 +76,7 @@ export default function Settings() {
                 <Link
                   key={tile.href}
                   href={tile.href}
-                  className="group flex flex-col rounded-2xl bg-white p-5 no-underline shadow-sm ring-1 ring-border transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5 hover:shadow-md hover:ring-brand-navy/25"
+                  className="group flex flex-col rounded-lg bg-white p-5 no-underline shadow-sm ring-1 ring-border transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5 hover:shadow-md hover:ring-brand-navy/25"
                 >
                   <span className="text-sm font-semibold text-brand-navy">{tile.title}</span>
                   <span className="mt-1 text-sm text-muted-foreground">{tile.blurb}</span>

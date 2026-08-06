@@ -37,7 +37,7 @@ export default function History() {
               <Link
                 key={w.startDate}
                 href={`/timesheets/${w.startDate}`}
-                className="group flex flex-col rounded-2xl bg-white p-5 no-underline shadow-sm ring-1 ring-border transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5 hover:shadow-md hover:ring-brand-navy/25"
+                className="group flex flex-col rounded-lg bg-white p-5 no-underline shadow-sm ring-1 ring-border transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5 hover:shadow-md hover:ring-brand-navy/25"
               >
                 <div className="fin-num text-base font-semibold text-brand-navy">
                   {t("weekSummary.weekRangeOption", { start: w.startDate, end: w.endDate })}

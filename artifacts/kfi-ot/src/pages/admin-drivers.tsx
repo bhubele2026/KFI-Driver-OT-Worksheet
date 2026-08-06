@@ -94,7 +94,7 @@ export default function AdminDrivers() {
           className="max-w-sm"
         />
 
-        <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-border">
+        <div className="overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-border">
           {isLoading ? (
             <div className="p-5 text-sm text-muted-foreground">Loading…</div>
           ) : rows.length === 0 ? (

@@ -109,7 +109,7 @@ export function WeekToolbar({
   return (
     <div className="tile flex flex-wrap items-center gap-2 px-3 py-2.5">
       {title && <div className="mr-1 text-sm font-semibold text-brand-navy">{title}</div>}
-      <div className="inline-flex items-center gap-0.5 rounded-xl border border-border bg-background p-0.5">
+      <div className="inline-flex items-center gap-0.5 rounded-md border border-border bg-background p-0.5">
         <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => go(-1)} title={t("header.previousWeek")}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
@@ -130,7 +130,7 @@ export function WeekToolbar({
         </Button>
       </div>
       <label
-        className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-background px-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
         title={t("header.jumpTo")}
       >
         <CalendarDays className="h-4 w-4" />
