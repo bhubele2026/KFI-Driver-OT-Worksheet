@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Logo } from "@/components/logo";
-import { LanguageToggle } from "@/components/language-toggle";
 import { getCoverageReport } from "@/i18n";
 
 export default function AdminI18nStatus() {
@@ -36,7 +35,6 @@ export default function AdminI18nStatus() {
             </Button>
           </Link>
         </div>
-        <LanguageToggle />
       </header>
       <main className="flex-1 p-6 max-w-4xl mx-auto w-full space-y-6">
         <div className="space-y-1">

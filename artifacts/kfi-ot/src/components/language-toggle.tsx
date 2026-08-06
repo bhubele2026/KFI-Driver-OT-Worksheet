@@ -1,3 +1,9 @@
+// NOT MOUNTED ANYWHERE (2026-08-05, owner request: "remove the english to
+// spanish button"). Kept intact rather than deleted so the switcher can be
+// restored with a single import + <LanguageToggle /> if it's ever wanted back.
+// The i18n system itself is untouched — every string still runs through t(),
+// the Spanish translations are all still present, and a user's saved
+// preferredLanguage is still honored on load. Only the UI switcher is gone.
 import { useTranslation } from "react-i18next";
 import {
   useGetMe,

@@ -83,7 +83,6 @@ import {
 } from "lucide-react";
 import { AdminLink } from "@/components/admin-link";
 import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
-import { LanguageToggle } from "@/components/language-toggle";
 import { PresenceChip } from "@/components/presence-chip";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
 import { usePresence } from "@/hooks/use-presence";

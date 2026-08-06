@@ -93,7 +93,6 @@ import { Logo } from "@/components/logo";
 import { HiddenNotesBadge } from "@/components/hidden-notes-badge";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { LanguageToggle } from "@/components/language-toggle";
 
 function copy(
   text: string,
@@ -745,7 +744,6 @@ export default function AdminUsers() {
           </h1>
         </div>
         <div className="flex items-center gap-1">
-          <LanguageToggle />
           <Link href="/admin/ai-samples">
             <Button
               variant="ghost"

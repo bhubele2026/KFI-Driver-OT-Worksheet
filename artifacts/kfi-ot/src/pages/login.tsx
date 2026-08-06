@@ -13,7 +13,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Logo } from "@/components/logo";
-import { LanguageToggle } from "@/components/language-toggle";
 import { useTranslation } from "react-i18next";
 
 export default function Login() {
@@ -50,9 +49,6 @@ export default function Login() {
   return (
     <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted p-4">
       <div className="w-full max-w-sm">
-        <div className="flex justify-end mb-2">
-          <LanguageToggle tone="light" />
-        </div>
         <Card className="overflow-hidden border-border shadow-lg">
         <div className="bg-sidebar flex items-center justify-center px-6 py-6">
           <Logo className="h-10" />

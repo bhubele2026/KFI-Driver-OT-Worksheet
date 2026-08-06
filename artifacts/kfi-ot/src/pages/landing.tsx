@@ -2,7 +2,6 @@ import { Link } from "wouter";
 import { useGetMe } from "@workspace/api-client-react";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
-import { LanguageToggle } from "@/components/language-toggle";
 import {
   ArrowRight,
   Clock,
@@ -47,7 +46,6 @@ export default function Landing() {
         <div className="mx-auto w-full max-w-5xl px-6">
           <div className="flex items-center justify-between py-4">
             <Logo variant="header" />
-            <LanguageToggle tone="navy" />
           </div>
           <div className="max-w-2xl py-14 sm:py-20">
             <p className="fin-num text-xs uppercase tracking-[0.18em] text-sidebar-primary">

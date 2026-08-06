@@ -20,7 +20,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Logo } from "@/components/logo";
-import { LanguageToggle } from "@/components/language-toggle";
 import { useTranslation } from "react-i18next";
 
 export default function AcceptInvite() {
@@ -75,7 +74,6 @@ export default function AcceptInvite() {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
         <div className="w-full max-w-sm">
-          <div className="flex justify-end mb-2"><LanguageToggle /></div>
           <Logo variant="auth" />
           <Card className="shadow-lg border-border/50">
           <CardHeader>
@@ -103,7 +101,6 @@ export default function AcceptInvite() {
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-sm">
-        <div className="flex justify-end mb-2"><LanguageToggle /></div>
         <Logo variant="auth" />
         <Card className="shadow-lg border-border/50">
         <CardHeader>

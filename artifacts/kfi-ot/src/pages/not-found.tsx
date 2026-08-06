@@ -3,7 +3,6 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Button } from "@/components/ui/button";
 import { AlertCircle } from "lucide-react";
 import { Logo } from "@/components/logo";
-import { LanguageToggle } from "@/components/language-toggle";
 import { useTranslation } from "react-i18next";
 
 export default function NotFound() {
@@ -11,7 +10,6 @@ export default function NotFound() {
   return (
     <div className="min-h-[100dvh] w-full flex items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-sm">
-        <div className="flex justify-end mb-2"><LanguageToggle /></div>
         <Logo variant="auth" />
         <Card className="shadow-lg border-border/50">
           <CardHeader className="space-y-1">

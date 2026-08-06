@@ -78,7 +78,6 @@ import {
   useFullyReconciledCelebration,
 } from "@/hooks/use-all-reviewed-celebration";
 import { Logo } from "@/components/logo";
-import { LanguageToggle } from "@/components/language-toggle";
 import { useTranslation } from "react-i18next";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useAutoAdvancePref } from "@/hooks/use-auto-advance";
@@ -1247,7 +1246,6 @@ export default function DriverDetail() {
         </div>
         <div className="flex items-center gap-3">
           <PresenceChip viewers={viewers} selfEmail={me?.email ?? null} />
-          <LanguageToggle />
           <ReviewedPill
             reviewed={flatDrivers.filter((d) => d.reviewed).length}
             total={flatDrivers.length}

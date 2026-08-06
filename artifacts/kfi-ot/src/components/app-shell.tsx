@@ -4,7 +4,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useGetMe, useLogout, getGetMeQueryKey } from "@workspace/api-client-react";
 import { LogOut } from "lucide-react";
 import { Logo } from "@/components/logo";
-import { LanguageToggle } from "@/components/language-toggle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -79,7 +78,6 @@ export function AppShell({
             ))}
           </nav>
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            <LanguageToggle tone="navy" />
             {user?.email && (
               <span className="hidden text-xs text-white/60 lg:inline">{user.email}</span>
             )}

@@ -3,7 +3,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useGetMe, useLogout, getGetMeQueryKey } from "@workspace/api-client-react";
 import { LogOut } from "lucide-react";
 import { Logo } from "@/components/logo";
-import { LanguageToggle } from "@/components/language-toggle";
 import { Button } from "@/components/ui/button";
 
 interface Tile {
@@ -73,7 +72,6 @@ export default function Home() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <LanguageToggle tone="navy" />
             <Button
               variant="ghost"
               size="sm"
