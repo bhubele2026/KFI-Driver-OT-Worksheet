@@ -860,6 +860,13 @@ export default function WeekSummary() {
                   <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     {summary.customers
                       .filter((c) => c.drivers.length > 0)
+                      // Customers A→Z, same as the drivers sidebar.
+                      .slice()
+                      .sort((a, b) =>
+                        a.customer.localeCompare(b.customer, undefined, {
+                          sensitivity: "base",
+                        }),
+                      )
                       .map((c) => {
                         const hours = c.drivers.reduce((a, d) => a + d.totalHours, 0);
                         const ot = c.drivers.reduce((a, d) => a + d.overtimeHours, 0);

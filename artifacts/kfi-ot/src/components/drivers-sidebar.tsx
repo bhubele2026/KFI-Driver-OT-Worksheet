@@ -216,7 +216,12 @@ function DriversList({
           return true;
         }),
       }))
-      .filter((group) => group.drivers.length > 0);
+      .filter((group) => group.drivers.length > 0)
+      // Customers A→Z (Brad, 2026-08-05) — the server's sortOrder is a
+      // legacy hand-set sequence nobody can predict when scanning.
+      .sort((a, b) =>
+        a.customer.localeCompare(b.customer, undefined, { sensitivity: "base" }),
+      );
   }, [summary?.customers, needle, chips]);
 
   if (!summary?.customers || summary.customers.length === 0) {

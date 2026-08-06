@@ -34,7 +34,7 @@ export function Logo({ variant = "header", className }: LogoProps) {
       src={logoWhiteUrl}
       alt="KFI Workforce Deployment"
       draggable={false}
-      className={cn("h-8 w-auto select-none shrink-0", className)}
+      className={cn("h-10 w-auto select-none shrink-0", className)}
     />
   );
 }
