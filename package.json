@@ -12,6 +12,14 @@
     "e2e:setup": "sh -c 'if [ -x \"$REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE\" ]; then echo \"Using Replit-provided Chromium at $REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE\"; else pnpm --filter @workspace/kfi-ot exec playwright install --with-deps chromium; fi'"
   },
   "private": true,
+  "//pnpm.overrides": "Security floors for transitive deps flagged high by `pnpm audit --prod` (CI gate). Ranges are narrow on purpose — only the vulnerable window is lifted, unrelated majors keep their own resolution.",
+  "pnpm": {
+    "overrides": {
+      "path-to-regexp@>=8.0.0 <8.4.0": "^8.4.0",
+      "ws@>=8.0.0 <8.21.0": "^8.21.0",
+      "protobufjs@>=7.0.0 <7.6.1": "^7.6.1"
+    }
+  },
   "devDependencies": {
     "prettier": "^3.8.1",
     "typescript": "~5.9.2"
