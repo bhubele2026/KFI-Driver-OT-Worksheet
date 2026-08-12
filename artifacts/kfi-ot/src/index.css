@@ -232,7 +232,6 @@
 }
 .tile-in {
   animation: tileIn 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  will-change: opacity, transform;
 }
 @keyframes riseIn {
   from { opacity: 0; transform: translateY(8px); }
@@ -240,11 +239,9 @@
 }
 .rise-in {
   animation: riseIn 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  will-change: opacity, transform;
 }
 .stagger > * {
   animation: riseIn 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  will-change: opacity, transform;
 }
 .stagger > *:nth-child(1) { animation-delay: 0ms; }
 .stagger > *:nth-child(2) { animation-delay: 60ms; }

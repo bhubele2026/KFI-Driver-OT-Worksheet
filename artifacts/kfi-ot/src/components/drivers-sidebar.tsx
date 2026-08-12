@@ -361,7 +361,7 @@ function DriversList({
                           data-testid={`sidebar-status-bad-${driver.kfiId}`}
                         />
                       ) : driver.reviewed || status === "good" ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600/70 opacity-0 transition-opacity group-hover:opacity-100" />
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600/70" />
                       ) : (
                         <Circle className="h-3.5 w-3.5 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground/70" />
                       )}
@@ -444,7 +444,7 @@ function DriversList({
                           aria-label={t("driversSidebar.actionsAria", { name: driver.name })}
                           title={t("driversSidebar.actionsTitle")}
                           data-testid={`sidebar-actions-${driver.kfiId}`}
-                          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 transition-opacity hover:bg-foreground/10 hover:text-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:bg-foreground/10 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           <MoreHorizontal className="h-3.5 w-3.5" />
                         </button>

@@ -2661,7 +2661,7 @@ export default function DriverDetail() {
                             </Button>
                           </div>
                         ) : (
-                          <div className="flex items-center justify-end gap-1 opacity-100 transition-opacity focus-within:opacity-100 md:opacity-0 md:group-hover/row:opacity-100">
+                          <div className="flex items-center justify-end gap-1">
                             <TooltipProvider delayDuration={150}>
                               <Tooltip>
                                 <TooltipTrigger asChild>
