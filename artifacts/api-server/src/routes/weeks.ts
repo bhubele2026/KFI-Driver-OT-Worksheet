@@ -4030,6 +4030,8 @@ weeksRouter.post("/admin/customers", requireAdmin, async (req, res) => {
       await tx.insert(schema.userAuditLogTable).values({
         actorUserId: userId,
         targetUserId: null,
+        // Audit-log label in a parameterized drizzle insert, not SQL.
+        // nosemgrep: javascript.express.security.injection.tainted-sql-string.tainted-sql-string
         targetEmail: `customer-create:${displayName}`,
         action: "customer-create",
       });
@@ -4125,6 +4127,8 @@ weeksRouter.delete("/admin/customers/:id", requireAdmin, async (req, res) => {
     await tx.insert(schema.userAuditLogTable).values({
       actorUserId: req.session.userId ?? null,
       targetUserId: null,
+      // Audit-log label in a parameterized drizzle insert, not SQL.
+      // nosemgrep: javascript.express.security.injection.tainted-sql-string.tainted-sql-string
       targetEmail: `customer-delete:${rows[0].displayName}`,
       action: "customer-delete",
     });
