@@ -453,7 +453,13 @@ interface RowState {
    * running for this row (cache-hit fast path, single-chunk file,
    * pre-extract, or in-flight bulk).
    */
-  chunkProgress: { current: number; total: number } | null;
+  chunkProgress: {
+    current: number;
+    total: number;
+    // Set when a prior attempt staged chunks and this run resumed from
+    // them (Task #328) — drives the "Resumed N of M" label below.
+    resumedFromStaging?: number;
+  } | null;
   /**
    * Task #356: when the last extract aborted with
    * `IngestionBudgetExceeded`, we stash the originating file so the
@@ -905,7 +911,12 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
           signal: controller.signal,
         });
         resStatus = stashed.httpStatus;
-        body = stashed.body as typeof body;
+        // `typeof body` here would pick up the null narrowing from the
+        // failed-fetch path — spell the union out instead.
+        body = stashed.body as
+          | (CustomerPreviewData & { error?: string })
+          | { error?: string }
+          | null;
       }
       if (resStatus < 200 || resStatus >= 300) {
         throw new Error(
@@ -913,7 +924,9 @@ export function CustomerUploadPanel({ weekStart }: { weekStart: string }) {
             t("customerUpload.uploadFailedFallback"),
         );
       }
-      const data = body as CustomerPreviewData & { skipped?: boolean };
+      const data = body as unknown as CustomerPreviewData & {
+        skipped?: boolean;
+      };
       // Guard against a stale response clobbering a newer upload on the
       // same row: if the dispatcher canceled or kicked off another
       // upload while this one was in flight, drop the result on the

@@ -255,7 +255,9 @@ test("the bulk-upload 'Stop' button aborts the loop and leaves remaining files i
   // Playwright's internal queue — it doesn't affect the assertion
   // below.
   expect(stallRelease).not.toBeNull();
-  stallRelease?.();
+  // Cast: the assignment happens inside the route-handler closure, so TS
+  // control-flow narrows the variable to its initializer (null) here.
+  (stallRelease as (() => void) | null)?.();
 
   // After cancel, the in-flight item should roll back to pending and
   // file #3 should stay pending (loop broke before it ran). Wait for

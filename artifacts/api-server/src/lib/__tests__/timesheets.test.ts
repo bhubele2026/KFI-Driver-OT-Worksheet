@@ -68,6 +68,7 @@ function driver(kfiId: string, name: string, customer: string): Driver {
     ctUserId: null,
     isDriver: true,
     isArchived: false,
+    deactivated: false,
     displayTz: null,
     displayTzUpdatedBy: null,
     displayTzUpdatedAt: null,
