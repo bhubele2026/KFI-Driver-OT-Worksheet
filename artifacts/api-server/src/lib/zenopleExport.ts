@@ -271,6 +271,7 @@ export function buildExportSnapshot(rows: ZenopleRow[]): {
   rows: Array<Omit<ZenopleRow, "ssn">>;
   totals: {
     byCode: Record<string, { hours: number; pay: number; bill: number }>;
+    byCustomer: Record<string, { hours: number; pay: number; bill: number }>;
     hours: number;
     pay: number;
     bill: number;
@@ -279,6 +280,10 @@ export function buildExportSnapshot(rows: ZenopleRow[]): {
   driverCount: number;
 } {
   const byCode: Record<string, { hours: number; pay: number; bill: number }> = {};
+  // Per-Zenople-customer totals: the Master Dash reconciles exported hours
+  // against fact_markup, which is keyed by Organization — the customer set
+  // here is what scopes that query to driver work only.
+  const byCustomer: Record<string, { hours: number; pay: number; bill: number }> = {};
   let hours = 0;
   let pay = 0;
   let bill = 0;
@@ -288,19 +293,20 @@ export function buildExportSnapshot(rows: ZenopleRow[]): {
     const { ssn: _ssn, ...rest } = r;
     stripped.push(rest);
     persons.add(`${r.personId}|${r.person}`);
-    const b = (byCode[r.code] ??= { hours: 0, pay: 0, bill: 0 });
     const rowPay = r.payUnit * r.payRate;
     const rowBill = r.payUnit * r.billRate;
-    b.hours = r2(b.hours + r.payUnit);
-    b.pay = r2(b.pay + rowPay);
-    b.bill = r2(b.bill + rowBill);
+    for (const b of [(byCode[r.code] ??= { hours: 0, pay: 0, bill: 0 }), (byCustomer[r.customer] ??= { hours: 0, pay: 0, bill: 0 })]) {
+      b.hours = r2(b.hours + r.payUnit);
+      b.pay = r2(b.pay + rowPay);
+      b.bill = r2(b.bill + rowBill);
+    }
     hours = r2(hours + r.payUnit);
     pay = r2(pay + rowPay);
     bill = r2(bill + rowBill);
   }
   return {
     rows: stripped,
-    totals: { byCode, hours, pay, bill },
+    totals: { byCode, byCustomer, hours, pay, bill },
     rowCount: rows.length,
     driverCount: persons.size,
   };
