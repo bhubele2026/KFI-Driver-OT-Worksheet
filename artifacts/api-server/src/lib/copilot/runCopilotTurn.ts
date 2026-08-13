@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import * as Sentry from "@sentry/node";
 import type {
   CopilotToolStep,
   CopilotPendingAction,
@@ -232,6 +233,12 @@ export async function executePendingAction(
         detail = errField ?? r.text ?? undefined;
       }
     } catch (err) {
+      // A failed copilot mutation is reported to the model and swallowed —
+      // surface it (pino lines never reach Sentry).
+      Sentry.captureException(err, {
+        tags: { feature: "copilot" },
+        extra: { step: c.label },
+      });
       detail = err instanceof Error ? err.message : String(err);
     }
     if (!ok) allOk = false;

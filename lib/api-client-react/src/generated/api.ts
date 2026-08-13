@@ -101,6 +101,7 @@ import type {
   PreviewPunchResult,
   PublicInvite,
   PublicPasswordReset,
+  PulseStatus,
   Punch,
   RateLimitBucket,
   RateLimitLockout,
@@ -161,7 +162,7 @@ type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 /**
- * @summary Health check
+ * @summary Health check (DB ping + version; polled by Docker HEALTHCHECK and the Master Dash)
  */
 export const getHealthCheckUrl = () => {
   return `/api/healthz`;
@@ -182,7 +183,7 @@ export const getHealthCheckQueryKey = () => {
 
 export const getHealthCheckQueryOptions = <
   TData = Awaited<ReturnType<typeof healthCheck>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<HealthStatus>,
 >(options?: {
   query?: UseQueryOptions<
     Awaited<ReturnType<typeof healthCheck>>,
@@ -209,15 +210,15 @@ export const getHealthCheckQueryOptions = <
 export type HealthCheckQueryResult = NonNullable<
   Awaited<ReturnType<typeof healthCheck>>
 >;
-export type HealthCheckQueryError = ErrorType<unknown>;
+export type HealthCheckQueryError = ErrorType<HealthStatus>;
 
 /**
- * @summary Health check
+ * @summary Health check (DB ping + version; polled by Docker HEALTHCHECK and the Master Dash)
  */
 
 export function useHealthCheck<
   TData = Awaited<ReturnType<typeof healthCheck>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<HealthStatus>,
 >(options?: {
   query?: UseQueryOptions<
     Awaited<ReturnType<typeof healthCheck>>,
@@ -227,6 +228,71 @@ export function useHealthCheck<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getHealthCheckQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Machine-readable app pulse for the Master Dash (shared-secret x-pulse-key header; never includes SSNs)
+ */
+export const getGetPulseUrl = () => {
+  return `/api/pulse`;
+};
+
+export const getPulse = async (options?: RequestInit): Promise<PulseStatus> => {
+  return customFetch<PulseStatus>(getGetPulseUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPulseQueryKey = () => {
+  return [`/api/pulse`] as const;
+};
+
+export const getGetPulseQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPulse>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getPulse>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPulseQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPulse>>> = ({
+    signal,
+  }) => getPulse({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPulse>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPulseQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPulse>>
+>;
+export type GetPulseQueryError = ErrorType<void>;
+
+/**
+ * @summary Machine-readable app pulse for the Master Dash (shared-secret x-pulse-key header; never includes SSNs)
+ */
+
+export function useGetPulse<
+  TData = Awaited<ReturnType<typeof getPulse>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getPulse>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPulseQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -3073,7 +3139,7 @@ export function useGetDriverPayrollProfile<
 }
 
 /**
- * @summary Replace the Zenople payroll profile for a driver (admin)
+ * @summary Partially update the Zenople payroll profile for a driver (admin) — omitted fields are left untouched, explicit null clears
  */
 export const getUpdateDriverPayrollProfileUrl = (kfiId: string) => {
   return `/api/drivers/${kfiId}/payroll-profile`;
@@ -3141,7 +3207,7 @@ export type UpdateDriverPayrollProfileMutationBody =
 export type UpdateDriverPayrollProfileMutationError = ErrorType<void>;
 
 /**
- * @summary Replace the Zenople payroll profile for a driver (admin)
+ * @summary Partially update the Zenople payroll profile for a driver (admin) — omitted fields are left untouched, explicit null clears
  */
 export const useUpdateDriverPayrollProfile = <
   TError = ErrorType<void>,

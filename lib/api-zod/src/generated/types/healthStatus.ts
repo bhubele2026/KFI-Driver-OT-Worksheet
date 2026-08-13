@@ -5,7 +5,11 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { HealthStatusDb } from "./healthStatusDb";
 
 export interface HealthStatus {
   status: string;
+  /** @nullable */
+  version?: string | null;
+  db?: HealthStatusDb;
 }

@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import * as Sentry from "@sentry/node";
 import { and, count, eq, sql } from "drizzle-orm";
 import { db, schema } from "../db.js";
 import { logger } from "../logger.js";
@@ -319,6 +320,9 @@ export async function runUploadAnalysis(
       if (submitted) break;
     }
   } catch (err) {
+    // Persisted as a verdict="error" row and swallowed below — report it
+    // before it goes quiet (pino lines never reach Sentry).
+    Sentry.captureException(err, { tags: { feature: "upload-analysis" } });
     fatalError = err instanceof Error ? err.message : String(err);
   }
 

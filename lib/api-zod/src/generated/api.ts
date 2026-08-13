@@ -8,10 +8,39 @@
 import * as zod from "zod";
 
 /**
- * @summary Health check
+ * @summary Health check (DB ping + version; polled by Docker HEALTHCHECK and the Master Dash)
  */
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
+  version: zod.string().nullish(),
+  db: zod
+    .object({
+      ok: zod.boolean(),
+      ms: zod.number(),
+    })
+    .optional(),
+});
+
+/**
+ * @summary Machine-readable app pulse for the Master Dash (shared-secret x-pulse-key header; never includes SSNs)
+ */
+export const GetPulseHeader = zod.object({
+  "x-pulse-key": zod.string(),
+});
+
+export const GetPulseResponse = zod.object({
+  ok: zod.boolean(),
+  service: zod.string(),
+  version: zod.string().nullish(),
+  db: zod
+    .object({
+      ok: zod.boolean(),
+      ms: zod.number(),
+    })
+    .optional(),
+  config: zod.record(zod.string(), zod.unknown()).optional(),
+  weeks: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+  gaps: zod.record(zod.string(), zod.unknown()).optional(),
 });
 
 /**
@@ -1097,7 +1126,7 @@ export const GetDriverPayrollProfileResponse = zod.object({
 });
 
 /**
- * @summary Replace the Zenople payroll profile for a driver (admin)
+ * @summary Partially update the Zenople payroll profile for a driver (admin) — omitted fields are left untouched, explicit null clears
  */
 export const UpdateDriverPayrollProfileParams = zod.object({
   kfiId: zod.coerce.string(),

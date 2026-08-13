@@ -5,8 +5,40 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+export type HealthStatusDb = {
+  ok: boolean;
+  ms: number;
+};
+
 export interface HealthStatus {
   status: string;
+  /** @nullable */
+  version?: string | null;
+  db?: HealthStatusDb;
+}
+
+export type PulseStatusDb = {
+  ok: boolean;
+  ms: number;
+  [key: string]: unknown;
+};
+
+export type PulseStatusConfig = { [key: string]: unknown };
+
+export type PulseStatusWeeksItem = { [key: string]: unknown };
+
+export type PulseStatusGaps = { [key: string]: unknown };
+
+export interface PulseStatus {
+  ok: boolean;
+  service: string;
+  /** @nullable */
+  version?: string | null;
+  db?: PulseStatusDb;
+  config?: PulseStatusConfig;
+  weeks?: PulseStatusWeeksItem[];
+  gaps?: PulseStatusGaps;
+  [key: string]: unknown;
 }
 
 export interface UploadQueueDepth {

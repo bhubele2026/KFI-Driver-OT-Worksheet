@@ -14,6 +14,11 @@ export interface ModelPricing {
 }
 
 const PRICING: Record<string, ModelPricing> = {
+  // Anthropic Claude Sonnet 5 — $3 / $15 per 1M list (intro $2 / $10 runs
+  // through 2026-08-31; we book at list so costs are never understated).
+  // Prod runs CLAUDE_EXTRACT_MODEL=claude-sonnet-5 — without this row every
+  // extraction was silently costed at the Opus fallback rate (5x overstated).
+  "claude-sonnet-5": { inputPerMillion: 3, outputPerMillion: 15 },
   // Anthropic Claude Sonnet 4.5 — $3 / $15 per 1M (input/output).
   "claude-sonnet-4-5": { inputPerMillion: 3, outputPerMillion: 15 },
   // Anthropic Claude Opus — $15 / $75 per 1M (input/output). Used by the
@@ -33,6 +38,16 @@ const FALLBACK_PRICING: ModelPricing = PRICING["claude-opus-4-8"];
 
 export function getPricing(model: string): ModelPricing {
   return PRICING[model] ?? FALLBACK_PRICING;
+}
+
+/**
+ * Whether a model has an explicit pricing row (vs the Opus fallback).
+ * Surfaced on /api/pulse so the Master Dash can flag config drift: a
+ * CLAUDE_EXTRACT_MODEL value without a pricing row means every persisted
+ * costUsd is silently booked at the fallback rate.
+ */
+export function isPricedModel(model: string): boolean {
+  return model in PRICING;
 }
 
 /** Compute USD cost for one call. */

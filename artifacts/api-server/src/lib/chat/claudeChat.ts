@@ -1,4 +1,5 @@
 import { and, eq, sql, desc, asc } from "drizzle-orm";
+import * as Sentry from "@sentry/node";
 import type Anthropic from "@anthropic-ai/sdk";
 import * as XLSX from "xlsx";
 import { db, schema } from "../db.js";
@@ -761,6 +762,12 @@ async function runTool(
         return { resultText: `Unknown tool: ${call.name}`, isError: true };
     }
   } catch (err) {
+    // The failure is returned to the model as a tool_result and otherwise
+    // swallowed — a DB error here would be invisible without this capture.
+    Sentry.captureException(err, {
+      tags: { feature: "chat-tool" },
+      extra: { tool: call.name },
+    });
     logger.warn({ err, tool: call.name }, "chat tool failed");
     return {
       resultText: err instanceof Error ? err.message : String(err),

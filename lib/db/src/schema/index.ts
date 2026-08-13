@@ -34,3 +34,4 @@ export * from "./customerUploadChats";
 export * from "./copilotConversations";
 export * from "./customerExtractionLessons";
 export * from "./uploadAnalysisVerdicts";
+export * from "./exportSnapshots";

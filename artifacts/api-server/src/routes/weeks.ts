@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import * as Sentry from "@sentry/node";
 import { createHash, randomUUID } from "node:crypto";
 import multer from "multer";
 import { and, asc, desc, eq, gt, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
@@ -2351,6 +2352,7 @@ weeksRouter.post(
           wallTimeMs: Date.now() - aiStartedAt,
           summary: aiBudget.summary(),
           errMsg: msg,
+          err,
           log: req.log,
         });
         res.status(400).json({ error: msg });
@@ -2881,6 +2883,7 @@ weeksRouter.post(
           wallTimeMs: Date.now() - reExtractStartedAt,
           summary: reBudget.summary(),
           errMsg: msg,
+          err,
           log: req.log,
         });
         await recordAttempt(
@@ -3943,8 +3946,23 @@ async function insertIngestionRun(args: {
   wallTimeMs: number;
   summary: IngestionBudgetSummary;
   errMsg: string | null;
+  /** Original thrown error (failure outcomes) so Sentry gets a real stack. */
+  err?: unknown;
   log: { error: (obj: Record<string, unknown>, msg: string) => void };
 }): Promise<void> {
+  // pino log lines never reach Sentry's console integration, and every
+  // extraction failure is persisted-then-swallowed here — so this is the
+  // one choke point where a failed run must be reported before it goes
+  // quiet in the audit table.
+  if (args.outcome !== "success") {
+    Sentry.captureException(
+      args.err ?? new Error(`AI extraction ${args.outcome}: ${args.errMsg ?? "unknown"}`),
+      {
+        tags: { feature: "ai-extraction", outcome: args.outcome },
+        extra: { customer: args.customer, fileName: args.fileName, weekStart: args.weekStart },
+      },
+    );
+  }
   try {
     await db.insert(schema.ingestionRunsTable).values({
       customer: args.customer,
@@ -3969,6 +3987,10 @@ async function insertIngestionRun(args: {
       maxCalls: args.summary.maxCalls,
     });
   } catch (err) {
+    Sentry.captureException(err, {
+      tags: { feature: "ai-extraction", outcome: "audit-write-failed" },
+      extra: { customer: args.customer, fileName: args.fileName },
+    });
     args.log.error(
       { err, customer: args.customer, fileName: args.fileName, outcome: args.outcome },
       "Failed to insert ingestion_runs row",
@@ -4645,6 +4667,7 @@ weeksRouter.post(
         wallTimeMs: Date.now() - aiStartedAtNew,
         summary: aiBudgetNew.summary(),
         errMsg: msg,
+        err,
         log: req.log,
       });
       res.status(400).json({ error: msg });

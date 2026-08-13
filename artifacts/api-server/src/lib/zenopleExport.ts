@@ -242,17 +242,68 @@ export function rowsToAoA(rows: ZenopleRow[]): unknown[][] {
   return out;
 }
 
-export function buildZenopleWorkbook(
-  drivers: ZenopleDriverInput[],
-  weekStartIso: string,
-): Buffer {
-  const rows = buildZenopleRows(drivers, weekStartIso);
+/** Serialize already-built rows to the xlsx buffer Zenople imports. */
+export function workbookFromRows(rows: ZenopleRow[]): Buffer {
   const aoa = rowsToAoA(rows);
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
   // type "buffer" returns a Node Buffer.
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
+
+export function buildZenopleWorkbook(
+  drivers: ZenopleDriverInput[],
+  weekStartIso: string,
+): Buffer {
+  return workbookFromRows(buildZenopleRows(drivers, weekStartIso));
+}
+
+/**
+ * Snapshot payload persisted at export time (export_snapshots). Strips
+ * `ssn` from every row — the snapshot is served to the Master Dash via
+ * /pulse and SSNs must never leave this app. Dollar totals are the
+ * derived gross the workbook itself never carries (Item Pay/Bill are
+ * written as 0 and Zenople computes them): payUnit × rate, summed. The
+ * ShiftDifferential row's negative payUnit nets out by construction.
+ */
+export function buildExportSnapshot(rows: ZenopleRow[]): {
+  rows: Array<Omit<ZenopleRow, "ssn">>;
+  totals: {
+    byCode: Record<string, { hours: number; pay: number; bill: number }>;
+    hours: number;
+    pay: number;
+    bill: number;
+  };
+  rowCount: number;
+  driverCount: number;
+} {
+  const byCode: Record<string, { hours: number; pay: number; bill: number }> = {};
+  let hours = 0;
+  let pay = 0;
+  let bill = 0;
+  const persons = new Set<string>();
+  const stripped: Array<Omit<ZenopleRow, "ssn">> = [];
+  for (const r of rows) {
+    const { ssn: _ssn, ...rest } = r;
+    stripped.push(rest);
+    persons.add(`${r.personId}|${r.person}`);
+    const b = (byCode[r.code] ??= { hours: 0, pay: 0, bill: 0 });
+    const rowPay = r.payUnit * r.payRate;
+    const rowBill = r.payUnit * r.billRate;
+    b.hours = r2(b.hours + r.payUnit);
+    b.pay = r2(b.pay + rowPay);
+    b.bill = r2(b.bill + rowBill);
+    hours = r2(hours + r.payUnit);
+    pay = r2(pay + rowPay);
+    bill = r2(bill + rowBill);
+  }
+  return {
+    rows: stripped,
+    totals: { byCode, hours, pay, bill },
+    rowCount: rows.length,
+    driverCount: persons.size,
+  };
 }
 
 /**

@@ -15,14 +15,17 @@ import {
 } from "../lib/realtime.js";
 
 import {
-  buildZenopleWorkbook,
+  buildExportSnapshot,
+  buildZenopleRows,
   isoToExcelSerial,
   mergeProfileWithLive,
   missingProfileFields,
+  workbookFromRows,
   zenopleFileName,
   type ZenopleDriverInput,
   type ZenopleProfile,
 } from "../lib/zenopleExport.js";
+import * as Sentry from "@sentry/node";
 import {
   loadZenopleExportFacts,
   type ZenopleLiveFacts,
@@ -145,31 +148,37 @@ router.patch(
     // numeric() columns accept string or null
     const num = (v: number | null | undefined): string | null =>
       v == null ? null : String(v);
-    const values = {
-      kfiId: kfiId as string,
-      ssn: b.ssn ?? null,
-      jobId: b.jobId ?? null,
-      personId: b.personId ?? null,
-      assignmentId: b.assignmentId ?? null,
-      zenopleCustomer: b.zenopleCustomer?.trim() || null,
-      rtPayRate: num(b.rtPayRate),
-      rtBillRate: num(b.rtBillRate),
-      otPayRate: num(b.otPayRate),
-      otBillRate: num(b.otBillRate),
-      driverRtPayRate: num(b.driverRtPayRate),
-      driverRtBillRate: num(b.driverRtBillRate),
-      driverOtPayRate: num(b.driverOtPayRate),
-      driverOtBillRate: num(b.driverOtBillRate),
-      updatedBy: req.session.userId ?? null,
-      updatedAt: new Date(),
-    };
+    // True partial update (the verb is PATCH): only fields present in the
+    // body are written. An explicit null clears a field; an omitted field
+    // is left untouched — a rates-only call must not wipe SSN/ids.
+    const patch: Partial<typeof schema.driverPayrollProfilesTable.$inferInsert> = {};
+    if (b.ssn !== undefined) patch.ssn = b.ssn ?? null;
+    if (b.jobId !== undefined) patch.jobId = b.jobId ?? null;
+    if (b.personId !== undefined) patch.personId = b.personId ?? null;
+    if (b.assignmentId !== undefined) patch.assignmentId = b.assignmentId ?? null;
+    if (b.zenopleCustomer !== undefined)
+      patch.zenopleCustomer = b.zenopleCustomer?.trim() || null;
+    if (b.rtPayRate !== undefined) patch.rtPayRate = num(b.rtPayRate);
+    if (b.rtBillRate !== undefined) patch.rtBillRate = num(b.rtBillRate);
+    if (b.otPayRate !== undefined) patch.otPayRate = num(b.otPayRate);
+    if (b.otBillRate !== undefined) patch.otBillRate = num(b.otBillRate);
+    if (b.driverRtPayRate !== undefined)
+      patch.driverRtPayRate = num(b.driverRtPayRate);
+    if (b.driverRtBillRate !== undefined)
+      patch.driverRtBillRate = num(b.driverRtBillRate);
+    if (b.driverOtPayRate !== undefined)
+      patch.driverOtPayRate = num(b.driverOtPayRate);
+    if (b.driverOtBillRate !== undefined)
+      patch.driverOtBillRate = num(b.driverOtBillRate);
+    patch.updatedBy = req.session.userId ?? null;
+    patch.updatedAt = new Date();
     await db.transaction(async (tx) => {
       await tx
         .insert(schema.driverPayrollProfilesTable)
-        .values(values)
+        .values({ kfiId: kfiId as string, ...patch })
         .onConflictDoUpdate({
           target: schema.driverPayrollProfilesTable.kfiId,
-          set: { ...values, kfiId: undefined as unknown as string },
+          set: patch,
         });
       // Audit-log the rate change so admins can see who touched which driver.
       await tx.insert(schema.userAuditLogTable).values({
@@ -236,7 +245,7 @@ async function loadWeekDriverInputs(weekStart: string): Promise<{
   return { drivers: activeDrivers, profiles, punchesByKfi };
 }
 
-async function computeReadiness(weekStart: string) {
+export async function computeReadiness(weekStart: string) {
   const sunday = sundayOf(weekStart);
   const endIso = weekEndOf(sunday);
   const { drivers, profiles, punchesByKfi } =
@@ -370,8 +379,32 @@ router.get(
       "zenople-export: live-merge summary",
     );
     // PPE is the week's Saturday for every customer (uniform since PD 07.24).
-    const buffer = buildZenopleWorkbook(inputs, sunday);
+    const rows = buildZenopleRows(inputs, sunday);
+    const buffer = workbookFromRows(rows);
     const fileName = zenopleFileName(new Date(), readiness.weekEnd);
+
+    // Persist exactly what went into the workbook (rates were merged live,
+    // so this snapshot is the only durable record of what Zenople was
+    // sent). Best-effort: a snapshot failure must not block the download,
+    // but it must not go quiet either.
+    try {
+      const snap = buildExportSnapshot(rows);
+      await db.insert(schema.exportSnapshotsTable).values({
+        weekStart: sunday,
+        ppe: readiness.ppe,
+        exportedBy: req.session.userId ?? null,
+        rowCount: snap.rowCount,
+        driverCount: snap.driverCount,
+        totals: snap.totals,
+        rows: snap.rows,
+      });
+    } catch (err) {
+      Sentry.captureException(err, {
+        tags: { feature: "zenople-export", outcome: "snapshot-write-failed" },
+        extra: { weekStart: sunday },
+      });
+      req.log.error({ err, weekStart: sunday }, "export snapshot write failed");
+    }
 
     // Audit the export so admins can see who exported what.
     await db.insert(schema.userAuditLogTable).values({

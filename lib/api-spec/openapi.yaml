@@ -20,13 +20,37 @@ paths:
     get:
       operationId: healthCheck
       tags: [health]
-      summary: Health check
+      summary: Health check (DB ping + version; polled by Docker HEALTHCHECK and the Master Dash)
       responses:
         "200":
           description: Healthy
           content:
             application/json:
               schema: { $ref: "#/components/schemas/HealthStatus" }
+        "503":
+          description: Unhealthy (DB unreachable)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthStatus" }
+
+  /pulse:
+    get:
+      operationId: getPulse
+      tags: [health]
+      summary: Machine-readable app pulse for the Master Dash (shared-secret x-pulse-key header; never includes SSNs)
+      parameters:
+        - name: x-pulse-key
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Pulse payload
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PulseStatus" }
+        "401": { description: Missing or wrong pulse key }
+        "503": { description: Pulse not configured }
 
   /auth/register:
     post:
@@ -607,7 +631,7 @@ paths:
     patch:
       operationId: updateDriverPayrollProfile
       tags: [drivers]
-      summary: Replace the Zenople payroll profile for a driver (admin)
+      summary: Partially update the Zenople payroll profile for a driver (admin) — omitted fields are left untouched, explicit null clears
       parameters:
         - $ref: "#/components/parameters/KfiId"
       requestBody:
@@ -2453,6 +2477,42 @@ components:
       required: [status]
       properties:
         status: { type: string }
+        version:
+          type: [string, "null"]
+        db:
+          type: object
+          required: [ok, ms]
+          properties:
+            ok: { type: boolean }
+            ms: { type: number }
+
+    PulseStatus:
+      type: object
+      required: [ok, service]
+      additionalProperties: true
+      properties:
+        ok: { type: boolean }
+        service: { type: string }
+        version:
+          type: [string, "null"]
+        db:
+          type: object
+          required: [ok, ms]
+          properties:
+            ok: { type: boolean }
+            ms: { type: number }
+          additionalProperties: true
+        config:
+          type: object
+          additionalProperties: true
+        weeks:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        gaps:
+          type: object
+          additionalProperties: true
 
     UploadQueueDepth:
       type: object

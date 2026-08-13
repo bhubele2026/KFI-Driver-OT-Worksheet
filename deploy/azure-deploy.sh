@@ -24,9 +24,21 @@ TARGET_PORT=8080
 : "${SESSION_SECRET:?set SESSION_SECRET (openssl rand -hex 32)}"
 : "${DATABASE_URL:?set DATABASE_URL (Azure PG, include ?sslmode=require)}"
 
+# Sentry — both sides no-op silently when the DSN is absent, so an omitted
+# value here means monitoring is DARK in prod with no error anywhere. Server
+# DSN goes in as an env var; the web DSN is baked at image build.
+SENTRY_DSN="${SENTRY_DSN:-}"
+VITE_SENTRY_DSN="${VITE_SENTRY_DSN:-$SENTRY_DSN}"
+if [ -z "$SENTRY_DSN" ]; then
+  echo "WARNING: SENTRY_DSN not set — server + client error tracking will be DARK." >&2
+fi
+
 # ── 1. Build the image in ACR (remote build from the repo Dockerfile) ────────
 echo "== ACR build ${IMAGE} =="
-az acr build --registry "$ACR" --image "${APP}:${TAG}" --file Dockerfile .
+az acr build --registry "$ACR" --image "${APP}:${TAG}" --file Dockerfile \
+  --build-arg APP_VERSION="$TAG" \
+  --build-arg VITE_SENTRY_DSN="$VITE_SENTRY_DSN" \
+  .
 
 # ── 2. Create or update the Container App ────────────────────────────────────
 if az containerapp show -g "$RG" -n "$APP" >/dev/null 2>&1; then
@@ -36,7 +48,8 @@ if az containerapp show -g "$RG" -n "$APP" >/dev/null 2>&1; then
     anthropic-key="$ANTHROPIC_API_KEY" \
     session-secret="$SESSION_SECRET" \
     database-url="$DATABASE_URL"
-  az containerapp update -g "$RG" -n "$APP" --image "$IMAGE"
+  az containerapp update -g "$RG" -n "$APP" --image "$IMAGE" \
+    --set-env-vars APP_VERSION="$TAG" ${SENTRY_DSN:+SENTRY_DSN="$SENTRY_DSN"}
 else
   echo "== create app =="
   az containerapp create -g "$RG" -n "$APP" \
@@ -53,6 +66,8 @@ else
     --env-vars \
       NODE_ENV=production \
       PORT="$TARGET_PORT" \
+      APP_VERSION="$TAG" \
+      ${SENTRY_DSN:+SENTRY_DSN="$SENTRY_DSN"} \
       CONNECTEAM_API_TOKEN=secretref:connecteam-token \
       ANTHROPIC_API_KEY=secretref:anthropic-key \
       SESSION_SECRET=secretref:session-secret \

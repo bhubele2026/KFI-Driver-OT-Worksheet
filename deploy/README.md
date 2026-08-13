@@ -45,6 +45,10 @@ refactoring those.
 | `CONNECTEAM_API_TOKEN` | Replit Secrets | Connecteam REST |
 | `ANTHROPIC_API_KEY` | Replit Secrets | Claude extraction/chat/copilot |
 | `APP_BASE_URL` | set to FQDN | required in production |
+| `SENTRY_DSN` | Sentry (kfi-staffing-llc → kfi-ot-api) | server error tracking — silently DARK if unset |
+| `VITE_SENTRY_DSN` | Sentry (kfi-ot-web) | **build-arg**, baked into the bundle by `az acr build` — not a runtime var |
+| `APP_VERSION` | deploy script (= image tag) | version banner + Sentry release |
+| `PULSE_SHARED_SECRET` | generated, shared with kfi-dashboard | auths `GET /api/pulse` (Master Dash feed) |
 | `NODE_ENV=production`, `PORT=8080` | fixed | |
 | ~~`PUBLIC_BYPASS_AUTH`~~ | **do NOT set** | leaving it unset enforces login |
 | Gemini (`AI_INTEGRATIONS_GEMINI_*`) | optional | Claude is default; omit to disable the Gemini fallback |
