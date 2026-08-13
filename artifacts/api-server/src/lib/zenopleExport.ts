@@ -349,11 +349,11 @@ export const IDENTITY_PROFILE_FIELDS = [
 ] as const;
 
 /**
- * Field-wise merge: live Zenople facts win, the stored profile fills the
- * gaps. Zenople is the system of record for this workbook (it gets imported
- * back INTO Zenople), and its rates / bill rates / JobId / AssignmentId
- * drift week to week — a stored profile is only the fallback for people the
- * live fetch can't see (or when the API is down).
+ * Field-wise merge. RATES come live from Zenople — it is the system of record
+ * for this workbook (which gets imported back INTO Zenople) and its rates and
+ * bill rates drift week to week. IDENTITY (ssn / jobId / personId /
+ * assignmentId / zenopleCustomer) comes from the stored profile by default;
+ * see `zenopleLiveIdentityEnabled` for why.
  */
 export interface ZenopleLiveOverlay {
   ssn?: string;
@@ -371,17 +371,47 @@ export interface ZenopleLiveOverlay {
   driverOtBillRate?: number;
 }
 
+/**
+ * Live Zenople IDENTITY is off by default (2026-08-13). It stamped the wrong
+ * customer on two real payroll rows:
+ *
+ *  - Tijerina (PersonId 2005667) holds two active assignments — Orgill (3354,
+ *    started 6/23) and Landscape Structures (3529, started 8/13). Assignments
+ *    are ranked by latest StartDate, so an assignment created the DAY OF the
+ *    export hijacked a week that ended before it existed.
+ *  - Gallegos matched by name fingerprint: "Jose Gallegos" collapses to
+ *    "GALLEGOS JOSE", which is Zenople person 2002374 at Burnett — a different
+ *    human from the app's driver 2006023 at Shuster's. He inherited the
+ *    stranger's PersonId, SSN, JobId and customer.
+ *
+ * Until the match is organization-aware, the five identity columns are
+ * whatever the dispatcher stored — live only fills a hole, so a brand-new
+ * driver still exports before anyone has typed anything. RATES stay live in
+ * both modes: they genuinely drift week to week and this workbook is imported
+ * back into Zenople.
+ *
+ * Set ZENOPLE_LIVE_IDENTITY=1 to restore the old live-wins behavior.
+ */
+export function zenopleLiveIdentityEnabled(): boolean {
+  return (process.env.ZENOPLE_LIVE_IDENTITY ?? "0") === "1";
+}
+
 export function mergeProfileWithLive(
   profile: ZenopleProfile,
   live: ZenopleLiveOverlay | null | undefined,
+  opts: { liveIdentity?: boolean } = {},
 ): ZenopleProfile {
   if (!live) return profile;
+  const liveIdentity = opts.liveIdentity ?? zenopleLiveIdentityEnabled();
+  // Identity: stored wins unless live identity is explicitly re-enabled.
+  const id = <T>(stored: T | null, fresh: T | undefined): T | null =>
+    liveIdentity ? (fresh ?? stored ?? null) : (stored ?? fresh ?? null);
   return {
-    ssn: live.ssn ?? profile.ssn,
-    jobId: live.jobId ?? profile.jobId,
-    personId: live.personId ?? profile.personId,
-    assignmentId: live.assignmentId ?? profile.assignmentId,
-    zenopleCustomer: live.zenopleCustomer ?? profile.zenopleCustomer,
+    ssn: id(profile.ssn, live.ssn),
+    jobId: id(profile.jobId, live.jobId),
+    personId: id(profile.personId, live.personId),
+    assignmentId: id(profile.assignmentId, live.assignmentId),
+    zenopleCustomer: id(profile.zenopleCustomer, live.zenopleCustomer),
     rtPayRate: live.rtPayRate ?? profile.rtPayRate,
     rtBillRate: live.rtBillRate ?? profile.rtBillRate,
     otPayRate: live.otPayRate ?? profile.otPayRate,

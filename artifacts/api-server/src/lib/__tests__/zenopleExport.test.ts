@@ -353,7 +353,7 @@ test("shift-diff customer: SD pair replaces RT/OT, sized by DriverRT hours (Luna
   assert.equal(sd.ppe, 46228);
 });
 
-test("mergeProfileWithLive: live wins per field, profile fills the gaps", () => {
+test("mergeProfileWithLive (liveIdentity): live wins per field, profile fills the gaps", () => {
   const stored: ZenopleProfile = {
     ...FULL_PROFILE,
     jobId: 820, // stale seed value
@@ -361,12 +361,16 @@ test("mergeProfileWithLive: live wins per field, profile fills the gaps", () => 
     driverRtPayRate: 13.75,
     otBillRate: 37.24,
   };
-  const merged = mergeProfileWithLive(stored, {
-    jobId: 863,
-    assignmentId: 3460,
-    driverRtPayRate: 15,
-    // otBillRate absent from live → stored survives
-  });
+  const merged = mergeProfileWithLive(
+    stored,
+    {
+      jobId: 863,
+      assignmentId: 3460,
+      driverRtPayRate: 15,
+      // otBillRate absent from live → stored survives
+    },
+    { liveIdentity: true },
+  );
   assert.equal(merged.jobId, 863);
   assert.equal(merged.assignmentId, 3460);
   assert.equal(merged.driverRtPayRate, 15);
@@ -374,6 +378,58 @@ test("mergeProfileWithLive: live wins per field, profile fills the gaps", () => 
   assert.equal(merged.ssn, stored.ssn);
   // No live facts → stored returned untouched.
   assert.deepEqual(mergeProfileWithLive(stored, null), stored);
+});
+
+test("mergeProfileWithLive: identity off — stored identity wins, rates still live", () => {
+  // Regression: Tijerina's Landscape assignment (created the day of the
+  // export) must not overwrite the Orgill customer the dispatcher stored,
+  // and Gallegos must not inherit a same-named stranger's PersonId/SSN.
+  const stored: ZenopleProfile = {
+    ...FULL_PROFILE,
+    ssn: "XXX-XX-0918",
+    jobId: 832,
+    personId: 2006023,
+    assignmentId: 3501,
+    zenopleCustomer: "Shuster's Building Components",
+    rtPayRate: 18,
+  };
+  const merged = mergeProfileWithLive(
+    stored,
+    {
+      ssn: "XXX-XX-3657",
+      jobId: 683,
+      personId: 2002374,
+      assignmentId: 2867,
+      zenopleCustomer: "Burnett Dairy - Grantsburg",
+      rtPayRate: 20,
+      otBillRate: 41.5,
+    },
+    { liveIdentity: false },
+  );
+  assert.equal(merged.zenopleCustomer, "Shuster's Building Components");
+  assert.equal(merged.personId, 2006023);
+  assert.equal(merged.assignmentId, 3501);
+  assert.equal(merged.jobId, 832);
+  assert.equal(merged.ssn, "XXX-XX-0918");
+  // Rates are unaffected by the identity switch — they still drift live.
+  assert.equal(merged.rtPayRate, 20);
+  assert.equal(merged.otBillRate, 41.5);
+});
+
+test("mergeProfileWithLive: identity off — live still fills an unset field", () => {
+  // A brand-new driver nobody has typed yet must still export.
+  const stored: ZenopleProfile = {
+    ...FULL_PROFILE,
+    personId: null,
+    zenopleCustomer: null,
+  };
+  const merged = mergeProfileWithLive(
+    stored,
+    { personId: 2005667, zenopleCustomer: "Orgill, Inc." },
+    { liveIdentity: false },
+  );
+  assert.equal(merged.personId, 2005667);
+  assert.equal(merged.zenopleCustomer, "Orgill, Inc.");
 });
 
 test("seed fingerprint matcher: 'ANGULO ALFARO, JOSE R' matches 'Jose R. Angulo Alfaro'", () => {

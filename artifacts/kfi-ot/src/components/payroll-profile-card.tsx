@@ -84,7 +84,10 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<FormState>(toForm(profile));
-  const [identifiersOpen, setIdentifiersOpen] = useState(false);
+  // Open by default: these five now decide the export's Customer/Person
+  // columns outright (Zenople no longer overwrites them), so they need to be
+  // visible rather than buried behind a disclosure.
+  const [identifiersOpen, setIdentifiersOpen] = useState(true);
 
   useEffect(() => {
     if (!editing) setForm(toForm(profile));

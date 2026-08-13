@@ -1,7 +1,7 @@
 /** computeProfileFill — Zenople assignment/transaction rows → profile fields. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeProfileFill } from "../zenopleRates.js";
+import { computeProfileFill, indexPersonIdsByName } from "../zenopleRates.js";
 
 const driverAsg = {
   AssignmentId: 3167,
@@ -148,4 +148,47 @@ test("no assignment: RT falls back to transaction effective rates", () => {
 test("nothing known → empty fill (no invented zeros)", () => {
   const fill = computeProfileFill([], []);
   for (const v of Object.values(fill)) assert.equal(v, undefined);
+});
+
+// ---------------------------------------------------------------------------
+// Name-collision guard (2026-08-13)
+// ---------------------------------------------------------------------------
+
+test("indexPersonIdsByName: keeps EVERY person sharing a name, not just the first", () => {
+  // Real Zenople rows. The app's driver is 2006023 at Shuster's; 2002374 is a
+  // different human at Burnett. The old first-wins map silently dropped one.
+  const index = indexPersonIdsByName([
+    { PersonId: 2002374, LastName: "Gallegos", FirstName: "Jose", Organization: "Burnett Dairy - Grantsburg" },
+    { PersonId: 2002374, LastName: "Gallegos", FirstName: "Jose", Organization: "Landscape Structures" },
+    { PersonId: 2006023, LastName: "GALLEGOS", FirstName: "JOSE", MiddleName: "", Organization: "Shuster's Building Components" },
+  ]);
+  assert.deepEqual(index.get("GALLEGOS JOSE"), ["2002374", "2006023"]);
+});
+
+test("indexPersonIdsByName: distinct names stay distinct", () => {
+  const index = indexPersonIdsByName([
+    { PersonId: 2002374, LastName: "Gallegos", FirstName: "Jose" },
+    { PersonId: 2005033, LastName: "GALLEGOS", FirstName: "ANDRES" },
+  ]);
+  assert.deepEqual(index.get("GALLEGOS JOSE"), ["2002374"]);
+  assert.deepEqual(index.get("ANDRES GALLEGOS"), ["2005033"]);
+});
+
+test("computeProfileFill: latest StartDate wins today — why Landscape beat Orgill", () => {
+  // Documents the defect the identity switch works around: both assignments
+  // are active, so the one that STARTED LATEST supplies the customer, even
+  // though it began after the exported week ended.
+  const orgill = {
+    AssignmentId: 3354, PersonId: 2005667, JobId: 843, JobPosition: "Shipping/Receiving",
+    Organization: "Orgill, Inc.", StartDate: "2026-06-23T00:00:00", EndDate: null,
+    IsActiveToday: true, PayRate: 20, BillRate: 30.4, SSN: "123-45-1768",
+  };
+  const landscape = {
+    AssignmentId: 3529, PersonId: 2005667, JobId: 849, JobPosition: "Paintline Front",
+    Organization: "Landscape Structures", StartDate: "2026-08-13T00:00:00", EndDate: null,
+    IsActiveToday: true, PayRate: 19, BillRate: 28.22, SSN: "123-45-1768",
+  };
+  const fill = computeProfileFill([orgill, landscape], []);
+  assert.equal(fill.zenopleCustomer, "Landscape Structures");
+  assert.equal(fill.assignmentId, 3529);
 });

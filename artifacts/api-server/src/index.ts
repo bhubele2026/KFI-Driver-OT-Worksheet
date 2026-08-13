@@ -206,7 +206,7 @@ async function main() {
           outcome: zResult.fieldsFilled > 0 ? "ok" : "noop",
           rowsAffected: zResult.driversFilled,
           startedAt: zStartedAt,
-          detail: `considered=${zResult.driversConsidered} filled=${zResult.driversFilled} fields=${zResult.fieldsFilled} noMatch=${zResult.noZenopleMatch.length}`,
+          detail: `considered=${zResult.driversConsidered} filled=${zResult.driversFilled} fields=${zResult.fieldsFilled} noMatch=${zResult.noZenopleMatch.length} ambiguous=${zResult.ambiguousNames.length} identity=${zResult.identityWritten ? "live" : "manual"}`,
         });
       } catch (err) {
         await recordMutation({

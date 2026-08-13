@@ -16,6 +16,7 @@
  */
 import type { ClientBase } from "pg";
 import { fingerprintName } from "@workspace/db/seedDriverPayrollProfiles";
+import { zenopleLiveIdentityEnabled } from "./zenopleExport.js";
 
 // ---------------------------------------------------------------------------
 // API client
@@ -283,12 +284,21 @@ export async function loadZenopleExportFacts(): Promise<Map<string, ZenopleLiveF
 // Boot backfill
 // ---------------------------------------------------------------------------
 
-const PROFILE_COLUMNS: Array<{ col: string; key: keyof ProfileFill }> = [
+/**
+ * The five columns that say WHO this driver is and WHERE they work. The
+ * backfill only writes these when live identity is re-enabled — writing them
+ * from a name-fingerprint guess is what attached a stranger's PersonId, SSN
+ * and customer to a real driver. See `zenopleLiveIdentityEnabled`.
+ */
+const IDENTITY_COLUMNS: Array<{ col: string; key: keyof ProfileFill }> = [
   { col: "ssn", key: "ssn" },
   { col: "job_id", key: "jobId" },
   { col: "person_id", key: "personId" },
   { col: "assignment_id", key: "assignmentId" },
   { col: "zenople_customer", key: "zenopleCustomer" },
+];
+
+const RATE_COLUMNS: Array<{ col: string; key: keyof ProfileFill }> = [
   { col: "rt_pay_rate", key: "rtPayRate" },
   { col: "rt_bill_rate", key: "rtBillRate" },
   { col: "ot_pay_rate", key: "otPayRate" },
@@ -305,13 +315,43 @@ export interface BackfillResult {
   driversFilled: number;
   fieldsFilled: number;
   noZenopleMatch: string[];
+  /** Name matched >1 Zenople person — refused rather than guessing. */
+  ambiguousNames: string[];
+  /** False when identity columns were left alone (the default). */
+  identityWritten: boolean;
+}
+
+/**
+ * fingerprint -> every distinct Zenople PersonId carrying that name.
+ *
+ * The old map kept the FIRST person per fingerprint and silently dropped the
+ * rest, so a driver could inherit a same-named stranger's identity. Callers
+ * must treat a >1 result as unresolved.
+ */
+export function indexPersonIdsByName(
+  assignments: Record<string, unknown>[],
+): Map<string, string[]> {
+  const m = new Map<string, Set<string>>();
+  for (const a of assignments) {
+    const fp = fingerprintName(
+      `${a.LastName ?? ""}, ${a.FirstName ?? ""} ${a.MiddleName ?? ""}`,
+    );
+    const pid = String(a.PersonId ?? "");
+    if (!fp || !pid) continue;
+    (m.get(fp) ?? m.set(fp, new Set()).get(fp)!).add(pid);
+  }
+  return new Map([...m].map(([k, v]) => [k, [...v]]));
 }
 
 /**
  * Fill NULL payroll-profile fields for active drivers from Zenople. Matches
  * by PersonId == kfi_id first (real badge ids ARE Zenople person ids), then
- * by name fingerprint. Internal/test roster rows (customer starting "zz")
- * are skipped — they are not payroll drivers.
+ * by name fingerprint — but only when that name resolves to exactly ONE
+ * Zenople person. Internal/test roster rows (customer starting "zz") are
+ * skipped — they are not payroll drivers.
+ *
+ * Writes RATE columns only. The five identity columns are the dispatcher's
+ * unless ZENOPLE_LIVE_IDENTITY=1; see `zenopleLiveIdentityEnabled`.
  */
 export async function backfillPayrollProfilesFromZenople(
   client: ClientBase,
@@ -322,11 +362,17 @@ export async function backfillPayrollProfilesFromZenople(
     driversFilled: 0,
     fieldsFilled: 0,
     noZenopleMatch: [],
+    ambiguousNames: [],
+    identityWritten: zenopleLiveIdentityEnabled(),
   };
   if (!zenopleConfigured()) {
     result.skipped = true;
     return result;
   }
+  // Rates always; identity only when live identity is explicitly re-enabled.
+  const columns = result.identityWritten
+    ? [...IDENTITY_COLUMNS, ...RATE_COLUMNS]
+    : RATE_COLUMNS;
 
   const [assignments, transactions] = await Promise.all([
     fetchAction("AssignmentData"),
@@ -345,12 +391,8 @@ export async function backfillPayrollProfilesFromZenople(
     (txByPerson.get(pid) ?? txByPerson.set(pid, []).get(pid)!).push(t);
   }
   // Name-fingerprint fallback for drivers whose kfi_id is a Connecteam id.
-  const personIdByFp = new Map<string, string>();
-  for (const a of assignments) {
-    const name = `${a.LastName ?? ""}, ${a.FirstName ?? ""} ${a.MiddleName ?? ""}`;
-    const fp = fingerprintName(name);
-    if (fp && !personIdByFp.has(fp)) personIdByFp.set(fp, String(a.PersonId ?? ""));
-  }
+  // Only usable when the name resolves to exactly one Zenople person.
+  const personIdsByFp = indexPersonIdsByName(assignments);
 
   const drivers = await client.query<{
     kfi_id: string;
@@ -371,7 +413,18 @@ export async function backfillPayrollProfilesFromZenople(
   for (const d of drivers.rows) {
     result.driversConsidered++;
     let pid = asgByPerson.has(d.kfi_id) || txByPerson.has(d.kfi_id) ? d.kfi_id : null;
-    if (!pid) pid = personIdByFp.get(fingerprintName(d.name)) ?? null;
+    if (!pid) {
+      const candidates = personIdsByFp.get(fingerprintName(d.name)) ?? [];
+      if (candidates.length > 1) {
+        // Two humans share this name. Refuse — guessing here is what put a
+        // stranger's PersonId on a real driver's payroll rows.
+        result.ambiguousNames.push(
+          `${d.name} (${d.kfi_id}) -> ${candidates.join(", ")}`,
+        );
+        continue;
+      }
+      pid = candidates[0] ?? null;
+    }
     if (!pid || (!asgByPerson.has(pid) && !txByPerson.has(pid))) {
       result.noZenopleMatch.push(`${d.name} (${d.kfi_id})`);
       continue;
@@ -379,7 +432,7 @@ export async function backfillPayrollProfilesFromZenople(
     const fill = computeProfileFill(asgByPerson.get(pid) ?? [], txByPerson.get(pid) ?? []);
     const existing = profileByKfi.get(d.kfi_id);
     const updates: Array<{ col: string; value: unknown }> = [];
-    for (const { col, key } of PROFILE_COLUMNS) {
+    for (const { col, key } of columns) {
       const newValue = fill[key];
       if (newValue == null) continue;
       if (existing && existing[col] != null) continue; // never overwrite

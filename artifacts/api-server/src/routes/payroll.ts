@@ -344,14 +344,17 @@ router.get(
         "zenople-export: live Zenople fetch failed — exporting from stored profiles only",
       );
     }
+    // The stored PersonId is the pin: it says WHICH Zenople human this driver
+    // is, so rates and the Person label must follow it rather than a kfi_id
+    // that may or may not be a Zenople person id. Falls back to kfi_id (real
+    // badge ids ARE Zenople person ids) when nothing is pinned yet.
     const factsFor = (
       kfiId: string,
       profile: ZenopleProfile,
     ): ZenopleLiveFacts | undefined =>
-      liveFacts.get(kfiId) ??
       (profile.personId != null
         ? liveFacts.get(String(profile.personId))
-        : undefined);
+        : undefined) ?? liveFacts.get(kfiId);
     const inputs: ZenopleDriverInput[] = drivers
       .map((d) => {
         const stored = profileFromRow(profiles.get(d.kfiId) ?? null);
