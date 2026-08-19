@@ -72,7 +72,7 @@ const { extractImageForKnownCustomer } = await import(
 );
 const { ClaudeModelClient } = await import("../lib/parsers/claude.js");
 const { costUsd } = await import("../lib/parsers/pricing.js");
-const { writeFile } = await import("node:fs/promises");
+const { writeFile, readFile } = await import("node:fs/promises");
 const { createHash } = await import("node:crypto");
 
 const BASE = (process.env.KFI_OT_BASE_URL ?? "").replace(/\/+$/, "");
@@ -115,15 +115,37 @@ const spend = { calls: 0, inputTokens: 0, outputTokens: 0, usd: 0 };
 }
 
 // -- prod reads -----------------------------------------------------------
+/**
+ * A full run makes ~400 prod reads over ~30 minutes, and a single transient
+ * DNS failure used to discard the whole thing (ENOTFOUND killed a run 7 weeks
+ * in, after real money had been spent on extraction). Retry the read side;
+ * these are all GETs, so retrying is free of side effects. Model calls have
+ * their own retry inside the extractor.
+ */
+async function fetchWithRetry(path: string, attempts = 4): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(`${BASE}/api${path}`, { headers: { cookie: COOKIE } });
+      // 5xx is worth another go; 4xx means we asked wrongly and never will not.
+      if (res.ok || res.status < 500) {
+        if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
+        return res;
+      }
+      lastErr = new Error(`GET ${path} -> ${res.status}`);
+    } catch (e) {
+      if (e instanceof Error && /-> 4\d\d$/.test(e.message)) throw e;
+      lastErr = e;
+    }
+    await new Promise((r) => setTimeout(r, 1000 * 2 ** i));
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
 async function api<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}/api${path}`, { headers: { cookie: COOKIE } });
-  if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
-  return (await res.json()) as T;
+  return (await (await fetchWithRetry(path)).json()) as T;
 }
 async function apiBytes(path: string): Promise<Buffer> {
-  const res = await fetch(`${BASE}/api${path}`, { headers: { cookie: COOKIE } });
-  if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+  return Buffer.from(await (await fetchWithRetry(path)).arrayBuffer());
 }
 
 interface Sample {
@@ -230,6 +252,12 @@ async function main(): Promise<void> {
     .map((s) => s.trim().toLowerCase());
   const wantIds = flag("--samples")?.split(",").map((s) => Number(s.trim()));
   const outFile = flag("--out");
+  const compareFile = flag("--compare");
+  // Two runs of the same week have scored 95.81% and 94.03% — the model is not
+  // deterministic, so an equality gate would fail on noise and get ignored
+  // within a week. The band is deliberately wider than the drift we have
+  // actually observed; tighten it once there is more than one run's evidence.
+  const tolerance = Number(flag("--tolerance") ?? 3);
 
   const all = await api<Sample[]>("/admin/ai-extract-samples");
   let corpus = all.filter(
@@ -522,6 +550,44 @@ async function main(): Promise<void> {
       `${spend.outputTokens.toLocaleString()} out  $${spend.usd.toFixed(4)}` +
       `   (~$${(spend.usd / Math.max(1, overall.samples)).toFixed(4)}/sample)`,
   );
+
+  if (compareFile) {
+    interface Baseline { model?: string; lessons?: boolean; overall: Score; byCustomer: Record<string, Score>; }
+    const prev = JSON.parse(await readFile(compareFile, "utf8")) as Baseline;
+    console.log(`\n=== vs ${compareFile} (model=${prev.model ?? "?"} lessons=${prev.lessons ?? "?"}) ===`);
+    if (prev.model && prev.model !== MODEL) {
+      console.log(`  NOTE different model: baseline ${prev.model} vs this run ${MODEL}`);
+    }
+    const names = [...new Set([...Object.keys(prev.byCustomer), ...byCustomer.keys()])].sort();
+    const regressions: string[] = [];
+    console.log(`${pad("customer", 26)}${"was".padStart(9)}${"now".padStart(9)}${"delta".padStart(9)}`);
+    for (const name of names) {
+      const was = prev.byCustomer[name];
+      const now = byCustomer.get(name);
+      if (!was || !now) {
+        console.log(`${pad(name, 26)}${(was ? "-" : "absent").padStart(9)}${(now ? "-" : "absent").padStart(9)}${"n/a".padStart(9)}`);
+        continue;
+      }
+      const a = hoursAccuracy(was), b = hoursAccuracy(now), d = b - a;
+      const mark = d < -tolerance ? "  REGRESSION" : "";
+      if (mark) regressions.push(`${name}: ${a.toFixed(1)}% -> ${b.toFixed(1)}%`);
+      console.log(`${pad(name, 26)}${`${a.toFixed(1)}%`.padStart(9)}${`${b.toFixed(1)}%`.padStart(9)}${`${d >= 0 ? "+" : ""}${d.toFixed(1)}`.padStart(9)}${mark}`);
+    }
+    const oa = hoursAccuracy(prev.overall), ob = hoursAccuracy(overall), od = ob - oa;
+    console.log(`${pad("OVERALL", 26)}${`${oa.toFixed(1)}%`.padStart(9)}${`${ob.toFixed(1)}%`.padStart(9)}${`${od >= 0 ? "+" : ""}${od.toFixed(1)}`.padStart(9)}`);
+    if (od < -tolerance) regressions.push(`OVERALL: ${oa.toFixed(1)}% -> ${ob.toFixed(1)}%`);
+    if (regressions.length) {
+      console.log(`\nFAIL - ${regressions.length} regression(s) beyond ${tolerance}pp:`);
+      for (const r of regressions) console.log(`  ${r}`);
+      if (outFile) {
+        await writeFile(outFile, JSON.stringify({ model: MODEL, lessons: useLessons, overall, byCustomer: Object.fromEntries(byCustomer), perSample, spend }, null, 2));
+        console.log(`wrote ${outFile}`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`\nPASS - no customer regressed more than ${tolerance}pp.`);
+  }
 
   if (outFile) {
     await writeFile(
