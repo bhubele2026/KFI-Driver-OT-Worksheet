@@ -1,0 +1,1133 @@
+{
+  "model": "claude-sonnet-5",
+  "lessons": true,
+  "overall": {
+    "samples": 113,
+    "truthCells": 864,
+    "predCells": 815,
+    "exact": 746,
+    "close": 18,
+    "wrong": 36,
+    "missed": 64,
+    "extra": 15,
+    "unresolved": 5,
+    "truthHours": 8538.872000000001,
+    "predHours": 8137.163999999999,
+    "absErr": 1010.2600000000001
+  },
+  "byCustomer": {
+    "Adient": {
+      "samples": 3,
+      "truthCells": 15,
+      "predCells": 0,
+      "exact": 15,
+      "close": 0,
+      "wrong": 0,
+      "missed": 0,
+      "extra": 0,
+      "unresolved": 0,
+      "truthHours": 124,
+      "predHours": 0,
+      "absErr": 0
+    },
+    "Burnett Dairy - Grantsburg": {
+      "samples": 11,
+      "truthCells": 169,
+      "predCells": 1,
+      "exact": 158,
+      "close": 1,
+      "wrong": 0,
+      "missed": 10,
+      "extra": 1,
+      "unresolved": 0,
+      "truthHours": 1739.7720000000002,
+      "predHours": 0,
+      "absErr": 163.13999999999965
+    },
+    "DeLallo": {
+      "samples": 11,
+      "truthCells": 100,
+      "predCells": 0,
+      "exact": 96,
+      "close": 0,
+      "wrong": 4,
+      "missed": 0,
+      "extra": 0,
+      "unresolved": 0,
+      "truthHours": 831.0469999999995,
+      "predHours": 0,
+      "absErr": 9.051000000000016
+    },
+    "Inter. Wire - NY": {
+      "samples": 8,
+      "truthCells": 45,
+      "predCells": 0,
+      "exact": 41,
+      "close": 0,
+      "wrong": 4,
+      "missed": 0,
+      "extra": 0,
+      "unresolved": 0,
+      "truthHours": 407.1,
+      "predHours": 0,
+      "absErr": 35
+    },
+    "IWG - El Paso": {
+      "samples": 7,
+      "truthCells": 28,
+      "predCells": 0,
+      "exact": 25,
+      "close": 0,
+      "wrong": 3,
+      "missed": 0,
+      "extra": 0,
+      "unresolved": 0,
+      "truthHours": 279.8,
+      "predHours": 0,
+      "absErr": 27
+    },
+    "Orgill": {
+      "samples": 7,
+      "truthCells": 82,
+      "predCells": 7,
+      "exact": 78,
+      "close": 0,
+      "wrong": 0,
+      "missed": 4,
+      "extra": 7,
+      "unresolved": 0,
+      "truthHours": 854.0000000000002,
+      "predHours": 0,
+      "absErr": 120.69999999999999
+    },
+    "Penda Corp": {
+      "samples": 11,
+      "truthCells": 83,
+      "predCells": 2,
+      "exact": 67,
+      "close": 8,
+      "wrong": 2,
+      "missed": 6,
+      "extra": 2,
+      "unresolved": 0,
+      "truthHours": 998.6560000000001,
+      "predHours": 0,
+      "absErr": 95.138
+    },
+    "Shuster's Building Components": {
+      "samples": 9,
+      "truthCells": 73,
+      "predCells": 4,
+      "exact": 40,
+      "close": 6,
+      "wrong": 16,
+      "missed": 11,
+      "extra": 4,
+      "unresolved": 0,
+      "truthHours": 671.15,
+      "predHours": 0,
+      "absErr": 210.42000000000002
+    },
+    "WB Manufacturing": {
+      "samples": 10,
+      "truthCells": 107,
+      "predCells": 1,
+      "exact": 82,
+      "close": 3,
+      "wrong": 1,
+      "missed": 21,
+      "extra": 1,
+      "unresolved": 0,
+      "truthHours": 1029.2189999999998,
+      "predHours": 0,
+      "absErr": 182.85500000000002
+    },
+    "Burnett Wilson": {
+      "samples": 9,
+      "truthCells": 52,
+      "predCells": 0,
+      "exact": 48,
+      "close": 0,
+      "wrong": 0,
+      "missed": 4,
+      "extra": 0,
+      "unresolved": 0,
+      "truthHours": 596.0070000000002,
+      "predHours": 0,
+      "absErr": 43.169000000000004
+    },
+    "Schuette Metals": {
+      "samples": 3,
+      "truthCells": 18,
+      "predCells": 0,
+      "exact": 10,
+      "close": 0,
+      "wrong": 0,
+      "missed": 8,
+      "extra": 0,
+      "unresolved": 0,
+      "truthHours": 141.92000000000004,
+      "predHours": 0,
+      "absErr": 67.41
+    },
+    "Landscape Structures": {
+      "samples": 7,
+      "truthCells": 62,
+      "predCells": 0,
+      "exact": 57,
+      "close": 0,
+      "wrong": 5,
+      "missed": 0,
+      "extra": 0,
+      "unresolved": 0,
+      "truthHours": 594.0010000000001,
+      "predHours": 0,
+      "absErr": 46.376999999999995
+    },
+    "International Wire": {
+      "samples": 3,
+      "truthCells": 30,
+      "predCells": 0,
+      "exact": 29,
+      "close": 0,
+      "wrong": 1,
+      "missed": 0,
+      "extra": 0,
+      "unresolved": 0,
+      "truthHours": 272.2,
+      "predHours": 0,
+      "absErr": 10
+    }
+  },
+  "perSample": [
+    {
+      "weekStart": "2026-08-09",
+      "files": [
+        {
+          "id": 874,
+          "customer": "DeLallo",
+          "fileName": "KFIWeeklyTimesheetExport LSI Import PD 08.21.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 873,
+          "customer": "Adient",
+          "fileName": "Adient Daily punches PP 08.09.2026 to 08.15.2026 PD 08.21.2026 Driver only.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 872,
+          "customer": "Shuster's Building Components",
+          "fileName": "Shusters Daily punches PP 08.09.2026 to 08.15.2026 PD 08.21.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 871,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Daily punches PP 08.09.2026 to 08.15.2026 PD 08.21.2026 Driver only.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 870,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 08.09.2026 to 08.15.2026 PD 08.21.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 869,
+          "customer": "Inter. Wire - NY",
+          "fileName": "IWG El Paso Daily punches PP 08.09.2026 to 08.15.2026 PD 08.21.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 868,
+          "customer": "IWG - El Paso",
+          "fileName": "IWG El Paso Daily punches PP 08.09.2026 to 08.15.2026 PD 08.21.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 867,
+          "customer": "DeLallo",
+          "fileName": "DeLallo Daily punches PP 08.09.2026 to 08.15.2026 PD 08.21.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 866,
+          "customer": "Burnett Dairy - Grantsburg",
+          "fileName": "Burnett G Daily punches PP 08.09.2026 to 08.15.2026 PD 08.21.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 865,
+          "customer": "Orgill",
+          "fileName": "Orgill Daily punches PP 08.09.2026 to 08.15.2026 PD 08.21.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+      ],
+      "score": {
+        "samples": 10,
+        "truthCells": 77,
+        "predCells": 78,
+        "exact": 68,
+        "close": 6,
+        "wrong": 2,
+        "missed": 1,
+        "extra": 2,
+        "unresolved": 1,
+        "truthHours": 732.489,
+        "predHours": 760.002,
+        "absErr": 37.687
+      },
+      "dropped": {},
+      "errors": []
+    },
+    {
+      "weekStart": "2026-08-02",
+      "files": [
+        {
+          "id": 864,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Manufacturing Abigail Sarmiento Customer time PD 08.14.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 863,
+          "customer": "Shuster's Building Components",
+          "fileName": "David Navarro Shusters Driver time PD 08.14.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 862,
+          "customer": "Shuster's Building Components",
+          "fileName": "Shusters Driver PD 08.14.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 861,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Manufacturing Driver PD 08.14.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 860,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 08.02.2026 to 08.08.2026 PD 08.14.2026 v2.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 858,
+          "customer": "Inter. Wire - NY",
+          "fileName": "IWG punches PP 08.02.2026 to 08.08.2026 PD 08.14.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 857,
+          "customer": "IWG - El Paso",
+          "fileName": "IWG El Paso punches PP 08.02.2026 to 08.08.2026 PD 08.14.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 856,
+          "customer": "Schuette Metals",
+          "fileName": "Schuette Daily punches PP 08.02.2026 to 08.08.2026 PD 08.14.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 855,
+          "customer": "DeLallo",
+          "fileName": "DeLallo punches PP 08.02.2026 to 08.08.2026 PD 08.14.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 854,
+          "customer": "Orgill",
+          "fileName": "Orgill Daily punches PP 08.02.2026 to 08.08.2026 PD 08.14.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 853,
+          "customer": "Burnett Wilson",
+          "fileName": "Burnett W Daily punches PP 08.02.2026 to 08.08.2026 PD 08.14.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 852,
+          "customer": "Burnett Dairy - Grantsburg",
+          "fileName": "Burnett G Daily punches PP 08.02.2026 to 08.08.2026 PD 08.14.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 851,
+          "customer": "Adient",
+          "fileName": "Adient Daily punches PP 08.02.2026 to 08.08.2026 PD 08.14.2026 Driver only.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+      ],
+      "score": {
+        "samples": 13,
+        "truthCells": 99,
+        "predCells": 90,
+        "exact": 87,
+        "close": 0,
+        "wrong": 3,
+        "missed": 9,
+        "extra": 0,
+        "unresolved": 4,
+        "truthHours": 971.0559999999999,
+        "predHours": 882.7860000000002,
+        "absErr": 95.27000000000001
+      },
+      "dropped": {
+        "extraction_failed": 1
+      },
+      "errors": []
+    },
+    {
+      "weekStart": "2026-07-26",
+      "files": [
+        {
+          "id": 850,
+          "customer": "Inter. Wire - NY",
+          "fileName": "iwg.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 848,
+          "customer": "Shuster's Building Components",
+          "fileName": "Shusters Jose Dehoyos only PD 08.07.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 847,
+          "customer": "Shuster's Building Components",
+          "fileName": "Shusters Drivers only PD 08.07.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 846,
+          "customer": "Shuster's Building Components",
+          "fileName": "Shusters Drivers only PD 08.07.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 845,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Manufacturing Daily punches PP 07.26.2026 to 08.01.2026 PD 08.07.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 842,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 07.26.2026 to 08.01.2026 PD 08.07.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 841,
+          "customer": "IWG - El Paso",
+          "fileName": "IWG El Paso Daily punches PP 07.26.2026 to 08.01.2026 PD 08.07.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 840,
+          "customer": "Burnett Dairy - Grantsburg",
+          "fileName": "Burnett G Daily punches PP 07.26.2026 to 08.01.2026 PD 08.07.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 839,
+          "customer": "Orgill",
+          "fileName": "Orgill Daily punches PP 07.26.2026 to 08.01.2026 PD 08.07.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 832,
+          "customer": "DeLallo",
+          "fileName": "DeLallo Daily punches PP 07.26.2026 to 08.01.2026 PD 08.07.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 831,
+          "customer": "Burnett Wilson",
+          "fileName": "Burnett W Daily punches PP 07.26.2026 to 08.01.2026 PD 08.07.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 826,
+          "customer": "Adient",
+          "fileName": "Adient Daily punches PP 07.26.2026 to 08.01.2026 PD 08.07.2026 driver only.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+      ],
+      "score": {
+        "samples": 12,
+        "truthCells": 92,
+        "predCells": 87,
+        "exact": 80,
+        "close": 0,
+        "wrong": 7,
+        "missed": 5,
+        "extra": 0,
+        "unresolved": 0,
+        "truthHours": 897.1469999999998,
+        "predHours": 890.1469999999998,
+        "absErr": 100
+      },
+      "dropped": {},
+      "errors": []
+    },
+    {
+      "weekStart": "2026-07-12",
+      "files": [
+        {
+          "id": 821,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 07.12.2026 to 07.18.2026 PD 07.24.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 820,
+          "customer": "Inter. Wire - NY",
+          "fileName": "IWG Daily punches PP 07.12.2026 to 07.18.2026 PD 07.24.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 819,
+          "customer": "IWG - El Paso",
+          "fileName": "IWG El Paso Daily punches PP 07.12.2026 to 07.18.2026 PD 07.24.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 818,
+          "customer": "Burnett Wilson",
+          "fileName": "Burnett W Daily punches PP 07.12.2026 to 07.18.2026 PD 07.24.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 817,
+          "customer": "Orgill",
+          "fileName": "Orgill Daily punches PP 07.12.2026 to 07.18.2026 PD 07.24.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 816,
+          "customer": "Schuette Metals",
+          "fileName": "Schuette  Daily punches PP 07.12.2026 to 07.18.2026 PD 07.24.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 815,
+          "customer": "DeLallo",
+          "fileName": "DeLallo Daily punches PP 07.12.2026 to 07.18.2026 PD 07.24.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 794,
+          "customer": "Burnett Dairy - Grantsburg",
+          "fileName": "Burnett G Daily punches PP 07.12.2026 to 07.18.2026 PD 07.24.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+      ],
+      "score": {
+        "samples": 8,
+        "truthCells": 77,
+        "predCells": 59,
+        "exact": 49,
+        "close": 0,
+        "wrong": 5,
+        "missed": 23,
+        "extra": 5,
+        "unresolved": 0,
+        "truthHours": 865.4290000000001,
+        "predHours": 601.9509999999999,
+        "absErr": 375.67800000000005
+      },
+      "dropped": {},
+      "errors": []
+    },
+    {
+      "weekStart": "2026-07-05",
+      "files": [
+        {
+          "id": 793,
+          "customer": "Landscape Structures",
+          "fileName": "LSI Daily punches PP 07.05.2026 to 07.11.2026 PD 07.17.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 792,
+          "customer": "Orgill",
+          "fileName": "Orgill Daily punches PP 07.05.2026 to 07.11.2026 PD 07.17.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 791,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Manufacturing Daily punches PP 07.05.2026 to 07.11.2026 PD 07.17.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 790,
+          "customer": "Shuster's Building Components",
+          "fileName": "Shusters Navarro Ortiz, David PP 07.05.2026 to 07.11.2026 PD 07.17.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 789,
+          "customer": "IWG - El Paso",
+          "fileName": "_Report Output_CondensedStandardTimeDetailReport_89a86040-ec7e-45a8-b609-e8b142d86054_2026-07-13T08_31_27.765.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 788,
+          "customer": "Inter. Wire - NY",
+          "fileName": "_Report Output_CondensedStandardTimeDetailReport_89a86040-ec7e-45a8-b609-e8b142d86054_2026-07-13T08_31_27.765.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 787,
+          "customer": "Burnett Wilson",
+          "fileName": "07.11.2026 - Punch Details W.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 786,
+          "customer": "Burnett Dairy - Grantsburg",
+          "fileName": "07.11.2026 - Punch Details GB.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 785,
+          "customer": "DeLallo",
+          "fileName": "20260713082936_Time_Detail_Report_8a3ac7d9.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 784,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 07.05.2026 to 07.11.2026 PD 07.17.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+      ],
+      "score": {
+        "samples": 10,
+        "truthCells": 78,
+        "predCells": 79,
+        "exact": 68,
+        "close": 3,
+        "wrong": 7,
+        "missed": 0,
+        "extra": 1,
+        "unresolved": 0,
+        "truthHours": 781.3570000000005,
+        "predHours": 794.1289999999998,
+        "absErr": 21.991999999999997
+      },
+      "dropped": {
+        "extraction_failed": 1
+      },
+      "errors": []
+    },
+    {
+      "weekStart": "2026-06-28",
+      "files": [
+        {
+          "id": 783,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Silvero Reyes, Erica PP 06.28.2026 to 07.04.2026 PD 07.10.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 782,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Silvero Reyes, Erica PP 06.28.2026 to 07.04.2026 PD 07.10.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 780,
+          "customer": "Shuster's Building Components",
+          "fileName": "Shusters Navarro Ortiz, David PP 06.28.2026 to 07.04.2026 PD 07.10.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 779,
+          "customer": "Orgill",
+          "fileName": "Orgill Daily punches PP 06.28.2026 to 07.04.2026 PD 07.10.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 777,
+          "customer": "Inter. Wire - NY",
+          "fileName": "IWG Daily punches PP 06.28.2026 to 07.04.2026 PD 07.10.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 776,
+          "customer": "IWG - El Paso",
+          "fileName": "IWG El Paso Daily punches PP 06.28.2026 to 07.04.2026 PD 07.10.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 773,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Rodriguez, Noe PP 06.28.2026 to 07.04.2026 PD 07.10.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 770,
+          "customer": "Shuster's Building Components",
+          "fileName": "Shusters Navarro Ortiz, David PP 06.28.2026 to 07.04.2026 PD 07.10.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 769,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 06.28.2026 to 07.04.2026 PD 07.10.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 768,
+          "customer": "DeLallo",
+          "fileName": "DeLallo Daily punches PP 06.28.2026 to 07.04.2026 PD 07.10.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 767,
+          "customer": "Landscape Structures",
+          "fileName": "LSI Daily punches PP 06.28.2026 to 07.04.2026 PD 07.10.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 766,
+          "customer": "Burnett Wilson",
+          "fileName": "Burnett W Daily punches PP 06.28.2026 to 07.04.2026 PD 07.10.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 765,
+          "customer": "Burnett Dairy - Grantsburg",
+          "fileName": "Burnett G Daily punches PP 06.28.2026 to 07.04.2026 PD 07.10.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+      ],
+      "score": {
+        "samples": 13,
+        "truthCells": 74,
+        "predCells": 70,
+        "exact": 63,
+        "close": 0,
+        "wrong": 4,
+        "missed": 7,
+        "extra": 3,
+        "unresolved": 0,
+        "truthHours": 677.3549999999999,
+        "predHours": 721.4479999999999,
+        "absErr": 110.671
+      },
+      "dropped": {
+        "extraction_failed": 4
+      },
+      "errors": []
+    },
+    {
+      "weekStart": "2026-06-21",
+      "files": [
+        {
+          "id": 764,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Manufacturing Daily punches PP 06.21.2026 to 06.27.2026 PD 07.02.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 763,
+          "customer": "Orgill",
+          "fileName": "Orgill Daily punches PP 06.21.2026 to 06.27.2026 PD 07.02.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 761,
+          "customer": "IWG - El Paso",
+          "fileName": "IWG El Paso Daily punches PP 06.21.2026 to 06.27.2026 PD 07.02.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 760,
+          "customer": "Shuster's Building Components",
+          "fileName": "Shusters Navarro Ortiz, David PP 06.21.2026 to 06.27.2026 PD 07.02.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 759,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 06.21.2026 to 06.27.2026 PD 07.02.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 758,
+          "customer": "Landscape Structures",
+          "fileName": "LSI Daily punches PP 06.21.2026 to 06.27.2026 PD 07.02.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 757,
+          "customer": "Inter. Wire - NY",
+          "fileName": "IWG Daily punches PP 06.21.2026 to 06.27.2026 PD 07.02.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 756,
+          "customer": "DeLallo",
+          "fileName": "DeLallo Daily punches PP 06.21.2026 to 06.27.2026 PD 07.02.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 755,
+          "customer": "Burnett Wilson",
+          "fileName": "Burnett W Daily punches PP 06.21.2026 to 06.27.2026 PD 07.02.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 754,
+          "customer": "Burnett Dairy - Grantsburg",
+          "fileName": "Burnett GB Daily punches PP 06.21.2026 to 06.27.2026 PD 07.02.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+      ],
+      "score": {
+        "samples": 10,
+        "truthCells": 82,
+        "predCells": 78,
+        "exact": 70,
+        "close": 6,
+        "wrong": 2,
+        "missed": 4,
+        "extra": 0,
+        "unresolved": 0,
+        "truthHours": 803.708,
+        "predHours": 767.5140000000001,
+        "absErr": 52.394000000000005
+      },
+      "dropped": {
+        "extraction_failed": 1
+      },
+      "errors": []
+    },
+    {
+      "weekStart": "2026-06-14",
+      "files": [
+        {
+          "id": 753,
+          "customer": "Shuster's Building Components",
+          "fileName": "Shusters Navarro Ortiz, David PP 06.14.2026 to 06.20.2026 PD 06.26.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 752,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Manufacturing Daily punches PP 06.14.2026 to 06.20.2026 PD 06.26.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 751,
+          "customer": "DeLallo",
+          "fileName": "DeLallo Daily punches PP 06.14.2026 to 06.20.2026 PD 06.26.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 750,
+          "customer": "Landscape Structures",
+          "fileName": "LSI Daily punches PP 06.14.2026 to 06.20.2026 PD 06.26.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 749,
+          "customer": "Burnett Wilson",
+          "fileName": "Burnett W Daily punches PP 06.14.2026 to 06.20.2026 PD 06.26.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 748,
+          "customer": "Burnett Dairy - Grantsburg",
+          "fileName": "Burnett G Daily punches PP 06.14.2026 to 06.20.2026 PD 06.26.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 747,
+          "customer": "Inter. Wire - NY",
+          "fileName": "IWG Daily punches PP 06.14.2026 to 06.20.2026 PD 06.26.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 746,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 06.14.2026 to 06.20.2026 PD 06.26.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+      ],
+      "score": {
+        "samples": 8,
+        "truthCells": 89,
+        "predCells": 81,
+        "exact": 79,
+        "close": 2,
+        "wrong": 0,
+        "missed": 8,
+        "extra": 0,
+        "unresolved": 0,
+        "truthHours": 899.0799999999998,
+        "predHours": 813.472,
+        "absErr": 85.75000000000003
+      },
+      "dropped": {
+        "extraction_failed": 1
+      },
+      "errors": []
+    },
+    {
+      "weekStart": "2026-06-07",
+      "files": [
+        {
+          "id": 745,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Manufacturing Daily punches PP 06.07.2026 to 06.13.2026 PD 06.19.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 744,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 06.07.2026 to 06.13.2026 PD 06.19.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 742,
+          "customer": "Shuster's Building Components",
+          "fileName": "Shusters Timecard Candelario Nunez PP 06.07.2026 to 06.13.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 739,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 06.07.2026 to 06.13.2026 PD 06.19.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 737,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 06.07.2026 to 06.13.2026 PD 06.19.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 734,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Manufacturing Daily punches PP 06.07.2026 to 06.13.2026 PD 06.19.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 733,
+          "customer": "Landscape Structures",
+          "fileName": "LSI Daily punches PP 06.07.2026 to 06.13.2026 PD 06.19.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 732,
+          "customer": "International Wire",
+          "fileName": "IGW Daily punches PP 06.07.2026 to 06.13.2026 PD 06.19.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 731,
+          "customer": "DeLallo",
+          "fileName": "DeLallo Daily punches PP 06.07.2026 to 06.13.2026 PD 06.19.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 730,
+          "customer": "Burnett Wilson",
+          "fileName": "Burnett W Daily punches PP 06.07.2026 to 06.13.2026 PD 06.19.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 729,
+          "customer": "Burnett Dairy - Grantsburg",
+          "fileName": "Burnett G Daily punches PP 06.07.2026 to 06.13.2026 PD 06.19.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+      ],
+      "score": {
+        "samples": 11,
+        "truthCells": 71,
+        "predCells": 72,
+        "exact": 71,
+        "close": 0,
+        "wrong": 0,
+        "missed": 0,
+        "extra": 1,
+        "unresolved": 0,
+        "truthHours": 714.5420000000003,
+        "predHours": 723.071,
+        "absErr": 8.603000000000012
+      },
+      "dropped": {
+        "extraction_failed": 1
+      },
+      "errors": []
+    },
+    {
+      "weekStart": "2026-05-31",
+      "files": [
+        {
+          "id": 728,
+          "customer": "Shuster's Building Components",
+          "fileName": "Shusters Timecard Candelario Nunez.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 727,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Manufacturinge Daily punches PP 05.31.2026 to 06.06.2026 PD 06.12.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 726,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 05.31.2026 to 06.06.2026 PD 06.12.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 725,
+          "customer": "Landscape Structures",
+          "fileName": "LSI Daily punches PP 05.31.2026 to 06.06.2026 PD 06.12.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 724,
+          "customer": "DeLallo",
+          "fileName": "DeLallo Daily punches PP 05.31.2026 to 06.06.2026 PD 06.12.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 723,
+          "customer": "International Wire",
+          "fileName": "IWG Daily punches PP 05.31.2026 to 06.06.2026 PD 06.12.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 722,
+          "customer": "Burnett Dairy - Grantsburg",
+          "fileName": "Burnett G Daily punches PP 05.31.2026 to 06.06.2026 PD 06.12.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 721,
+          "customer": "Burnett Dairy - Grantsburg",
+          "fileName": "Burnett G Daily punches PP 05.31.2026 to 06.06.2026 PD 06.12.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 719,
+          "customer": "Burnett Wilson",
+          "fileName": "Burnett W Daily punches PP 05.31.2026 to 06.06.2026 PD 06.12.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+      ],
+      "score": {
+        "samples": 9,
+        "truthCells": 73,
+        "predCells": 67,
+        "exact": 61,
+        "close": 1,
+        "wrong": 5,
+        "missed": 6,
+        "extra": 0,
+        "unresolved": 0,
+        "truthHours": 711.915,
+        "predHours": 672.3449999999997,
+        "absErr": 71.64200000000001
+      },
+      "dropped": {},
+      "errors": []
+    },
+    {
+      "weekStart": "2026-05-24",
+      "files": [
+        {
+          "id": 718,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 05.24.2026 to 05.30.2026 PD 06.05.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 717,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Manufacturing Noe Rodriguez Timecard 05.25.2026-05.31.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 716,
+          "customer": "Burnett Dairy - Grantsburg",
+          "fileName": "Burnett G Daily punches PP 05.24.2026 to 05.30.2026 PD 06.05.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 715,
+          "customer": "WB Manufacturing",
+          "fileName": "WB Manufacturing Noe Rodriguez Timecard 05.25.2026-05.31.2026.png",
+          "mimeType": "image/png"
+        },
+        {
+          "id": 714,
+          "customer": "Penda Corp",
+          "fileName": "Penda Daily punches PP 05.24.2026 to 05.30.2026 PD 06.05.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 713,
+          "customer": "Landscape Structures",
+          "fileName": "LSI Daily punches PP 05.24.2026 to 05.30.2026 PD 06.05.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 712,
+          "customer": "International Wire",
+          "fileName": "IWG Daily punches PP 05.24.2026 to 05.30.2026 PD 06.05.2026.pdf",
+          "mimeType": "application/pdf"
+        },
+        {
+          "id": 711,
+          "customer": "Schuette Metals",
+          "fileName": "Schuette Daily punches PP 05.24.2026 to 05.30.2026 PD 06.05.2026.xlsx",
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          "id": 710,
+          "customer": "DeLallo",
+          "fileName": "DeLallo Daily punches PP 05.24.2026 to 05.30.2026 PD 06.5.2026 PDF.pdf",
+          "mimeType": "application/pdf"
+        }
+      ],
+      "score": {
+        "samples": 9,
+        "truthCells": 52,
+        "predCells": 54,
+        "exact": 50,
+        "close": 0,
+        "wrong": 1,
+        "missed": 1,
+        "extra": 3,
+        "unresolved": 0,
+        "truthHours": 484.79400000000004,
+        "predHours": 510.299,
+        "absErr": 50.57299999999999
+      },
+      "dropped": {
+        "extraction_failed": 2
+      },
+      "errors": []
+    }
+  ],
+  "spend": {
+    "calls": 205,
+    "inputTokens": 4975969,
+    "outputTokens": 163869,
+    "usd": 17.385941999999996
+  }
+}
