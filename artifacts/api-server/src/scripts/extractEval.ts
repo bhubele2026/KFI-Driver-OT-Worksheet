@@ -60,12 +60,20 @@ const MODEL = (() => {
 })();
 process.env.CLAUDE_EXTRACT_MODEL = MODEL;
 
-const { fastExtractRows } = await import("../lib/parsers/fastExtract.js");
-const { buildRosterContext } = await import("../lib/parsers/imageSupport.js");
+// Call production's WHOLE known-customer pipeline, not just the extractor:
+// extraction, date normalization, the week-window filter, the census->fleet
+// resolution ladder with its Connecteam hard block, and the total-row drops.
+// imageSupport.ts touches no database (every input is injected), so the real
+// path runs here unchanged. Scoring raw extractor output instead made the
+// harness invent "extra" cells for rows production drops downstream, and let
+// it resolve drivers production would have refused.
+const { extractImageForKnownCustomer } = await import(
+  "../lib/parsers/imageSupport.js"
+);
 const { ClaudeModelClient } = await import("../lib/parsers/claude.js");
 const { costUsd } = await import("../lib/parsers/pricing.js");
 const { writeFile } = await import("node:fs/promises");
-type AiExtractedRow = import("../lib/parsers/aiExtract.js").AiExtractedRow;
+const { createHash } = await import("node:crypto");
 
 const BASE = (process.env.KFI_OT_BASE_URL ?? "").replace(/\/+$/, "");
 const COOKIE = process.env.KFI_OT_COOKIE ?? "";
@@ -134,6 +142,7 @@ interface Punch {
   source: string;
   date: string;
   hours: number | string;
+  isManual: boolean;
 }
 
 /**
@@ -179,9 +188,6 @@ function toCells(
   return m;
 }
 
-const norm = (s: string): string =>
-  s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-
 interface Score {
   samples: number;
   truthCells: number;
@@ -217,6 +223,7 @@ async function main(): Promise<void> {
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const useLessons = !argv.includes("--no-lessons");
+  const showDiff = argv.includes("--diff");
   const limit = Number(flag("--limit") ?? (argv.includes("--all") ? 9999 : 3));
   const wantCustomers = flag("--customers")
     ?.split(",")
@@ -233,37 +240,29 @@ async function main(): Promise<void> {
     corpus = corpus.filter((s) => wantCustomers.includes(s.customer.toLowerCase()));
   }
 
-  // A single file rarely covers a whole customer-week: WB Manufacturing
-  // uploads one PNG per driver. Scoring one such file against the week's whole
-  // punch set charges it for every driver it was never given (the pilot read
-  // 26% for exactly this reason). So the unit of evaluation is a
-  // (customer, week) GROUP — run every file in it, union the output, score
-  // once. That is also the operational question: did this week's uploads
-  // produce the right punches?
-  const allGroups = new Map<string, Sample[]>();
+  // The unit of evaluation is a WEEK, not a file and not a customer.
+  //
+  // Two leaks force this, both found by running it wrong first. A single file
+  // rarely covers a whole customer (WB Manufacturing uploads one PNG per
+  // driver), and a customer's sheet routinely lists workers who belong to a
+  // DIFFERENT customer - Inter. Wire - NY's file carries Ladonte Brown, whose
+  // hours production correctly files under IWG - El Paso. Scoring per customer
+  // charged the extractor for reading rows it read perfectly well.
+  //
+  // A week closes both: every file goes in, every punch comes out. A week is
+  // only scored when the corpus holds a file for EVERY customer with punches
+  // that week - otherwise a missing file reads as an extraction miss.
+  const weekFiles = new Map<string, Sample[]>();
   for (const s of corpus) {
-    const key = `${s.customer}|${s.weekStart}`;
-    const g = allGroups.get(key);
+    const g = weekFiles.get(s.weekStart);
     if (g) g.push(s);
-    else allGroups.set(key, [s]);
+    else weekFiles.set(s.weekStart, [s]);
   }
-  // Order groups so one per customer comes first: a small --limit then spans
-  // customers instead of burning the budget on one customer's twelve weeks.
-  const firstOfCustomer: Array<[string, Sample[]]> = [];
-  const rest: Array<[string, Sample[]]> = [];
-  const seenCustomer = new Set<string>();
-  for (const entry of allGroups) {
-    if (seenCustomer.has(entry[1][0].customer)) rest.push(entry);
-    else {
-      seenCustomer.add(entry[1][0].customer);
-      firstOfCustomer.push(entry);
-    }
-  }
-  const groups = (wantIds ? [...allGroups] : [...firstOfCustomer, ...rest]).slice(0, limit);
-  const fileCount = groups.reduce((n, g) => n + g[1].length, 0);
+  const weeks = [...weekFiles.keys()].sort().reverse().slice(0, limit);
+  const fileCount = weeks.reduce((n, w) => n + weekFiles.get(w)!.length, 0);
 
   console.log(
-    `corpus ${corpus.length} pinned -> ${groups.length} customer-weeks / ${fileCount} files   ` +
+    `corpus ${corpus.length} pinned -> ${weeks.length} weeks / ${fileCount} files   ` +
       `model=${MODEL}   lessons=${useLessons ? "ON" : "OFF"}\n`,
   );
 
@@ -296,7 +295,8 @@ async function main(): Promise<void> {
       aliases: Array<{ customer: string; nameOnDoc: string; kfiId: string }>;
     }>("/customer-aliases")
   ).aliases;
-  const kfiIdByName = new Map(drivers.map((d) => [norm(d.name), d.kfiId]));
+  const kfiSet = new Set(drivers.map((d) => d.kfiId));
+  const nameByKfi = new Map(drivers.map((d) => [d.kfiId, d.name]));
 
   const weekCache = new Map<string, Awaited<ReturnType<typeof loadWeek>>>();
   const lessonCache = new Map<string, string[]>();
@@ -304,134 +304,192 @@ async function main(): Promise<void> {
   const overall = blank();
   const perSample: unknown[] = [];
 
-  for (const [, samples] of groups) {
-    const { customer, weekStart } = samples[0];
+  const tagByKfi = new Map(drivers.map((d) => [d.kfiId, d.customer ?? "(untagged)"]));
+  const skipped: string[] = [];
+
+  for (const weekStart of weeks) {
+    const samples = weekFiles.get(weekStart)!;
     const startedAt = Date.now();
-    if (!weekCache.has(weekStart)) weekCache.set(weekStart, await loadWeek(weekStart));
-    const { punches, ctActiveKfiIds } = weekCache.get(weekStart)!;
+    const { punches, ctActiveKfiIds } = await loadWeek(weekStart);
 
-    if (!lessonCache.has(customer)) {
-      const r = await api<{
-        lessons: Array<{ lessonText: string; active: boolean }>;
-      }>(`/customer-extraction-lessons/${encodeURIComponent(customer)}`).catch(
-        () => ({ lessons: [] as Array<{ lessonText: string; active: boolean }> }),
-      );
-      lessonCache.set(
-        customer,
-        r.lessons.filter((l) => l.active).map((l) => l.lessonText),
-      );
-    }
-    const lessons = useLessons ? lessonCache.get(customer)! : [];
-
-    const truth = toCells(
-      punches
-        .filter((p) => p.source === "Customer" && (p.customer ?? "") === customer)
-        .map((p) => ({ kfiId: p.kfiId, date: p.date, hours: Number(p.hours) })),
+    // File-derived truth only: manual punches are typed in by a dispatcher and
+    // no extractor could ever produce them. Production's own customer-uploads
+    // query draws the same line (source=Customer, isManual=false).
+    const weekTruth = punches.filter(
+      (p) => p.source === "Customer" && !p.isManual,
     );
-
-    const nameAliasMap = new Map<string, string>();
-    for (const a of allAliases) {
-      if (a.customer.toLowerCase() === customer.toLowerCase()) {
-        nameAliasMap.set(a.nameOnDoc.toLowerCase(), a.kfiId);
-      }
+    const customersWithPunches = new Set(weekTruth.map((p) => p.customer ?? "-"));
+    const customersWithFiles = new Set(samples.map((s) => s.customer));
+    const absent = [...customersWithPunches].filter((c) => !customersWithFiles.has(c));
+    if (absent.length) {
+      skipped.push(`${weekStart} (no pinned file for ${absent.join(", ")})`);
+      continue;
     }
-    const roster = buildRosterContext({
-      customer,
-      drivers,
-      idMap,
-      nameAliasMap,
-      ctActiveKfiIds,
-    });
-    const weekEnd = new Date(Date.parse(`${weekStart}T00:00:00Z`) + 6 * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
 
-    const predictedRows: Array<{
-      kfiId: string | null;
-      date: string;
-      hours: number | null;
-    }> = [];
+    const truth = new Map<string, number>();
+    const truthCustomer = new Map<string, string>();
+    for (const p of weekTruth) {
+      const key = `${p.kfiId}|${p.date}`;
+      truth.set(key, (truth.get(key) ?? 0) + Number(p.hours));
+      truthCustomer.set(key, p.customer ?? "-");
+    }
+
+    // Two files in a week can carry the same rows, and both cases are the
+    // harness's problem rather than the extractor's:
+    //
+    // 1. IDENTICAL BYTES. IWG sends one combined report and the dispatcher
+    //    uploads it under both "Inter. Wire - NY" and "IWG - El Paso" -
+    //    samples 869 and 868 are the same sha256. Extracting it twice and
+    //    summing reads 18h for a 9h day. Hash first, extract once.
+    // 2. SHARED WORKER, DIFFERENT FILES. Jose Gallegos appears on Burnett
+    //    Dairy's sheet and Shuster's. The commit path stamps every punch with
+    //    the UPLOAD's customer (`customer: reparsed.customer`), so both
+    //    imports would file him - the dispatcher's preview picks one. That
+    //    choice isn't recoverable from the document, so we model it: when the
+    //    same (kfiId, date) comes from more than one file, the file whose
+    //    customer matches the driver's tag wins. That reproduces all three
+    //    observed cases (Brown -> IWG - El Paso, Cerda -> Inter. Wire - NY,
+    //    Gallegos -> Shuster's). It is a MODEL, not ground truth; a week whose
+    //    dispatcher chose otherwise will read as an error here.
+    const perFile: Array<{ customer: string; cells: Map<string, number> }> = [];
     let unresolved = 0;
+    let duplicateFiles = 0;
+    const dropped = new Map<string, number>();
     const failures: string[] = [];
+    const seenBytes = new Map<string, string>();
 
     for (const s of samples) {
+      if (!lessonCache.has(s.customer)) {
+        const r = await api<{ lessons: Array<{ lessonText: string; active: boolean }> }>(
+          `/customer-extraction-lessons/${encodeURIComponent(s.customer)}`,
+        ).catch(() => ({ lessons: [] as Array<{ lessonText: string; active: boolean }> }));
+        lessonCache.set(s.customer, r.lessons.filter((l) => l.active).map((l) => l.lessonText));
+      }
+      const lessons = useLessons ? lessonCache.get(s.customer)! : [];
+      const nameAliasMap = new Map<string, string>();
+      for (const a of allAliases) {
+        if (a.customer.toLowerCase() === s.customer.toLowerCase()) {
+          nameAliasMap.set(a.nameOnDoc.toLowerCase(), a.kfiId);
+        }
+      }
+      const weekEnd = new Date(Date.parse(`${weekStart}T00:00:00Z`) + 6 * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
       const buffer = await apiBytes(`/admin/ai-extract-samples/${s.id}/download`);
-      let rows: AiExtractedRow[] = [];
+      const digest = createHash("sha256").update(buffer).digest("hex");
+      const twin = seenBytes.get(digest);
+      if (twin) {
+        duplicateFiles += 1;
+        continue;
+      }
+      seenBytes.set(digest, s.customer);
       try {
-        const result = await fastExtractRows(
-          s.fileName,
+        const result = await extractImageForKnownCustomer({
+          fileName: s.fileName,
           buffer,
-          customer,
+          mimeType: s.mimeType,
+          customer: s.customer,
           weekStart,
           weekEnd,
-          s.mimeType,
-          undefined,
-          roster,
-          lessons,
-        );
-        rows = result.rows;
+          idMap,
+          drivers,
+          kfiSet,
+          nameAliasMap,
+          ctActiveKfiIds,
+          aiOpts: { lessons },
+        });
+        perFile.push({
+          customer: s.customer,
+          cells: toCells(
+            result.punches.map((punch) => ({
+              kfiId: punch.kfiId,
+              date: punch.date,
+              hours: punch.hours,
+            })),
+          ),
+        });
+        unresolved += result.pendingNamedRows?.length ?? 0;
+        for (const d of result.droppedRows ?? []) {
+          dropped.set(d.reason, (dropped.get(d.reason) ?? 0) + 1);
+        }
       } catch (e) {
         failures.push(`${s.id}: ${e instanceof Error ? e.message : String(e)}`);
       }
-      for (const r of rows) {
-        const kfiId =
-          r.resolvedKfiId ??
-          (r.badgeOrId ? idMap[String(r.badgeOrId)] : undefined) ??
-          nameAliasMap.get((r.driverNameOnDoc ?? "").toLowerCase()) ??
-          kfiIdByName.get(norm(r.driverNameOnDoc ?? "")) ??
-          null;
-        if (!kfiId) unresolved += 1;
-        predictedRows.push({ kfiId, date: r.date, hours: r.hours ?? null });
-      }
     }
 
-    const predicted = toCells(predictedRows);
-    const score = blank();
-    score.samples = samples.length;
-    score.unresolved = unresolved;
-    score.truthCells = truth.size;
-    score.predCells = predicted.size;
+    const predicted = new Map<string, number>();
+    for (const key of new Set(perFile.flatMap((f) => [...f.cells.keys()]))) {
+      const from = perFile.filter((f) => f.cells.has(key));
+      const tag = tagByKfi.get(key.split("|")[0]);
+      const winner = from.find((f) => f.customer === tag) ?? from[0];
+      predicted.set(key, winner.cells.get(key)!);
+    }
+    const week = blank();
+    week.samples = samples.length;
+    week.unresolved = unresolved;
+    week.truthCells = truth.size;
+    week.predCells = predicted.size;
+    const sub = (c: string): Score => {
+      let v = byCustomer.get(c);
+      if (!v) { v = blank(); byCustomer.set(c, v); }
+      return v;
+    };
+
     for (const [key, t] of truth) {
-      score.truthHours += t;
-      const p = predicted.get(key);
-      if (p == null) {
-        score.missed += 1;
-        score.absErr += t;
+      const c = sub(truthCustomer.get(key)!);
+      week.truthHours += t; c.truthHours += t; c.truthCells += 1;
+      const pv = predicted.get(key);
+      if (pv == null) {
+        week.missed += 1; c.missed += 1; week.absErr += t; c.absErr += t;
         continue;
       }
-      const delta = Math.abs(p - t);
-      if (delta <= 0.01) score.exact += 1;
-      else if (delta <= 0.25) score.close += 1;
-      else score.wrong += 1;
-      score.absErr += delta;
+      const delta = Math.abs(pv - t);
+      if (delta <= 0.01) { week.exact += 1; c.exact += 1; }
+      else if (delta <= 0.25) { week.close += 1; c.close += 1; }
+      else { week.wrong += 1; c.wrong += 1; }
+      week.absErr += delta; c.absErr += delta;
     }
-    for (const [key, p] of predicted) {
-      score.predHours += p;
-      if (!truth.has(key)) {
-        score.extra += 1;
-        score.absErr += p;
-      }
+    for (const [key, pv] of predicted) {
+      week.predHours += pv;
+      if (truth.has(key)) continue;
+      const c = sub(tagByKfi.get(key.split("|")[0]) ?? "(untagged)");
+      week.extra += 1; c.extra += 1; c.predCells += 1;
+      week.absErr += pv; c.absErr += pv;
     }
+    for (const c of new Set(samples.map((s) => s.customer))) sub(c).samples += 1;
 
-    if (!byCustomer.has(customer)) byCustomer.set(customer, blank());
-    accumulate(byCustomer.get(customer)!, score);
-    accumulate(overall, score);
-
+    accumulate(overall, week);
     console.log(
-      `  ${pad(customer, 26)} ${weekStart}  ${String(samples.length).padStart(2)}f  ` +
-        `truth ${String(score.truthCells).padStart(3)}  pred ${String(score.predCells).padStart(3)}  ` +
-        `exact ${String(score.exact).padStart(3)}  miss ${String(score.missed).padStart(3)}  ` +
-        `extra ${String(score.extra).padStart(3)}  ` +
-        `hrs ${hoursAccuracy(score).toFixed(1).padStart(6)}%  ` +
+      `  ${weekStart}  ${String(samples.length).padStart(2)}f  ` +
+        `truth ${String(week.truthCells).padStart(4)}  pred ${String(week.predCells).padStart(4)}  ` +
+        `exact ${String(week.exact).padStart(4)}  close ${String(week.close).padStart(3)}  ` +
+        `wrong ${String(week.wrong).padStart(3)}  miss ${String(week.missed).padStart(3)}  ` +
+        `extra ${String(week.extra).padStart(3)}  ` +
+        `hrs ${hoursAccuracy(week).toFixed(2).padStart(7)}%  ` +
         `${((Date.now() - startedAt) / 1000).toFixed(0)}s` +
+        (duplicateFiles ? `  dup-files ${duplicateFiles}` : "") +
+        (dropped.size ? `  dropped[${[...dropped].map(([r, n]) => `${r}:${n}`).join(" ")}]` : "") +
         (failures.length ? `  ERRORS ${failures.length}` : ""),
     );
+    if (showDiff && (week.extra || week.missed || week.wrong)) {
+      const who = (key: string): string => {
+        const [kfiId, date] = key.split("|");
+        return `${date}  ${kfiId} ${nameByKfi.get(kfiId) ?? "(not on roster)"}`;
+      };
+      for (const [key, pv] of predicted) {
+        if (!truth.has(key)) console.log(`      EXTRA   ${who(key)}  ${pv}h  [tag ${tagByKfi.get(key.split("|")[0]) ?? "?"}]`);
+      }
+      for (const [key, t] of truth) {
+        const pv = predicted.get(key);
+        if (pv == null) console.log(`      MISSED  ${who(key)}  ${t}h  [${truthCustomer.get(key)}]`);
+        else if (Math.abs(pv - t) > 0.25) console.log(`      WRONG   ${who(key)}  got ${pv}h want ${t}h  [${truthCustomer.get(key)}]`);
+      }
+    }
     perSample.push({
-      customer,
       weekStart,
-      files: samples.map((s) => ({ id: s.id, fileName: s.fileName, mimeType: s.mimeType })),
-      lessonsApplied: lessons.length,
-      score,
+      files: samples.map((s) => ({ id: s.id, customer: s.customer, fileName: s.fileName, mimeType: s.mimeType })),
+      score: week,
+      dropped: Object.fromEntries(dropped),
       errors: failures,
     });
   }
@@ -454,6 +512,10 @@ async function main(): Promise<void> {
     console.log(row(customer, s));
   }
   console.log(row("TOTAL", overall));
+  if (skipped.length) {
+    console.log(`\nskipped ${skipped.length} week(s) - corpus incomplete, would read as misses:`);
+    for (const line of skipped) console.log(`  ${line}`);
+  }
 
   console.log(
     `\nspend: ${spend.calls} calls  ${spend.inputTokens.toLocaleString()} in / ` +
