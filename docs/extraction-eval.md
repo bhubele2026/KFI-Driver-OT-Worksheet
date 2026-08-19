@@ -124,3 +124,41 @@ tallied and printed per run.
 The harness **never touches a database**. Prod is read over the admin HTTP API
 (`GET` only, with retry), extraction runs locally on downloaded bytes, and
 nothing is written back.
+
+## First result: the lessons loop is net-zero, and two lessons are harmful
+
+Paired full runs, `lessons ON` (the frozen baseline) vs `--no-lessons`, same
+corpus, same model. Run-to-run drift on identical inputs is ~1pp, so treat
+anything under ~1.5pp as noise.
+
+| customer | lessons ON | lessons OFF | effect of lessons |
+|---|---|---|---|
+| WB Manufacturing | 82.2% | 78.3% | **+3.9 — helps** |
+| Landscape Structures | 92.2% | **100.0%** | **−7.8 — harms** |
+| International Wire | 96.3% | 99.6% | **−3.3 — harms** |
+| Shuster's Building | 68.6% | 68.1% | ~0 — ignored |
+| everyone else | — | — | noise |
+| **OVERALL** | **88.2%** | **88.3%** | **+0.1 — nothing** |
+
+**Landscape Structures doubles hours.** Sebastian Villarreal reads 20.62h
+against a truth of 10.317h, 20.68 against 10.334, 20.54 against 10.267 — exactly
+2x, four days running. With lessons off, every cell is exact. The customer has
+two near-duplicate lessons that both describe the `Type=Timecard` filter, and
+the model appears to count each punch segment once per instruction.
+
+This matters beyond one customer: production currently DROPS lessons on the fast
+lane, so prod behaves like the "OFF" column. Deploying the fast-lane fix without
+first repairing these lessons would introduce a payroll doubling bug that does
+not exist today.
+
+**Shuster's lesson is ignored.** It says "deduct 0.5 hr from any day's
+clock-in→clock-out total when that total exceeds…", which describes the observed
+defect precisely — Shuster's reads ~0.5h high all day, every day — and turning
+it off moves the score by 0.5pp. The wording is not reaching the behaviour.
+
+Before deploying the fast-lane lessons fix:
+
+1. Collapse the duplicate Landscape `Type=Timecard` lessons into one and re-run.
+2. Review International Wire's orientation-punch lesson.
+3. Reword Shuster's break deduction until the eval shows it doing something.
+4. Re-run the pair; deploy when lessons are net-positive.
