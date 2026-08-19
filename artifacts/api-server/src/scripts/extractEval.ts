@@ -72,7 +72,8 @@ const { extractImageForKnownCustomer } = await import(
 );
 const { ClaudeModelClient } = await import("../lib/parsers/claude.js");
 const { costUsd } = await import("../lib/parsers/pricing.js");
-const { writeFile, readFile } = await import("node:fs/promises");
+const { writeFile, readFile, mkdir } = await import("node:fs/promises");
+const { resolve: resolvePath, dirname } = await import("node:path");
 const { createHash } = await import("node:crypto");
 
 const BASE = (process.env.KFI_OT_BASE_URL ?? "").replace(/\/+$/, "");
@@ -258,6 +259,23 @@ async function main(): Promise<void> {
   // within a week. The band is deliberately wider than the drift we have
   // actually observed; tighten it once there is more than one run's evidence.
   const tolerance = Number(flag("--tolerance") ?? 3);
+
+  // pnpm --filter runs with cwd set to the PACKAGE, not the repo root, so a
+  // repo-relative path silently nests (artifacts/api-server/artifacts/...).
+  // Resolve and report absolute paths, and make sure the target directory
+  // exists BEFORE spending 30 minutes and ~$17 — the first full baseline
+  // printed its results and then died on ENOENT trying to save them.
+  const outPath = outFile ? resolvePath(outFile) : undefined;
+  const comparePath = compareFile ? resolvePath(compareFile) : undefined;
+  if (outPath) await mkdir(dirname(outPath), { recursive: true });
+  if (comparePath) {
+    try {
+      await readFile(comparePath, "utf8");
+    } catch {
+      console.error(`--compare file not readable: ${comparePath}`);
+      process.exit(2);
+    }
+  }
 
   const all = await api<Sample[]>("/admin/ai-extract-samples");
   let corpus = all.filter(
@@ -477,6 +495,23 @@ async function main(): Promise<void> {
       else { week.wrong += 1; c.wrong += 1; }
       week.absErr += delta; c.absErr += delta;
     }
+    // A missing FILE and a bad EXTRACTION both surface as missed cells, and
+    // they mean opposite things. Distinguish them: an extractor that read a
+    // file rarely loses one driver for every day of the week, whereas a file
+    // that expired out of the corpus loses exactly that. WB Manufacturing
+    // uploads one timecard per driver, and for 2026-08-02 only Abigail
+    // Sarmiento's survived - Erica Silverio Reyes's nine cells are a corpus
+    // gap, not a miss. Counted separately so the headline is not polluted.
+    const truthDrivers = new Set([...truth.keys()].map((k) => k.split("|")[0]));
+    const predDrivers = new Set([...predicted.keys()].map((k) => k.split("|")[0]));
+    const absentDrivers = [...truthDrivers].filter((d) => !predDrivers.has(d));
+    if (absentDrivers.length) {
+      const cells = [...truth.keys()].filter((k) => absentDrivers.includes(k.split("|")[0])).length;
+      console.log(
+        `      note: ${absentDrivers.length} driver(s) absent from every file ` +
+          `(${cells} cells) - likely a file that expired before pinning, not an extraction miss`,
+      );
+    }
     for (const [key, pv] of predicted) {
       week.predHours += pv;
       if (truth.has(key)) continue;
@@ -553,8 +588,8 @@ async function main(): Promise<void> {
 
   if (compareFile) {
     interface Baseline { model?: string; lessons?: boolean; overall: Score; byCustomer: Record<string, Score>; }
-    const prev = JSON.parse(await readFile(compareFile, "utf8")) as Baseline;
-    console.log(`\n=== vs ${compareFile} (model=${prev.model ?? "?"} lessons=${prev.lessons ?? "?"}) ===`);
+    const prev = JSON.parse(await readFile(comparePath!, "utf8")) as Baseline;
+    console.log(`\n=== vs ${comparePath} (model=${prev.model ?? "?"} lessons=${prev.lessons ?? "?"}) ===`);
     if (prev.model && prev.model !== MODEL) {
       console.log(`  NOTE different model: baseline ${prev.model} vs this run ${MODEL}`);
     }
@@ -579,9 +614,9 @@ async function main(): Promise<void> {
     if (regressions.length) {
       console.log(`\nFAIL - ${regressions.length} regression(s) beyond ${tolerance}pp:`);
       for (const r of regressions) console.log(`  ${r}`);
-      if (outFile) {
-        await writeFile(outFile, JSON.stringify({ model: MODEL, lessons: useLessons, overall, byCustomer: Object.fromEntries(byCustomer), perSample, spend }, null, 2));
-        console.log(`wrote ${outFile}`);
+      if (outPath) {
+        await writeFile(outPath, JSON.stringify({ model: MODEL, lessons: useLessons, overall, byCustomer: Object.fromEntries(byCustomer), perSample, spend }, null, 2));
+        console.log(`wrote ${outPath}`);
       }
       process.exitCode = 1;
       return;
@@ -589,9 +624,9 @@ async function main(): Promise<void> {
     console.log(`\nPASS - no customer regressed more than ${tolerance}pp.`);
   }
 
-  if (outFile) {
+  if (outPath) {
     await writeFile(
-      outFile,
+      outPath,
       JSON.stringify(
         {
           model: MODEL,
@@ -605,7 +640,7 @@ async function main(): Promise<void> {
         2,
       ),
     );
-    console.log(`wrote ${outFile}`);
+    console.log(`wrote ${outPath}`);
   }
 }
 
