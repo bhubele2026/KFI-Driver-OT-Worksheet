@@ -232,6 +232,7 @@ export async function extractImageForKnownCustomer(args: {
         mimeType,
         log,
         roster,
+        aiOpts?.lessons,
       )
     : await aiExtractRows(
         fileName,

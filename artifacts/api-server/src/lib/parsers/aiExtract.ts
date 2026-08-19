@@ -546,7 +546,7 @@ export function buildPrompt(
  * extractor's prompt without aiExtract.ts taking a dependency on the
  * chat module. Callers thread the strings in via `opts.lessons`.
  */
-function formatLessonsBlockInline(lessons?: string[]): string {
+export function formatLessonsBlockInline(lessons?: string[]): string {
   if (!lessons || lessons.length === 0) return "";
   const out = [
     `## Lessons learned from past dispatcher corrections`,

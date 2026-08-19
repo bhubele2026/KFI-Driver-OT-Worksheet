@@ -3,6 +3,7 @@ import type { ContentPart } from "./modelClient.js";
 import { ClaudeModelClient } from "./claude.js";
 import { normalizeImageBuffer } from "./imageSupport.js";
 import {
+  formatLessonsBlockInline,
   parseOrSalvage,
   type AiExtractedRow,
   type RosterContext,
@@ -140,13 +141,19 @@ function buildCensusPrompt(customer: string): string {
  * except the worker list now comes from server-side fleet matching
  * instead of a DB customer tag.
  */
-function buildExtractPrompt(
+export function buildExtractPrompt(
   customer: string,
   weekStart: string,
   weekEnd: string,
   targets: Array<{ name: string; badge: string | null; kfiId: string | null }>,
+  lessons?: string[],
 ): string {
+  // Task #406 lessons sit ABOVE the general instructions, same as the legacy
+  // lane — each line is a correction a dispatcher already made for this
+  // customer, so it has to win over the generic rules that follow.
+  const lessonsBlock = formatLessonsBlockInline(lessons);
   const lines = [
+    ...(lessonsBlock ? [lessonsBlock] : []),
     `You extract timecard punches for KFI Staffing from a customer's timesheet.`,
     `Customer: "${customer}". Pay week: ${weekStart} through ${weekEnd} (Sunday–Saturday). Only include rows whose date is in that window.`,
     ``,
@@ -359,6 +366,7 @@ export async function fastExtractRows(
   mimeType?: string,
   log?: SalvageLogger,
   roster?: RosterContext,
+  lessons?: string[],
 ): Promise<{
   rows: AiExtractedRow[];
   otherWorkers?: string[];
@@ -444,7 +452,7 @@ export async function fastExtractRows(
   const { text, usage } = await client.generate({
     parts: [
       ...parts,
-      { kind: "text", text: buildExtractPrompt(customer, weekStart, weekEnd, targets) },
+      { kind: "text", text: buildExtractPrompt(customer, weekStart, weekEnd, targets, lessons) },
     ],
     maxOutputTokens: 32768,
     timeoutMs: 180_000,

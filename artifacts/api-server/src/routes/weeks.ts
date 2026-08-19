@@ -4607,6 +4607,7 @@ weeksRouter.post(
             extractMime,
             req.log,
             rosterContext,
+            await loadLessonsForPrompt(customer),
           )
         : await aiExtractRows(
             req.file.originalname,
