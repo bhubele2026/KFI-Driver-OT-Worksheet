@@ -12,6 +12,7 @@ import { db, pool, schema } from "../lib/db.js";
 import { computeReadiness } from "./payroll.js";
 import { DEFAULT_CLAUDE_MODEL } from "../lib/parsers/claude.js";
 import { isPricedModel } from "../lib/parsers/pricing.js";
+import { zenopleStats } from "../lib/zenopleClient.js";
 
 /**
  * Machine feed for the Master Dash (Financial Dashboard). Auth is a shared
@@ -130,6 +131,9 @@ router.get("/pulse", requirePulseKey, async (req, res) => {
     },
     weeks,
     gaps: { nullPersonIds },
+    // A 429 no longer fails loudly (the client backs off and usually succeeds),
+    // so `rateLimited` IS the signal that we are pressing Zenople's limits.
+    zenople: zenopleStats(),
   });
   res.json(body);
 });

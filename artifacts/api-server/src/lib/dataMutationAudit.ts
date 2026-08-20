@@ -22,6 +22,16 @@ export interface RecordMutationInput {
   detail?: string;
 }
 
+/**
+ * Identity of the running DEPLOY, not the running process. `APP_VERSION` is
+ * what the Azure deploy stamps; REPLIT_DEPLOYMENT_ID is the Replit equivalent.
+ * Null only in local dev, where re-running a boot routine is the point.
+ */
+export function deployKey(): string | null {
+  const { deploymentId, gitSha } = envSnapshot();
+  return deploymentId ?? gitSha ?? process.env.APP_VERSION ?? null;
+}
+
 function envSnapshot(): { deploymentId: string | null; gitSha: string | null; nodeEnv: string | null } {
   return {
     deploymentId: process.env.REPLIT_DEPLOYMENT_ID ?? null,
@@ -86,5 +96,40 @@ export async function withMutationAudit<T>(
       detail: err instanceof Error ? err.message : String(err),
     });
     throw err;
+  }
+}
+
+/**
+ * Has `routine` already run for the deploy we are currently on?
+ *
+ * Boot-time routines that call an external API must ask this BEFORE doing the
+ * work — otherwise a crash-loop, a restart or a second replica re-runs them,
+ * and each run costs real requests against a rate-limited vendor.
+ *
+ * Fails OPEN (returns false) when the audit table or the deploy identity is
+ * unavailable: the routines here are all additive and idempotent, so running
+ * one extra time is strictly better than silently skipping it forever.
+ */
+export async function hasRunThisDeploy(routine: string): Promise<boolean> {
+  const key = deployKey();
+  if (!key) return false; // local dev, or an un-stamped deploy
+  try {
+    const { and, eq, or } = await import("drizzle-orm");
+    const t = schema.dataMutationAuditTable;
+    const rows = await db
+      .select({ id: t.id })
+      .from(t)
+      .where(
+        and(
+          eq(t.routine, routine),
+          or(eq(t.deploymentId, key), eq(t.gitSha, key)),
+          or(eq(t.outcome, "ok"), eq(t.outcome, "noop")),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  } catch (err) {
+    logger.warn({ err, routine }, "hasRunThisDeploy check failed — allowing the routine to run");
+    return false;
   }
 }

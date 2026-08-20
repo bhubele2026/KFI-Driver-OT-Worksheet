@@ -41,6 +41,7 @@ export const GetPulseResponse = zod.object({
   config: zod.record(zod.string(), zod.unknown()).optional(),
   weeks: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
   gaps: zod.record(zod.string(), zod.unknown()).optional(),
+  zenople: zod.record(zod.string(), zod.unknown()).optional(),
 });
 
 /**

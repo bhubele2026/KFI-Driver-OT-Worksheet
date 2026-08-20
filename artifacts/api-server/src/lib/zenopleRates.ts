@@ -17,73 +17,39 @@
 import type { ClientBase } from "pg";
 import { fingerprintName } from "@workspace/db/seedDriverPayrollProfiles";
 import { zenopleLiveIdentityEnabled } from "./zenopleExport.js";
+import { pullRange, zenopleConfigured } from "./zenopleClient.js";
 
 // ---------------------------------------------------------------------------
 // API client
 // ---------------------------------------------------------------------------
 
-function zenopleConfig() {
-  return {
-    baseUrl: (process.env.ZENOPLE_BASE_URL ?? "https://kfistaffingapi.zenople.com").replace(/\/+$/, ""),
-    clientId: process.env.ZENOPLE_CLIENT_ID,
-    clientSecret: process.env.ZENOPLE_CLIENT_SECRET,
-  };
-}
+// The client is VENDORED at ./zenopleClient.ts (canonical copy lives in
+// KFI-Financial-Dashboard/packages/zenople). It owns the queue, the 55/min +
+// 900/hr limiter, exponential backoff honoring Retry-After, the same-payload
+// cooldown and the one cached token (only 20 token requests/hr are allowed).
+export { zenopleConfigured, zenopleStats } from "./zenopleClient.js";
 
-export function zenopleConfigured(): boolean {
-  const c = zenopleConfig();
-  return Boolean(c.clientId && c.clientSecret);
-}
-
-let cachedToken: { token: string; expiresAt: number } | null = null;
-
-async function getToken(): Promise<string> {
-  const c = zenopleConfig();
-  const now = Date.now();
-  if (cachedToken && cachedToken.expiresAt - 60_000 > now) return cachedToken.token;
-  const res = await fetch(`${c.baseUrl}/connect/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "client_credentials",
-      client_id: c.clientId ?? "",
-      client_secret: c.clientSecret ?? "",
-    }),
+/**
+ * Pull an action over the last `days`, in sequential 30-day chunks.
+ *
+ * This replaces a ladder that re-sent the SAME action at 365 → 180 → 90 → 45 →
+ * 21 days with no delay between attempts until one came back small enough —
+ * the exact "do not immediately retry identical requests" anti-pattern the
+ * vendor's same-payload cooldown now blocks. Chunking asks for reasonable
+ * ranges to begin with, so nothing has to fail first.
+ */
+async function fetchAction(action: string, days = 365, opts: { cacheTtlMs?: number; force?: boolean } = {}): Promise<Record<string, unknown>[]> {
+  const end = new Date();
+  const start = new Date(end.getTime() - days * 86_400_000);
+  const { rows, skipped } = await pullRange<Record<string, unknown>>(action, start, end, {
+    chunkDays: 30,
+    ...opts,
   });
-  if (!res.ok) throw new Error(`Zenople auth ${res.status}`);
-  const json = (await res.json()) as { access_token?: string; expires_in?: number };
-  if (!json.access_token) throw new Error("Zenople auth returned no access_token");
-  cachedToken = { token: json.access_token, expiresAt: now + (json.expires_in ?? 7200) * 1000 };
-  return cachedToken.token;
-}
-
-const toUtc = (d: Date) => d.toISOString().replace("T", " ").replace("Z", "0000");
-
-/** Widest window that the API will serve — retries narrower on "large data set". */
-async function fetchAction(action: string): Promise<Record<string, unknown>[]> {
-  const c = zenopleConfig();
-  const token = await getToken();
-  for (const days of [365, 180, 90, 45, 21]) {
-    const now = new Date();
-    const start = new Date(now.getTime() - days * 86_400_000);
-    const res = await fetch(`${c.baseUrl}/api/common/data`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action,
-        filters: {
-          uTCStartDateTime: toUtc(start),
-          uTCEndDateTime: toUtc(now),
-          includeData: "Current",
-        },
-      }),
-    });
-    if (!res.ok) throw new Error(`Zenople ${action} ${res.status}`);
-    const json = (await res.json()) as unknown;
-    if (Array.isArray(json)) return json as Record<string, unknown>[];
-    // non-array (e.g. {"msg":"Large data set"}) → narrow the window and retry
+  if (skipped.length) {
+    // Never silently short — the caller is filling payroll rates from this.
+    console.warn(`Zenople ${action}: ${skipped.length} slice(s) unpullable, result is INCOMPLETE`, skipped);
   }
-  throw new Error(`Zenople ${action}: large data set at every window`);
+  return rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,13 +216,24 @@ function personLabelFromAssignment(a: Record<string, unknown>): string | undefin
   return `${last}, ${first}`.toUpperCase();
 }
 
-/** Per-PersonId live facts for the Zenople export. Empty map when not configured. */
-export async function loadZenopleExportFacts(): Promise<Map<string, ZenopleLiveFacts>> {
+/**
+ * Per-PersonId live facts for the Zenople export. Empty map when not configured.
+ *
+ * Cached for ten minutes: this is a per-request pull behind an admin button
+ * with no rate limit on it, and a failure is swallowed by the caller (the
+ * export falls back to stored profiles), so an unlucky admin used to just click
+ * again — each click costing two Zenople pulls. `fresh` skips the memo for the
+ * case where someone has just corrected a rate in Zenople and needs to see it.
+ */
+const EXPORT_FACTS_TTL_MS = 10 * 60 * 1000;
+
+export async function loadZenopleExportFacts(fresh = false): Promise<Map<string, ZenopleLiveFacts>> {
   const out = new Map<string, ZenopleLiveFacts>();
   if (!zenopleConfigured()) return out;
+  const opts = { cacheTtlMs: EXPORT_FACTS_TTL_MS, force: fresh };
   const [assignments, transactions] = await Promise.all([
-    fetchAction("AssignmentData"),
-    fetchAction("TransactionData"),
+    fetchAction("AssignmentData", 365, opts),
+    fetchAction("TransactionData", 365, opts),
   ]);
   const asgByPerson = new Map<string, Record<string, unknown>[]>();
   for (const a of assignments) {

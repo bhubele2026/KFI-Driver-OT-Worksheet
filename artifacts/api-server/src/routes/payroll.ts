@@ -335,9 +335,12 @@ router.get(
     // Zenople's rates/ids drift week to week and this workbook is imported
     // back into Zenople. Profile-only (with a loud log) when the API is
     // unreachable or unconfigured.
+    // Cached for ten minutes (see loadZenopleExportFacts); `?fresh=1` re-pulls
+    // for the case where a rate has just been corrected in Zenople.
+    const fresh = String(req.query.fresh ?? "") === "1";
     let liveFacts = new Map<string, ZenopleLiveFacts>();
     try {
-      liveFacts = await loadZenopleExportFacts();
+      liveFacts = await loadZenopleExportFacts(fresh);
     } catch (err) {
       req.log.warn(
         { err },

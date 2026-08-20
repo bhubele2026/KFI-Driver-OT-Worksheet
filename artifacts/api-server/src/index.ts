@@ -24,7 +24,7 @@ import {
   backfillPayrollProfilesFromZenople,
   zenopleConfigured,
 } from "./lib/zenopleRates";
-import { recordMutation } from "./lib/dataMutationAudit";
+import { hasRunThisDeploy, recordMutation } from "./lib/dataMutationAudit";
 import { autoAlignWeek } from "./lib/punchAutoAlign";
 
 // Captured once at module load so the boot-summary log can scope its
@@ -195,7 +195,11 @@ async function main() {
     // Zenople rate backfill — fills NULL pay/bill fields for active drivers
     // from AssignmentData/TransactionData. Additive only (never overwrites),
     // audited, and a silent no-op when ZENOPLE_* env is absent.
-    if (zenopleConfigured()) {
+    // ⚠️ ONCE PER DEPLOY, NOT ONCE PER BOOT. This used to run on every container
+    // start — so a crash-loop, a scale-out replica or a restart each re-pulled
+    // AssignmentData + TransactionData. The audit row was only written AFTER the
+    // work, so nothing consulted it first. Now it is the guard.
+    if (zenopleConfigured() && !(await hasRunThisDeploy("backfillPayrollProfilesFromZenople"))) {
       const zClient = await pool.connect();
       const zStartedAt = new Date();
       try {

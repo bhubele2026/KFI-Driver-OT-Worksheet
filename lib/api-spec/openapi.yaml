@@ -2513,6 +2513,12 @@ components:
         gaps:
           type: object
           additionalProperties: true
+        # Zenople rate discipline. The shared client backs off and retries a 429
+        # rather than failing loudly, so rateLimited is the only remaining signal
+        # that we are pressing the vendor's limits.
+        zenople:
+          type: object
+          additionalProperties: true
 
     UploadQueueDepth:
       type: object
