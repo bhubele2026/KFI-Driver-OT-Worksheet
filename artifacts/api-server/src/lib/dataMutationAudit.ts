@@ -34,7 +34,11 @@ export function deployKey(): string | null {
 
 function envSnapshot(): { deploymentId: string | null; gitSha: string | null; nodeEnv: string | null } {
   return {
-    deploymentId: process.env.REPLIT_DEPLOYMENT_ID ?? null,
+    // ⚠️ APP_VERSION is the fallback because on Azure REPLIT_DEPLOYMENT_ID is
+    // absent — without it every audit row stored a NULL deployment and
+    // hasRunThisDeploy() below could never match one, which silently made the
+    // once-per-deploy guard a no-op.
+    deploymentId: process.env.REPLIT_DEPLOYMENT_ID ?? process.env.APP_VERSION ?? null,
     gitSha:
       process.env.REPLIT_GIT_COMMIT ??
       process.env.GIT_SHA ??
