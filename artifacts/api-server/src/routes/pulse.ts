@@ -21,7 +21,10 @@ import { zenopleStats } from "../lib/zenopleClient.js";
  * is aggregate or identity-scrubbed; SSNs never appear on this surface
  * (export snapshots are stored SSN-stripped at write time).
  */
-function requirePulseKey(req: Request, res: Response, next: NextFunction): void {
+// Exported so the machine feed in machine.ts uses THIS guard rather than a
+// second copy of it. Two implementations of one security check is how they
+// drift apart.
+export function requirePulseKey(req: Request, res: Response, next: NextFunction): void {
   const secret = process.env.PULSE_SHARED_SECRET;
   if (!secret) {
     res.status(503).json({ error: "pulse not configured" });

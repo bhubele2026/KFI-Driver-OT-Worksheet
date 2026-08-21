@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import { pulseRouter } from "./pulse.js";
+import { machineRouter } from "./machine.js";
 import { authRouter } from "./auth.js";
 import { weeksRouter } from "./weeks.js";
 import { punchesRouter } from "./punches.js";
@@ -15,6 +16,9 @@ router.use(ipBlocklistMiddleware);
 
 router.use(healthRouter);
 router.use(pulseRouter);
+// Shared-secret machine feed, same key as pulse — deliberately NOT behind
+// requireAuth: a sibling server cannot mint this app's session cookies.
+router.use(machineRouter);
 router.use(authRouter);
 router.use(weeksRouter);
 router.use(punchesRouter);
