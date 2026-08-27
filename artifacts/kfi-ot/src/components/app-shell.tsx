@@ -34,7 +34,13 @@ export function AppShell({
   const logout = useLogout();
 
   const access = useAccess();
-  const items = (access?.tiles ?? []).map((t) => ({ href: t.href, label: t.title }));
+  // Only ROOT tiles reach the nav bar. The payroll sub-tiles sit under
+  // /payroll-process and are reached from that board — putting all sixteen in
+  // one bar would overflow it and bury the four that are not payroll.
+  const all = access?.tiles ?? [];
+  const items = all
+    .filter((t) => !all.some((o) => o.href !== t.href && t.href.startsWith(o.href + "/")))
+    .map((t) => ({ href: t.href, label: t.title }));
   const isActive = (href: string) =>
     active ? active === href : location === href || location.startsWith(href + "/");
 

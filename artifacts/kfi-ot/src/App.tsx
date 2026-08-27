@@ -33,6 +33,17 @@ import AdminTimezones from "@/pages/admin-timezones";
 import Home from "@/pages/home";
 import { useAccess } from "@/lib/access";
 import PayrollProcess from "@/pages/payroll-process";
+import PayrollChanges from "@/pages/payroll-changes";
+import PayrollTemplates from "@/pages/payroll-templates";
+import PayrollHours from "@/pages/payroll-hours";
+import PayrollMaster from "@/pages/payroll-master";
+import PayrollFringe from "@/pages/payroll-fringe";
+import PayrollBatchPage from "@/pages/payroll-batch";
+import PayrollTaxes from "@/pages/payroll-taxes";
+import PayrollExpertPay from "@/pages/payroll-expert-pay";
+import PayrollRates from "@/pages/payroll-rates";
+import PayrollOffCycle from "@/pages/payroll-off-cycle";
+import PayrollHoliday from "@/pages/payroll-holiday";
 import AdminAccess from "@/pages/admin-access";
 import DriverUpload from "@/pages/driver-upload";
 import History from "@/pages/history";
@@ -77,12 +88,21 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   // Route gate. A tile you don't hold bounces to home and REWRITES the URL, so
   // the address can't simply be re-shared or re-pasted. Paths that aren't tiles
   // at all (driver detail, admin subpages) fall through untouched.
+  // ⚠️ LONGEST path wins, on both sides. The payroll sub-tiles live UNDER the
+  // spine's path (/payroll-process/changes sits below /payroll-process), so a
+  // plain `.some()` would let anyone holding the spine render every child. The
+  // server is the real boundary — it returns 403 from requireTile — but a shell
+  // that renders for someone who cannot load its data is its own kind of lie.
+  const matches = (p: string) => location === p || location.startsWith(p + "/");
   const gated = access?.gatedPaths ?? [];
-  const isGatedPath = gated.some((p) => location === p || location.startsWith(p + "/"));
-  const held = (access?.tiles ?? []).some(
-    (t) => location === t.href || location.startsWith(t.href + "/"),
-  );
-  const permitted = location === "/" || !isGatedPath || held;
+  const deepestGated = gated.filter(matches).sort((a, b) => b.length - a.length)[0];
+  const held = (access?.tiles ?? [])
+    .filter((t) => matches(t.href))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  const permitted =
+    location === "/" ||
+    !deepestGated ||
+    (held !== undefined && held.href.length >= deepestGated.length);
 
   useEffect(() => {
     if (access && !permitted) setLocation("/");
@@ -157,6 +177,19 @@ function Router() {
         <Route path="/timesheets" component={WeekSummary} />
         <Route path="/history" component={History} />
         <Route path="/settings" component={Settings} />
+        {/* Sub-tiles before the spine: each is its own grantable tile, and
+            wouter matches in order. */}
+        <Route path="/payroll-process/changes" component={PayrollChanges} />
+        <Route path="/payroll-process/templates" component={PayrollTemplates} />
+        <Route path="/payroll-process/hours" component={PayrollHours} />
+        <Route path="/payroll-process/master" component={PayrollMaster} />
+        <Route path="/payroll-process/fringe" component={PayrollFringe} />
+        <Route path="/payroll-process/batch" component={PayrollBatchPage} />
+        <Route path="/payroll-process/taxes" component={PayrollTaxes} />
+        <Route path="/payroll-process/expert-pay" component={PayrollExpertPay} />
+        <Route path="/payroll-process/rates" component={PayrollRates} />
+        <Route path="/payroll-process/off-cycle" component={PayrollOffCycle} />
+        <Route path="/payroll-process/holiday" component={PayrollHoliday} />
         <Route path="/payroll-process" component={PayrollProcess} />
         <Route path="/admin/access" component={AdminAccess} />
         {/* legacy paths still resolve to the worksheet */}
