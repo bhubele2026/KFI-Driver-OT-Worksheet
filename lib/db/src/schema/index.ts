@@ -37,3 +37,7 @@ export * from "./copilotConversations";
 export * from "./customerExtractionLessons";
 export * from "./uploadAnalysisVerdicts";
 export * from "./exportSnapshots";
+export * from "./payrollPeriods";
+export * from "./payrollSteps";
+export * from "./payrollCustomers";
+export * from "./payrollStepState";
