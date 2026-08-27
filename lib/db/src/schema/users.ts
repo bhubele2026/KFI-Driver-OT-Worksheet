@@ -3,7 +3,10 @@ import { pgTable, serial, text, timestamp, boolean, integer, index } from "drizz
 export const usersTable = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
-  passwordHash: text("password_hash").notNull(),
+  // Nullable since sign-in moved to Microsoft (Entra) — accounts created by
+  // Easy Auth never have a password. Legacy rows keep their bcrypt hash; it is
+  // no longer read by any live path.
+  passwordHash: text("password_hash"),
   isAdmin: boolean("is_admin").notNull().default(false),
   // 'reviewer' (default) or 'supervisor'. Orthogonal to isAdmin: an admin
   // can have either role. Supervisors (and admins) can lock/unlock a

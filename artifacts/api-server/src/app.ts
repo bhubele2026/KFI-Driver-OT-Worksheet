@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { buildSessionMiddleware } from "./lib/auth";
+import { attachAuth, attachUserAndTiles } from "./lib/entraAuth";
 
 const app: Express = express();
 
@@ -117,6 +118,15 @@ app.use(
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(buildSessionMiddleware());
+
+// ── Identity (Azure Easy Auth) ────────────────────────────────────
+// Order is load-bearing: attachAuth reads the Entra headers, then
+// attachUserAndTiles resolves the caller to a `users` row and their tile
+// grants. BOTH must run ABOVE the router — the Financial Dashboard took a
+// production outage from registering the equivalent below its routers, where
+// every route saw an empty tile list.
+app.use(attachAuth);
+app.use(attachUserAndTiles);
 
 app.use("/api", router);
 

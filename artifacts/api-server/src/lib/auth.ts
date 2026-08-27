@@ -2,9 +2,9 @@ import bcrypt from "bcryptjs";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import crypto from "node:crypto";
-import { eq } from "drizzle-orm";
 import type { Request, RequestHandler } from "express";
-import { pool, db, schema } from "./db.js";
+import { pool } from "./db.js";
+import type { AuthedRequest, AppUser } from "./entraAuth.js";
 
 declare module "express-session" {
   interface SessionData {
@@ -48,12 +48,17 @@ export function generateToken(): string {
   return crypto.randomBytes(32).toString("base64url");
 }
 
-export async function loadSessionUser(req: Request) {
-  const id = req.session?.userId;
-  if (!id) return null;
-  const user = await db.query.usersTable.findFirst({
-    where: eq(schema.usersTable.id, id),
-  });
+/**
+ * The signed-in user, or null.
+ *
+ * Identity now comes from Azure Easy Auth: `attachUserAndTiles` resolves the
+ * caller's Entra claims to a `users` row once per request, above every router.
+ * This function is the single seam that changed when password login was
+ * retired — `requireAuth`, `requireAdmin` and `requireSupervisorOrAdmin`, and
+ * all 65+ places they are mounted, are untouched.
+ */
+export async function loadSessionUser(req: Request): Promise<AppUser | null> {
+  const user = (req as AuthedRequest).user;
   if (!user || !user.isActive) return null;
   return user;
 }
@@ -61,9 +66,6 @@ export async function loadSessionUser(req: Request) {
 export const requireAuth: RequestHandler = async (req, res, next) => {
   const user = await loadSessionUser(req);
   if (!user) {
-    if (req.session?.userId) {
-      req.session.destroy(() => {});
-    }
     res.status(401).json({ error: "Authentication required" });
     return;
   }
@@ -74,9 +76,6 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
 export const requireAdmin: RequestHandler = async (req, res, next) => {
   const user = await loadSessionUser(req);
   if (!user) {
-    if (req.session?.userId) {
-      req.session.destroy(() => {});
-    }
     res.status(401).json({ error: "Authentication required" });
     return;
   }
@@ -93,9 +92,6 @@ export const requireAdmin: RequestHandler = async (req, res, next) => {
 export const requireSupervisorOrAdmin: RequestHandler = async (req, res, next) => {
   const user = await loadSessionUser(req);
   if (!user) {
-    if (req.session?.userId) {
-      req.session.destroy(() => {});
-    }
     res.status(401).json({ error: "Authentication required" });
     return;
   }

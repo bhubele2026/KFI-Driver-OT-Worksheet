@@ -46,6 +46,29 @@ import { AddIpBlocklistBody } from "@workspace/api-zod";
 
 export const authRouter = Router();
 
+// ── Retired: password sign-in ─────────────────────────────────────────
+// Identity is Azure Easy Auth (Entra) now — see lib/entraAuth.ts. These paths
+// are registered FIRST so they short-circuit the original handlers, which are
+// left in place below rather than deleted: turning Microsoft sign-in off again
+// is then a matter of removing this block, not restoring a thousand lines.
+// /auth/me, /auth/users, invites-list and the rate-limit + IP-blocklist admin
+// surfaces stay live — the admin console still uses them.
+const RETIRED_PATHS = [
+  "/auth/register",
+  "/auth/login",
+  "/auth/dev-bypass",
+  "/auth/request-password-reset",
+  "/auth/reset-password",
+  "/auth/accept-invite",
+] as const;
+for (const p of RETIRED_PATHS) {
+  authRouter.all(p, (_req, res) => {
+    res.status(410).json({
+      error: "Password sign-in has been retired. This app uses Microsoft sign-in.",
+    });
+  });
+}
+
 // Per-IP limits for unauthenticated, token/email-bearing endpoints.
 const resetRequestLimiter = ipRateLimit({
   name: "auth:request-reset",
@@ -259,7 +282,7 @@ authRouter.post("/auth/login", async (req, res) => {
     });
     return;
   }
-  if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
+  if (!user || !user.passwordHash || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
     await recordLoginFailure(req, email);
     if (user) {
       const nextCount = user.failedLoginCount + 1;

@@ -16,8 +16,10 @@ import { zenopleStats } from "../lib/zenopleClient.js";
 
 /**
  * Machine feed for the Master Dash (Financial Dashboard). Auth is a shared
- * secret in the x-pulse-key header — this app has no Easy Auth and its
- * session cookies can't be minted by a sibling server. Everything returned
+ * secret in the x-pulse-key header, NOT a browser session — a sibling server
+ * has no Entra identity to present. ⚠️ This path must stay in the container
+ * app's Easy Auth `excludedPaths`, or the Master Dash gets a login redirect
+ * instead of JSON and the feed goes dark. Everything returned
  * is aggregate or identity-scrubbed; SSNs never appear on this surface
  * (export snapshots are stored SSN-stripped at write time).
  */

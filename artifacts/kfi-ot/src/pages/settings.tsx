@@ -14,6 +14,7 @@ const GROUPS: { label: string; tiles: SettingTile[] }[] = [
     label: "People & access",
     tiles: [
       { href: "/admin/users", title: "Users", blurb: "Accounts, roles, and invites." },
+      { href: "/admin/access", title: "Access & activity", blurb: "Which tiles each person sees, and what they have been opening." },
     ],
   },
   {

@@ -31,7 +31,9 @@ import AdminBootAudit from "@/pages/admin-boot-audit";
 import AdminRealtime from "@/pages/admin-realtime";
 import AdminTimezones from "@/pages/admin-timezones";
 import Home from "@/pages/home";
+import { useAccess } from "@/lib/access";
 import PayrollProcess from "@/pages/payroll-process";
+import AdminAccess from "@/pages/admin-access";
 import DriverUpload from "@/pages/driver-upload";
 import History from "@/pages/history";
 import Settings from "@/pages/settings";
@@ -59,39 +61,12 @@ const queryClient = new QueryClient({
   },
 });
 
-// Auto-call /api/auth/dev-bypass on load when:
-//  - running in Vite dev mode, OR
-//  - the build was made with VITE_PUBLIC_BYPASS_AUTH=1 (used to share the
-//    published app publicly without login). Unset that env var (and rebuild)
-//  to restore the normal login flow.
-const DEV_BYPASS_AUTH =
-  import.meta.env.DEV || import.meta.env.VITE_PUBLIC_BYPASS_AUTH === "1";
-
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { data: user, isLoading } = useGetMe();
-  const [location] = useLocation();
-  const qc = useQueryClient();
-  const triedBypass = useRef(false);
-
-  useEffect(() => {
-    if (
-      !DEV_BYPASS_AUTH ||
-      isLoading ||
-      user ||
-      triedBypass.current
-    ) {
-      return;
-    }
-    triedBypass.current = true;
-    void fetch(`${import.meta.env.BASE_URL}api/auth/dev-bypass`, {
-      method: "POST",
-      credentials: "include",
-    }).then((r) => {
-      if (r.ok) qc.invalidateQueries({ queryKey: getGetMeQueryKey() });
-    });
-  }, [user, isLoading, qc]);
-
+  const [location, setLocation] = useLocation();
+  const access = useAccess();
   const { t } = useTranslation();
+
   useEffect(() => {
     if (user?.preferredLanguage) {
       const lng = (user.preferredLanguage === "es" ? "es" : "en") as SupportedLocale;
@@ -99,7 +74,21 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [user?.preferredLanguage]);
 
-  if (isLoading || (DEV_BYPASS_AUTH && !user && triedBypass.current)) {
+  // Route gate. A tile you don't hold bounces to home and REWRITES the URL, so
+  // the address can't simply be re-shared or re-pasted. Paths that aren't tiles
+  // at all (driver detail, admin subpages) fall through untouched.
+  const gated = access?.gatedPaths ?? [];
+  const isGatedPath = gated.some((p) => location === p || location.startsWith(p + "/"));
+  const held = (access?.tiles ?? []).some(
+    (t) => location === t.href || location.startsWith(t.href + "/"),
+  );
+  const permitted = location === "/" || !isGatedPath || held;
+
+  useEffect(() => {
+    if (access && !permitted) setLocation("/");
+  }, [access, permitted, setLocation]);
+
+  if (isLoading || !access) {
     return (
       <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -108,23 +97,20 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const PUBLIC_ROUTE_RES = [
-    /^\/login$/,
-    /^\/register$/,
-    /^\/forgot-password$/,
-    /^\/reset-password\/.+$/,
-    /^\/accept-invite\/.+$/,
-  ];
-  const isPublicRoute = PUBLIC_ROUTE_RES.some((re) => re.test(location));
-  const isLoginRoute = location === "/login" || location === "/register";
-
-  if (!user && !isPublicRoute) {
-    return <Redirect to="/login" />;
+  // Signed in through Microsoft, but this app has nothing for them yet.
+  if (!user || access.tiles.length === 0) {
+    return (
+      <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+        <h1 className="text-lg font-semibold text-brand-navy">No access yet</h1>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          You're signed in{access.email ? ` as ${access.email}` : ""}, but nothing has been
+          shared with you here yet. Ask Brad Hubele for access.
+        </p>
+      </div>
+    );
   }
 
-  if (user && isLoginRoute) {
-    return <Redirect to="/" />;
-  }
+  if (!permitted) return null;
 
   return <>{children}</>;
 }
@@ -172,6 +158,7 @@ function Router() {
         <Route path="/history" component={History} />
         <Route path="/settings" component={Settings} />
         <Route path="/payroll-process" component={PayrollProcess} />
+        <Route path="/admin/access" component={AdminAccess} />
         {/* legacy paths still resolve to the worksheet */}
         <Route path="/worksheet" component={WeekSummary} />
         <Route path="/weeks/:weekStart" component={WeekSummary} />

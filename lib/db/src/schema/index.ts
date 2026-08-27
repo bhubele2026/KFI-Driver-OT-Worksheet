@@ -1,5 +1,7 @@
 export * from "./users";
 export * from "./sessions";
+export * from "./userTileAccess";
+export * from "./tileEvent";
 export * from "./drivers";
 export * from "./weeks";
 export * from "./punches";

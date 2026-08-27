@@ -6,21 +6,11 @@ import { LogOut } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useAccess } from "@/lib/access";
 
-interface NavItem {
-  href: string;
-  label: string;
-  adminOnly?: boolean;
-}
-
-const NAV: NavItem[] = [
-  { href: "/payroll-process", label: "Payroll Process" },
-  { href: "/upload", label: "Driver Upload" },
-  { href: "/timesheets", label: "Timesheets" },
-  { href: "/history", label: "History" },
-  { href: "/settings", label: "Settings", adminOnly: true },
-];
-
+// The nav is driven by GET /api/tiles (same source as the home grid), so a
+// tile the owner switched off disappears from BOTH without a second list to
+// keep in sync.
 /**
  * The one navy app bar for every signed-in page — logo, section nav, language,
  * and sign-out. Replaces the header that was hand-copied across the worksheet,
@@ -43,7 +33,8 @@ export function AppShell({
   const qc = useQueryClient();
   const logout = useLogout();
 
-  const items = NAV.filter((n) => !n.adminOnly || user?.isAdmin);
+  const access = useAccess();
+  const items = (access?.tiles ?? []).map((t) => ({ href: t.href, label: t.title }));
   const isActive = (href: string) =>
     active ? active === href : location === href || location.startsWith(href + "/");
 

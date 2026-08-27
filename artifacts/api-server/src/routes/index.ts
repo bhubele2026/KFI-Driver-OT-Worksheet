@@ -3,6 +3,7 @@ import healthRouter from "./health";
 import { pulseRouter } from "./pulse.js";
 import { machineRouter } from "./machine.js";
 import { authRouter } from "./auth.js";
+import { tilesRouter } from "./tiles.js";
 import { weeksRouter } from "./weeks.js";
 import { punchesRouter } from "./punches.js";
 import { payrollRouter } from "./payroll.js";
@@ -20,6 +21,7 @@ router.use(pulseRouter);
 // requireAuth: a sibling server cannot mint this app's session cookies.
 router.use(machineRouter);
 router.use(authRouter);
+router.use(tilesRouter);
 router.use(weeksRouter);
 router.use(punchesRouter);
 router.use(payrollRouter);

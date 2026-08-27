@@ -4,56 +4,19 @@ import { useGetMe, useLogout, getGetMeQueryKey } from "@workspace/api-client-rea
 import { LogOut } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
+import { useAccess, logTileEvent } from "@/lib/access";
 
-interface Tile {
-  href: string;
-  title: string;
-  blurb: string;
-  source: string;
-  adminOnly?: boolean;
-}
-
-const TILES: Tile[] = [
-  {
-    href: "/payroll-process",
-    title: "Payroll Process",
-    blurb: "The payroll run, start to finish.",
-    source: "Open",
-  },
-  {
-    href: "/upload",
-    title: "Driver Upload",
-    blurb: "Refresh Connecteam punches and drop in each customer's timesheet for the week.",
-    source: "Bring the week in",
-  },
-  {
-    href: "/timesheets",
-    title: "Timesheets",
-    blurb: "Review hours and overtime, catch driver-vs-customer mismatches, print and export to Zenople.",
-    source: "Review & export",
-  },
-  {
-    href: "/history",
-    title: "History",
-    blurb: "Open any past payroll week to review or reprint what was already run.",
-    source: "Past weeks",
-  },
-  {
-    href: "/settings",
-    title: "Settings",
-    blurb: "Users, customers, driver aliases, clock offsets, timezones, and app configuration.",
-    source: "Admin & config",
-    adminOnly: true,
-  },
-];
-
+/**
+ * The tile list is NOT hardcoded here any more. It comes from GET /api/tiles,
+ * which returns only the tiles this person holds — so the grid and the owner's
+ * access panel cannot disagree, and a hidden tile never renders its shell.
+ */
 export default function Home() {
   const [, setLocation] = useLocation();
-  const { data: user } = useGetMe();
   const qc = useQueryClient();
   const logout = useLogout();
-
-  const tiles = TILES.filter((t) => !t.adminOnly || user?.isAdmin);
+  const access = useAccess();
+  const tiles = access?.tiles ?? [];
 
   const handleLogout = () =>
     logout.mutate(undefined, {
@@ -96,9 +59,12 @@ export default function Home() {
         <div className="grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {tiles.map((tile, i) => (
             <button
-              key={tile.href}
+              key={tile.key}
               type="button"
-              onClick={() => setLocation(tile.href)}
+              onClick={() => {
+                logTileEvent(tile.key);
+                setLocation(tile.href);
+              }}
               style={{ animationDelay: `${i * 28}ms` }}
               className="tile-in group flex h-full flex-col rounded-lg bg-white p-6 text-left shadow-sm ring-1 ring-brand-line transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-1 hover:shadow-md hover:ring-brand-navy/25"
             >
