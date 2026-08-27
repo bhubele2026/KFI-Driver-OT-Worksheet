@@ -7,6 +7,7 @@ import { tilesRouter } from "./tiles.js";
 import { weeksRouter } from "./weeks.js";
 import { punchesRouter } from "./punches.js";
 import { payrollRouter } from "./payroll.js";
+import { payrollRunRouter } from "./payrollRun.js";
 import { copilotRouter } from "./copilot.js";
 import { ipBlocklistMiddleware } from "../lib/ipBlocklist.js";
 import { requireTile } from "../lib/entraAuth.js";
@@ -32,6 +33,7 @@ router.use(tilesRouter);
 router.use(weeksRouter);
 router.use(punchesRouter);
 router.use(payrollRouter);
+router.use(payrollRunRouter);
 router.use(copilotRouter);
 
 export default router;

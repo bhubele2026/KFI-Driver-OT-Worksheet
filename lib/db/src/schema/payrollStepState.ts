@@ -114,3 +114,32 @@ export const payrollArtifactsTable = pgTable(
 );
 
 export type PayrollArtifact = typeof payrollArtifactsTable.$inferSelect;
+
+/**
+ * Append-only trail of checklist movements.
+ *
+ * A payroll step changing state is a control event — who ticked "Payroll batch
+ * report balanced", and when — so it is recorded separately from the mutable
+ * state row. `actorUserId` is nullable so removing a user keeps the history.
+ */
+export const payrollStepAuditTable = pgTable(
+  "payroll_step_audit",
+  {
+    id: serial("id").primaryKey(),
+    periodId: integer("period_id").notNull(),
+    stepKey: text("step_key").notNull(),
+    /** pending | in_progress | done | blocked | skipped */
+    status: text("status").notNull(),
+    blockedOn: text("blocked_on"),
+    note: text("note"),
+    actorUserId: integer("actor_user_id"),
+    actorEmail: text("actor_email"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("payroll_step_audit_period_idx").on(t.periodId),
+    index("payroll_step_audit_created_idx").on(t.createdAt),
+  ],
+);
+
+export type PayrollStepAudit = typeof payrollStepAuditTable.$inferSelect;
