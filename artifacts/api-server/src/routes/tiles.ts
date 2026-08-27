@@ -22,7 +22,10 @@ tilesRouter.get("/tiles", (req: Request, res: Response) => {
     res.json({
       tiles: [],
       gatedPaths: TILES.map((t) => t.href),
-      isOwner: false,
+      // Report the REAL owner flag even with no user row — hardcoding false
+      // here hid that the owner check was working and sent me after the wrong
+      // bug entirely.
+      isOwner: a.isOwner === true,
       isAdmin: false,
       email: a.authEmail ?? null,
       signedIn: (a.authCandidates ?? []).length > 0,

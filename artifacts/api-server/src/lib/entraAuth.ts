@@ -13,7 +13,7 @@
  * single header gives the same human two user rows and splits their history.
  */
 import type { Request, Response, NextFunction } from "express";
-import { sql } from "drizzle-orm";
+import { sql, inArray } from "drizzle-orm";
 import { db, schema } from "./db.js";
 import { logger } from "./logger.js";
 import { OWNER_ONLY_TILE_KEYS, TILE_KEYS } from "./tiles.js";
@@ -129,9 +129,11 @@ export async function resolveAppUser(req: Request): Promise<AppUser | null> {
   const found = await db
     .select()
     .from(schema.usersTable)
-    // ::text[] is required — Postgres cannot infer the element type of a bare
-    // array bind, and the error it raises is easy to swallow.
-    .where(sql`lower(${schema.usersTable.email}) = any(${emails}::text[])`)
+    // Use inArray, NOT sql`= any(${emails})`: drizzle SPREADS a JS array in a
+    // sql template into separate bind params, so $1 arrives as a bare string
+    // and Postgres reports `malformed array literal`. inArray builds the list
+    // correctly. (Verified from prod logs, 2026-08-27.)
+    .where(inArray(sql`lower(${schema.usersTable.email})`, emails))
     .limit(1);
 
   let user = found[0];
