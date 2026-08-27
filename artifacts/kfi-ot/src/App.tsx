@@ -31,6 +31,7 @@ import AdminBootAudit from "@/pages/admin-boot-audit";
 import AdminRealtime from "@/pages/admin-realtime";
 import AdminTimezones from "@/pages/admin-timezones";
 import Home from "@/pages/home";
+import PayrollProcess from "@/pages/payroll-process";
 import DriverUpload from "@/pages/driver-upload";
 import History from "@/pages/history";
 import Settings from "@/pages/settings";
@@ -170,6 +171,7 @@ function Router() {
         <Route path="/timesheets" component={WeekSummary} />
         <Route path="/history" component={History} />
         <Route path="/settings" component={Settings} />
+        <Route path="/payroll-process" component={PayrollProcess} />
         {/* legacy paths still resolve to the worksheet */}
         <Route path="/worksheet" component={WeekSummary} />
         <Route path="/weeks/:weekStart" component={WeekSummary} />

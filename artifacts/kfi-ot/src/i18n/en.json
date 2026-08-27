@@ -54,7 +54,7 @@
     "tryAgain": "Please try again."
   },
   "header": {
-    "appTitle": "Driver OT Worksheet",
+    "appTitle": "KFI Payroll Processing",
     "previousWeek": "Previous week",
     "nextWeek": "Next week",
     "selectWeek": "Select week",
@@ -66,7 +66,7 @@
     "savedDescription": "We saved your preference for next time."
   },
   "login": {
-    "title": "Driver OT Worksheet",
+    "title": "KFI Payroll Processing",
     "description": "Sign in to reconcile this week's punches.",
     "emailPlaceholder": "dispatcher@kfi.com",
     "submit": "Sign In",

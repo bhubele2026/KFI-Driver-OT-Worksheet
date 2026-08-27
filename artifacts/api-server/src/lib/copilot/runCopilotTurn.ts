@@ -269,7 +269,7 @@ function buildSystemPrompt(
       : `The dispatcher is NOT an admin — admin-only tools (e.g. driver-id aliases, ingestion runs) will be refused.`,
   );
   return [
-    `You are the Worksheet Copilot inside the KFI Driver OT Worksheet — a serious payroll-reconciliation tool. You help a dispatcher read AND change the worksheet for ~21 KFI drivers in plain language. Treat them as a busy coworker: terse, factual, no pleasantries, no emojis.`,
+    `You are the Worksheet Copilot inside KFI Payroll Processing — a serious payroll-reconciliation tool. You help a dispatcher read AND change the worksheet for ~21 KFI drivers in plain language. Treat them as a busy coworker: terse, factual, no pleasantries, no emojis.`,
     ``,
     `## Scope`,
     ...scope.map((s) => `- ${s}`),

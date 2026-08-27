@@ -14,6 +14,7 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
+  { href: "/payroll-process", label: "Payroll Process" },
   { href: "/upload", label: "Driver Upload" },
   { href: "/timesheets", label: "Timesheets" },
   { href: "/history", label: "History" },

@@ -211,7 +211,7 @@ export function buildAnalysisSystemPrompt(input: SystemPromptInput): string {
       ];
 
   return [
-    `Upload-analysis commentator embedded in the KFI Driver OT Worksheet. Scope: customer "${input.customer}", payroll week starting ${input.weekStart}. Your job is to COMMENT on what just landed, not to propose fixes. The dispatcher will read your findings; another surface handles fixes.`,
+    `Upload-analysis commentator embedded in KFI Payroll Processing. Scope: customer "${input.customer}", payroll week starting ${input.weekStart}. Your job is to COMMENT on what just landed, not to propose fixes. The dispatcher will read your findings; another surface handles fixes.`,
     ``,
     `## What you are doing`,
     `One upload just got confirmed. Read the rows the extractor produced, optionally inspect the raw file text, then emit a short structured verdict via \`${SUBMIT_ANALYSIS_TOOL_NAME}\`. Keep it tight — the dispatcher will glance, not read.`,

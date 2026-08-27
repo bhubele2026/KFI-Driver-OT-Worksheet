@@ -54,7 +54,7 @@
     "tryAgain": "Por favor, inténtelo de nuevo."
   },
   "header": {
-    "appTitle": "Hoja de horas extra del conductor",
+    "appTitle": "KFI Payroll Processing",
     "previousWeek": "Semana anterior",
     "nextWeek": "Semana siguiente",
     "selectWeek": "Seleccionar semana",
@@ -66,7 +66,7 @@
     "savedDescription": "Guardamos su preferencia para la próxima vez."
   },
   "login": {
-    "title": "Hoja de horas extra del conductor",
+    "title": "KFI Payroll Processing",
     "description": "Inicie sesión para conciliar los registros de esta semana.",
     "emailPlaceholder": "despachador@kfi.com",
     "submit": "Iniciar sesión",

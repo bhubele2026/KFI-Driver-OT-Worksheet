@@ -8537,7 +8537,7 @@ weeksRouter.get("/weeks/:weekStart/report", async (req, res) => {
   const html = `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<title>KFI OT Worksheet — Week of ${esc(weekStart)}</title>
+<title>KFI Payroll Processing — Week of ${esc(weekStart)}</title>
 <style>
   :root { color-scheme: light; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; color: #0f172a; margin: 24px; }
@@ -8563,7 +8563,7 @@ weeksRouter.get("/weeks/:weekStart/report", async (req, res) => {
 </style>
 </head><body>
 <div class="actions"><button onclick="window.print()">Print / Save as PDF</button></div>
-<h1>KFI Driver OT Worksheet</h1>
+<h1>KFI Payroll Processing</h1>
 <div class="meta">Week of <strong>${esc(weekStart)}</strong> through <strong>${esc(endDate)}</strong>${week?.lastRefreshedAt ? ` · last Connecteam refresh: ${esc(new Date(week.lastRefreshedAt).toLocaleString())}` : ""}</div>
 <div class="totals">
   <div>Active Drivers<strong>${rows.length}</strong></div>

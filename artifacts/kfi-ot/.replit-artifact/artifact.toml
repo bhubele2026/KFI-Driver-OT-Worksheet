@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "KFI Driver OT Worksheet"
+title = "KFI Payroll Processing"
 version = "1.0.0"
 id = "artifacts/kfi-ot"
 router = "path"

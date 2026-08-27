@@ -1,4 +1,4 @@
-# Security Audit — KFI Driver OT Worksheet
+# Security Audit — KFI Payroll Processing
 
 Hardening pass, **v67 (2026-08-05)**. Ports the stack built for the KFI Financial
 Dashboard (see that repo's `docs/SECURITY-AUDIT.md`) onto this app, which had none of it.

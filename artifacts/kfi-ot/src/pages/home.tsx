@@ -15,6 +15,12 @@ interface Tile {
 
 const TILES: Tile[] = [
   {
+    href: "/payroll-process",
+    title: "Payroll Process",
+    blurb: "The payroll run, start to finish.",
+    source: "Open",
+  },
+  {
     href: "/upload",
     title: "Driver Upload",
     blurb: "Refresh Connecteam punches and drop in each customer's timesheet for the week.",
@@ -65,7 +71,7 @@ export default function Home() {
           <div>
             <Logo variant="header" className="h-14 sm:h-16" />
             <p className="mt-2.5 text-base font-medium text-white">
-              Driver OT Worksheet
+              KFI Payroll Processing
               <span className="ml-2 text-sm font-normal text-white/50">
                 Reconcile the week. Run payroll clean.
               </span>

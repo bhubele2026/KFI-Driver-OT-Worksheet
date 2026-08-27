@@ -419,7 +419,7 @@ async function buildSystemPrompt(
           ...lessons.map((l) => `- ${l}`),
         ];
   return [
-    `Payroll-reconciliation assistant embedded in the KFI Driver OT Worksheet. Scope: customer "${customer}", payroll week starting ${weekStart}. Treat the dispatcher as a busy coworker — be terse, report findings, skip pleasantries.`,
+    `Payroll-reconciliation assistant embedded in KFI Payroll Processing. Scope: customer "${customer}", payroll week starting ${weekStart}. Treat the dispatcher as a busy coworker — be terse, report findings, skip pleasantries.`,
     ``,
     `## Investigation first — no asking before reading`,
     `Tools are the source of truth. The dispatcher's memory is not. Before you ask ANY question:`,

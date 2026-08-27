@@ -52,7 +52,7 @@ export default function Landing() {
               KFI Workforce Deployment
             </p>
             <h1 className="mt-3 font-display text-4xl font-bold leading-[1.05] sm:text-5xl">
-              Driver OT Worksheet
+              KFI Payroll Processing
             </h1>
             <p className="mt-4 max-w-xl text-base leading-relaxed text-sidebar-foreground/80">
               Reconcile driver time-clock punches against customer timesheets and
