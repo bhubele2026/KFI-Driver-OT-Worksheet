@@ -15,6 +15,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { sql } from "drizzle-orm";
 import { db, schema } from "./db.js";
+import { logger } from "./logger.js";
 import { OWNER_ONLY_TILE_KEYS, TILE_KEYS } from "./tiles.js";
 
 export type AppUser = typeof schema.usersTable.$inferSelect;
@@ -128,7 +129,9 @@ export async function resolveAppUser(req: Request): Promise<AppUser | null> {
   const found = await db
     .select()
     .from(schema.usersTable)
-    .where(sql`lower(${schema.usersTable.email}) = any(${emails})`)
+    // ::text[] is required — Postgres cannot infer the element type of a bare
+    // array bind, and the error it raises is easy to swallow.
+    .where(sql`lower(${schema.usersTable.email}) = any(${emails}::text[])`)
     .limit(1);
 
   let user = found[0];
@@ -231,8 +234,14 @@ export async function attachUserAndTiles(
         a.tiles = await tilesForUser(user, a.isOwner === true);
       }
     }
-  } catch {
-    // A DB blip must not hand out access: leave user/tiles unset.
+  } catch (err) {
+    // A DB blip must not hand out access: leave user/tiles unset. But it must
+    // NOT be silent either — swallowing this made a broken identity lookup
+    // look exactly like "not signed in".
+    logger.error(
+      { err, candidates: a.authCandidates, isOwner: a.isOwner },
+      "identity resolution failed",
+    );
   }
   next();
 }

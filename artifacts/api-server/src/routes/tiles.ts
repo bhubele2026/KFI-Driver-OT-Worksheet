@@ -11,11 +11,28 @@ export const tilesRouter: IRouter = Router();
  * What this caller may see. The client renders the home grid and the section
  * nav from this — it never learns a tile it does not hold.
  */
-tilesRouter.get("/tiles", requireAuth, (req: Request, res: Response) => {
+tilesRouter.get("/tiles", (req: Request, res: Response) => {
   const a = req as AuthedRequest;
+  // Deliberately NOT behind requireAuth. The client fails closed on an empty
+  // tile list anyway, and answering instead of 401-ing lets the "no access"
+  // screen say WHO you are signed in as — which is the difference between
+  // "you have no tiles" and "identity resolution is broken". A bare 401 here
+  // hid exactly that during the v86 rollout.
+  if (!a.user) {
+    res.json({
+      tiles: [],
+      gatedPaths: TILES.map((t) => t.href),
+      isOwner: false,
+      isAdmin: false,
+      email: a.authEmail ?? null,
+      signedIn: (a.authCandidates ?? []).length > 0,
+    });
+    return;
+  }
   const held = a.tiles ?? [];
   const isAdmin = a.user?.isAdmin === true;
   res.json({
+    signedIn: true,
     tiles: TILES.filter((t) => held.includes(t.key)).filter(
       // A tile marked adminOnly still needs the admin bit on top of the grant.
       (t) => !t.adminOnly || isAdmin,
