@@ -43,6 +43,13 @@ app.use(
     // Cross-origin isolation would block the self-hosted font/image loads
     // without buying anything here (no SharedArrayBuffer use).
     crossOriginEmbedderPolicy: false,
+    // referrerPolicy MUST allow same-origin referrers. Helmet's default is
+    // no-referrer, which makes browsers send `Origin: null` on the SPA's own
+    // fetch POSTs; Azure Easy Auth's CSRF check rejects that with a body-less
+    // 403, silently breaking every write in the app — uploads, reviews,
+    // exports. The Financial Dashboard lost a day to exactly this on
+    // 2026-08-07. Set before Easy Auth goes on here, not after.
+    referrerPolicy: { policy: "same-origin" },
   }),
 );
 
