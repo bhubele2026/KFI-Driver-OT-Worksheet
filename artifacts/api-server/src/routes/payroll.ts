@@ -7,6 +7,7 @@ import {
 } from "@workspace/api-zod";
 import { db, schema } from "../lib/db.js";
 import { requireAuth, requireAdmin } from "../lib/auth.js";
+import { requireTile } from "../lib/entraAuth.js";
 import { sundayOf, weekEndOf } from "../lib/time.js";
 import { computeDriverTotals } from "../lib/hoursEngine.js";
 import {
@@ -311,6 +312,7 @@ export async function computeReadiness(weekStart: string) {
 router.get(
   "/weeks/:weekStart/zenople-readiness",
   requireAdmin,
+  requireTile("timesheets"),
   async (req, res) => {
     const weekStart = String(req.params.weekStart);
     const readiness = await computeReadiness(weekStart);
@@ -321,6 +323,7 @@ router.get(
 router.get(
   "/weeks/:weekStart/zenople-export",
   requireAdmin,
+  requireTile("timesheets"),
   async (req, res) => {
     const weekStart = String(req.params.weekStart);
     const sunday = sundayOf(weekStart);

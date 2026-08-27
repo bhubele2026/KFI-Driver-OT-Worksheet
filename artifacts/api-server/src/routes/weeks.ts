@@ -39,6 +39,7 @@ import {
   requireAdmin,
   requireSupervisorOrAdmin,
 } from "../lib/auth.js";
+import { requireTile } from "../lib/entraAuth.js";
 import { assertNotLocked, loadLockedKfiIds } from "../lib/locks.js";
 import {
   fetchAllTimeClocks,
@@ -1173,8 +1174,8 @@ async function remapNotesAfterRefresh(
   }
 }
 
-weeksRouter.post("/weeks/:weekStart/refresh-connecteam", async (req, res) => {
-  const weekStart = req.params.weekStart;
+weeksRouter.post("/weeks/:weekStart/refresh-connecteam", requireTile("upload"), async (req, res) => {
+  const weekStart = String(req.params.weekStart);
   if (!isWeek(weekStart)) {
     res.status(400).json({ error: "Invalid week" });
     return;
@@ -2010,6 +2011,7 @@ weeksRouter.get(
 // punches a re-upload will replace before anything is persisted.
 weeksRouter.post(
   "/weeks/:weekStart/extract-customer-file",
+  requireTile("upload"),
   upload.single("file"),
   async (req, res) => {
     const weekStart = String(req.params.weekStart ?? "");
@@ -2651,6 +2653,7 @@ weeksRouter.post(
 
 weeksRouter.post(
   "/weeks/:weekStart/confirm-customer-file",
+  requireTile("upload"),
   async (req, res) => {
     const weekStart = String(req.params.weekStart ?? "");
     if (!isWeek(weekStart)) {
@@ -4820,8 +4823,8 @@ weeksRouter.post(
   },
 );
 
-weeksRouter.post("/weeks/:weekStart/confirm-new-customer", async (req, res) => {
-  const weekStart = req.params.weekStart;
+weeksRouter.post("/weeks/:weekStart/confirm-new-customer", requireTile("upload"), async (req, res) => {
+  const weekStart = String(req.params.weekStart);
   if (!isWeek(weekStart)) {
     res.status(400).json({ error: "Invalid week" });
     return;
