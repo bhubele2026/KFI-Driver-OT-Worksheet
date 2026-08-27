@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { AppShell } from "@/components/app-shell";
 import { useAccess } from "@/lib/access";
+import { TieOutPanel } from "@/components/tie-out-panel";
 
 /**
  * Payroll Process — the checklist for the current pay period, live.
@@ -215,6 +216,8 @@ export default function PayrollProcess() {
             ))}
           </div>
         )}
+
+        <TieOutPanel payDate={payDate} />
 
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
