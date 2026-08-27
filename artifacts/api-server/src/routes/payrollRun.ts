@@ -7,6 +7,8 @@ import { PAYROLL_CHECKLIST, OFF_CYCLE_STEP_KEYS } from "../lib/payrollChecklist.
 import {
   periodDatesFor, payDateFor, labelFor, isFriday, isoToExcelSerial, parsePeriodLabel,
 } from "../lib/payrollPeriod.js";
+import { pullPeriod, runTieOuts, rosterFrom } from "../lib/zenoplePayroll.js";
+import { zenopleConfigured } from "../lib/zenopleClient.js";
 
 export const payrollRunRouter: IRouter = Router();
 
@@ -272,5 +274,76 @@ payrollRunRouter.get("/payroll-run/resolve", requireAuth, requireTile("payroll_p
     res.json({
       ...parsed,
       ...(parsed.isOffCycle ? {} : periodDatesFor(parsed.payDate)),
+    });
+  });
+
+/**
+ * Run the tie-outs for a period against live Zenople.
+ *
+ * Results are persisted so the board can show the last run without re-pulling —
+ * the vendor limits are 60 requests a minute and this is two calls per run, so
+ * a page that re-ran on every render would be antisocial. Pass `?refresh=1` to
+ * force a new pull.
+ */
+payrollRunRouter.get("/payroll-run/periods/:payDate/tie-outs", requireAuth,
+  requireTile("payroll_process"), async (req: Request, res: Response) => {
+    const payDate = String(req.params.payDate);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(payDate)) {
+      res.status(400).json({ error: "payDate must be YYYY-MM-DD" });
+      return;
+    }
+    const period = await ensurePeriod(payDate, false);
+    const refresh = String(req.query.refresh ?? "") === "1";
+
+    if (!refresh) {
+      const cached = await db.select().from(schema.payrollTieOutsTable)
+        .where(eq(schema.payrollTieOutsTable.periodId, period.id));
+      if (cached.length) {
+        res.json({ period: period.label, ranAt: cached[0]!.ranAt, fromCache: true,
+                   results: cached });
+        return;
+      }
+    }
+
+    if (!zenopleConfigured()) {
+      // Say so plainly. "No results" and "not wired up" must not look alike.
+      res.status(503).json({ error: "Zenople is not configured on this server" });
+      return;
+    }
+
+    let pulled;
+    try {
+      pulled = await pullPeriod(payDate);
+    } catch (e) {
+      res.status(502).json({ error: e instanceof Error ? e.message : "Zenople pull failed" });
+      return;
+    }
+
+    // People who are genuinely non-billable — carried on the customer roster so
+    // a known exception stops alarming without hiding a new one.
+    const nonBillable = new Set<number>();
+    const results = runTieOuts(pulled, nonBillable);
+
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      await tx.delete(schema.payrollTieOutsTable)
+        .where(eq(schema.payrollTieOutsTable.periodId, period.id));
+      await tx.insert(schema.payrollTieOutsTable).values(
+        results.map((r) => ({
+          periodId: period.id, tieOut: r.tieOut, status: r.status, scope: r.scope,
+          expected: r.expected, actual: r.actual, variance: r.variance,
+          detail: JSON.stringify(r.detail), ranAt: now,
+        })),
+      );
+    });
+
+    res.json({
+      period: period.label,
+      accountingPeriod: pulled.accountingPeriod,
+      ranAt: now,
+      fromCache: false,
+      counts: { items: pulled.items.length, deductions: pulled.deductions.length,
+                customers: rosterFrom(pulled).length },
+      results,
     });
   });
