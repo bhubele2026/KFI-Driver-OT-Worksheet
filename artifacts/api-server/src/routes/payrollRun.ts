@@ -8,6 +8,9 @@ import {
   periodDatesFor, payDateFor, labelFor, isFriday, isoToExcelSerial, parsePeriodLabel,
 } from "../lib/payrollPeriod.js";
 import { pullPeriod, runTieOuts, rosterFrom } from "../lib/zenoplePayroll.js";
+import { pull } from "../lib/zenopleClient.js";
+import { runBatchChecks, type RegisterRow } from "../lib/payrollBatchChecks.js";
+import { aptmDeadline, APTM_OFFICES } from "../lib/payrollAptm.js";
 import { zenopleConfigured } from "../lib/zenopleClient.js";
 
 export const payrollRunRouter: IRouter = Router();
@@ -445,4 +448,69 @@ payrollRunRouter.patch("/payroll-run/periods/:payDate/changes/:rowKey", requireA
     });
 
     res.json({ ok: true, row: updated[0] });
+  });
+
+/**
+ * Wednesday's register checks, run against live Zenople.
+ *
+ * Unlike the tie-outs this is not persisted — it is a read of the register as
+ * it stands right now, and a stale copy of "no live checks" would be worse than
+ * no answer at all.
+ */
+payrollRunRouter.get("/payroll-run/periods/:payDate/batch-checks", requireAuth,
+  requireTile("payroll_batch"), async (req: Request, res: Response) => {
+    const payDate = String(req.params.payDate);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(payDate)) {
+      res.status(400).json({ error: "payDate must be YYYY-MM-DD" });
+      return;
+    }
+    if (!zenopleConfigured()) {
+      res.status(503).json({ error: "Zenople is not configured on this server" });
+      return;
+    }
+
+    let rows: RegisterRow[];
+    try {
+      // The window filters on last-modified, so pull recent and select the
+      // check date locally — the same rule the period pull follows.
+      const pulled = await pull<RegisterRow>("PayrollData", { lookbackDays: 45 });
+      rows = pulled.filter((r) => String(r.CheckDate ?? "").slice(0, 10) === payDate);
+    } catch (e) {
+      res.status(502).json({ error: e instanceof Error ? e.message : "Zenople pull failed" });
+      return;
+    }
+
+    if (rows.length === 0) {
+      // Say which it is. "No payments yet" and "the pull failed" must not look
+      // the same to someone deciding whether to close the batch.
+      res.json({
+        payDate, found: 0,
+        checks: [{
+          check: "register_present", status: "info",
+          message: `no payments on the register for ${payDate} yet — the batch has not been run`,
+          detail: [],
+        }],
+      });
+      return;
+    }
+
+    res.json({ payDate, found: rows.length, checks: runBatchChecks(rows) });
+  });
+
+/** The APTM clock and gates. The tie-out needs figures a person supplies. */
+payrollRunRouter.get("/payroll-run/aptm-status", requireAuth, requireTile("payroll_taxes"),
+  (_req: Request, res: Response) => {
+    const d = aptmDeadline();
+    res.json({
+      deadline: d,
+      offices: APTM_OFFICES,
+      checks: [{
+        check: "deadline",
+        status: d.state === "past" ? "fail" : d.state === "soon" ? "warn" : "info",
+        message: d.state === "past"
+          ? `past the ${d.deadlineCt} cutoff`
+          : `${d.minutesRemaining} minutes until the ${d.deadlineCt} cutoff`,
+        detail: [],
+      }],
+    });
   });
