@@ -4,9 +4,8 @@ import { db, schema } from "../lib/db.js";
 import { requireAuth } from "../lib/auth.js";
 import { requireTile, type AuthedRequest } from "../lib/entraAuth.js";
 import { PAYROLL_CHECKLIST, OFF_CYCLE_STEP_KEYS } from "../lib/payrollChecklist.js";
-import {
-  periodDatesFor, payDateFor, labelFor, isFriday, isoToExcelSerial, parsePeriodLabel,
-} from "../lib/payrollPeriod.js";
+import { isFriday, parsePeriodLabel, payDateFor, periodDatesFor } from "../lib/payrollPeriod.js";
+import { addDays } from "../lib/time.js";
 import { pullPeriod, runTieOuts, rosterFrom } from "../lib/zenoplePayroll.js";
 import { pull } from "../lib/zenopleClient.js";
 import { runBatchChecks, type RegisterRow } from "../lib/payrollBatchChecks.js";
@@ -19,6 +18,7 @@ import {
   DISBURSEMENT_CHANNELS, CHANNEL_LABEL, CHANNELS_WITHOUT_BANK_FILE, channelFromFilename,
 } from "../lib/payrollOffCycle.js";
 import { zenopleConfigured } from "../lib/zenopleClient.js";
+import { ensurePayrollPeriod } from "../lib/payrollPeriodStore.js";
 
 export const payrollRunRouter: IRouter = Router();
 
@@ -85,25 +85,6 @@ async function ensureSteps(): Promise<Map<string, number>> {
   return idByKey;
 }
 
-/** Find or create the period row for a pay date. */
-async function ensurePeriod(payDate: string, isOffCycle: boolean) {
-  const found = await db.select().from(schema.payrollPeriodsTable)
-    .where(and(eq(schema.payrollPeriodsTable.payDate, payDate),
-               eq(schema.payrollPeriodsTable.isOffCycle, isOffCycle)))
-    .limit(1);
-  if (found[0]) return found[0];
-
-  // Off-cycle has no work week, so weekStart and ppe stay null.
-  const d = isOffCycle ? null : periodDatesFor(payDate);
-  const inserted = await db.insert(schema.payrollPeriodsTable).values({
-    payDate,
-    label: labelFor(payDate, isOffCycle),
-    weekStart: d?.weekStart ?? null,
-    ppe: d ? isoToExcelSerial(d.ppeDate) : null,
-    isOffCycle,
-  }).returning();
-  return inserted[0]!;
-}
 
 /** Recent periods, newest first. */
 payrollRunRouter.get("/payroll-run/periods", requireAuth, requireTile("payroll_process"),
@@ -135,7 +116,7 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/checklist", requireAuth,
     }
 
     await ensureSteps();
-    const period = await ensurePeriod(payDate, isOffCycle);
+    const period = await ensurePayrollPeriod(payDate, isOffCycle);
 
     const steps = await db.select().from(schema.payrollStepsTable)
       .where(eq(schema.payrollStepsTable.active, true))
@@ -194,7 +175,7 @@ payrollRunRouter.post("/payroll-run/periods/:payDate/steps/:stepKey", requireAut
     }
 
     const isOffCycle = String(req.query.offCycle ?? "") === "1";
-    const period = await ensurePeriod(payDate, isOffCycle);
+    const period = await ensurePayrollPeriod(payDate, isOffCycle);
     const step = (await db.select().from(schema.payrollStepsTable)
       .where(eq(schema.payrollStepsTable.key, stepKey)).limit(1))[0];
     if (!step) {
@@ -247,12 +228,11 @@ payrollRunRouter.post("/payroll-run/periods/:payDate/steps/:stepKey", requireAut
 payrollRunRouter.post("/payroll-run/periods/:payDate/carry-forward", requireAuth,
   requireTile("payroll_process"), async (req: Request, res: Response) => {
     const payDate = String(req.params.payDate);
-    const from = await ensurePeriod(payDate, false);
-    const nextPay = periodDatesFor(payDate).payDate;
-    const to = await ensurePeriod(
-      new Date(Date.parse(`${nextPay}T00:00:00Z`) + 7 * 86_400_000).toISOString().slice(0, 10),
-      false,
-    );
+    const from = await ensurePayrollPeriod(payDate, false);
+    // The next REGULAR period is exactly a week on. `periodDatesFor(payDate)
+    // .payDate` is just payDate again, so the old round-trip through it said
+    // nothing; addDays says what is meant.
+    const to = await ensurePayrollPeriod(addDays(payDate, 7), false);
 
     const blocked = await db.select().from(schema.payrollStepStateTable)
       .where(and(eq(schema.payrollStepStateTable.periodId, from.id),
@@ -302,7 +282,7 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/tie-outs", requireAuth,
       res.status(400).json({ error: "payDate must be YYYY-MM-DD" });
       return;
     }
-    const period = await ensurePeriod(payDate, false);
+    const period = await ensurePayrollPeriod(payDate, false);
     const refresh = String(req.query.refresh ?? "") === "1";
 
     if (!refresh) {
@@ -366,7 +346,7 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/changes", requireAuth,
       res.status(400).json({ error: "payDate must be YYYY-MM-DD" });
       return;
     }
-    const period = await ensurePeriod(payDate, String(req.query.offCycle ?? "") === "1");
+    const period = await ensurePayrollPeriod(payDate, String(req.query.offCycle ?? "") === "1");
     const rows = await db.select().from(schema.payrollChangesTable)
       .where(eq(schema.payrollChangesTable.periodId, period.id))
       .orderBy(asc(schema.payrollChangesTable.customer), asc(schema.payrollChangesTable.employee));
@@ -425,7 +405,7 @@ payrollRunRouter.patch("/payroll-run/periods/:payDate/changes/:rowKey", requireA
       }
     }
 
-    const period = await ensurePeriod(payDate, false);
+    const period = await ensurePayrollPeriod(payDate, false);
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     for (const f of counts) if (b[f] !== undefined) patch[f] = b[f];
     if (b.notes !== undefined) patch["notes"] = b.notes;

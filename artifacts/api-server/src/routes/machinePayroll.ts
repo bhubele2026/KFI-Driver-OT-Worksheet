@@ -2,12 +2,12 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "../lib/db.js";
 import { requirePulseKey } from "./pulse.js";
-import { periodDatesFor, labelFor, isoToExcelSerial } from "../lib/payrollPeriod.js";
 import { normalizeChangeType } from "../lib/payrollChangeTypes.js";
 import {
   mergeSweep, sweepIsSafeToApply, rowKeyFor,
   type SweptRow, type StoredRow,
 } from "../lib/payrollChangeMerge.js";
+import { ensurePayrollPeriod } from "../lib/payrollPeriodStore.js";
 
 /**
  * The local bridge's way in.
@@ -49,21 +49,6 @@ type Body = {
   }>;
 };
 
-async function ensurePeriod(payDate: string, isOffCycle: boolean) {
-  const found = await db.select().from(schema.payrollPeriodsTable)
-    .where(and(eq(schema.payrollPeriodsTable.payDate, payDate),
-               eq(schema.payrollPeriodsTable.isOffCycle, isOffCycle)))
-    .limit(1);
-  if (found[0]) return found[0];
-  const d = isOffCycle ? null : periodDatesFor(payDate);
-  const ins = await db.insert(schema.payrollPeriodsTable).values({
-    payDate, label: labelFor(payDate, isOffCycle),
-    weekStart: d?.weekStart ?? null,
-    ppe: d ? isoToExcelSerial(d.ppeDate) : null,
-    isOffCycle,
-  }).returning();
-  return ins[0]!;
-}
 
 machinePayrollRouter.post("/machine/payroll", requirePulseKey,
   async (req: Request, res: Response) => {
@@ -78,7 +63,7 @@ machinePayrollRouter.post("/machine/payroll", requirePulseKey,
       return;
     }
 
-    const period = await ensurePeriod(payDate, body.isOffCycle === true);
+    const period = await ensurePayrollPeriod(payDate, body.isOffCycle === true);
     const out: Record<string, unknown> = { period: period.label, periodId: period.id };
 
     if (body.artifacts?.length) {
