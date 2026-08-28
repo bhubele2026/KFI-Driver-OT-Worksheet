@@ -29,14 +29,27 @@ const todayIso = (): string => new Date().toISOString().slice(0, 10);
  * Make sure the step catalogue in the database matches the seed.
  *
  * Idempotent and safe to call on every request that needs steps: it inserts
- * what is missing and updates task text that has drifted, but never deletes.
- * A step that disappears from the seed is deactivated instead, because
+ * what is missing and updates rows that have drifted, but never deletes. A step
+ * that disappears from the seed is deactivated instead, because
  * `payroll_step_state` rows point at it and history should stay readable.
+ *
+ * ⚠️ EVERY WRITE HERE IS CONDITIONAL, and it did not used to be. The parent-id
+ * pass ran 16 sequential UPDATEs on EVERY checklist load — sixteen round trips
+ * per page view, forever, writing values that were already correct. The board is
+ * the most-loaded page in the tile, so that was the whole cost of opening it.
+ *
+ * The steady state is now ONE select and nothing else.
  */
 async function ensureSteps(): Promise<Map<string, number>> {
   const existing = await db
-    .select({ id: schema.payrollStepsTable.id, key: schema.payrollStepsTable.key,
-              task: schema.payrollStepsTable.task, ordinal: schema.payrollStepsTable.ordinal })
+    .select({
+      id: schema.payrollStepsTable.id, key: schema.payrollStepsTable.key,
+      task: schema.payrollStepsTable.task, ordinal: schema.payrollStepsTable.ordinal,
+      day: schema.payrollStepsTable.day, tile: schema.payrollStepsTable.tile,
+      parentId: schema.payrollStepsTable.parentId,
+      appliesOffCycle: schema.payrollStepsTable.appliesOffCycle,
+      active: schema.payrollStepsTable.active,
+    })
     .from(schema.payrollStepsTable);
   const byKey = new Map(existing.map((r) => [r.key, r]));
 
@@ -50,38 +63,54 @@ async function ensureSteps(): Promise<Map<string, number>> {
     ).onConflictDoNothing();
   }
 
+  // Only re-read when something was actually inserted.
+  const rows = missing.length
+    ? await db
+        .select({
+          id: schema.payrollStepsTable.id, key: schema.payrollStepsTable.key,
+          task: schema.payrollStepsTable.task, ordinal: schema.payrollStepsTable.ordinal,
+          day: schema.payrollStepsTable.day, tile: schema.payrollStepsTable.tile,
+          parentId: schema.payrollStepsTable.parentId,
+          appliesOffCycle: schema.payrollStepsTable.appliesOffCycle,
+          active: schema.payrollStepsTable.active,
+        })
+        .from(schema.payrollStepsTable)
+    : existing;
+  const current = new Map(rows.map((r) => [r.key, r]));
+  const idByKey = new Map(rows.map((r) => [r.key, r.id]));
+
   for (const s of PAYROLL_CHECKLIST) {
-    const cur = byKey.get(s.key);
-    if (cur && (cur.task !== s.task || cur.ordinal !== s.ordinal)) {
-      await db.update(schema.payrollStepsTable)
-        .set({ task: s.task, ordinal: s.ordinal, day: s.day, tile: s.tile })
-        .where(eq(schema.payrollStepsTable.key, s.key));
-    }
+    const cur = current.get(s.key);
+    if (!cur) continue;
+    const wantParent = s.parent ? idByKey.get(s.parent) ?? null : null;
+    const wantOffCycle = OFF_CYCLE_STEP_KEYS.has(s.key);
+    // One comparison, one write only when it differs.
+    if (
+      cur.task === s.task && cur.ordinal === s.ordinal && cur.day === s.day
+      && cur.tile === s.tile && cur.parentId === wantParent
+      && cur.appliesOffCycle === wantOffCycle
+      // ⚠️ A step that was deactivated and later returns to the seed must come
+      // BACK. Without this it would stay inactive forever and silently vanish
+      // from the checklist, which is the worst way for a step to disappear.
+      && cur.active === true
+    ) continue;
+
+    await db.update(schema.payrollStepsTable)
+      .set({
+        task: s.task, ordinal: s.ordinal, day: s.day, tile: s.tile,
+        parentId: wantParent, appliesOffCycle: wantOffCycle, active: true,
+      })
+      .where(eq(schema.payrollStepsTable.key, s.key));
   }
 
   const seedKeys = new Set(PAYROLL_CHECKLIST.map((s) => s.key));
-  const stale = existing.filter((r) => !seedKeys.has(r.key)).map((r) => r.key);
+  const stale = rows.filter((r) => !seedKeys.has(r.key)).map((r) => r.key);
   if (stale.length) {
     await db.update(schema.payrollStepsTable)
       .set({ active: false })
       .where(inArray(schema.payrollStepsTable.key, stale));
   }
 
-  // Resolve parent ids now that every row exists.
-  const all = await db
-    .select({ id: schema.payrollStepsTable.id, key: schema.payrollStepsTable.key })
-    .from(schema.payrollStepsTable);
-  const idByKey = new Map(all.map((r) => [r.key, r.id]));
-  for (const s of PAYROLL_CHECKLIST) {
-    if (!s.parent) continue;
-    const pid = idByKey.get(s.parent);
-    const id = idByKey.get(s.key);
-    if (pid && id) {
-      await db.update(schema.payrollStepsTable)
-        .set({ parentId: pid })
-        .where(and(eq(schema.payrollStepsTable.id, id), eq(schema.payrollStepsTable.key, s.key)));
-    }
-  }
   return idByKey;
 }
 
