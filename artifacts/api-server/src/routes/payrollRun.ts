@@ -514,3 +514,126 @@ payrollRunRouter.get("/payroll-run/aptm-status", requireAuth, requireTile("payro
       }],
     });
   });
+
+/**
+ * Monday's per-customer intake board.
+ *
+ * ⚠️ COVERAGE IS UNEVEN AND THE BOARD SAYS SO. Zenople holds DAILY punch detail
+ * for exactly one customer — Alamco, on TimeClockApp. Measured on AP
+ * 2026-08-23: 168 date rows covering 12 people, one organization. Every other
+ * customer's daily punches arrive as an emailed file, so for them this reports
+ * what Zenople has at the WEEK level and says plainly that the punch compare
+ * still needs the file.
+ *
+ * Reporting a green board for 27 customers whose punches nobody has looked at
+ * would be worse than reporting nothing.
+ */
+payrollRunRouter.get("/payroll-run/periods/:payDate/hours-intake", requireAuth,
+  requireTile("payroll_hours"), async (req: Request, res: Response) => {
+    const payDate = String(req.params.payDate);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(payDate)) {
+      res.status(400).json({ error: "payDate must be YYYY-MM-DD" });
+      return;
+    }
+    if (!zenopleConfigured()) {
+      res.status(503).json({ error: "Zenople is not configured on this server" });
+      return;
+    }
+
+    const { accountingPeriod } = periodDatesFor(payDate);
+    let tx: Array<Record<string, unknown>>;
+    let dated: Array<Record<string, unknown>>;
+    try {
+      [tx, dated] = await Promise.all([
+        pull<Record<string, unknown>>("TransactionData", { lookbackDays: 30 }),
+        pull<Record<string, unknown>>("TransactionItemDateData", { lookbackDays: 30 }),
+      ]);
+    } catch (e) {
+      res.status(502).json({ error: e instanceof Error ? e.message : "Zenople pull failed" });
+      return;
+    }
+
+    const inPeriod = (r: Record<string, unknown>) =>
+      String(r["AccountingPeriod"] ?? "").slice(0, 10) === accountingPeriod;
+    const weekTx = tx.filter(inPeriod);
+    const weekDated = dated.filter(inPeriod);
+
+    // Which customers Zenople actually has daily detail for.
+    const dailyByCustomer = new Map<string, Array<Record<string, unknown>>>();
+    for (const d of weekDated) {
+      const k = String(d["Organization"] ?? "");
+      const arr = dailyByCustomer.get(k);
+      if (arr) arr.push(d);
+      else dailyByCustomer.set(k, [d]);
+    }
+
+    const byCustomer = new Map<string, {
+      rows: number; people: Set<number>; rt: number; ot: number;
+      timeSources: Set<string>; closed: number; open: number;
+    }>();
+    for (const t of weekTx) {
+      const k = String(t["Organization"] ?? "(unknown)");
+      const cur = byCustomer.get(k) ?? {
+        rows: 0, people: new Set<number>(), rt: 0, ot: 0,
+        timeSources: new Set<string>(), closed: 0, open: 0,
+      };
+      cur.rows++;
+      if (typeof t["PersonId"] === "number") cur.people.add(t["PersonId"]);
+      cur.rt += Number(t["RTPayHours"] ?? 0);
+      cur.ot += Number(t["OTPayHours"] ?? 0);
+      const src = String(t["TimeSource"] ?? "").trim();
+      if (src) cur.timeSources.add(src);
+      if (t["CloseDate"]) cur.closed++;
+      else cur.open++;
+      byCustomer.set(k, cur);
+    }
+
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    const customers = [...byCustomer].sort((a, b) => a[0].localeCompare(b[0])).map(([name, v]) => {
+      const daily = dailyByCustomer.get(name) ?? [];
+      // Daily hours per person-day, for the 13-hour guard.
+      const perDay = new Map<string, number>();
+      for (const d of daily) {
+        const key = `${String(d["PersonId"])}|${String(d["WorkDate"] ?? "").slice(0, 10)}`;
+        perDay.set(key, (perDay.get(key) ?? 0) + Number(d["DailyPayUnit"] ?? 0));
+      }
+      const longShifts = [...perDay]
+        .filter(([, h]) => h > 13)
+        .map(([k, h]) => {
+          const [personId, workDate] = k.split("|");
+          const row = daily.find((d) => String(d["PersonId"]) === personId);
+          return { personId: Number(personId), person: row?.["Person"] ?? null,
+                   workDate, hours: round2(h) };
+        });
+
+      return {
+        customer: name,
+        people: v.people.size,
+        rtHours: round2(v.rt),
+        otHours: round2(v.ot),
+        timeSources: [...v.timeSources],
+        batchesClosed: v.closed,
+        batchesOpen: v.open,
+        // The honest part.
+        hasDailyDetailInZenople: daily.length > 0,
+        dailyPersonDays: perDay.size,
+        longShifts,
+        punchCompare: daily.length > 0
+          ? (longShifts.length ? "exceptions" : "clean")
+          : "needs the customer's punch file",
+      };
+    });
+
+    res.json({
+      payDate, accountingPeriod,
+      customers,
+      coverage: {
+        customersWithZenopleDailyDetail: customers.filter((c) => c.hasDailyDetailInZenople).length,
+        customersTotal: customers.length,
+        note:
+          "Zenople holds daily punch detail only for customers on TimeClockApp. " +
+          "Everyone else's punches arrive as an emailed file and still have to be compared by hand.",
+      },
+    });
+  });
