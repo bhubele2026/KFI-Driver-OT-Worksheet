@@ -347,3 +347,102 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/tie-outs", requireAuth,
       results,
     });
   });
+
+/** The action rows for a period, plus the decisions held back from them. */
+payrollRunRouter.get("/payroll-run/periods/:payDate/changes", requireAuth,
+  requireTile("payroll_changes"), async (req: Request, res: Response) => {
+    const payDate = String(req.params.payDate);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(payDate)) {
+      res.status(400).json({ error: "payDate must be YYYY-MM-DD" });
+      return;
+    }
+    const period = await ensurePeriod(payDate, String(req.query.offCycle ?? "") === "1");
+    const rows = await db.select().from(schema.payrollChangesTable)
+      .where(eq(schema.payrollChangesTable.periodId, period.id))
+      .orderBy(asc(schema.payrollChangesTable.customer), asc(schema.payrollChangesTable.employee));
+
+    // A discussed intent is NOT an approval — decisions are kept off the action
+    // list entirely rather than mixed in and hoped to be noticed.
+    const actions = rows.filter((r) => !r.needsDecision);
+    const decisions = rows.filter((r) => r.needsDecision);
+
+    const verified = (r: typeof rows[number]): boolean => {
+      const n = Math.max(1, r.peopleCount);
+      const ok = (v: number) => v === -1 || v >= n;
+      return ok(r.enteredZenople) && ok(r.verifiedTs) && ok(r.verifiedPas)
+        && ok(r.documentationSaved);
+    };
+
+    res.json({
+      period: { ...period, ...(period.isOffCycle ? {} : periodDatesFor(period.payDate)) },
+      actions, decisions,
+      counts: {
+        actions: actions.length,
+        decisions: decisions.length,
+        complete: actions.filter(verified).length,
+        retro: actions.filter((r) => r.isRetro).length,
+        paired: actions.filter((r) => r.pairedWithRowKey).length,
+        newSinceLastSweep: actions.filter((r) => r.sweepState === "new").length,
+        changedSinceLastSweep: actions.filter((r) => r.sweepState === "changed").length,
+      },
+    });
+  });
+
+/**
+ * Update the fields a human owns on one action row.
+ *
+ * Deliberately narrow: the four verification counts, the notes, and whether it
+ * still needs a decision. Everything else belongs to the sweep, and letting the
+ * UI write facts would put the two sources of truth back in conflict.
+ */
+payrollRunRouter.patch("/payroll-run/periods/:payDate/changes/:rowKey", requireAuth,
+  requireTile("payroll_changes"), async (req: Request, res: Response) => {
+    const a = req as AuthedRequest;
+    const payDate = String(req.params.payDate);
+    const rowKey = String(req.params.rowKey);
+    const b = (req.body ?? {}) as {
+      enteredZenople?: number; verifiedTs?: number; verifiedPas?: number;
+      documentationSaved?: number; notes?: string; needsDecision?: boolean;
+    };
+
+    const counts = ["enteredZenople", "verifiedTs", "verifiedPas", "documentationSaved"] as const;
+    for (const f of counts) {
+      const v = b[f];
+      // -1 means n/a; anything else must be a non-negative whole number.
+      if (v !== undefined && (!Number.isInteger(v) || v < -1)) {
+        res.status(400).json({ error: `${f} must be -1 (n/a) or a count >= 0` });
+        return;
+      }
+    }
+
+    const period = await ensurePeriod(payDate, false);
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    for (const f of counts) if (b[f] !== undefined) patch[f] = b[f];
+    if (b.notes !== undefined) patch["notes"] = b.notes;
+    if (b.needsDecision !== undefined) patch["needsDecision"] = b.needsDecision;
+
+    if (Object.keys(patch).length === 1) {
+      res.status(400).json({ error: "nothing to update" });
+      return;
+    }
+
+    const updated = await db.update(schema.payrollChangesTable).set(patch)
+      .where(and(eq(schema.payrollChangesTable.periodId, period.id),
+                 eq(schema.payrollChangesTable.rowKey, rowKey)))
+      .returning();
+    if (!updated[0]) {
+      res.status(404).json({ error: "no such row for this period" });
+      return;
+    }
+
+    await db.insert(schema.payrollStepAuditTable).values({
+      periodId: period.id,
+      stepKey: `change:${rowKey}`,
+      status: "updated",
+      note: JSON.stringify(patch),
+      actorUserId: a.user?.id ?? null,
+      actorEmail: a.user?.email ?? a.authEmail ?? null,
+    });
+
+    res.json({ ok: true, row: updated[0] });
+  });

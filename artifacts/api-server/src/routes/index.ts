@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import { pulseRouter } from "./pulse.js";
 import { machineRouter } from "./machine.js";
+import { machinePayrollRouter } from "./machinePayroll.js";
 import { authRouter } from "./auth.js";
 import { tilesRouter } from "./tiles.js";
 import { weeksRouter } from "./weeks.js";
@@ -22,6 +23,7 @@ router.use(pulseRouter);
 // Shared-secret machine feed, same key as pulse — deliberately NOT behind
 // requireAuth: a sibling server cannot mint this app's session cookies.
 router.use(machineRouter);
+router.use(machinePayrollRouter);
 // The Settings tile gates the whole admin surface in one place, rather than
 // threading requireTile through dozens of routes. Registered before the
 // routers that define /admin/* so it runs first. requireAdmin still applies on
