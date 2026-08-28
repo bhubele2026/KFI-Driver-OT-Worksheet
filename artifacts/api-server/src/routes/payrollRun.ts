@@ -1,4 +1,4 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "../lib/db.js";
 import { requireAuth } from "../lib/auth.js";
@@ -850,3 +850,44 @@ payrollRunRouter.get("/payroll-run/off-cycle", requireAuth, requireTile("payroll
       }),
     });
   });
+
+/**
+ * Turn the one failure this tile is genuinely likely to hit into a sentence.
+ *
+ * ⚠️ The payroll tables are created by `drizzle-kit push`, which is a separate,
+ * deliberate step that a person has to run. Until it happens EVERY endpoint here
+ * throws Postgres 42P01 (`undefined_table`), and with no error middleware in
+ * this app that reaches the browser as a bare 500. "checklist 500" tells nobody
+ * anything; "the payroll tables have not been created yet" tells them exactly
+ * what to do.
+ *
+ * Registered on the payroll router only, so it cannot change how the rest of
+ * the app reports errors.
+ */
+const PG_UNDEFINED_TABLE = "42P01";
+
+function pgCode(e: unknown): string | undefined {
+  if (typeof e !== "object" || e === null) return undefined;
+  const code = (e as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+payrollRunRouter.use((
+  err: unknown,
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (res.headersSent) { next(err); return; }
+
+  if (pgCode(err) === PG_UNDEFINED_TABLE) {
+    res.status(503).json({
+      error:
+        "The payroll tables have not been created in this database yet. " +
+        "Run the schema push before using the payroll tiles.",
+      code: "payroll_schema_missing",
+    });
+    return;
+  }
+  next(err);
+});

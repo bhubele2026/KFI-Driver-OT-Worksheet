@@ -1,4 +1,4 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "../lib/db.js";
 import { requirePulseKey } from "./pulse.js";
@@ -217,3 +217,24 @@ machinePayrollRouter.post("/machine/payroll", requirePulseKey,
 
     res.json({ ok: true, ...out });
   });
+
+/** Same missing-table guard for the bridge, so a push says why it failed. */
+machinePayrollRouter.use((
+  err: unknown,
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (res.headersSent) { next(err); return; }
+  const code = typeof err === "object" && err !== null
+    ? (err as { code?: unknown }).code : undefined;
+  if (code === "42P01") {
+    // The bridge logs this verbatim and exits non-zero, so it has to be plain.
+    res.status(503).json({
+      error: "The payroll tables have not been created in this database yet.",
+      code: "payroll_schema_missing",
+    });
+    return;
+  }
+  next(err);
+});
