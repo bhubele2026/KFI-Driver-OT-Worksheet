@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The payroll bridge — every 30 minutes, and once at login.
+
+  ⚠️ THIS RUNS ON BRAD'S MAC because the PD folders live in OneDrive here and
+  the app has no Graph access to reach them. It only runs while the machine is
+  awake and OneDrive has synced. Same arrangement as com.kfi.lease-watch, and it
+  goes away the same way if a daemon is ever granted access.
+
+  It pushes an INVENTORY only — file names, sizes and timestamps. It never opens
+  a file, which is also how the Expert Pay CSV (unmasked SSNs) stays out of the
+  app.
+
+  Install:
+    security add-generic-password -U -a "$USER" -s kfi-payroll-bridge-key -w '<PULSE_SHARED_SECRET>'
+    cp deploy/com.kfi.payroll-bridge.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.kfi.payroll-bridge.plist
+  Remove:
+    launchctl unload ~/Library/LaunchAgents/com.kfi.payroll-bridge.plist
+  Watch it:
+    tail -f ~/Library/Logs/kfi-payroll-bridge.log
+  Try it without pushing:
+    pnpm --filter @workspace/scripts exec tsx src/payroll-bridge.ts --dry-run
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.kfi.payroll-bridge</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <!-- ⚠️ launchd gets no login-shell PATH, and node lives under ~/.local on
+         this machine, so it has to be exported here or the job dies with
+         "command not found" and nothing else. -->
+    <string>export PATH="$HOME/.local/node/bin:$HOME/.local/bin:$PATH"; export PAYROLL_BRIDGE_KEY=$(security find-generic-password -a "$USER" -s kfi-payroll-bridge-key -w) || exit 1; cd "$HOME/projects/KFI-Driver-OT-Worksheet" &amp;&amp; exec pnpm --filter @workspace/scripts exec tsx src/payroll-bridge.ts</string>
+  </array>
+  <!-- The shared secret is read from the login keychain at run time (item
+       "kfi-payroll-bridge-key"), so it never sits in a file. It is the same
+       PULSE_SHARED_SECRET the app already uses for its machine feeds. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PAYROLL_API</key><string>https://kfi-ot-worksheet.livelybeach-7684c741.eastus2.azurecontainerapps.io</string>
+    <key>PAYROLL_BRIDGE_PERIODS</key><string>4</string>
+  </dict>
+  <key>StartInterval</key><integer>1800</integer>
+  <!-- Also run once at login, so a laptop shut overnight catches up. -->
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/bhubele/Library/Logs/kfi-payroll-bridge.log</string>
+  <key>StandardErrorPath</key><string>/Users/bhubele/Library/Logs/kfi-payroll-bridge.log</string>
+</dict>
+</plist>
