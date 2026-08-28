@@ -16,7 +16,7 @@ import type { Request, Response, NextFunction } from "express";
 import { sql, inArray } from "drizzle-orm";
 import { db, schema } from "./db.js";
 import { logger } from "./logger.js";
-import { OWNER_ONLY_TILE_KEYS, TILE_KEYS } from "./tiles.js";
+import { OWNER_ONLY_TILE_KEYS, TILE_KEYS, expandGrants } from "./tiles.js";
 
 export type AppUser = typeof schema.usersTable.$inferSelect;
 
@@ -268,9 +268,11 @@ export async function tilesForUser(user: AppUser, isOwner: boolean): Promise<str
     .select({ tile: schema.userTileAccessTable.tile })
     .from(schema.userTileAccessTable)
     .where(sql`${schema.userTileAccessTable.userId} = ${user.id}`);
-  return rows
-    .map((r) => r.tile)
-    .filter((t) => TILE_KEYS.includes(t) && !OWNER_ONLY_TILE_KEYS.includes(t));
+  // Expand group grants BEFORE filtering: `payroll_all` is not a tile key, so
+  // filtering first would discard it and the grant would confer nothing.
+  return expandGrants(rows.map((r) => r.tile)).filter(
+    (t) => TILE_KEYS.includes(t) && !OWNER_ONLY_TILE_KEYS.includes(t),
+  );
 }
 
 /** Route guard: 403 unless the caller holds the tile. Hiding it in the UI is not security. */

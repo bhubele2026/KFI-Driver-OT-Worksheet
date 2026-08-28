@@ -1,9 +1,12 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { sql } from "drizzle-orm";
 import { db, schema } from "../lib/db.js";
-import { TILES, TILE_GROUPS, TILE_KEYS, OWNER_ONLY_TILE_KEYS, isTileKey } from "../lib/tiles.js";
+import {
+  TILES, TILE_GROUPS, TILE_KEYS, OWNER_ONLY_TILE_KEYS, isTileKey,
+  GRANTABLE_KEYS, PAYROLL_GROUP_KEY, PAYROLL_TILE_KEYS,
+} from "../lib/tiles.js";
 import { requireAuth, requireAdmin } from "../lib/auth.js";
-import { requireOwner, type AuthedRequest } from "../lib/entraAuth.js";
+import { requireOwner, ownerEmails, type AuthedRequest } from "../lib/entraAuth.js";
 
 export const tilesRouter: IRouter = Router();
 
@@ -93,6 +96,8 @@ tilesRouter.get(
       .from(schema.usersTable)
       .orderBy(sql`${schema.usersTable.isActive} desc, ${schema.usersTable.email}`);
 
+    const owners = ownerEmails();
+
     const grants = await db
       .select({
         userId: schema.userTileAccessTable.userId,
@@ -107,15 +112,40 @@ tilesRouter.get(
     }
 
     res.json({
-      registry: TILES.map((t) => ({
-        key: t.key,
-        group: t.group,
-        title: t.title,
-        ownerOnly: OWNER_ONLY_TILE_KEYS.includes(t.key),
-        adminOnly: t.adminOnly === true,
-      })),
+      registry: [
+        // The group grant leads its own group, the way the Dashboard puts
+        // "Sales — all six salespeople" above the six.
+        {
+          key: PAYROLL_GROUP_KEY,
+          group: "Payroll" as const,
+          title: "Payroll — all twelve boards",
+          blurb:
+            "For whoever runs payroll. Covers every board in this group, including ones added later.",
+          ownerOnly: false,
+          adminOnly: false,
+          isGroupGrant: true,
+          covers: PAYROLL_TILE_KEYS,
+        },
+        ...TILES.map((t) => ({
+          key: t.key,
+          group: t.group,
+          title: t.title,
+          blurb: t.blurb,
+          ownerOnly: OWNER_ONLY_TILE_KEYS.includes(t.key),
+          adminOnly: t.adminOnly === true,
+          isGroupGrant: false,
+          covers: [] as string[],
+        })),
+      ],
       groups: TILE_GROUPS,
-      users: users.map((u) => ({ ...u, tiles: byUser.get(u.id) ?? [] })),
+      // isOwner matters to the panel: the owner holds every tile implicitly and
+      // so has NO grant rows. Without this flag Brad reads as "0 tiles", which
+      // looks exactly like someone locked out of their own app.
+      users: users.map((u) => ({
+        ...u,
+        tiles: byUser.get(u.id) ?? [],
+        isOwner: owners.has(u.email.toLowerCase()),
+      })),
     });
   },
 );
@@ -133,9 +163,16 @@ tilesRouter.post(
       res.status(400).json({ error: "userId and tiles[] are required" });
       return;
     }
-    const tiles = [...new Set(incoming.map(String))].filter(
-      (t) => TILE_KEYS.includes(t) && !OWNER_ONLY_TILE_KEYS.includes(t),
+    // GRANTABLE_KEYS, not TILE_KEYS: `payroll_all` is a group grant, not a tile.
+    let tiles = [...new Set(incoming.map(String))].filter(
+      (t) => GRANTABLE_KEYS.includes(t) && !OWNER_ONLY_TILE_KEYS.includes(t),
     );
+    // Store the group grant instead of the twelve it confers, so a payroll tile
+    // added later is covered without re-granting. Keeping both would leave
+    // stale child rows behind when the group is later un-ticked.
+    if (tiles.includes(PAYROLL_GROUP_KEY)) {
+      tiles = tiles.filter((t) => !PAYROLL_TILE_KEYS.includes(t));
+    }
 
     await db.transaction(async (tx) => {
       await tx

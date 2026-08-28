@@ -167,6 +167,37 @@ export const TILE_KEYS: string[] = TILES.map((t) => t.key);
  */
 export const OWNER_ONLY_TILE_KEYS: string[] = [];
 
+/**
+ * The Payroll group grant. It is NOT a tile — it has no page and never appears
+ * in the nav. Ticking it confers every tile in the Payroll group, including
+ * ones added later, which is the whole point: "this person runs payroll" should
+ * not need re-granting every time the checklist grows another board.
+ *
+ * Mirrors the Financial Dashboard's SALES_GROUP_KEY / REP_TILE_KEYS pair.
+ */
+export const PAYROLL_GROUP_KEY = "payroll_all";
+
+export const PAYROLL_TILE_KEYS: string[] = TILES.filter(
+  (t) => t.group === "Payroll",
+).map((t) => t.key);
+
+/** Keys a grant row may legally store: every tile, plus the group grants. */
+export const GRANTABLE_KEYS: string[] = [...TILE_KEYS, PAYROLL_GROUP_KEY];
+
+/**
+ * Stored grant rows → the tiles they actually confer.
+ *
+ * ⚠️ EVERY read of a person's access must go through this. `tilesForUser`
+ * filters unknown keys against TILE_KEYS, and `payroll_all` is deliberately not
+ * one — so expanding AFTER that filter would drop the group grant on the floor
+ * and silently confer nothing.
+ */
+export const expandGrants = (stored: string[]): string[] => {
+  const out = new Set(stored);
+  if (out.has(PAYROLL_GROUP_KEY)) for (const k of PAYROLL_TILE_KEYS) out.add(k);
+  return [...out];
+};
+
 export const isTileKey = (v: string): boolean => TILE_KEYS.includes(v);
 
 export const tileByKey = (key: string): TileDef | undefined =>
