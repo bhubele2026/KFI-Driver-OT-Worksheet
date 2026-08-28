@@ -1,0 +1,136 @@
+import {
+  pgTable, serial, integer, text, numeric, boolean, timestamp, uniqueIndex, index,
+} from "drizzle-orm/pg-core";
+
+/**
+ * One ACTION that must be keyed into Zenople before the pay date.
+ *
+ * This is the `to do this payroll` ledger, modelled properly. The rule that
+ * shapes it: **one row per action, not per email**. Three people named in one
+ * transportation table are three rows; a thread corrected four times is one row
+ * carrying the final number and what it replaced.
+ */
+export const payrollChangesTable = pgTable(
+  "payroll_changes",
+  {
+    id: serial("id").primaryKey(),
+    periodId: integer("period_id").notNull(),
+
+    /**
+     * Idempotency key: sha1 of conversation + person + type + week ending.
+     * A re-sweep must UPDATE this row, never add a second one — and must carry
+     * the human's own edits forward, because a rebuild that wipes a processor's
+     * check-offs is worse than no tool at all.
+     */
+    rowKey: text("row_key").notNull(),
+
+    customer: text("customer"),
+    customerId: integer("customer_id"),
+    /** "Multiple" is a legitimate value the ledger uses. */
+    employee: text("employee"),
+    personId: integer("person_id"),
+    /** How many people this row covers — the verification counts key off it. */
+    peopleCount: integer("people_count").notNull().default(1),
+
+    /** PAS | TMS | 2TMS — where in Zenople it lands, and when. */
+    route: text("route"),
+    /** Canonical type from the taxonomy. */
+    changeType: text("change_type").notNull(),
+    /** Exactly what was typed or inferred, before normalising. */
+    changeTypeRaw: text("change_type_raw"),
+
+    amount: numeric("amount", { precision: 12, scale: 2 }),
+    hours: numeric("hours", { precision: 8, scale: 2 }),
+    /** Week ending this applies to — retro rows differ from the current week. */
+    weekEnding: text("week_ending"),
+    effectiveDate: text("effective_date"),
+    /** True when this belongs to a PRIOR week and must be entered as retro. */
+    isRetro: boolean("is_retro").notNull().default(false),
+
+    /** Imperative: "Enter 10.00 hrs MN-ESST", not "sick time request". */
+    action: text("action").notNull(),
+    /** What the final number replaced, and why. Blank when nothing changed. */
+    supersedes: text("supersedes"),
+    /**
+     * ⚠️ The other half of a paired entry. Terrell is +2.00 Driver OT AND
+     * -0.50 Retro Driver RT; entering the positive alone overpays. Rows that
+     * name each other are rendered together and can never be actioned singly.
+     */
+    pairedWithRowKey: text("paired_with_row_key"),
+
+    requestedBy: text("requested_by"),
+    approvedBy: text("approved_by"),
+    /** Tiana's own Outlook category — her taxonomy, not an invented one. */
+    category: text("category"),
+    sourceKind: text("source_kind").notNull().default("email"),
+    sourceRef: text("source_ref"),
+    conversationId: text("conversation_id"),
+    sourceReceivedAt: timestamp("source_received_at", { withTimezone: true }),
+
+    /**
+     * The four verification columns, as COUNTS not booleans — the ledger writes
+     * one x per person on a multi-person row. -1 means "n/a".
+     */
+    enteredZenople: integer("entered_zenople").notNull().default(0),
+    verifiedTs: integer("verified_ts").notNull().default(0),
+    verifiedPas: integer("verified_pas").notNull().default(0),
+    documentationSaved: integer("documentation_saved").notNull().default(0),
+
+    /** Free text the processor owns. A re-sweep must never clobber this. */
+    notes: text("notes"),
+    /** Generated per the Documentation/ naming formula. */
+    fileNaming: text("file_naming"),
+
+    /**
+     * A discussed intent is NOT an approval. Anything still a question lands
+     * here and is kept off the action list entirely.
+     */
+    needsDecision: boolean("needs_decision").notNull().default(false),
+    decisionQuestion: text("decision_question"),
+    decisionOwner: text("decision_owner"),
+
+    /** new | changed | unchanged since the last sweep — shown, not guessed. */
+    sweepState: text("sweep_state").notNull().default("new"),
+    lastSweptAt: timestamp("last_swept_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("payroll_changes_row_key_idx").on(t.periodId, t.rowKey),
+    index("payroll_changes_period_idx").on(t.periodId),
+    index("payroll_changes_type_idx").on(t.changeType),
+    index("payroll_changes_decision_idx").on(t.needsDecision),
+    index("payroll_changes_conversation_idx").on(t.conversationId),
+  ],
+);
+
+export type PayrollChange = typeof payrollChangesTable.$inferSelect;
+
+/**
+ * A message the sweep saw, so a row can be traced back to its source and a
+ * re-sweep can tell what is genuinely new.
+ */
+export const payrollChangeSourcesTable = pgTable(
+  "payroll_change_sources",
+  {
+    id: serial("id").primaryKey(),
+    periodId: integer("period_id").notNull(),
+    messageId: text("message_id").notNull(),
+    conversationId: text("conversation_id"),
+    subject: text("subject"),
+    sender: text("sender"),
+    receivedAt: timestamp("received_at", { withTimezone: true }),
+    categories: text("categories").array(),
+    attachmentNames: text("attachment_names").array(),
+    /** Which rows this message drives, by rowKey. */
+    drivesRowKeys: text("drives_row_keys").array(),
+    seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payroll_change_sources_msg_idx").on(t.periodId, t.messageId),
+    index("payroll_change_sources_period_idx").on(t.periodId),
+  ],
+);
+
+export type PayrollChangeSource = typeof payrollChangeSourcesTable.$inferSelect;
