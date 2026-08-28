@@ -43,6 +43,11 @@
     <key>PAYROLL_BRIDGE_PERIODS</key><string>4</string>
   </dict>
   <key>StartInterval</key><integer>1800</integer>
+  <!-- ⚠️ A hung run must not become a permanent stop. launchd will not start a
+       second copy while one is running, so the script bounds every request
+       itself (PAYROLL_BRIDGE_TIMEOUT_MS, 60s) and this caps the whole process.
+       ExitTimeOut governs how long launchd waits after SIGTERM before SIGKILL. -->
+  <key>ExitTimeOut</key><integer>30</integer>
   <!-- Also run once at login, so a laptop shut overnight catches up. -->
   <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>/Users/bhubele/Library/Logs/kfi-payroll-bridge.log</string>

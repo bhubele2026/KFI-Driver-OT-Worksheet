@@ -36,7 +36,13 @@ const CHUNK = 400;
 const DRY = process.argv.includes("--dry-run");
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
-const fail = (msg: string): never => {
+/**
+ * ⚠️ The annotation is on the VARIABLE, not just the arrow. TypeScript only
+ * treats a call as never-returning for control-flow analysis when the const
+ * itself is typed — without that, every `fail()` in a catch block leaves the
+ * compiler thinking execution continues.
+ */
+const fail: (msg: string) => never = (msg) => {
   console.error(new Date().toISOString(), "FAILED:", msg);
   process.exit(1);
 };
@@ -154,17 +160,44 @@ function inventory(periodDir: string): Artifact[] {
   return out;
 }
 
+/**
+ * ⚠️ EVERY REQUEST IS BOUNDED. An unattended job with no timeout does not fail,
+ * it HANGS — and launchd will not start a second copy while one is still
+ * running, so a single stuck request silently stops the bridge for good. The
+ * symptom is not an error, it is stale data nobody notices.
+ */
+const REQUEST_TIMEOUT_MS = Number(process.env["PAYROLL_BRIDGE_TIMEOUT_MS"] ?? 60_000);
+
 async function push(payDate: string, isOffCycle: boolean, artifacts: Artifact[]): Promise<void> {
+  const chunks = Math.ceil(artifacts.length / CHUNK);
   for (let i = 0; i < artifacts.length; i += CHUNK) {
     const slice = artifacts.slice(i, i + CHUNK);
+    const n = i / CHUNK + 1;
     const more = i + CHUNK < artifacts.length;
-    const res = await fetch(`${API}/api/machine/payroll`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-pulse-key": KEY },
-      body: JSON.stringify({ payDate, isOffCycle, kind: "artifacts", more, artifacts: slice }),
-    });
+
+    let res: Response;
+    try {
+      res = await fetch(`${API}/api/machine/payroll`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-pulse-key": KEY },
+        body: JSON.stringify({ payDate, isOffCycle, kind: "artifacts", more, artifacts: slice }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (e) {
+      const why = e instanceof Error && e.name === "TimeoutError"
+        ? `timed out after ${REQUEST_TIMEOUT_MS}ms`
+        : e instanceof Error ? e.message : String(e);
+      // Say how far it got: artifacts upsert by path, so a partial push is
+      // recoverable on the next run rather than lost — but only if the log
+      // makes clear it WAS partial.
+      fail(`push ${payDate} chunk ${n}/${chunks}: ${why}` +
+           (n > 1 ? ` — ${i} artifacts were already accepted and will not be re-sent until the next run` : ""));
+    }
+
     if (!res.ok) {
-      fail(`push ${payDate} chunk ${i / CHUNK + 1}: ${res.status} ${(await res.text()).slice(0, 200)}`);
+      const body = (await res.text()).slice(0, 300);
+      fail(`push ${payDate} chunk ${n}/${chunks}: ${res.status} ${body}` +
+           (n > 1 ? ` — ${i} artifacts already accepted` : ""));
     }
   }
 }
