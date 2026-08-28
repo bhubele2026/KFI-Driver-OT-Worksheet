@@ -637,3 +637,112 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/hours-intake", requireAuth,
       },
     });
   });
+
+/**
+ * The fringe reconciliation, live.
+ *
+ * Both sides come from Zenople: the earnings from TransactionItemData and the
+ * offsetting deductions from DeductionData. This is the balance that has to be
+ * exact, so it reports per person as well as in total — a difference of 69.23
+ * means one person, and naming them is the whole job.
+ */
+payrollRunRouter.get("/payroll-run/periods/:payDate/fringe", requireAuth,
+  requireTile("payroll_fringe"), async (req: Request, res: Response) => {
+    const payDate = String(req.params.payDate);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(payDate)) {
+      res.status(400).json({ error: "payDate must be YYYY-MM-DD" });
+      return;
+    }
+    if (!zenopleConfigured()) {
+      res.status(503).json({ error: "Zenople is not configured on this server" });
+      return;
+    }
+
+    const { accountingPeriod } = periodDatesFor(payDate);
+    let items: Array<Record<string, unknown>>;
+    let deductions: Array<Record<string, unknown>>;
+    try {
+      [items, deductions] = await Promise.all([
+        pull<Record<string, unknown>>("TransactionItemData", { lookbackDays: 30 }),
+        pull<Record<string, unknown>>("DeductionData", { lookbackDays: 30 }),
+      ]);
+    } catch (e) {
+      res.status(502).json({ error: e instanceof Error ? e.message : "Zenople pull failed" });
+      return;
+    }
+
+    const inPeriod = (r: Record<string, unknown>) =>
+      String(r["AccountingPeriod"] ?? "").slice(0, 10) === accountingPeriod;
+
+    const cents = (n: unknown) => Math.round(Number(n ?? 0) * 100);
+    const money = (c: number) => (c / 100).toFixed(2);
+
+    /** One pairing of an earning code with the deduction that offsets it. */
+    const pair = (earnCode: string, dedCode: string) => {
+      const earnRows = items.filter(
+        (r) => inPeriod(r) && r["TransactionCode"] === earnCode);
+
+      const earnByPerson = new Map<number, { name: string; cents: number }>();
+      for (const r of earnRows) {
+        const id = Number(r["PersonId"] ?? -1);
+        const cur = earnByPerson.get(id) ?? { name: String(r["Person"] ?? id), cents: 0 };
+        cur.cents += cents(r["ItemPay"]);
+        earnByPerson.set(id, cur);
+      }
+
+      // ⚠️ Adjustment, never Deduction — and deduped on PaymentAdjustmentId,
+      // because the endpoint repeats rows and this has to be exact.
+      const seen = new Set<number>();
+      const dedByPerson = new Map<number, { name: string; cents: number }>();
+      for (const r of deductions) {
+        if (!inPeriod(r) || r["TransactionCode"] !== dedCode) continue;
+        const adjId = r["PaymentAdjustmentId"];
+        if (typeof adjId === "number") {
+          if (seen.has(adjId)) continue;
+          seen.add(adjId);
+        }
+        const id = Number(r["PersonId"] ?? -1);
+        const cur = dedByPerson.get(id) ?? { name: String(r["Name"] ?? id), cents: 0 };
+        cur.cents += cents(r["Adjustment"]);
+        dedByPerson.set(id, cur);
+      }
+
+      const earnTotal = [...earnByPerson.values()].reduce((s, v) => s + v.cents, 0);
+      const dedTotal = [...dedByPerson.values()].reduce((s, v) => s + v.cents, 0);
+
+      const everyone = new Set([...earnByPerson.keys(), ...dedByPerson.keys()]);
+      const mismatches: unknown[] = [];
+      for (const id of everyone) {
+        const e = earnByPerson.get(id);
+        const d = dedByPerson.get(id);
+        const diff = (e?.cents ?? 0) - (d?.cents ?? 0);
+        if (diff !== 0) {
+          mismatches.push({
+            personId: id, person: e?.name ?? d?.name ?? String(id),
+            earning: money(e?.cents ?? 0), deduction: money(d?.cents ?? 0),
+            variance: `${diff > 0 ? "+" : ""}${money(diff)}`,
+            hint: diff > 0 ? "earning with no matching deduction" : "deduction with no matching earning",
+          });
+        }
+      }
+
+      const diff = earnTotal - dedTotal;
+      return {
+        earnCode, dedCode,
+        earnings: money(earnTotal), deductions: money(dedTotal),
+        variance: `${diff > 0 ? "+" : ""}${money(diff)}`,
+        balanced: diff === 0,
+        earningPeople: earnByPerson.size,
+        deductionPeople: dedByPerson.size,
+        mismatches: mismatches.slice(0, 40),
+        sign: diff === 0 ? null
+          : diff > 0 ? "positive — missing deductions" : "negative — missing earnings",
+      };
+    };
+
+    res.json({
+      payDate, accountingPeriod,
+      current: pair("Housing Benefit Supplemental", "Housing Benefit Offset Supplemental"),
+      retro: pair("Retro Housing Benefit Sup", "Retro Housing Benefits Offset Supplemental"),
+    });
+  });
