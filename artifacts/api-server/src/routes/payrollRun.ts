@@ -11,6 +11,13 @@ import { pullPeriod, runTieOuts, rosterFrom } from "../lib/zenoplePayroll.js";
 import { pull } from "../lib/zenopleClient.js";
 import { runBatchChecks, type RegisterRow } from "../lib/payrollBatchChecks.js";
 import { aptmDeadline, APTM_OFFICES } from "../lib/payrollAptm.js";
+import {
+  expertPayDates, expertPayExportNote, runExpertPayChecks,
+  EXPERT_PAY_BANK, EXPERT_PAY_ARTIFACTS,
+} from "../lib/payrollExpertPay.js";
+import {
+  DISBURSEMENT_CHANNELS, CHANNEL_LABEL, CHANNELS_WITHOUT_BANK_FILE, channelFromFilename,
+} from "../lib/payrollOffCycle.js";
 import { zenopleConfigured } from "../lib/zenopleClient.js";
 
 export const payrollRunRouter: IRouter = Router();
@@ -744,5 +751,93 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/fringe", requireAuth,
       payDate, accountingPeriod,
       current: pair("Housing Benefit Supplemental", "Housing Benefit Offset Supplemental"),
       retro: pair("Retro Housing Benefit Sup", "Retro Housing Benefits Offset Supplemental"),
+    });
+  });
+
+/**
+ * Expert Pay — the dates and the gates.
+ *
+ * ⚠️ No file, no rows, no SSNs. The CSV stays on the Mac; this returns the two
+ * dates a person has to type and the checks they have to satisfy.
+ */
+payrollRunRouter.get("/payroll-run/periods/:payDate/expert-pay", requireAuth,
+  requireTile("payroll_expert_pay"), (req: Request, res: Response) => {
+    const payDate = String(req.params.payDate);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(payDate)) {
+      res.status(400).json({ error: "payDate must be YYYY-MM-DD" });
+      return;
+    }
+    res.json({
+      ...expertPayDates(payDate),
+      exportNote: expertPayExportNote(payDate),
+      bank: EXPERT_PAY_BANK,
+      artifacts: EXPERT_PAY_ARTIFACTS,
+    });
+  });
+
+/**
+ * Check what a person typed into Expert Pay before they submit.
+ *
+ * Totals are compared here rather than in the browser so the fee tolerance is
+ * one rule in one place.
+ */
+payrollRunRouter.post("/payroll-run/periods/:payDate/expert-pay/verify", requireAuth,
+  requireTile("payroll_expert_pay"), (req: Request, res: Response) => {
+    const payDate = String(req.params.payDate);
+    const b = (req.body ?? {}) as {
+      enteredEffective?: string; enteredWithholding?: string; bankAccount?: string;
+      csvTotal?: number; systemTotal?: number;
+      format?: {
+        openedWithoutConverting: boolean; columnCZeroDecimals: boolean;
+        ssnLeadingZerosIntact: boolean; savedAfterFormatting: boolean;
+      };
+    };
+    res.json({ checks: runExpertPayChecks({ payDate, ...b }) });
+  });
+
+/** Off-cycle runs recorded for a date, with their artifact checks. */
+payrollRunRouter.get("/payroll-run/off-cycle", requireAuth, requireTile("payroll_off_cycle"),
+  async (_req: Request, res: Response) => {
+    const rows = await db.select().from(schema.payrollPeriodsTable)
+      .where(eq(schema.payrollPeriodsTable.isOffCycle, true))
+      .orderBy(desc(schema.payrollPeriodsTable.payDate)).limit(40);
+
+    // Artifacts the bridge has inventoried for each, so the quad can be judged.
+    const ids = rows.map((r) => r.id);
+    const artifacts = ids.length
+      ? await db.select().from(schema.payrollArtifactsTable)
+          .where(inArray(schema.payrollArtifactsTable.periodId, ids))
+      : [];
+
+    const byPeriod = new Map<number, typeof artifacts>();
+    for (const a of artifacts) {
+      const arr = byPeriod.get(a.periodId);
+      if (arr) arr.push(a);
+      else byPeriod.set(a.periodId, [a]);
+    }
+
+    res.json({
+      channels: DISBURSEMENT_CHANNELS.map((c) => ({ key: c, label: CHANNEL_LABEL[c],
+        producesBankFile: !CHANNELS_WITHOUT_BANK_FILE.has(c) })),
+      runs: rows.map((p) => {
+        const mine = byPeriod.get(p.id) ?? [];
+        const kinds = new Set(mine.map((a) => a.artifactKind));
+        // The channel is inferred from filenames for historical runs; new ones
+        // will carry it as a field.
+        const inferred = mine
+          .map((a) => channelFromFilename(a.fileName))
+          .find((c) => c !== null) ?? null;
+        return {
+          periodId: p.id, payDate: p.payDate, label: p.label,
+          files: mine.length,
+          inferredChannel: inferred,
+          hasApproval: kinds.has("approval_email") || kinds.has("documentation"),
+          hasTransactionBatchReport: kinds.has("transaction_batch_report"),
+          hasPaymentBatchReport: kinds.has("payment_batch_report"),
+          hasBankFile: kinds.has("bank_feed"),
+          isAdvance: kinds.has("advance"),
+          hasVoidOrCorrection: kinds.has("void_or_correction"),
+        };
+      }),
     });
   });
