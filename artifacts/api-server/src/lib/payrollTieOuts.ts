@@ -78,19 +78,6 @@ export const OT_PAY_CODES = new Set(["OT", "DriverOT", "RetroDriverOT"]);
 export const BASE_HOURS_CODES = new Set(["RT", "DriverRT", "DT"]);
 
 /**
- * Codes that are paid but never billed, so they can never appear in a
- * pay-vs-bill comparison. Lump sums put the quantity in Pay Unit and the
- * DOLLARS in Pay Rate, with every bill column 0.
- */
-export const NON_BILLED_CODES = new Set([
-  "Housing Benefit Supplemental", "Retro Housing Benefit Sup",
-  "MN ESST", "Referral Bonus", "Cell Reimburse", "Advance",
-  "ACH Reimbursement", "Expense Reimbursement", "RefundHousing",
-  "RefundTransportation", "Health Ins Stipend", "ICHRAReimbursement",
-  "Severance Pay", "Job Transfer Premium - Reg", "Job Transfer Premium - OT",
-]);
-
-/**
  * 1 — Regular pay hours == regular bill hours, per person.
  *
  * Reported per person rather than per customer because the answer a processor

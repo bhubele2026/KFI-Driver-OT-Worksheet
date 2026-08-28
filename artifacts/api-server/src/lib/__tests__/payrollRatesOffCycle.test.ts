@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {
   checkMarkupPropagation, checkTransactionUpdates, checkRateComments,
   checkTerminations, proRateStopsToCarry, checkOldMarkupsDeactivated,
-  ZENOPLE_TIMEKEEPING_CUSTOMERS, type MarkupChange, type Termination,
+  keepsTimeInZenople, ZENOPLE_TIMEKEEPING_CUSTOMERS,
+  type MarkupChange, type Termination,
 } from "../payrollRates";
 import {
   checkOffCycleArtifacts, checkAdvancePayback, checkVoidReissuePaired,
@@ -32,9 +33,33 @@ describe("the markup propagation trap", () => {
 });
 
 describe("Zenople-timekeeping customers need one more step", () => {
-  it("knows the three of them", () => {
-    assert.equal(ZENOPLE_TIMEKEEPING_CUSTOMERS.size, 3);
+  it("seeds the SOP's list, plus the second Bell entity", () => {
+    // The SOP says "Alamco, Bell Lumber and Shusters", but the file tree holds
+    // BOTH "Bell Lumber" and "Bell Timber" batch reports. Which one keeps time
+    // in Zenople is unresolved, so both seed the list — a false positive here
+    // costs a redundant check, a false negative skips a required step.
+    assert.equal(ZENOPLE_TIMEKEEPING_CUSTOMERS.size, 4);
     assert.ok(ZENOPLE_TIMEKEEPING_CUSTOMERS.has("Shuster's Building Components"));
+  });
+
+  it("matches despite the name drift that would break an exact lookup", () => {
+    // Zenople says "Shuster's Building Components"; the ledger says "Shusters".
+    // An exact-match miss does not error, it silently skips a step that has to
+    // happen for the rate change to take effect.
+    assert.equal(keepsTimeInZenople("Shuster's Building Components"), true);
+    assert.equal(keepsTimeInZenople("Shusters"), true);
+    assert.equal(keepsTimeInZenople("shusters"), true);
+    assert.equal(keepsTimeInZenople("Alamco Wood Products Inc"), true);
+    assert.equal(keepsTimeInZenople("Alamco"), true);
+    assert.equal(keepsTimeInZenople("Bell Timber"), true);
+    assert.equal(keepsTimeInZenople("Bell Lumber"), true);
+  });
+
+  it("does NOT over-match an unrelated customer", () => {
+    for (const c of ["Penda Corp", "Trienda Holdings", "Adient", "DeLallo Foods",
+                     "Schuette Metals", "Landscape Structures", ""]) {
+      assert.equal(keepsTimeInZenople(c), false, c);
+    }
   });
 
   it("FAILS a Shusters change without update-transactions", () => {

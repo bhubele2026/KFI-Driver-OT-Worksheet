@@ -5,12 +5,60 @@
  * "finished" while quietly not having taken effect.
  */
 
-/** Customers who keep time in Zenople rather than sending a timesheet. */
+/**
+ * Customers who keep time in Zenople rather than sending a timesheet.
+ *
+ * ⚠️ THIS IS A SEED, NOT THE RULE. It is the SOP's list ("currently Alamco,
+ * Bell Lumber and Shusters"), and only TWO of the three are verified against
+ * Zenople's actual roster: `Alamco Wood Products Inc` and
+ * `Shuster's Building Components` both appear in AP 2026-08-23.
+ *
+ * ⚠️ "Bell Lumber" DOES NOT. Two distinct Bell entities exist in the file tree
+ * — `Bell Lumber TransactionBatchReport` AND `Bell Timber TransactionBatchReport`
+ * in the same period — and `Bell Timber` has a Client TS file, which is evidence
+ * AGAINST it keeping time in Zenople. Neither appears in the August roster, so
+ * they may be inactive or named differently there. Unresolved, and asked.
+ *
+ * The real source of truth is `payroll_customers.timekeeping_mode`, resolved
+ * per customer. This list only seeds it, and the matcher below is deliberately
+ * tolerant so an exact-name mismatch cannot silently skip the
+ * "update transactions" step — which would be a false pass on a rate change.
+ */
 export const ZENOPLE_TIMEKEEPING_CUSTOMERS: ReadonlySet<string> = new Set([
   "Alamco Wood Products Inc",
   "Bell Lumber",
+  "Bell Timber",
   "Shuster's Building Components",
 ]);
+
+/** Fold a customer name so punctuation and casing drift cannot break a match. */
+function foldCustomer(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * Does this customer keep time in Zenople?
+ *
+ * Matches on a folded prefix rather than an exact string, so
+ * "Shuster's Building Components", "Shusters" and "shuster s building
+ * components" all resolve. An exact-match miss here does not error — it quietly
+ * skips a step that has to happen for the rate change to take effect.
+ */
+export function keepsTimeInZenople(customer: string): boolean {
+  const c = foldCustomer(customer);
+  if (!c) return false;
+  for (const known of ZENOPLE_TIMEKEEPING_CUSTOMERS) {
+    const k = foldCustomer(known);
+    const head = k.split(" ")[0] ?? k;
+    // "shusters" vs "shuster s building components": compare on the first token
+    // both ways, which is what actually distinguishes these four from the rest.
+    if (c === k || c.startsWith(k) || k.startsWith(c)
+        || c.startsWith(head) || c.replace(/\s+/g, "").startsWith(head.replace(/\s+/g, ""))) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export type MarkupTier = "Year1" | "Year2" | "Year3";
 
@@ -74,7 +122,7 @@ export function checkMarkupPropagation(changes: MarkupChange[]): RateCheck {
  * TMS, into the batch, select the person, yellow star, update transactions.
  */
 export function checkTransactionUpdates(changes: MarkupChange[]): RateCheck {
-  const needing = changes.filter((c) => ZENOPLE_TIMEKEEPING_CUSTOMERS.has(c.customer));
+  const needing = changes.filter((c) => keepsTimeInZenople(c.customer));
   const missing = needing.filter((c) => c.transactionsUpdated !== true);
   return {
     check: "transaction_updates",
