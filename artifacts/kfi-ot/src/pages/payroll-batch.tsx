@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { AppShell } from "@/components/app-shell";
 import { CheckPanel, type CheckRow } from "@/components/check-panel";
@@ -26,7 +26,14 @@ export default function PayrollBatchPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // ⚠️ Ignore a superseded response. Changing the pay date twice quickly can let
+  // the FIRST, slower reply land after the second, putting one week's numbers
+  // under another week's heading — several of these tiles make two Zenople
+  // pulls per load, so it is likely rather than theoretical. In a payroll tool
+  // somebody would read last week's figures believing they are this week's.
+  const seq = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++seq.current;
     setBusy(true);
     setError(null);
     setChecks(null);
@@ -39,11 +46,14 @@ export default function PayrollBatchPage() {
         throw new Error(b.error ?? `batch checks ${r.status}`);
       }
       const d = (await r.json()) as { checks: CheckRow[]; found: number };
+      if (mine !== seq.current) return;
       setChecks(d.checks);
       setFound(d.found);
     } catch (e) {
+      if (mine !== seq.current) return;
       setError(e instanceof Error ? e.message : "could not run the checks");
     } finally {
+      if (mine !== seq.current) return;
       setBusy(false);
     }
   }, [payDate]);

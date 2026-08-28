@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { AppShell } from "@/components/app-shell";
 import { useAccess } from "@/lib/access";
@@ -78,7 +78,14 @@ export default function PayrollProcess() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // ⚠️ Ignore a superseded response. Changing the pay date twice quickly can let
+  // the FIRST, slower reply land after the second, putting one week's checklist
+  // under another week's heading. In a payroll tool somebody would tick steps
+  // against the wrong period.
+  const seq = useRef(0);
+
   const load = useCallback(async (pd: string) => {
+    const mine = ++seq.current;
     setLoading(true);
     setError(null);
     try {
@@ -86,13 +93,16 @@ export default function PayrollProcess() {
         credentials: "include",
       });
       if (!r.ok) throw new Error(`checklist ${r.status}`);
-      setData((await r.json()) as Payload);
+      const payload = (await r.json()) as Payload;
+      if (mine !== seq.current) return;
+      setData(payload);
     } catch (e) {
+      if (mine !== seq.current) return;
       // Say what broke. A blank board and a broken board must not look alike.
       setError(e instanceof Error ? e.message : "could not load the checklist");
       setData(null);
     } finally {
-      setLoading(false);
+      if (mine === seq.current) setLoading(false);
     }
   }, []);
 

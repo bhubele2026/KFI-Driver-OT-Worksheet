@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { AppShell } from "@/components/app-shell";
 
@@ -51,7 +51,14 @@ export default function PayrollHours() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // ⚠️ Ignore a superseded response. Changing the pay date twice quickly can let
+  // the FIRST, slower reply land after the second, putting one week's numbers
+  // under another week's heading — several of these tiles make two Zenople
+  // pulls per load, so it is likely rather than theoretical. In a payroll tool
+  // somebody would read last week's figures believing they are this week's.
+  const seq = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++seq.current;
     setBusy(true);
     setError(null);
     try {
@@ -62,11 +69,17 @@ export default function PayrollHours() {
         const b = (await r.json().catch(() => ({}))) as { error?: string };
         throw new Error(b.error ?? `hours intake ${r.status}`);
       }
-      setData((await r.json()) as Payload);
+      const payload = (await r.json()) as Payload;
+      // Checked AFTER the await resolves — the parse is a suspension point, so
+      // a newer request can start during it and this one must not win.
+      if (mine !== seq.current) return;
+      setData(payload);
     } catch (e) {
+      if (mine !== seq.current) return;
       setError(e instanceof Error ? e.message : "could not load the board");
       setData(null);
     } finally {
+      if (mine !== seq.current) return;
       setBusy(false);
     }
   }, [payDate]);
