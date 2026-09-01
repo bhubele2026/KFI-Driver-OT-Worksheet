@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "wouter";
 import { AppShell } from "@/components/app-shell";
+import { PayDatePicker } from "@/components/pay-date-picker";
 import { CheckPanel, type CheckRow } from "@/components/check-panel";
 
 /**
@@ -109,11 +110,7 @@ export default function PayrollExpertPay() {
               Child support. The file stays on your machine and the payment stays manual.
             </p>
           </div>
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            Pay date
-            <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)}
-              className="fin-num rounded-md border border-border bg-white px-2 py-1 text-sm" />
-          </label>
+          <PayDatePicker value={payDate} onChange={setPayDate} />
         </div>
 
         {error && (

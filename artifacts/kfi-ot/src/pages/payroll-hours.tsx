@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { AppShell } from "@/components/app-shell";
+import { PayDatePicker } from "@/components/pay-date-picker";
 
 /**
  * Hours Intake — Monday's per-customer board.
@@ -101,11 +102,7 @@ export default function PayrollHours() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              Pay date
-              <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)}
-                className="fin-num rounded-md border border-border bg-white px-2 py-1 text-sm" />
-            </label>
+            <PayDatePicker value={payDate} onChange={setPayDate} />
             <button type="button" disabled={busy} onClick={() => void load()}
               className="rounded-md px-2 py-1 text-xs font-medium text-brand-navy ring-1 ring-border transition-colors hover:ring-brand-navy/30 disabled:opacity-50">
               {busy ? "Loading…" : "Refresh"}

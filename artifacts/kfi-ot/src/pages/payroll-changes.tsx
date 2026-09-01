@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { AppShell } from "@/components/app-shell";
-import { Reveal, SkeletonStats, SkeletonTable } from "@/components/motion";
+import { Caret, Collapse, Reveal, SkeletonStats, SkeletonTable } from "@/components/motion";
+import { PayDatePicker } from "@/components/pay-date-picker";
 import { useCountUp } from "@/hooks/use-count-up";
 import { guardedFetch } from "@/lib/session";
 
@@ -44,6 +45,8 @@ type Change = {
   verifiedTs: number;
   verifiedPas: number;
   documentationSaved: number;
+  /** AI-terse row label; null when unavailable — the full action shows instead. */
+  summary: string | null;
 };
 
 type Payload = {
@@ -77,27 +80,32 @@ type Field = (typeof FIELDS)[number][0];
 const ROUTE_SECTIONS = [
   {
     key: "Ops", title: "Ops — Zenople housekeeping",
-    doBy: "Before the Master export — the file must be right first",
+    doBy: "Before the Master export",
+    long: "Zenople housekeeping that must be right before the Master export is assembled",
     preInvoice: true,
   },
   {
     key: "TMS", title: "TMS — transactions",
-    doBy: "Mon–Tue, before transaction batches close — billing at risk",
+    doBy: "Mon–Tue · before batch close",
+    long: "Earnings AND billing — must land before transaction batches close on Tuesday, or billing is at risk",
     preInvoice: true,
   },
   {
     key: "2TMS", title: "2TMS — round-2 import",
-    doBy: "Tue, after the timecard, with the second import",
+    doBy: "Tue · second import",
+    long: "Earnings-side items that ride the round-2 import after the timecard",
     preInvoice: true,
   },
   {
     key: "PAS", title: "PAS — payroll module",
-    doBy: "Wed, in the PAS run — after invoicing, check only",
+    doBy: "Wed · PAS run",
+    long: "Check-only items — after invoicing, in Wednesday's PAS run",
     preInvoice: false,
   },
   {
     key: null, title: "Needs a route",
-    doBy: "Unrecognised change type — route it by hand before keying",
+    doBy: "Route by hand",
+    long: "Unrecognised change type — route it by hand before keying",
     preInvoice: false,
   },
 ] as const;
@@ -165,6 +173,17 @@ export default function PayrollChanges() {
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Rows whose detail drawer is open. The board leads with the terse label;
+  // the full instruction, supersedes, pairing and provenance live one press
+  // away — fewer words on the face, nothing lost.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleRow = (k: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
 
   // ⚠️ Ignore a superseded response. Changing the pay date twice quickly can let
   // the FIRST, slower reply land after the second, putting one week's numbers
@@ -190,6 +209,19 @@ export default function PayrollChanges() {
   }, [payDate]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Summaries are generated in the background on the server's first sight of
+  // a period; a cold load renders full text. Re-fetch ONCE, quietly, so the
+  // terse labels arrive without anyone reloading. (load() is sequence-guarded
+  // and replaces data in place — no flash.)
+  const retriedForSummaries = useRef(false);
+  useEffect(() => {
+    if (!data || retriedForSummaries.current) return;
+    if (data.actions.length === 0 || data.actions.some((a) => a.summary)) return;
+    retriedForSummaries.current = true;
+    const t = window.setTimeout(() => void load(), 8_000);
+    return () => window.clearTimeout(t);
+  }, [data, load]);
 
   /**
    * Optimistic: the tick lands on screen the frame it is clicked, the PATCH
@@ -252,11 +284,7 @@ export default function PayrollChanges() {
               {data?.period.label ?? "Every change for the period, staged in the order the week runs."}
             </p>
           </div>
-          <label className="flex items-center gap-2 text-label text-neutral-500">
-            Pay date
-            <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)}
-              className="fin-num press rounded-control border border-brand-line bg-white px-2.5 py-1.5 text-body text-brand-ink shadow-rest hover:border-brand-navy/30" />
-          </label>
+          <PayDatePicker value={payDate} onChange={setPayDate} />
         </div>
 
         {error && (
@@ -271,7 +299,7 @@ export default function PayrollChanges() {
             <Stat index={1} label="Fully verified" value={c.complete} of={c.actions} />
             <Stat index={2} label="Retro rows" value={c.retro} />
             <Stat index={3} label="Need a decision" value={c.decisions}
-              tone={c.decisions > 0 ? "text-bad" : "text-neutral-400"} />
+              tone={c.decisions > 0 ? undefined : "text-neutral-400"} />
           </div>
         )}
 
@@ -315,7 +343,7 @@ export default function PayrollChanges() {
                           Pre-invoice
                         </span>
                       )}
-                      <span className="min-w-0 flex-1 truncate text-label text-neutral-500" title={sec.doBy}>
+                      <span className="min-w-0 flex-1 truncate text-label text-neutral-500" title={sec.long}>
                         {sec.doBy}
                       </span>
                       <span className="fin-num shrink-0 text-label text-neutral-500">
@@ -341,12 +369,19 @@ export default function PayrollChanges() {
                             ))}
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-brand-line/70">
-                          {rows.map((r) => (
-                            <tr key={r.rowKey}
-                              className={`transition-colors duration-150 hover:bg-brand-tint/70 ${r.isRetro ? "bg-brand-wash/60" : ""}`}>
-                              <td className="py-2.5 pl-5 pr-3 align-top text-neutral-500">{r.customer}</td>
-                              <td className="px-3 py-2.5 align-top font-medium text-brand-ink">
+                        <tbody>
+                          {rows.map((r) => {
+                            const hasDetail = Boolean(
+                              (r.summary && r.summary !== r.action) || r.supersedes ||
+                              r.pairedWithRowKey || r.notes || r.requestedBy || r.approvedBy,
+                            );
+                            const open = expanded.has(r.rowKey);
+                            return (
+                            <Fragment key={r.rowKey}>
+                            <tr
+                              className={`border-t border-brand-line/70 transition-colors duration-150 hover:bg-brand-tint/70 ${r.isRetro ? "bg-brand-wash/60" : ""}`}>
+                              <td className="py-3 pl-5 pr-3 align-top text-neutral-500">{r.customer}</td>
+                              <td className="px-3 py-3 align-top font-medium text-brand-ink">
                                 {r.employee}
                                 {r.peopleCount > 1 && (
                                   <span className="ml-1 text-micro font-normal text-neutral-400">
@@ -354,7 +389,7 @@ export default function PayrollChanges() {
                                   </span>
                                 )}
                               </td>
-                              <td className="px-3 py-2.5 align-top text-neutral-500">
+                              <td className="px-3 py-3 align-top text-neutral-500">
                                 {r.changeType}
                                 {r.isRetro && (
                                   <span className="mt-1 block w-max whitespace-nowrap rounded bg-brand-navy px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
@@ -362,24 +397,23 @@ export default function PayrollChanges() {
                                   </span>
                                 )}
                               </td>
-                              <td className="px-3 py-2.5 align-top">
-                                <span className="font-medium text-brand-ink">{r.action}</span>
-                                {r.supersedes && (
-                                  <span className="mt-0.5 block text-micro text-bad">
-                                    Supersedes: {r.supersedes}
+                              <td className="px-3 py-3 align-top">
+                                {hasDetail ? (
+                                  <button type="button" onClick={() => toggleRow(r.rowKey)}
+                                    title={r.summary ? r.action : undefined}
+                                    className="press flex w-full items-baseline gap-1.5 text-left">
+                                    <Caret open={open} className="w-3 shrink-0 text-neutral-400" />
+                                    <span className="font-medium text-brand-ink">{r.summary ?? r.action}</span>
+                                  </button>
+                                ) : (
+                                  <span className="flex items-baseline gap-1.5">
+                                    <span aria-hidden className="w-3 shrink-0" />
+                                    <span className="font-medium text-brand-ink">{r.summary ?? r.action}</span>
                                   </span>
-                                )}
-                                {r.pairedWithRowKey && (
-                                  <span className="mt-0.5 block text-micro font-semibold text-bad">
-                                    Paired — do not enter alone
-                                  </span>
-                                )}
-                                {r.notes && (
-                                  <span className="mt-0.5 block text-micro text-neutral-500">{r.notes}</span>
                                 )}
                               </td>
-                              <td className="fin-num px-3 py-2.5 text-right align-top text-brand-ink">{r.hours ?? ""}</td>
-                              <td className="fin-num px-3 py-2.5 text-right align-top text-brand-ink">{r.amount ?? ""}</td>
+                              <td className="fin-num px-3 py-3 text-right align-top text-brand-ink">{r.hours ?? ""}</td>
+                              <td className="fin-num px-3 py-3 text-right align-top text-brand-ink">{r.amount ?? ""}</td>
                               {FIELDS.map(([field]) => {
                                 const v = r[field];
                                 const done2 = rowDone(r, field);
@@ -405,7 +439,41 @@ export default function PayrollChanges() {
                                 );
                               })}
                             </tr>
-                          ))}
+                            {hasDetail && (
+                              <tr aria-hidden={!open}>
+                                <td colSpan={10} className="p-0">
+                                  <Collapse open={open}>
+                                    <div className="space-y-1.5 bg-brand-tint/60 py-3 pl-[3.25rem] pr-5 text-label">
+                                      {r.summary && r.summary !== r.action && (
+                                        <p className="text-brand-ink">{r.action}</p>
+                                      )}
+                                      {r.supersedes && (
+                                        <p className="font-semibold text-brand-navy">
+                                          Supersedes: {r.supersedes}
+                                        </p>
+                                      )}
+                                      {r.pairedWithRowKey && (
+                                        <p className="font-semibold text-brand-navy">
+                                          Paired — do not enter alone
+                                        </p>
+                                      )}
+                                      {r.notes && <p className="text-neutral-500">{r.notes}</p>}
+                                      {(r.requestedBy || r.approvedBy) && (
+                                        <p className="text-micro text-neutral-500">
+                                          {[
+                                            r.requestedBy && `Requested by ${r.requestedBy}`,
+                                            r.approvedBy && `Approved by ${r.approvedBy}`,
+                                          ].filter(Boolean).join(" · ")}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </Collapse>
+                                </td>
+                              </tr>
+                            )}
+                            </Fragment>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -423,7 +491,7 @@ export default function PayrollChanges() {
                 <h2 className="text-title font-semibold tracking-tight text-brand-navy">
                   Needs a decision
                 </h2>
-                <span className="rounded-full bg-bad-bg px-2 py-0.5 text-micro font-semibold text-bad">
+                <span className="fin-num rounded-full bg-brand-wash px-2 py-0.5 text-micro font-semibold text-brand-navy">
                   {data.decisions.length}
                 </span>
                 <span className="text-label text-neutral-500">Held off the action list</span>
@@ -442,7 +510,7 @@ export default function PayrollChanges() {
                 ))}
               </ul>
               <p className="border-t border-brand-line px-5 py-2.5 text-micro text-neutral-500">
-                A discussed intent is not an approval. These stay off the action list until answered.
+                Discussed is not approved — these stay here until answered.
               </p>
             </section>
           </Reveal>

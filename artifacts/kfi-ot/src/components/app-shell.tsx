@@ -5,7 +5,6 @@ import { useGetMe, useLogout, getGetMeQueryKey } from "@workspace/api-client-rea
 import { LogOut } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { useAccess } from "@/lib/access";
 import { GearButton } from "@/components/gear-button";
 
@@ -30,20 +29,17 @@ export function AppShell({
   wide?: boolean;
 }) {
   const { data: user } = useGetMe();
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
   const qc = useQueryClient();
   const logout = useLogout();
 
   const access = useAccess();
-  // Only ROOT tiles reach the nav bar. The payroll sub-tiles sit under
-  // /payroll-process and are reached from that board — putting all sixteen in
-  // one bar would overflow it and bury the four that are not payroll.
-  const all = access?.tiles ?? [];
-  const items = all
-    .filter((t) => !all.some((o) => o.href !== t.href && t.href.startsWith(o.href + "/")))
-    .map((t) => ({ href: t.href, label: t.title }));
-  const isActive = (href: string) =>
-    active ? active === href : location === href || location.startsWith(href + "/");
+  // No board-to-board links in the chrome — boards are chosen on the landing
+  // ("once you are in the tile, that is it", the estate's standing law;
+  // Brad on this app, 2026-09-01: "dont need links to others"). The wordmark
+  // is the one way back. `active` is accepted and ignored so the twenty
+  // pages that pass it did not need touching.
+  void active;
 
   const handleLogout = () =>
     logout.mutate(undefined, {
@@ -60,22 +56,6 @@ export function AppShell({
           <Link href="/" className="flex shrink-0 items-center no-underline" title="Home">
             <Logo variant="header" />
           </Link>
-          <nav className="flex items-center gap-1">
-            {items.map((n) => (
-              <Link
-                key={n.href}
-                href={n.href}
-                className={cn(
-                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  isActive(n.href)
-                    ? "bg-white/15 text-white"
-                    : "text-white/70 hover:bg-white/10 hover:text-white",
-                )}
-              >
-                {n.label}
-              </Link>
-            ))}
-          </nav>
           <div className="ml-auto flex shrink-0 items-center gap-2">
             {user?.email && (
               <span className="hidden text-xs text-white/60 lg:inline">{user.email}</span>

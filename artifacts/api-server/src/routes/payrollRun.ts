@@ -4,7 +4,10 @@ import { db, schema } from "../lib/db.js";
 import { requireAuth } from "../lib/auth.js";
 import { requireTile, type AuthedRequest } from "../lib/entraAuth.js";
 import { PAYROLL_CHECKLIST, OFF_CYCLE_STEP_KEYS } from "../lib/payrollChecklist.js";
-import { isFriday, parsePeriodLabel, payDateFor, periodDatesFor } from "../lib/payrollPeriod.js";
+import {
+  isValidPayDate, parsePeriodLabel, payDateFor, payDates, periodDatesFor,
+} from "../lib/payrollPeriod.js";
+import { summarizeChangeActions } from "../lib/payrollChangeSummary.js";
 import { addDays } from "../lib/time.js";
 import { pullPeriod, runTieOuts, rosterFrom } from "../lib/zenoplePayroll.js";
 import { pull } from "../lib/zenopleClient.js";
@@ -24,6 +27,27 @@ export const payrollRunRouter: IRouter = Router();
 
 const STATUSES = new Set(["pending", "in_progress", "done", "blocked", "skipped"]);
 const todayIso = (): string => new Date().toISOString().slice(0, 10);
+
+/**
+ * Refuse a date that is not a real pay day BEFORE it reaches the period
+ * store. `ensurePayrollPeriod` is an unconditional upsert, so without this a
+ * keyboard-scrubbed date input minted a junk `payroll_periods` row per
+ * keystroke. Regular periods pay Friday — or the Thursday before, when that
+ * Friday is a bank holiday. Off-cycle runs pay any weekday and skip the guard.
+ */
+function badPayDate(payDate: string, isOffCycle: boolean, res: Response): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(payDate)) {
+    res.status(400).json({ error: "payDate must be YYYY-MM-DD" });
+    return true;
+  }
+  if (!isOffCycle && !isValidPayDate(payDate)) {
+    res.status(400).json({
+      error: "not a pay date — regular periods pay Friday (or the Thursday before a Friday holiday); pass offCycle=1 for an off-cycle run",
+    });
+    return true;
+  }
+  return false;
+}
 
 /**
  * Make sure the step catalogue in the database matches the seed.
@@ -124,6 +148,17 @@ payrollRunRouter.get("/payroll-run/periods", requireAuth, requireTile("payroll_p
   });
 
 /**
+ * The dates a period may be run against — ARITHMETIC, not read from
+ * payroll_periods, so junk rows minted before validation existed can never
+ * surface in a picker. Friday, or the Thursday before a Friday holiday.
+ * requireAuth only: every payroll tile carries the picker.
+ */
+payrollRunRouter.get("/payroll-run/pay-dates", requireAuth,
+  (_req: Request, res: Response) => {
+    res.json({ payDates: payDates(todayIso(), 12, 4), current: payDateFor(todayIso()) });
+  });
+
+/**
  * The checklist for one pay date, with this period's state attached.
  *
  * Creates the period on first view rather than requiring a separate step —
@@ -137,12 +172,7 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/checklist", requireAuth,
       return;
     }
     const isOffCycle = String(req.query.offCycle ?? "") === "1";
-    if (!isOffCycle && !isFriday(payDate)) {
-      // Not fatal — an off-cycle run pays on any weekday — but worth saying,
-      // because a regular period on a Tuesday is nearly always a typo.
-      res.status(400).json({ error: "a regular pay date must be a Friday; pass offCycle=1 for an off-cycle run" });
-      return;
-    }
+    if (badPayDate(payDate, isOffCycle, res)) return;
 
     await ensureSteps();
     const period = await ensurePayrollPeriod(payDate, isOffCycle);
@@ -204,6 +234,7 @@ payrollRunRouter.post("/payroll-run/periods/:payDate/steps/:stepKey", requireAut
     }
 
     const isOffCycle = String(req.query.offCycle ?? "") === "1";
+    if (badPayDate(payDate, isOffCycle, res)) return;
     const period = await ensurePayrollPeriod(payDate, isOffCycle);
     const step = (await db.select().from(schema.payrollStepsTable)
       .where(eq(schema.payrollStepsTable.key, stepKey)).limit(1))[0];
@@ -257,11 +288,11 @@ payrollRunRouter.post("/payroll-run/periods/:payDate/steps/:stepKey", requireAut
 payrollRunRouter.post("/payroll-run/periods/:payDate/carry-forward", requireAuth,
   requireTile("payroll_process"), async (req: Request, res: Response) => {
     const payDate = String(req.params.payDate);
+    if (badPayDate(payDate, false, res)) return;
     const from = await ensurePayrollPeriod(payDate, false);
-    // The next REGULAR period is exactly a week on. `periodDatesFor(payDate)
-    // .payDate` is just payDate again, so the old round-trip through it said
-    // nothing; addDays says what is meant.
-    const to = await ensurePayrollPeriod(addDays(payDate, 7), false);
+    // The next REGULAR period is a week on — resolved through payDateFor so
+    // a carry into Christmas week lands on the Thursday it actually pays.
+    const to = await ensurePayrollPeriod(payDateFor(addDays(payDate, 7)), false);
 
     const blocked = await db.select().from(schema.payrollStepStateTable)
       .where(and(eq(schema.payrollStepStateTable.periodId, from.id),
@@ -307,10 +338,7 @@ payrollRunRouter.get("/payroll-run/resolve", requireAuth, requireTile("payroll_p
 payrollRunRouter.get("/payroll-run/periods/:payDate/tie-outs", requireAuth,
   requireTile("payroll_process"), async (req: Request, res: Response) => {
     const payDate = String(req.params.payDate);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(payDate)) {
-      res.status(400).json({ error: "payDate must be YYYY-MM-DD" });
-      return;
-    }
+    if (badPayDate(payDate, false, res)) return;
     const period = await ensurePayrollPeriod(payDate, false);
     const refresh = String(req.query.refresh ?? "") === "1";
 
@@ -371,11 +399,9 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/tie-outs", requireAuth,
 payrollRunRouter.get("/payroll-run/periods/:payDate/changes", requireAuth,
   requireTile("payroll_changes"), async (req: Request, res: Response) => {
     const payDate = String(req.params.payDate);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(payDate)) {
-      res.status(400).json({ error: "payDate must be YYYY-MM-DD" });
-      return;
-    }
-    const period = await ensurePayrollPeriod(payDate, String(req.query.offCycle ?? "") === "1");
+    const isOffCycle = String(req.query.offCycle ?? "") === "1";
+    if (badPayDate(payDate, isOffCycle, res)) return;
+    const period = await ensurePayrollPeriod(payDate, isOffCycle);
     const rows = await db.select().from(schema.payrollChangesTable)
       .where(eq(schema.payrollChangesTable.periodId, period.id))
       .orderBy(asc(schema.payrollChangesTable.customer), asc(schema.payrollChangesTable.employee));
@@ -384,6 +410,16 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/changes", requireAuth,
     // list entirely rather than mixed in and hoped to be noticed.
     const actions = rows.filter((r) => !r.needsDecision);
     const decisions = rows.filter((r) => r.needsDecision);
+
+    // Terse row labels — one cached AI pass per period. Never load-bearing:
+    // a failure or a summary that flunks the number/negation check simply
+    // leaves the row showing its full action text.
+    const summaries = await summarizeChangeActions(
+      actions.map((r) => ({
+        rowKey: r.rowKey, changeType: r.changeType,
+        employee: r.employee, action: r.action,
+      })),
+    );
 
     const verified = (r: typeof rows[number]): boolean => {
       const n = Math.max(1, r.peopleCount);
@@ -394,7 +430,8 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/changes", requireAuth,
 
     res.json({
       period: { ...period, ...(period.isOffCycle ? {} : periodDatesFor(period.payDate)) },
-      actions, decisions,
+      actions: actions.map((r) => ({ ...r, summary: summaries.get(r.rowKey) ?? null })),
+      decisions,
       counts: {
         actions: actions.length,
         decisions: decisions.length,
@@ -434,6 +471,7 @@ payrollRunRouter.patch("/payroll-run/periods/:payDate/changes/:rowKey", requireA
       }
     }
 
+    if (badPayDate(payDate, false, res)) return;
     const period = await ensurePayrollPeriod(payDate, false);
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     for (const f of counts) if (b[f] !== undefined) patch[f] = b[f];

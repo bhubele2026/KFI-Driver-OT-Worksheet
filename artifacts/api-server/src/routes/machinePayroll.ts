@@ -10,6 +10,7 @@ import {
   type SweptRow, type StoredRow,
 } from "../lib/payrollChangeMerge.js";
 import { ensurePayrollPeriod } from "../lib/payrollPeriodStore.js";
+import { isValidPayDate } from "../lib/payrollPeriod.js";
 
 /**
  * The local bridge's way in.
@@ -65,6 +66,14 @@ machinePayrollRouter.post("/machine/payroll", requirePulseKey,
       return;
     }
 
+    // The bridge obeys the same law as the humans: a regular period pays
+    // Friday, or the Thursday before a Friday holiday. Off-cycle escapes.
+    if (body.isOffCycle !== true && !isValidPayDate(payDate)) {
+      res.status(400).json({
+        error: "not a pay date — regular periods pay Friday (or the Thursday before a Friday holiday); set isOffCycle for an off-cycle run",
+      });
+      return;
+    }
     const period = await ensurePayrollPeriod(payDate, body.isOffCycle === true);
     const out: Record<string, unknown> = { period: period.label, periodId: period.id };
 

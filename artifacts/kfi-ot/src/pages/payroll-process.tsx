@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { AppShell } from "@/components/app-shell";
+import { PayDatePicker } from "@/components/pay-date-picker";
 import { useAccess } from "@/lib/access";
 import { TieOutPanel } from "@/components/tie-out-panel";
 
@@ -175,15 +176,7 @@ export default function PayrollProcess() {
                 : "The checklist for this pay period."}
             </p>
           </div>
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            Pay date
-            <input
-              type="date"
-              value={payDate}
-              onChange={(e) => setPayDate(e.target.value)}
-              className="fin-num rounded-md border border-border bg-white px-2 py-1 text-sm text-foreground"
-            />
-          </label>
+          <PayDatePicker value={payDate} onChange={setPayDate} />
         </div>
 
         {data && (
