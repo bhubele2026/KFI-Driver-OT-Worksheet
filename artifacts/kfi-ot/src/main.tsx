@@ -3,6 +3,11 @@ import * as Sentry from "@sentry/react";
 import App from "./App";
 import "./index.css";
 import "./i18n";
+import { startClickLog } from "./lib/click-log";
+
+// The owner's Activity view shows EVERY CLICK — one capture-phase listener,
+// batched, started before anything renders so no press is missed.
+startClickLog();
 
 // Error tracking — prod bundles only, and only when a DSN was baked in at
 // build time (az acr build --build-arg VITE_SENTRY_DSN=...). Local dev and any

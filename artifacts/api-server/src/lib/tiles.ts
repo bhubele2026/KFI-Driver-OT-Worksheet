@@ -32,7 +32,7 @@ export const TILES: TileDef[] = [
     group: "Payroll",
     href: "/payroll-process",
     title: "Payroll Process",
-    blurb: "The 51-step checklist for this pay period, live — what is done, what is blocked, and on whom.",
+    blurb: "The pay-period checklist, live — progress, blockers, and owners at a glance.",
     source: "Run the week",
   },
   {
@@ -40,7 +40,7 @@ export const TILES: TileDef[] = [
     group: "Payroll",
     href: "/payroll-process/changes",
     title: "Changes & Deductions",
-    blurb: "Everything from payroll@ that must be keyed before the pay date, as action rows with the last reply's number.",
+    blurb: "Every payroll change for the period, staged in processing order with deadlines and sign-off.",
     source: "This payroll",
   },
   {
@@ -48,7 +48,7 @@ export const TILES: TileDef[] = [
     group: "Payroll",
     href: "/payroll-process/templates",
     title: "Templates",
-    blurb: "Friday's per-customer timesheet templates — split, send and track.",
+    blurb: "Per-customer timesheet templates — prepared, sent, and tracked.",
     source: "Friday",
   },
   {
@@ -56,7 +56,7 @@ export const TILES: TileDef[] = [
     group: "Payroll",
     href: "/payroll-process/hours",
     title: "Hours Intake",
-    blurb: "Per-customer board: hours in, punches compared, and each customer's own quirks.",
+    blurb: "Hours received from each customer, verified against time punches.",
     source: "Monday",
   },
   {
@@ -64,7 +64,7 @@ export const TILES: TileDef[] = [
     group: "Payroll",
     href: "/payroll-process/master",
     title: "Master Import",
-    blurb: "Assemble the master file, run the tie-outs, and work the no-hours list.",
+    blurb: "The master import — assembled, tied out, and cleared for Zenople.",
     source: "Monday",
   },
   {
@@ -72,7 +72,7 @@ export const TILES: TileDef[] = [
     group: "Payroll",
     href: "/payroll-process/fringe",
     title: "Fringe",
-    blurb: "Housing Benefit Supplemental against TBD3 deductions — the balance that has to be exact.",
+    blurb: "Housing fringe against deductions — balanced to the cent.",
     source: "Tuesday",
   },
   {
@@ -80,7 +80,7 @@ export const TILES: TileDef[] = [
     group: "Payroll",
     href: "/payroll-process/batch",
     title: "Payroll Batch",
-    blurb: "Register balance, outliers, live checks, MN ESST and Pennsylvania withholding.",
+    blurb: "Batch review — register balance, outliers, and state requirements.",
     source: "Wednesday",
   },
   {
@@ -88,7 +88,7 @@ export const TILES: TileDef[] = [
     group: "Payroll",
     href: "/payroll-process/taxes",
     title: "Taxes / APTM",
-    blurb: "Daily tax pivot tied to the register, and the upload clock.",
+    blurb: "Daily tax summary tied to the register, with the filing clock.",
     source: "Wednesday",
   },
   {
@@ -96,7 +96,7 @@ export const TILES: TileDef[] = [
     group: "Payroll",
     href: "/payroll-process/expert-pay",
     title: "Expert Pay",
-    blurb: "Child support export and totals check. Payment stays manual, and the file stays local.",
+    blurb: "Child-support remittance — exported, totaled, and verified.",
     source: "Thursday",
   },
   {
@@ -104,7 +104,7 @@ export const TILES: TileDef[] = [
     group: "Payroll",
     href: "/payroll-process/rates",
     title: "Rates & Terms",
-    blurb: "Y1 to Y2 markups, terminations, deduction deactivations and pro-rate stops.",
+    blurb: "Rate changes, markups, and end-of-assignment updates.",
     source: "Thursday",
   },
   {
@@ -112,7 +112,7 @@ export const TILES: TileDef[] = [
     group: "Payroll",
     href: "/payroll-process/off-cycle",
     title: "Off-Cycle",
-    blurb: "Advances, voids and reissues, with the disbursement channel as a field.",
+    blurb: "Advances, voids, and reissues handled outside the weekly run.",
     source: "As needed",
   },
   {
@@ -120,7 +120,7 @@ export const TILES: TileDef[] = [
     group: "Payroll",
     href: "/payroll-process/holiday",
     title: "Holiday Pay",
-    blurb: "26-week eligibility look-back: check dates, 720 worked hours, and an active assignment.",
+    blurb: "Holiday pay eligibility, verified against the look-back rules.",
     source: "Per holiday",
   },
   {
@@ -128,7 +128,7 @@ export const TILES: TileDef[] = [
     group: "The week",
     href: "/upload",
     title: "Driver Upload",
-    blurb: "Refresh Connecteam punches and drop in each customer's timesheet for the week.",
+    blurb: "Bring the week in — time punches and customer timesheets.",
     source: "Bring the week in",
   },
   {
@@ -136,7 +136,7 @@ export const TILES: TileDef[] = [
     group: "The week",
     href: "/timesheets",
     title: "Timesheets",
-    blurb: "Review hours and overtime, catch driver-vs-customer mismatches, print and export to Zenople.",
+    blurb: "Review hours and overtime, resolve mismatches, and export to payroll.",
     source: "Review & export",
   },
   {
@@ -144,21 +144,25 @@ export const TILES: TileDef[] = [
     group: "The week",
     href: "/history",
     title: "History",
-    blurb: "Open any past payroll week to review or reprint what was already run.",
+    blurb: "Completed payroll weeks, ready to review or reprint.",
     source: "Past weeks",
-  },
-  {
-    key: "settings",
-    group: "Admin",
-    href: "/settings",
-    title: "Settings",
-    blurb: "Users, customers, driver aliases, clock offsets, timezones, and app configuration.",
-    source: "Admin & config",
-    adminOnly: true,
   },
 ];
 
 export const TILE_KEYS: string[] = TILES.map((t) => t.key);
+
+/**
+ * Event-only pseudo-tiles. NOT grantable, never in the access panel, and no
+ * page of their own in the registry — they exist so the front door and the
+ * owner's Settings pages can be click-logged at all. `settings` stopped being
+ * a real tile when Settings moved behind the owner's gear (2026-09-01):
+ * grants that still name it are inert, by design.
+ */
+export const PSEUDO_TILE_KEYS = ["home", "settings"] as const;
+
+/** A key the event log accepts: any real tile, or a pseudo-tile. */
+export const isEventTileKey = (v: string): boolean =>
+  TILE_KEYS.includes(v) || (PSEUDO_TILE_KEYS as readonly string[]).includes(v);
 
 /**
  * Tiles nobody can be granted — the owner holds them by being the owner.

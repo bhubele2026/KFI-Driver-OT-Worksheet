@@ -2,11 +2,11 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { sql } from "drizzle-orm";
 import { db, schema } from "../lib/db.js";
 import {
-  TILES, TILE_GROUPS, TILE_KEYS, OWNER_ONLY_TILE_KEYS, isTileKey,
+  TILES, TILE_GROUPS, OWNER_ONLY_TILE_KEYS, isEventTileKey,
   GRANTABLE_KEYS, PAYROLL_GROUP_KEY, PAYROLL_TILE_KEYS,
 } from "../lib/tiles.js";
 import { requireAuth, requireAdmin } from "../lib/auth.js";
-import { requireOwner, ownerEmails, type AuthedRequest } from "../lib/entraAuth.js";
+import { requireOwner, ownerEmails, noteClientEvent, type AuthedRequest } from "../lib/entraAuth.js";
 
 export const tilesRouter: IRouter = Router();
 
@@ -25,6 +25,7 @@ tilesRouter.get("/tiles", (req: Request, res: Response) => {
     res.json({
       tiles: [],
       gatedPaths: TILES.map((t) => t.href),
+      pathTiles: TILES.map((t) => ({ href: t.href, key: t.key })),
       // Report the REAL owner flag even with no user row — hardcoding false
       // here hid that the owner check was working and sent me after the wrong
       // bug entirely.
@@ -47,30 +48,56 @@ tilesRouter.get("/tiles", (req: Request, res: Response) => {
     // tile you don't hold" (bounce home) from "not a tile at all" (e.g. a
     // driver-detail URL, which must still resolve). Paths only — no titles.
     gatedPaths: TILES.map((t) => t.href),
+    // href → key for every tile, held or not: attribution for the click log.
+    // Keys are opaque and the hrefs already travel above — nothing new leaks.
+    pathTiles: TILES.map((t) => ({ href: t.href, key: t.key })),
     isOwner: a.isOwner === true,
     isAdmin,
     email: a.user?.email ?? a.authEmail ?? null,
   });
 });
 
-/** Usage log. A forged tile key never lands a row — it is checked against the caller's own grants. */
+/** Client event kinds. `login` is deliberately absent — sign-in history is
+ *  written server-side (entraAuth) and must never be mintable from a browser. */
+const CLIENT_KINDS = new Set(["open", "click", "tab", "drill", "range"]);
+
+/**
+ * Usage log. Two shapes: one event (a board open / interaction) or a BATCH
+ * (the click log, which would otherwise put a request on the wire per press).
+ *
+ * ⚠️ THE GRANT CHECK IS FOR OPENS ONLY. A board OPEN must be held to be
+ * believed — a forged post could invent usage on a board nobody can reach. A
+ * CLICK is different: it already happened, in a browser we served, and a
+ * press on a surface someone doesn't hold is MORE worth seeing, not less.
+ * (On Housing that guard silently produced ZERO click rows for the whole
+ * team for a week — their landing presses carried a tile they don't hold.)
+ */
 tilesRouter.post("/tile-open", requireAuth, (req: Request, res: Response) => {
   const a = req as AuthedRequest;
-  const tile = String(req.body?.tile ?? "");
-  const kind = String(req.body?.kind ?? "open");
-  const detail = req.body?.detail == null ? null : String(req.body.detail).slice(0, 120);
-  if ((a.tiles ?? []).includes(tile) && isTileKey(tile)) {
-    void db
-      .insert(schema.tileEventTable)
-      .values({
-        userId: a.user?.id ?? null,
-        email: a.user?.email ?? null,
-        tile,
-        kind: kind === "login" ? "login" : "open",
-        detail,
-        source: "client",
-      })
-      .catch(() => {});
+  const incoming: unknown[] = Array.isArray(req.body?.events)
+    ? (req.body.events as unknown[]).slice(0, 200)
+    : [req.body];
+  const rows: (typeof schema.tileEventTable.$inferInsert)[] = [];
+  for (const raw of incoming) {
+    const ev = raw as { tile?: unknown; kind?: unknown; detail?: unknown } | null;
+    const tile = String(ev?.tile ?? "");
+    const kindRaw = String(ev?.kind ?? "open");
+    const kind = CLIENT_KINDS.has(kindRaw) ? kindRaw : "open";
+    const detail = ev?.detail == null ? null : String(ev.detail).slice(0, 120);
+    if (!isEventTileKey(tile)) continue;
+    if (kind !== "click" && !(a.tiles ?? []).includes(tile) && tile !== "home" && tile !== "settings") continue;
+    rows.push({
+      userId: a.user?.id ?? null,
+      email: a.user?.email ?? null,
+      tile,
+      kind,
+      detail,
+      source: "client",
+    });
+  }
+  if (rows.length) {
+    noteClientEvent(a.user?.email);
+    void db.insert(schema.tileEventTable).values(rows).catch(() => {});
   }
   res.status(204).end();
 });
@@ -196,44 +223,116 @@ tilesRouter.post(
   },
 );
 
-/** Activity: who has been opening what. */
+/**
+ * Activity: the owner's view of who has been where — every open, every click.
+ * Mirrors the Financial Dashboard / KFI-Housing activity API:
+ *  - `counted` dedupe: client rows are exact; a server-recorded row only
+ *    counts when no client row from the same person sits within ±15 minutes
+ *    (a stale cached bundle posts nothing, so the server writes a fallback).
+ *  - `recent` has NO dedupe — a feed called "every click" must show the
+ *    second press of the same button.
+ *  - sign-ins come from durable login rows, seeded with users.last_login_at
+ *    for the days before history existed. The owner is always included there.
+ */
 tilesRouter.get(
   "/admin/tile-activity",
   requireAdmin,
   requireOwner,
   async (req: Request, res: Response) => {
     const days = Math.min(365, Math.max(1, Number(req.query.days ?? 30) || 30));
-    const since = sql`now() - (${String(days)} || ' days')::interval`;
-
-    const [byUser, byTile, recent] = await Promise.all([
-      db.execute(sql`
-        select e.email, count(*)::int as total, max(e.opened_at) as last_active
-        from tile_event e
-        where e.opened_at >= ${since} and e.kind = 'open'
-        group by e.email order by total desc limit 50
-      `),
-      db.execute(sql`
-        select e.tile, count(*)::int as total, count(distinct e.email)::int as users
-        from tile_event e
-        where e.opened_at >= ${since} and e.kind = 'open'
-        group by e.tile order by total desc
-      `),
-      db.execute(sql`
-        select e.email, e.tile, e.kind, e.detail, e.opened_at
-        from tile_event e
-        where e.opened_at >= ${since}
-        order by e.opened_at desc limit 200
-      `),
-    ]);
+    const includeOwner = req.query.includeOwner === "1";
+    const limit = Math.max(1, Math.min(2000, Number(req.query.limit) || 400));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const ownersCsv = [...ownerEmails()].join(",");
 
     const rows = (r: unknown): unknown[] =>
       Array.isArray(r) ? r : ((r as { rows?: unknown[] })?.rows ?? []);
 
-    res.json({
-      days,
-      byUser: rows(byUser),
-      byTile: rows(byTile),
-      recent: rows(recent),
-    });
+    try {
+      const base = sql`
+        with ev as (
+          select lower(e.email) as email, e.tile, e.kind, e.detail, e.source, e.opened_at
+          from tile_event e
+          where e.opened_at >= now() - (${String(days)} || ' days')::interval
+            and e.tile <> '_login'
+            and e.email is not null
+            and (${includeOwner}::boolean or not (lower(e.email) = any(string_to_array(${ownersCsv}, ','))))
+        ),
+        counted as (
+          select ev.* from ev
+          where ev.source = 'client'
+             or not exists (
+               select 1 from ev c
+               where c.email = ev.email and c.source = 'client'
+                 and c.opened_at between ev.opened_at - interval '15 minutes'
+                                     and ev.opened_at + interval '15 minutes')
+        )`;
+
+      const [byTile, byUser, perUserTiles, recent, recentCount, signIns] = await Promise.all([
+        db.execute(sql`${base}
+          select tile,
+                 count(*) filter (where kind = 'open')::int as count,
+                 count(*) filter (where kind <> 'open')::int as interactions,
+                 count(distinct email)::int as users
+          from counted group by tile order by count desc`),
+        db.execute(sql`${base}
+          select email,
+                 count(*) filter (where kind = 'open')::int as total,
+                 count(*) filter (where kind <> 'open')::int as interactions,
+                 to_char(max(opened_at), 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "lastActive"
+          from counted group by email order by max(opened_at) desc`),
+        db.execute(sql`${base}
+          select email, tile, count(*)::int as count
+          from counted group by email, tile`),
+        db.execute(sql`${base}
+          select email, tile, kind, detail, source,
+                 to_char(opened_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as at
+          from counted order by opened_at desc limit ${limit} offset ${offset}`),
+        db.execute(sql`${base} select count(*)::int as n from counted`),
+        db.execute(sql`
+          select s.email, to_char(s.at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as at
+          from (
+            select lower(email) as email, opened_at as at from tile_event
+            where kind = 'login' and email is not null
+              and opened_at >= now() - (${String(days)} || ' days')::interval
+            union all
+            select lower(email), last_login_at from users
+            where last_login_at is not null
+              and last_login_at >= now() - (${String(days)} || ' days')::interval
+          ) s group by s.email, s.at order by s.at desc limit 400`),
+      ]);
+
+      const tilesByUser = new Map<string, Array<{ tile: string; count: number }>>();
+      for (const r of rows(perUserTiles) as Array<{ email: string; tile: string; count: number }>) {
+        if (!tilesByUser.has(r.email)) tilesByUser.set(r.email, []);
+        tilesByUser.get(r.email)!.push({ tile: r.tile, count: Number(r.count) });
+      }
+      const byUserRows = (rows(byUser) as Array<{ email: string; total: number; interactions: number; lastActive: string }>).map((u) => ({
+        ...u,
+        total: Number(u.total),
+        interactions: Number(u.interactions),
+        tiles: (tilesByUser.get(u.email) ?? []).sort((x, y) => y.count - x.count),
+      }));
+
+      res.json({
+        days,
+        totalOpens: byUserRows.reduce((n, u) => n + u.total, 0),
+        totalInteractions: byUserRows.reduce((n, u) => n + u.interactions, 0),
+        byUser: byUserRows,
+        byTile: (rows(byTile) as Array<{ tile: string; count: number; interactions: number; users: number }>).map((t) => ({
+          ...t, count: Number(t.count), interactions: Number(t.interactions), users: Number(t.users),
+        })),
+        recent: rows(recent),
+        recentTotal: Number((rows(recentCount)[0] as { n?: number } | undefined)?.n ?? 0),
+        recentOffset: offset,
+        signIns: rows(signIns),
+      });
+    } catch {
+      // A not-yet-migrated table must never 500 the panel.
+      res.json({
+        days, totalOpens: 0, totalInteractions: 0,
+        byUser: [], byTile: [], recent: [], recentTotal: 0, recentOffset: 0, signIns: [],
+      });
+    }
   },
 );

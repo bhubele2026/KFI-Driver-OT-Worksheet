@@ -4,7 +4,8 @@ import { useGetMe, useLogout, getGetMeQueryKey } from "@workspace/api-client-rea
 import { LogOut } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
-import { useAccess, logTileEvent } from "@/lib/access";
+import { useAccess } from "@/lib/access";
+import { GearButton } from "@/components/gear-button";
 
 /**
  * The tile list is NOT hardcoded here any more. It comes from GET /api/tiles,
@@ -29,7 +30,7 @@ export default function Home() {
   return (
     <div className="min-h-[100dvh] bg-background">
       {/* Navy brand hero — full-bleed, flush to edges */}
-      <div className="bg-brand-navy shadow-sm">
+      <div className="bg-gradient-to-b from-brand-navy2 to-brand-navy shadow-[inset_0_-1px_0_rgba(255,255,255,0.08),0_1px_2px_rgba(16,24,40,0.10)]">
         <div className="mx-auto flex w-full max-w-[1700px] items-center justify-between gap-4 px-6 py-5 sm:py-6">
           <div>
             <Logo variant="header" className="h-14 sm:h-16" />
@@ -41,6 +42,7 @@ export default function Home() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {access?.isOwner && <GearButton />}
             <Button
               variant="ghost"
               size="sm"
@@ -61,12 +63,12 @@ export default function Home() {
             <button
               key={tile.key}
               type="button"
-              onClick={() => {
-                logTileEvent(tile.key);
-                setLocation(tile.href);
-              }}
-              style={{ animationDelay: `${i * 28}ms` }}
-              className="tile-in group flex h-full flex-col rounded-lg bg-white p-6 text-left shadow-sm ring-1 ring-brand-line transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-1 hover:shadow-md hover:ring-brand-navy/25"
+              /* The open is logged by the route-change effect in App.tsx (so
+                 deep links count identically); the press itself reaches the
+                 Activity feed through the click log. */
+              onClick={() => setLocation(tile.href)}
+              style={{ animationDelay: `calc(${i} * var(--stagger))` }}
+              className="tile-in card-bleed surface surface-lift press group relative flex h-full flex-col overflow-hidden rounded-card p-6 text-left ring-1 ring-brand-line hover:-translate-y-1 hover:ring-brand-navy/25"
             >
               <span className="text-base font-semibold text-brand-navy">{tile.title}</span>
               <span className="mt-1.5 text-sm text-neutral-500">{tile.blurb}</span>

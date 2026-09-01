@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { Caret, Collapse, Skeleton } from "@/components/motion";
 import { useAccess, invalidateAccess } from "@/lib/access";
+import { guardedFetch } from "@/lib/session";
 
 interface RegistryTile {
   key: string;
@@ -32,16 +34,67 @@ interface AccessPayload {
   groups: string[];
   users: AccessUser[];
 }
+interface ActivityEvent {
+  email: string;
+  tile: string;
+  kind: string;
+  detail: string | null;
+  source: string;
+  at: string;
+}
 interface Activity {
   days: number;
-  byUser: Array<{ email: string; total: number; last_active: string }>;
-  byTile: Array<{ tile: string; total: number; users: number }>;
-  recent: Array<{ email: string; tile: string; kind: string; detail: string | null; opened_at: string }>;
+  totalOpens: number;
+  totalInteractions: number;
+  byUser: Array<{
+    email: string;
+    total: number;
+    interactions: number;
+    lastActive: string;
+    tiles: Array<{ tile: string; count: number }>;
+  }>;
+  byTile: Array<{ tile: string; count: number; interactions: number; users: number }>;
+  recent: ActivityEvent[];
+  recentTotal: number;
+  signIns: Array<{ email: string; at: string }>;
 }
 
 const api = (p: string) => `${import.meta.env.BASE_URL}api${p}`;
-const firstName = (email: string) => email.split("@")[0].replace(/[._]/g, " ");
+const firstName = (email: string) => {
+  const raw = email.split("@")[0].split(/[._]/)[0] ?? email;
+  return raw.replace(/^\w/, (ch) => ch.toUpperCase());
+};
 const when = (v: string | null) => (v ? new Date(v).toLocaleString() : "never");
+const fmtWhen = (iso: string): string =>
+  new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+/** Sign-ins bucketed by the viewer's local day, latest time per person per day. */
+function groupSignIns(signIns: Activity["signIns"]) {
+  const byDay = new Map<string, Map<string, { email: string; at: string }>>();
+  for (const s of signIns) {
+    const d = new Date(s.at);
+    const dayKey = d.toLocaleDateString();
+    if (!byDay.has(dayKey)) byDay.set(dayKey, new Map());
+    const m = byDay.get(dayKey)!;
+    const prev = m.get(s.email);
+    if (!prev || new Date(prev.at) < d) m.set(s.email, s);
+  }
+  const todayKey = new Date().toLocaleDateString();
+  const yestKey = new Date(Date.now() - 864e5).toLocaleDateString();
+  return [...byDay.entries()]
+    .sort((a, b) => (new Date(a[0]) < new Date(b[0]) ? 1 : -1))
+    .slice(0, 10)
+    .map(([day, m]) => ({
+      label:
+        day === todayKey
+          ? "Today"
+          : day === yestKey
+            ? "Yesterday"
+            : new Date(day).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
+      today: day === todayKey,
+      people: [...m.values()].sort((a, b) => (a.at < b.at ? 1 : -1)),
+    }));
+}
 
 export default function AdminAccess() {
   const [, setLocation] = useLocation();
@@ -51,8 +104,6 @@ export default function AdminAccess() {
   const [selected, setSelected] = useState<number | null>(null);
   const [draft, setDraft] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
-  const [activity, setActivity] = useState<Activity | null>(null);
-  const [days, setDays] = useState(30);
 
   // Owner-only surface. The server enforces it too; this is just the UI.
   useEffect(() => {
@@ -60,7 +111,7 @@ export default function AdminAccess() {
   }, [access, setLocation]);
 
   const load = () =>
-    fetch(api("/admin/tile-access"), { credentials: "include" })
+    guardedFetch(api("/admin/tile-access"))
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d: AccessPayload) => setData(d))
       .catch(() => setData(null));
@@ -69,13 +120,12 @@ export default function AdminAccess() {
     void load();
   }, []);
 
-  useEffect(() => {
-    if (tab !== "activity") return;
-    void fetch(api(`/admin/tile-activity?days=${days}`), { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: Activity) => setActivity(d))
-      .catch(() => setActivity(null));
-  }, [tab, days]);
+  /** Board name for an event key — registry titles, plus the pseudo-tiles. */
+  const tileName = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of data?.registry ?? []) m.set(t.key, t.title);
+    return (k: string) => (k === "home" ? "Home" : k === "settings" ? "Settings" : (m.get(k) ?? k));
+  }, [data]);
 
   const current = useMemo(
     () => data?.users.find((u) => u.id === selected) ?? null,
@@ -116,11 +166,13 @@ export default function AdminAccess() {
 
   /**
    * How many tiles a stored grant list actually opens. A group grant is ONE row
-   * but confers twelve, so counting rows would under-report access — the exact
-   * number someone would use to decide whether a person can see payroll.
+   * but confers twelve, so counting rows would under-report access. Keys no
+   * longer in the registry (e.g. the retired `settings` tile) confer nothing
+   * and are not counted.
    */
   const effectiveCount = (stored: string[]): number => {
-    const out = new Set(stored);
+    const known = new Set((data?.registry ?? []).map((t) => t.key));
+    const out = new Set(stored.filter((k) => known.has(k)));
     for (const g of groupGrants) {
       if (out.has(g.key)) {
         out.delete(g.key);
@@ -164,9 +216,8 @@ export default function AdminAccess() {
     if (!current) return;
     setSaving(true);
     try {
-      const r = await fetch(api("/admin/user-tiles"), {
+      const r = await guardedFetch(api("/admin/user-tiles"), {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: current.id, tiles: draft }),
       });
@@ -186,9 +237,11 @@ export default function AdminAccess() {
     <AppShell active="/settings">
       <div className="rise-in space-y-5">
         <div>
-          <h1 className="text-xl font-semibold text-brand-navy">Access &amp; activity</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Who can see which tiles, and what people have been opening.
+          <h1 className="text-display font-semibold tracking-tight text-brand-navy">
+            Access &amp; activity
+          </h1>
+          <p className="mt-1 text-body text-neutral-500">
+            Who can see which boards, and what everyone has been doing.
           </p>
         </div>
 
@@ -199,9 +252,10 @@ export default function AdminAccess() {
               type="button"
               onClick={() => setTab(k)}
               className={
-                tab === k
-                  ? "rounded-md bg-brand-navy px-3 py-1.5 text-sm font-medium text-white"
-                  : "rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted"
+                "press rounded-control px-3 py-1.5 text-body font-medium " +
+                (tab === k
+                  ? "bg-brand-navy text-white shadow-rest"
+                  : "text-neutral-500 hover:bg-brand-wash hover:text-brand-navy")
               }
             >
               {k === "access" ? "Access" : "Activity"}
@@ -212,8 +266,8 @@ export default function AdminAccess() {
         {tab === "access" ? (
           <div className="grid gap-5 lg:grid-cols-[22rem_minmax(0,1fr)]">
             {/* People */}
-            <div className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-border">
-              <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
+            <div className="surface rounded-card p-4 ring-1 ring-brand-line">
+              <div className="mb-2 text-micro font-semibold uppercase tracking-[0.08em] text-neutral-500">
                 People
               </div>
               <div className="space-y-1">
@@ -223,8 +277,8 @@ export default function AdminAccess() {
                     type="button"
                     onClick={() => pick(u)}
                     className={
-                      "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-sm transition-colors " +
-                      (selected === u.id ? "bg-brand-navy/10" : "hover:bg-muted")
+                      "press flex w-full items-center justify-between rounded-control px-2.5 py-2 text-left text-body " +
+                      (selected === u.id ? "bg-brand-wash ring-1 ring-brand-navy/25" : "hover:bg-brand-tint")
                     }
                   >
                     <span className="min-w-0">
@@ -236,27 +290,33 @@ export default function AdminAccess() {
                       >
                         {u.email}
                       </span>
-                      <span className="block text-xs text-muted-foreground">
+                      <span className="block text-micro text-neutral-500">
                         {u.isOwner ? "owner" : u.isAdmin ? "admin" : u.role}
                         {u.isActive ? "" : " · inactive"}
                       </span>
                     </span>
                     {/* The owner holds everything implicitly and has no grant
                         rows, so a bare "0" here reads as locked out. */}
-                    <span className="fin-num ml-2 shrink-0 text-xs text-neutral-400">
+                    <span className="fin-num ml-2 shrink-0 text-micro text-neutral-400">
                       {u.isOwner ? "all" : effectiveCount(u.tiles)}
                     </span>
                   </button>
                 ))}
-                {!data && <p className="text-sm text-muted-foreground">Loading…</p>}
+                {!data && (
+                  <div className="space-y-1.5">
+                    {[0, 1, 2, 3].map((i) => (
+                      <Skeleton key={i} className="h-10 w-full rounded-control" />
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Their tiles */}
-            <div className="rounded-lg bg-white p-5 shadow-sm ring-1 ring-border">
+            <div className="surface rounded-card p-5 ring-1 ring-brand-line">
               {!current ? (
-                <p className="text-sm text-muted-foreground">
-                  Pick a person to set which tiles they see.
+                <p className="text-body text-neutral-500">
+                  Pick a person to set which boards they see.
                 </p>
               ) : (
                 <>
@@ -265,7 +325,7 @@ export default function AdminAccess() {
                       <div className="truncate font-semibold text-brand-navy">
                         {current.email}
                       </div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-micro text-neutral-500">
                         last signed in {when(current.lastLoginAt)}
                         {current.isOwner
                           ? " · owner — holds every tile regardless of what is ticked here"
@@ -276,8 +336,8 @@ export default function AdminAccess() {
                     <div className="flex items-center gap-3">
                       <span
                         className={
-                          "text-xs font-medium " +
-                          (dirty ? "text-brand-orange" : "text-neutral-400")
+                          "text-micro font-medium " +
+                          (dirty ? "text-bad" : "text-neutral-400")
                         }
                       >
                         {dirty ? `${changeCount} unsaved` : "All changes saved"}
@@ -292,19 +352,19 @@ export default function AdminAccess() {
                     <button
                       type="button"
                       onClick={() => setAll(true)}
-                      className="rounded-md px-2.5 py-1 text-xs font-medium text-brand-navy ring-1 ring-border hover:bg-muted"
+                      className="press rounded-control px-2.5 py-1 text-micro font-medium text-brand-navy ring-1 ring-brand-line hover:bg-brand-tint"
                     >
                       Everything
                     </button>
                     <button
                       type="button"
                       onClick={() => setAll(false)}
-                      className="rounded-md px-2.5 py-1 text-xs font-medium text-brand-navy ring-1 ring-border hover:bg-muted"
+                      className="press rounded-control px-2.5 py-1 text-micro font-medium text-brand-navy ring-1 ring-brand-line hover:bg-brand-tint"
                     >
                       Nothing
                     </button>
                     {current.isOwner && (
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-micro text-neutral-500">
                         Ticks here do not restrict the owner.
                       </span>
                     )}
@@ -319,7 +379,7 @@ export default function AdminAccess() {
                       if (!inGroup.length) return null;
                       return (
                         <div key={g}>
-                          <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
+                          <div className="mb-2 text-micro font-semibold uppercase tracking-[0.08em] text-neutral-500">
                             {g}
                           </div>
                           <div className="space-y-1.5">
@@ -334,8 +394,8 @@ export default function AdminAccess() {
                                   key={t.key}
                                   title={t.blurb}
                                   className={
-                                    "flex items-start gap-2 rounded-md px-1.5 py-1 text-sm " +
-                                    (locked ? "opacity-60" : "cursor-pointer hover:bg-muted")
+                                    "flex items-start gap-2 rounded-control px-1.5 py-1 text-body " +
+                                    (locked ? "opacity-60" : "cursor-pointer hover:bg-brand-tint")
                                   }
                                 >
                                   <input
@@ -358,22 +418,22 @@ export default function AdminAccess() {
                                       {t.title}
                                     </span>
                                     {t.isGroupGrant && (
-                                      <span className="block text-xs text-muted-foreground">
+                                      <span className="block text-micro text-neutral-500">
                                         {t.blurb}
                                       </span>
                                     )}
                                     {covered && (
-                                      <span className="block text-xs text-muted-foreground">
+                                      <span className="block text-micro text-neutral-500">
                                         Included by {covered.title}
                                       </span>
                                     )}
                                     {t.ownerOnly && (
-                                      <span className="block text-xs text-muted-foreground">
+                                      <span className="block text-micro text-neutral-500">
                                         Owner only — never grantable
                                       </span>
                                     )}
                                     {!locked && t.adminOnly && !current.isAdmin && (
-                                      <span className="block text-xs text-muted-foreground">
+                                      <span className="block text-micro text-neutral-500">
                                         Also needs admin
                                       </span>
                                     )}
@@ -391,96 +451,297 @@ export default function AdminAccess() {
             </div>
           </div>
         ) : (
-          <div className="space-y-5">
-            <div className="flex gap-1">
-              {[7, 30, 90].map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setDays(d)}
-                  className={
-                    days === d
-                      ? "fin-num rounded-md bg-brand-navy px-2.5 py-1 text-xs text-white"
-                      : "fin-num rounded-md px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted"
-                  }
-                >
-                  {d}d
-                </button>
-              ))}
-            </div>
-
-            <div className="grid gap-5 lg:grid-cols-2">
-              <div className="rounded-lg bg-white p-5 shadow-sm ring-1 ring-border">
-                <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
-                  Most-used tiles
-                </div>
-                {(activity?.byTile ?? []).map((t) => (
-                  <div key={t.tile} className="mb-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-brand-navy">{t.tile}</span>
-                      <span className="fin-num text-muted-foreground">
-                        {t.total} · {t.users} {t.users === 1 ? "person" : "people"}
-                      </span>
-                    </div>
-                    <div className="mt-1 h-1.5 rounded bg-muted">
-                      <div
-                        className="h-1.5 rounded bg-brand-navy"
-                        style={{
-                          width: `${Math.round(
-                            (t.total / Math.max(1, activity?.byTile?.[0]?.total ?? 1)) * 100,
-                          )}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-                {!activity?.byTile?.length && (
-                  <p className="text-sm text-muted-foreground">Nothing opened in this window.</p>
-                )}
-              </div>
-
-              <div className="rounded-lg bg-white p-5 shadow-sm ring-1 ring-border">
-                <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
-                  By person
-                </div>
-                {(activity?.byUser ?? []).map((u) => (
-                  <div key={u.email} className="mb-2 flex justify-between text-sm">
-                    <span className="text-brand-navy">{firstName(u.email)}</span>
-                    <span className="fin-num text-muted-foreground">
-                      {u.total} · {when(u.last_active)}
-                    </span>
-                  </div>
-                ))}
-                {!activity?.byUser?.length && (
-                  <p className="text-sm text-muted-foreground">No activity yet.</p>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-lg bg-white p-5 shadow-sm ring-1 ring-border">
-              <div className="mb-3 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
-                Recent
-              </div>
-              <div className="max-h-80 space-y-1 overflow-y-auto">
-                {(activity?.recent ?? []).map((e, i) => (
-                  <div key={i} className="flex gap-3 text-sm">
-                    <span className="fin-num w-36 shrink-0 text-muted-foreground">
-                      {new Date(e.opened_at).toLocaleString()}
-                    </span>
-                    <span className="text-brand-navy">{firstName(e.email ?? "")}</span>
-                    <span className="text-muted-foreground">
-                      {e.kind === "login" ? "signed in" : `opened ${e.tile}`}
-                    </span>
-                  </div>
-                ))}
-                {!activity?.recent?.length && (
-                  <p className="text-sm text-muted-foreground">Nothing yet.</p>
-                )}
-              </div>
-            </div>
-          </div>
+          <ActivityView tileName={tileName} />
         )}
       </div>
     </AppShell>
+  );
+}
+
+/**
+ * The owner's view of who has been where — sign-ins by day, most-used boards,
+ * EVERY CLICK as a sentence, and a per-person breakdown. Ported from the
+ * Financial Dashboard's activity page via KFI-Housing's refinement of it.
+ */
+function ActivityView({ tileName }: { tileName: (k: string) => string }) {
+  const [days, setDays] = useState(30);
+  const [includeOwner, setIncludeOwner] = useState(false);
+  const [limit, setLimit] = useState(400);
+  const [activity, setActivity] = useState<Activity | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  // With every press logged, an unfiltered feed is a firehose: filter to one
+  // person or one board, and pull more rather than stop at an invisible cap.
+  const [who, setWho] = useState<string | null>(null);
+  const [board, setBoard] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    void guardedFetch(
+      api(`/admin/tile-activity?days=${days}&includeOwner=${includeOwner ? "1" : "0"}&limit=${limit}`),
+    )
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: Activity) => alive && setActivity(d))
+      .catch(() => alive && setActivity(null))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [days, includeOwner, limit]);
+
+  const d = activity;
+  const signInDays = useMemo(() => (d ? groupSignIns(d.signIns) : []), [d]);
+  const shownEvents = useMemo(
+    () => (d?.recent ?? []).filter((e) => (!who || e.email === who) && (!board || e.tile === board)),
+    [d, who, board],
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex overflow-hidden rounded-control ring-1 ring-brand-line">
+          {[7, 30, 90].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setDays(n)}
+              className={`press fin-num px-3 py-1 text-micro font-medium ${
+                days === n ? "bg-brand-navy text-white" : "bg-white text-neutral-500 hover:text-brand-navy"
+              }`}
+            >
+              {n}d
+            </button>
+          ))}
+        </div>
+        <label className="flex items-center gap-1.5 text-micro text-neutral-500">
+          <input
+            type="checkbox"
+            checked={includeOwner}
+            onChange={(e) => setIncludeOwner(e.target.checked)}
+            className="h-3.5 w-3.5"
+          />
+          include my own clicks
+        </label>
+        <span className="flex-1" />
+        {d && (
+          <span className="fin-num text-micro text-neutral-400">
+            {d.totalOpens.toLocaleString()} board opens · {d.totalInteractions.toLocaleString()} clicks · last {d.days} days
+          </span>
+        )}
+      </div>
+
+      {loading && !d && (
+        <div className="space-y-1.5">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={i} className="h-6 w-full" />
+          ))}
+        </div>
+      )}
+
+      {d && (
+        <>
+          <section className="surface rounded-card p-5 ring-1 ring-brand-line">
+            <h3 className="mb-2.5 text-micro font-semibold uppercase tracking-[0.08em] text-neutral-500">
+              Signed in
+            </h3>
+            {signInDays.length === 0 && (
+              <p className="text-body text-neutral-400">No sign-ins in this window.</p>
+            )}
+            <div className="space-y-1.5">
+              {signInDays.map((day) => (
+                <div key={day.label} className="flex flex-wrap items-baseline gap-1.5">
+                  <span
+                    className={`w-24 shrink-0 text-micro font-semibold uppercase tracking-[0.08em] ${
+                      day.today ? "text-brand-navy" : "text-neutral-400"
+                    }`}
+                  >
+                    {day.label}
+                  </span>
+                  {day.people.map((p) => (
+                    <span
+                      key={p.email}
+                      title={p.email}
+                      className={`rounded-full px-2 py-0.5 text-micro ${
+                        day.today
+                          ? "bg-brand-wash text-brand-navy ring-1 ring-brand-line"
+                          : "bg-brand-tint text-neutral-600"
+                      }`}
+                    >
+                      {firstName(p.email)} ·{" "}
+                      {new Date(p.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="surface rounded-card p-5 ring-1 ring-brand-line">
+            <h3 className="mb-2.5 text-micro font-semibold uppercase tracking-[0.08em] text-neutral-500">
+              Most-used boards
+            </h3>
+            {d.byTile.length === 0 && (
+              <p className="text-body text-neutral-400">
+                No board activity from others in this window — your own is hidden unless
+                &quot;include my own clicks&quot; is on.
+              </p>
+            )}
+            <div className="space-y-1.5">
+              {d.byTile.map((t) => {
+                const max = Math.max(...d.byTile.map((x) => x.count), 1);
+                return (
+                  <div key={t.tile} className="flex items-center gap-2 text-micro">
+                    <span className="w-36 shrink-0 truncate text-neutral-600">{tileName(t.tile)}</span>
+                    <div
+                      className="grow-bar h-3.5 rounded-sm bg-brand-navy"
+                      style={{ width: `${Math.max(2, (t.count / max) * 100)}%` }}
+                    />
+                    <span className="fin-num shrink-0 text-neutral-500">
+                      {t.count} · {t.users} {t.users === 1 ? "person" : "people"}
+                      {t.interactions > 0 && ` · ${t.interactions} clicks`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="surface rounded-card p-5 ring-1 ring-brand-line">
+            <div className="mb-2.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h3 className="text-micro font-semibold uppercase tracking-[0.08em] text-neutral-500">
+                Every click
+              </h3>
+              {/* Say how much of it you're looking at, and page instead of
+                  quietly stopping. */}
+              <span className="fin-num text-micro text-neutral-400">
+                {shownEvents.length === d.recentTotal
+                  ? `all ${d.recentTotal.toLocaleString()}`
+                  : `${shownEvents.length.toLocaleString()} of ${d.recentTotal.toLocaleString()}`}
+              </span>
+              <span className="flex-1" />
+              {(who || board) && (
+                <button
+                  type="button"
+                  className="press text-micro font-medium text-brand-navy hover:underline"
+                  onClick={() => {
+                    setWho(null);
+                    setBoard(null);
+                  }}
+                >
+                  clear filter
+                </button>
+              )}
+            </div>
+            <div className="mb-2.5 flex flex-wrap gap-1.5">
+              {d.byUser.map((u) => (
+                <button
+                  key={u.email}
+                  type="button"
+                  className={`press rounded-control px-2 py-0.5 text-micro font-medium ring-1 ${
+                    who === u.email
+                      ? "bg-brand-navy text-white ring-brand-navy"
+                      : "bg-white text-neutral-600 ring-brand-line hover:text-brand-navy"
+                  }`}
+                  onClick={() => setWho(who === u.email ? null : u.email)}
+                >
+                  {firstName(u.email)}
+                </button>
+              ))}
+              {[...new Set(d.recent.map((e) => e.tile))].sort().map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={`press rounded-control px-2 py-0.5 text-micro font-medium ring-1 ${
+                    board === t
+                      ? "bg-brand-navy text-white ring-brand-navy"
+                      : "bg-brand-tint text-neutral-500 ring-brand-line hover:text-brand-navy"
+                  }`}
+                  onClick={() => setBoard(board === t ? null : t)}
+                >
+                  {tileName(t)}
+                </button>
+              ))}
+            </div>
+            <div className="max-h-96 space-y-1 overflow-y-auto rounded-control bg-brand-tint/70 p-3">
+              {shownEvents.length === 0 && <p className="text-body text-neutral-400">Nothing yet.</p>}
+              {shownEvents.map((e, i) => (
+                <div key={i} className="flex items-baseline gap-2 text-micro text-neutral-600">
+                  <span className="fin-num w-28 shrink-0 text-neutral-400">{fmtWhen(e.at)}</span>
+                  <span className="font-medium text-brand-navy">{firstName(e.email)}</span>
+                  {/* Reads as a sentence — what a person would say happened. */}
+                  <span>
+                    {e.kind === "open" ? (
+                      `opened ${tileName(e.tile)}`
+                    ) : e.kind === "click" ? (
+                      <>
+                        clicked <span className="font-medium text-neutral-700">{e.detail ?? "something"}</span>{" "}
+                        on {tileName(e.tile)}
+                      </>
+                    ) : (
+                      `${tileName(e.tile)} → ${e.kind}${e.detail ? `: ${e.detail}` : ""}`
+                    )}
+                  </span>
+                  {e.source === "server" && (
+                    <span className="rounded bg-warn-bg px-1 text-micro uppercase text-warn">approx</span>
+                  )}
+                </div>
+              ))}
+            </div>
+            {d.recent.length < d.recentTotal && (
+              <div className="mt-2 flex justify-center">
+                <button
+                  type="button"
+                  className="press text-micro font-medium text-brand-navy hover:underline"
+                  disabled={loading}
+                  onClick={() => setLimit((n) => n + 400)}
+                >
+                  {loading ? "loading…" : `show ${Math.min(400, d.recentTotal - d.recent.length)} more`}
+                </button>
+              </div>
+            )}
+          </section>
+
+          <section className="surface rounded-card p-5 ring-1 ring-brand-line">
+            <h3 className="mb-2.5 text-micro font-semibold uppercase tracking-[0.08em] text-neutral-500">
+              By person
+            </h3>
+            {d.byUser.length === 0 && <p className="text-body text-neutral-400">No activity yet.</p>}
+            <div className="space-y-1">
+              {d.byUser.map((u) => (
+                <div key={u.email} className="rounded-control ring-1 ring-brand-line/70">
+                  <button
+                    type="button"
+                    className="press flex w-full items-baseline gap-2 px-3 py-2 text-left text-label"
+                    onClick={() => setExpanded(expanded === u.email ? null : u.email)}
+                  >
+                    <Caret open={expanded === u.email} className="w-3 text-neutral-400" />
+                    <span className="font-medium text-brand-navy">{firstName(u.email)}</span>
+                    <span className="hidden text-neutral-400 sm:inline">{u.email}</span>
+                    <span className="flex-1" />
+                    <span className="fin-num text-neutral-500">
+                      {u.total} board {u.total === 1 ? "open" : "opens"} · {u.interactions}{" "}
+                      {u.interactions === 1 ? "click" : "clicks"} · last {fmtWhen(u.lastActive)}
+                    </span>
+                  </button>
+                  <Collapse open={expanded === u.email}>
+                    <div className="flex flex-wrap gap-1.5 border-t border-brand-line/60 px-3 py-2">
+                      {u.tiles.map((t) => (
+                        <span
+                          key={t.tile}
+                          className="rounded-full bg-brand-tint px-2 py-0.5 text-micro text-neutral-600"
+                        >
+                          {tileName(t.tile)} · {t.count}
+                        </span>
+                      ))}
+                    </div>
+                  </Collapse>
+                </div>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
+    </div>
   );
 }

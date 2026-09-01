@@ -11,7 +11,7 @@ import { payrollRouter } from "./payroll.js";
 import { payrollRunRouter } from "./payrollRun.js";
 import { copilotRouter } from "./copilot.js";
 import { ipBlocklistMiddleware } from "../lib/ipBlocklist.js";
-import { requireTile } from "../lib/entraAuth.js";
+import { requireOwner } from "../lib/entraAuth.js";
 
 const router: IRouter = Router();
 
@@ -24,11 +24,12 @@ router.use(pulseRouter);
 // requireAuth: a sibling server cannot mint this app's session cookies.
 router.use(machineRouter);
 router.use(machinePayrollRouter);
-// The Settings tile gates the whole admin surface in one place, rather than
-// threading requireTile through dozens of routes. Registered before the
-// routers that define /admin/* so it runs first. requireAdmin still applies on
-// top — holding the tile is not the same as being an admin.
-router.use("/admin", requireTile("settings"));
+// The whole admin surface is the OWNER's settings area (2026-09-01: Settings
+// left the tile grid for the gear, "only I can get to" — Brad). One gate here
+// rather than threading it through dozens of routes; requireAdmin still
+// applies on top per route. Operational admin endpoints that staff use daily
+// (the Zenople export, week resets) live OUTSIDE /admin and are untouched.
+router.use("/admin", requireOwner);
 
 router.use(authRouter);
 router.use(tilesRouter);

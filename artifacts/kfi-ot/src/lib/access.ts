@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { setPathTiles } from "./click-log";
+import { guardedFetch } from "./session";
 
 /**
  * What the signed-in person may see.
@@ -22,29 +24,33 @@ export interface Access {
   tiles: TileDef[];
   /** Every tile path in the registry, held or not — see the server comment. */
   gatedPaths: string[];
+  /** href → key for EVERY tile (paths and opaque keys only) — feeds the
+   *  click log's attribution so it can never drift from the registry. */
+  pathTiles: Array<{ href: string; key: string }>;
   isOwner: boolean;
   isAdmin: boolean;
   email: string | null;
 }
 
 // Fails CLOSED: a request that doesn't come back clean grants nothing.
-const DENY: Access = { tiles: [], gatedPaths: [], isOwner: false, isAdmin: false, email: null };
+const DENY: Access = { tiles: [], gatedPaths: [], pathTiles: [], isOwner: false, isAdmin: false, email: null };
 
 let cache: Promise<Access> | null = null;
 
 async function fetchAccess(): Promise<Access> {
-  const r = await fetch(`${import.meta.env.BASE_URL}api/tiles`, {
-    credentials: "include",
-  });
+  const r = await guardedFetch(`${import.meta.env.BASE_URL}api/tiles`);
   if (!r.ok) throw new Error(`tiles ${r.status}`);
   const d = (await r.json()) as Partial<Access>;
-  return {
+  const a: Access = {
     tiles: Array.isArray(d.tiles) ? d.tiles : [],
     gatedPaths: Array.isArray(d.gatedPaths) ? d.gatedPaths : [],
+    pathTiles: Array.isArray(d.pathTiles) ? d.pathTiles : [],
     isOwner: d.isOwner === true,
     isAdmin: d.isAdmin === true,
     email: d.email ?? null,
   };
+  setPathTiles(a.pathTiles);
+  return a;
 }
 
 export function loadAccess(): Promise<Access> {
@@ -79,12 +85,16 @@ export function useAccess(): Access | null {
   return access;
 }
 
-/** Fire-and-forget usage log. */
-export function logTileEvent(tile: string, kind: "open" = "open", detail?: string): void {
+export type TileEventKind = "open" | "tab" | "drill" | "range";
+
+/** Fire-and-forget usage log — board opens and in-page interactions. Clicks
+ *  travel separately, batched, through lib/click-log.ts. */
+export function logTileEvent(tile: string, kind: TileEventKind = "open", detail?: string): void {
   void fetch(`${import.meta.env.BASE_URL}api/tile-open`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ tile, kind, detail }),
+    redirect: "manual",
   }).catch(() => {});
 }

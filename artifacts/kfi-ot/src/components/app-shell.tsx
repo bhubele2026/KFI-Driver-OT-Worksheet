@@ -7,6 +7,7 @@ import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAccess } from "@/lib/access";
+import { GearButton } from "@/components/gear-button";
 
 // The nav is driven by GET /api/tiles (same source as the home grid), so a
 // tile the owner switched off disappears from BOTH without a second list to
@@ -54,7 +55,7 @@ export function AppShell({
 
   return (
     <div className="min-h-[100dvh] bg-background">
-      <header className="sticky top-0 z-30 bg-brand-navy text-white shadow-sm">
+      <header className="sticky top-0 z-30 bg-gradient-to-b from-brand-navy2 to-brand-navy text-white shadow-[inset_0_-1px_0_rgba(255,255,255,0.08),0_1px_2px_rgba(16,24,40,0.10)]">
         <div className="mx-auto flex h-14 w-full max-w-[1700px] items-center gap-5 px-5">
           <Link href="/" className="flex shrink-0 items-center no-underline" title="Home">
             <Logo variant="header" />
@@ -79,6 +80,7 @@ export function AppShell({
             {user?.email && (
               <span className="hidden text-xs text-white/60 lg:inline">{user.email}</span>
             )}
+            {access?.isOwner && <GearButton className="h-8 w-8" />}
             <Button
               variant="ghost"
               size="sm"

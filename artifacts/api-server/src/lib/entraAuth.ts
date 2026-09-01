@@ -175,6 +175,7 @@ export async function resolveAppUser(req: Request): Promise<AppUser | null> {
   }
 
   stampLastSeen(user.id);
+  recordLoginEvent(user);
   return user;
 }
 
@@ -191,6 +192,54 @@ function stampLastSeen(userId: number): void {
     .update(schema.usersTable)
     .set({ lastLoginAt: new Date() })
     .where(sql`${schema.usersTable.id} = ${userId}`)
+    .catch(() => {});
+}
+
+/**
+ * Durable sign-in history — one `_login` row per user per ~6 hours.
+ * `users.last_login_at` keeps only the LATEST time, so it cannot answer "who
+ * was in on which day"; these rows are what the Activity page's "Signed in"
+ * section reads. Server-written only: a browser can never mint one.
+ */
+const LOGIN_EVENT_MS = 6 * 60 * 60 * 1000;
+const lastLoginEventAt = new Map<number, number>();
+function recordLoginEvent(user: AppUser): void {
+  const now = Date.now();
+  if ((lastLoginEventAt.get(user.id) ?? 0) > now - LOGIN_EVENT_MS) return;
+  lastLoginEventAt.set(user.id, now);
+  void db
+    .insert(schema.tileEventTable)
+    .values({ userId: user.id, email: user.email, tile: "_login", kind: "login", source: "server" })
+    .catch(() => {});
+}
+
+/**
+ * The client's own event posts, noted so the server-side fallback recorder
+ * stays quiet while a live bundle is reporting. Called from POST /tile-open.
+ */
+const lastClientEventAt = new Map<string, number>();
+export function noteClientEvent(email?: string | null): void {
+  const e = email?.toLowerCase();
+  if (e) lastClientEventAt.set(e, Date.now());
+}
+
+/**
+ * Server-side view record from requireTile — only when the caller's bundle is
+ * NOT posting its own events (a stale cached bundle), ≤1/min per email|tile,
+ * tagged source='server' so the Activity feed can badge it `approx`.
+ */
+const lastServerOpenAt = new Map<string, number>();
+function recordServerOpen(user: AppUser | undefined, tile: string): void {
+  const email = user?.email?.toLowerCase();
+  if (!email) return;
+  const now = Date.now();
+  if ((lastClientEventAt.get(email) ?? 0) > now - 10 * 60 * 1000) return;
+  const key = `${email}|${tile}`;
+  if ((lastServerOpenAt.get(key) ?? 0) > now - 60 * 1000) return;
+  lastServerOpenAt.set(key, now);
+  void db
+    .insert(schema.tileEventTable)
+    .values({ userId: user?.id ?? null, email, tile, kind: "open", source: "server" })
     .catch(() => {});
 }
 
@@ -283,6 +332,9 @@ export function requireTile(tile: string) {
       res.status(403).json({ error: "forbidden", tile });
       return;
     }
+    // A GET through a guard is a board being READ. Recorded server-side only
+    // as a fallback for bundles that no longer post their own events.
+    if (req.method === "GET") recordServerOpen(a.user, tile);
     next();
   };
 }

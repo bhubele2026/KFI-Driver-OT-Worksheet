@@ -31,7 +31,8 @@ import AdminBootAudit from "@/pages/admin-boot-audit";
 import AdminRealtime from "@/pages/admin-realtime";
 import AdminTimezones from "@/pages/admin-timezones";
 import Home from "@/pages/home";
-import { useAccess } from "@/lib/access";
+import { useAccess, logTileEvent } from "@/lib/access";
+import { tileForPath } from "@/lib/click-log";
 import PayrollProcess from "@/pages/payroll-process";
 import PayrollChanges from "@/pages/payroll-changes";
 import PayrollTemplates from "@/pages/payroll-templates";
@@ -107,6 +108,20 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (access && !permitted) setLocation("/");
   }, [access, permitted, setLocation]);
+
+  // A board OPEN is logged on every route LANDING — so home-grid clicks,
+  // pasted deep links, the nav bar, and Back/Forward all count. This used to
+  // fire only from the home grid's onClick, which is why a person who
+  // bookmarked one board could work all week and appear idle. The landing
+  // itself never logs an open; its presses reach the feed as clicks.
+  useEffect(() => {
+    if (!access || !permitted || location === "/") return;
+    const key = tileForPath(location);
+    if (key === "home") return;
+    if (key === "settings" || access.tiles.some((t) => t.key === key)) {
+      logTileEvent(key, "open");
+    }
+  }, [access, permitted, location]);
 
   if (isLoading || !access) {
     return (

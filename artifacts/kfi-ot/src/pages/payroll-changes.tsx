@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { AppShell } from "@/components/app-shell";
+import { Reveal, SkeletonStats, SkeletonTable } from "@/components/motion";
+import { useCountUp } from "@/hooks/use-count-up";
+import { guardedFetch } from "@/lib/session";
 
 /**
  * Changes & Deductions — every action that must be keyed before the pay date.
@@ -8,6 +11,11 @@ import { AppShell } from "@/components/app-shell";
  * One row per ACTION, not per email. Three people named in one transportation
  * table are three rows; a thread corrected four times is one row carrying the
  * final number and what it replaced.
+ *
+ * Presentation follows the dashboard's platinum language: navy and orange
+ * only, sections as milled cards in the order the week runs, motion on the
+ * shared dials. Status colours: navy = done, grey = not applicable, deep
+ * orange = needs someone's attention.
  */
 
 type Change = {
@@ -57,6 +65,8 @@ const FIELDS = [
   ["documentationSaved", "Docs"],
 ] as const;
 
+type Field = (typeof FIELDS)[number][0];
+
 /**
  * The board is worked in the order the week runs — Brad's framing: a pay rate
  * change hits earnings AND billing so it must land before invoicing; a housing
@@ -99,6 +109,34 @@ function upcomingFriday(): string {
   return d.toISOString().slice(0, 10);
 }
 
+const rowDone = (r: Change, field: Field): boolean => {
+  const v = r[field];
+  return v === -1 || v >= Math.max(1, r.peopleCount);
+};
+const rowComplete = (r: Change): boolean => FIELDS.every(([f]) => rowDone(r, f));
+
+/** One stat on the strip — count-up number, micro-caps label. */
+function Stat({
+  label, value, of, tone, index,
+}: {
+  label: string; value: number; of?: number; tone?: string; index: number;
+}) {
+  const n = useCountUp(value);
+  return (
+    <Reveal index={index} className="surface rounded-card p-4 ring-1 ring-brand-line">
+      <div className="text-micro font-semibold uppercase tracking-[0.08em] text-neutral-500">
+        {label}
+      </div>
+      <div className={`fin-num mt-1 text-2xl font-semibold ${tone ?? "text-brand-navy"}`}>
+        {Math.round(n)}
+        {of != null && (
+          <span className="ml-1 text-sm font-medium text-neutral-400">of {of}</span>
+        )}
+      </div>
+    </Reveal>
+  );
+}
+
 export default function PayrollChanges() {
   const [payDate, setPayDate] = useState(upcomingFriday);
   const [data, setData] = useState<Payload | null>(null);
@@ -107,17 +145,14 @@ export default function PayrollChanges() {
 
   // ⚠️ Ignore a superseded response. Changing the pay date twice quickly can let
   // the FIRST, slower reply land after the second, putting one week's numbers
-  // under another week's heading — several of these tiles make two Zenople
-  // pulls per load, so it is likely rather than theoretical. In a payroll tool
-  // somebody would read last week's figures believing they are this week's.
+  // under another week's heading. In a payroll tool somebody would read last
+  // week's figures believing they are this week's.
   const seq = useRef(0);
   const load = useCallback(async () => {
     const mine = ++seq.current;
     setError(null);
     try {
-      const r = await fetch(`${base}api/payroll-run/periods/${payDate}/changes`, {
-        credentials: "include",
-      });
+      const r = await guardedFetch(`${base}api/payroll-run/periods/${payDate}/changes`);
       if (!r.ok) throw new Error(`changes ${r.status}`);
       const payload = (await r.json()) as Payload;
       // Checked AFTER the await resolves — the parse is a suspension point, so
@@ -133,22 +168,38 @@ export default function PayrollChanges() {
 
   useEffect(() => { void load(); }, [load]);
 
+  /**
+   * Optimistic: the tick lands on screen the frame it is clicked, the PATCH
+   * follows, and a failure reverts by reloading the truth. The old flow
+   * re-fetched the whole board on every tick, which read as a flash.
+   */
   const patch = useCallback(
-    async (row: Change, field: string, value: number) => {
+    async (row: Change, field: Field, value: number) => {
       setBusy(row.rowKey + field);
+      setData((d) => {
+        if (!d) return d;
+        const actions = d.actions.map((r) =>
+          r.rowKey === row.rowKey ? { ...r, [field]: value } : r,
+        );
+        return {
+          ...d,
+          actions,
+          counts: { ...d.counts, complete: actions.filter(rowComplete).length },
+        };
+      });
       try {
-        const r = await fetch(
+        const r = await guardedFetch(
           `${base}api/payroll-run/periods/${payDate}/changes/${row.rowKey}`,
           {
-            method: "PATCH", credentials: "include",
+            method: "PATCH",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ [field]: value }),
           },
         );
         if (!r.ok) throw new Error(`save ${r.status}`);
-        await load();
       } catch (e) {
         setError(e instanceof Error ? e.message : "could not save");
+        await load();
       } finally {
         setBusy(null);
       }
@@ -168,185 +219,203 @@ export default function PayrollChanges() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <Link href="/payroll-process"
-              className="text-xs font-medium text-muted-foreground no-underline hover:text-brand-navy">
+              className="press text-micro font-semibold uppercase tracking-[0.08em] text-neutral-500 no-underline hover:text-brand-navy">
               ← Payroll Process
             </Link>
-            <h1 className="mt-1 text-xl font-semibold text-brand-navy">Changes &amp; Deductions</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {data?.period.label ?? "Everything that must be keyed before the pay date."}
+            <h1 className="mt-1 text-display font-semibold tracking-tight text-brand-navy">
+              Changes &amp; Deductions
+            </h1>
+            <p className="mt-1 text-body text-neutral-500">
+              {data?.period.label ?? "Every change for the period, staged in the order the week runs."}
             </p>
           </div>
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <label className="flex items-center gap-2 text-label text-neutral-500">
             Pay date
             <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)}
-              className="fin-num rounded-md border border-border bg-white px-2 py-1 text-sm" />
+              className="fin-num press rounded-control border border-brand-line bg-white px-2.5 py-1.5 text-body text-brand-ink shadow-rest hover:border-brand-navy/30" />
           </label>
         </div>
 
         {error && (
-          <div className="rounded-lg bg-orange-50 p-4 text-sm text-orange-800 ring-1 ring-orange-600/25">
+          <div className="rounded-card bg-bad-bg p-4 text-body text-bad ring-1 ring-bad/20">
             {error}
           </div>
         )}
 
         {c && (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {[
-              ["Actions", c.actions],
-              ["Fully verified", `${c.complete} of ${c.actions}`],
-              ["Retro rows", c.retro],
-              ["Need a decision", c.decisions],
-            ].map(([k, v]) => (
-              <div key={String(k)} className="rounded-lg bg-white px-3 py-2.5 shadow-sm ring-1 ring-border">
-                <div className="text-xs text-muted-foreground">{k}</div>
-                <div className="fin-num mt-0.5 text-lg font-semibold text-brand-navy">{v}</div>
-              </div>
-            ))}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat index={0} label="Actions" value={c.actions} />
+            <Stat index={1} label="Fully verified" value={c.complete} of={c.actions} />
+            <Stat index={2} label="Retro rows" value={c.retro} />
+            <Stat index={3} label="Need a decision" value={c.decisions}
+              tone={c.decisions > 0 ? "text-bad" : "text-neutral-400"} />
           </div>
         )}
 
         {c && (c.newSinceLastSweep > 0 || c.changedSinceLastSweep > 0) && (
-          <p className="text-sm text-muted-foreground">
-            Since the last sweep: {c.newSinceLastSweep} new, {c.changedSinceLastSweep} changed.
+          <p className="text-label text-neutral-500">
+            <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-brand-navy align-middle" aria-hidden />
+            Updated by the latest sweep — {c.newSinceLastSweep} new, {c.changedSinceLastSweep} revised.
           </p>
         )}
 
         {!data ? (
-          !error && <p className="text-sm text-muted-foreground">Loading…</p>
+          !error && (
+            <div className="space-y-5">
+              <SkeletonStats />
+              <SkeletonTable rows={6} cols={6} />
+              <SkeletonTable rows={4} cols={6} />
+            </div>
+          )
         ) : data.actions.length === 0 ? (
-          <div className="rounded-lg bg-white p-5 text-sm text-muted-foreground shadow-sm ring-1 ring-border">
-            No action rows for this period yet. They arrive from the payroll@ sweep.
+          <div className="surface rounded-card p-6 text-body text-neutral-500 ring-1 ring-brand-line">
+            No action rows for this period yet. They arrive from the payroll inbox sweep.
           </div>
         ) : (
           <div className="space-y-5">
-            {ROUTE_SECTIONS.map((sec) => {
+            {ROUTE_SECTIONS.map((sec, si) => {
               const rows = data.actions.filter((r) =>
                 sec.key === null
                   ? !r.route || !ROUTE_SECTIONS.some((x) => x.key === r.route)
                   : r.route === sec.key);
               if (rows.length === 0) return null;
+              const done = rows.filter(rowComplete).length;
               return (
-                <section key={sec.title}
-                  className="overflow-x-auto rounded-lg bg-white shadow-sm ring-1 ring-border">
-                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border px-4 py-2.5">
-                    <h2 className="text-sm font-semibold text-brand-navy">{sec.title}</h2>
-                    {sec.preInvoice && (
-                      <span className="rounded bg-brand-navy px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                        Pre-invoice
+                <Reveal key={sec.title} index={si}>
+                  <section className="surface overflow-hidden rounded-card ring-1 ring-brand-line">
+                    <div className="band flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 py-3">
+                      <h2 className="text-title font-semibold tracking-tight text-brand-navy">
+                        {sec.title}
+                      </h2>
+                      {sec.preInvoice && (
+                        <span className="rounded bg-brand-navy px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-rest">
+                          Pre-invoice
+                        </span>
+                      )}
+                      <span className="text-label text-neutral-500">{sec.doBy}</span>
+                      <span className="fin-num ml-auto text-label text-neutral-500">
+                        {done} of {rows.length} verified
                       </span>
-                    )}
-                    <span className="text-xs text-muted-foreground">{sec.doBy}</span>
-                    <span className="fin-num ml-auto text-xs text-muted-foreground">
-                      {rows.length} {rows.length === 1 ? "row" : "rows"}
-                    </span>
-                  </div>
-                  <table className="w-full min-w-[62rem] text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                        <th className="px-3 py-2 font-medium">Customer</th>
-                        <th className="px-3 py-2 font-medium">Employee</th>
-                        <th className="px-3 py-2 font-medium">Type</th>
-                        <th className="px-3 py-2 font-medium">Action to take</th>
-                        <th className="px-3 py-2 text-right font-medium">Hours</th>
-                        <th className="px-3 py-2 text-right font-medium">Amount</th>
-                        {FIELDS.map(([, label]) => (
-                          <th key={label} className="px-2 py-2 text-center font-medium">{label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {rows.map((r) => (
-                        <tr key={r.rowKey} className={r.isRetro ? "bg-amber-50/40" : undefined}>
-                          <td className="px-3 py-2 align-top text-muted-foreground">{r.customer}</td>
-                          <td className="px-3 py-2 align-top">
-                            {r.employee}
-                            {r.peopleCount > 1 && (
-                              <span className="ml-1 text-xs text-muted-foreground">
-                                ({r.peopleCount} people)
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 align-top text-muted-foreground">
-                            {r.changeType}
-                            {r.isRetro && (
-                              <span className="ml-1 rounded bg-amber-100 px-1 text-xs font-medium text-amber-800">
-                                RETRO {r.weekEnding}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 align-top">
-                            <span className="font-medium text-foreground">{r.action}</span>
-                            {r.supersedes && (
-                              <span className="mt-0.5 block text-xs text-orange-700">
-                                Supersedes: {r.supersedes}
-                              </span>
-                            )}
-                            {r.pairedWithRowKey && (
-                              <span className="mt-0.5 block text-xs font-medium text-orange-700">
-                                Paired — do not enter alone
-                              </span>
-                            )}
-                            {r.notes && (
-                              <span className="mt-0.5 block text-xs text-muted-foreground">{r.notes}</span>
-                            )}
-                          </td>
-                          <td className="fin-num px-3 py-2 text-right align-top">{r.hours ?? ""}</td>
-                          <td className="fin-num px-3 py-2 text-right align-top">{r.amount ?? ""}</td>
-                          {FIELDS.map(([field]) => {
-                            const v = r[field];
-                            const done = v === -1 || v >= Math.max(1, r.peopleCount);
-                            return (
-                              <td key={field} className="px-2 py-2 text-center align-top">
-                                <button
-                                  type="button"
-                                  disabled={busy === r.rowKey + field}
-                                  onClick={() => void patch(r, field, cycle(v, r.peopleCount))}
-                                  title={v === -1 ? "n/a" : `${v} of ${Math.max(1, r.peopleCount)}`}
-                                  className={`h-6 w-9 rounded text-xs font-medium ring-1 transition-colors ${
-                                    v === -1
-                                      ? "bg-zinc-100 text-zinc-500 ring-zinc-400/25"
-                                      : done
-                                        ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
-                                        : "bg-white text-muted-foreground ring-border hover:ring-brand-navy/30"
-                                  }`}
-                                >
-                                  {v === -1 ? "n/a" : `${v}/${Math.max(1, r.peopleCount)}`}
-                                </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[62rem] text-body">
+                        <thead>
+                          <tr className="border-b border-brand-line bg-brand-tint/70 text-left text-micro font-semibold uppercase tracking-[0.08em] text-neutral-500">
+                            <th className="px-4 py-2.5 font-semibold">Customer</th>
+                            <th className="px-3 py-2.5 font-semibold">Employee</th>
+                            <th className="px-3 py-2.5 font-semibold">Type</th>
+                            <th className="px-3 py-2.5 font-semibold">Action to take</th>
+                            <th className="px-3 py-2.5 text-right font-semibold">Hours</th>
+                            <th className="px-3 py-2.5 text-right font-semibold">Amount</th>
+                            {FIELDS.map(([, label]) => (
+                              <th key={label} className="px-2 py-2.5 text-center font-semibold">{label}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-brand-line/70">
+                          {rows.map((r) => (
+                            <tr key={r.rowKey}
+                              className={`transition-colors duration-150 hover:bg-brand-tint/70 ${r.isRetro ? "bg-brand-wash/60" : ""}`}>
+                              <td className="px-4 py-2.5 align-top text-neutral-500">{r.customer}</td>
+                              <td className="px-3 py-2.5 align-top font-medium text-brand-ink">
+                                {r.employee}
+                                {r.peopleCount > 1 && (
+                                  <span className="ml-1 text-micro font-normal text-neutral-400">
+                                    ({r.peopleCount} people)
+                                  </span>
+                                )}
                               </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </section>
+                              <td className="px-3 py-2.5 align-top text-neutral-500">
+                                {r.changeType}
+                                {r.isRetro && (
+                                  <span className="ml-1.5 rounded bg-brand-navy px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
+                                    Retro {r.weekEnding}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2.5 align-top">
+                                <span className="font-medium text-brand-ink">{r.action}</span>
+                                {r.supersedes && (
+                                  <span className="mt-0.5 block text-micro text-bad">
+                                    Supersedes: {r.supersedes}
+                                  </span>
+                                )}
+                                {r.pairedWithRowKey && (
+                                  <span className="mt-0.5 block text-micro font-semibold text-bad">
+                                    Paired — do not enter alone
+                                  </span>
+                                )}
+                                {r.notes && (
+                                  <span className="mt-0.5 block text-micro text-neutral-500">{r.notes}</span>
+                                )}
+                              </td>
+                              <td className="fin-num px-3 py-2.5 text-right align-top text-brand-ink">{r.hours ?? ""}</td>
+                              <td className="fin-num px-3 py-2.5 text-right align-top text-brand-ink">{r.amount ?? ""}</td>
+                              {FIELDS.map(([field]) => {
+                                const v = r[field];
+                                const done2 = rowDone(r, field);
+                                return (
+                                  <td key={field} className="px-2 py-2 text-center align-top">
+                                    <button
+                                      type="button"
+                                      disabled={busy === r.rowKey + field}
+                                      onClick={() => void patch(r, field, cycle(v, r.peopleCount))}
+                                      title={v === -1 ? "n/a" : `${v} of ${Math.max(1, r.peopleCount)}`}
+                                      className={`press h-6 w-9 rounded text-micro font-semibold ring-1 ${
+                                        v === -1
+                                          ? "bg-warn-bg text-warn ring-transparent"
+                                          : done2
+                                            ? "bg-brand-navy text-white ring-brand-navy"
+                                            : "bg-white text-brand-navy ring-brand-navy/25 hover:ring-brand-navy/60"
+                                      }`}
+                                    >
+                                      {v === -1 ? "n/a" : `${v}/${Math.max(1, r.peopleCount)}`}
+                                    </button>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </Reveal>
               );
             })}
           </div>
         )}
 
         {data && data.decisions.length > 0 && (
-          <section className="rounded-lg bg-white shadow-sm ring-1 ring-border">
-            <h2 className="border-b border-border px-4 py-2.5 text-sm font-semibold text-brand-navy">
-              Needs a decision — not on the action list
-            </h2>
-            <ul className="divide-y divide-border">
-              {data.decisions.map((r) => (
-                <li key={r.rowKey} className="px-4 py-3">
-                  <p className="text-sm text-foreground">
-                    {r.decisionQuestion ?? r.action}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {[r.customer, r.employee, r.decisionOwner && `ask ${r.decisionOwner}`]
-                      .filter(Boolean).join(" · ")}
-                  </p>
-                </li>
-              ))}
-            </ul>
-            <p className="border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
-              A discussed intent is not an approval. These stay off the action list until answered.
-            </p>
-          </section>
+          <Reveal index={5}>
+            <section className="surface overflow-hidden rounded-card ring-1 ring-brand-line">
+              <div className="band flex items-baseline gap-3 px-5 py-3">
+                <h2 className="text-title font-semibold tracking-tight text-brand-navy">
+                  Needs a decision
+                </h2>
+                <span className="rounded-full bg-bad-bg px-2 py-0.5 text-micro font-semibold text-bad">
+                  {data.decisions.length}
+                </span>
+                <span className="text-label text-neutral-500">Held off the action list</span>
+              </div>
+              <ul className="divide-y divide-brand-line/70">
+                {data.decisions.map((r) => (
+                  <li key={r.rowKey} className="px-5 py-3 transition-colors duration-150 hover:bg-brand-tint/70">
+                    <p className="text-body text-brand-ink">
+                      {r.decisionQuestion ?? r.action}
+                    </p>
+                    <p className="mt-0.5 text-micro text-neutral-500">
+                      {[r.customer, r.employee, r.decisionOwner && `ask ${r.decisionOwner}`]
+                        .filter(Boolean).join(" · ")}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+              <p className="border-t border-brand-line px-5 py-2.5 text-micro text-neutral-500">
+                A discussed intent is not an approval. These stay off the action list until answered.
+              </p>
+            </section>
+          </Reveal>
         )}
       </div>
     </AppShell>

@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { useEffect } from "react";
-import { useGetMe } from "@workspace/api-client-react";
 import { AppShell } from "@/components/app-shell";
+import { useAccess } from "@/lib/access";
 
 interface SettingTile {
   href: string;
@@ -50,12 +50,15 @@ const GROUPS: { label: string; tiles: SettingTile[] }[] = [
 ];
 
 export default function Settings() {
-  const { data: user, isLoading } = useGetMe();
+  const access = useAccess();
   const [, setLocation] = useLocation();
 
+  // Owner-only since 2026-09-01 — Settings reaches exactly one person, from
+  // the gear in the chrome. Admins keep their operational endpoints; they no
+  // longer see this hub.
   useEffect(() => {
-    if (!isLoading && user && !user.isAdmin) setLocation("/");
-  }, [isLoading, user, setLocation]);
+    if (access && !access.isOwner) setLocation("/");
+  }, [access, setLocation]);
 
   return (
     <AppShell active="/settings">
@@ -77,7 +80,7 @@ export default function Settings() {
                 <Link
                   key={tile.href}
                   href={tile.href}
-                  className="group flex flex-col rounded-lg bg-white p-5 no-underline shadow-sm ring-1 ring-border transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5 hover:shadow-md hover:ring-brand-navy/25"
+                  className="surface surface-lift press group flex flex-col rounded-card p-5 no-underline ring-1 ring-brand-line hover:-translate-y-0.5 hover:ring-brand-navy/25"
                 >
                   <span className="text-sm font-semibold text-brand-navy">{tile.title}</span>
                   <span className="mt-1 text-sm text-muted-foreground">{tile.blurb}</span>
