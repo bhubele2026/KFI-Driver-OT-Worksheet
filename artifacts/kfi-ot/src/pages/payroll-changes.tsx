@@ -102,6 +102,29 @@ const ROUTE_SECTIONS = [
   },
 ] as const;
 
+/**
+ * ONE column grid for every section — the whole page shares its vertical
+ * rules, the way a drawn sheet does. Browser auto-layout computes widths per
+ * table from content, so five sections meant five different grids; `<colgroup>`
+ * + table-fixed pins them all to this one. Widths live here and nowhere else.
+ * The last verification column is wider by its own right padding so the chip
+ * block ends flush with the band's px-5 margin.
+ */
+const COLS = (
+  <colgroup>
+    <col style={{ width: "13%" }} />
+    <col style={{ width: "13%" }} />
+    <col style={{ width: "11%" }} />
+    <col />
+    <col style={{ width: "4rem" }} />
+    <col style={{ width: "5rem" }} />
+    <col style={{ width: "3.5rem" }} />
+    <col style={{ width: "3.5rem" }} />
+    <col style={{ width: "3.5rem" }} />
+    <col style={{ width: "4.25rem" }} />
+  </colgroup>
+);
+
 function upcomingFriday(): string {
   const n = new Date();
   const d = new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()));
@@ -283,32 +306,38 @@ export default function PayrollChanges() {
               return (
                 <Reveal key={sec.title} index={si}>
                   <section className="surface overflow-hidden rounded-card ring-1 ring-brand-line">
-                    <div className="band flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 py-3">
-                      <h2 className="text-title font-semibold tracking-tight text-brand-navy">
+                    <div className="band flex items-center gap-x-3 px-5 py-3">
+                      <h2 className="shrink-0 text-title font-semibold tracking-tight text-brand-navy">
                         {sec.title}
                       </h2>
                       {sec.preInvoice && (
-                        <span className="rounded bg-brand-navy px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-rest">
+                        <span className="shrink-0 rounded bg-brand-navy px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-rest">
                           Pre-invoice
                         </span>
                       )}
-                      <span className="text-label text-neutral-500">{sec.doBy}</span>
-                      <span className="fin-num ml-auto text-label text-neutral-500">
+                      <span className="min-w-0 flex-1 truncate text-label text-neutral-500" title={sec.doBy}>
+                        {sec.doBy}
+                      </span>
+                      <span className="fin-num shrink-0 text-label text-neutral-500">
                         {done} of {rows.length} verified
                       </span>
                     </div>
                     <div className="overflow-x-auto">
-                      <table className="w-full min-w-[62rem] text-body">
+                      <table className="w-full min-w-[62rem] table-fixed text-body">
+                        {COLS}
                         <thead>
                           <tr className="border-b border-brand-line bg-brand-tint/70 text-left text-micro font-semibold uppercase tracking-[0.08em] text-neutral-500">
-                            <th className="px-4 py-2.5 font-semibold">Customer</th>
+                            <th className="py-2.5 pl-5 pr-3 font-semibold">Customer</th>
                             <th className="px-3 py-2.5 font-semibold">Employee</th>
                             <th className="px-3 py-2.5 font-semibold">Type</th>
                             <th className="px-3 py-2.5 font-semibold">Action to take</th>
                             <th className="px-3 py-2.5 text-right font-semibold">Hours</th>
                             <th className="px-3 py-2.5 text-right font-semibold">Amount</th>
-                            {FIELDS.map(([, label]) => (
-                              <th key={label} className="px-2 py-2.5 text-center font-semibold">{label}</th>
+                            {FIELDS.map(([, label], fi) => (
+                              <th key={label}
+                                className={`py-2.5 text-center font-semibold ${fi === FIELDS.length - 1 ? "pl-1 pr-3" : "px-1"}`}>
+                                {label}
+                              </th>
                             ))}
                           </tr>
                         </thead>
@@ -316,7 +345,7 @@ export default function PayrollChanges() {
                           {rows.map((r) => (
                             <tr key={r.rowKey}
                               className={`transition-colors duration-150 hover:bg-brand-tint/70 ${r.isRetro ? "bg-brand-wash/60" : ""}`}>
-                              <td className="px-4 py-2.5 align-top text-neutral-500">{r.customer}</td>
+                              <td className="py-2.5 pl-5 pr-3 align-top text-neutral-500">{r.customer}</td>
                               <td className="px-3 py-2.5 align-top font-medium text-brand-ink">
                                 {r.employee}
                                 {r.peopleCount > 1 && (
@@ -328,7 +357,7 @@ export default function PayrollChanges() {
                               <td className="px-3 py-2.5 align-top text-neutral-500">
                                 {r.changeType}
                                 {r.isRetro && (
-                                  <span className="ml-1.5 rounded bg-brand-navy px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
+                                  <span className="mt-1 block w-max whitespace-nowrap rounded bg-brand-navy px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
                                     Retro {r.weekEnding}
                                   </span>
                                 )}
@@ -355,7 +384,8 @@ export default function PayrollChanges() {
                                 const v = r[field];
                                 const done2 = rowDone(r, field);
                                 return (
-                                  <td key={field} className="px-2 py-2 text-center align-top">
+                                  <td key={field}
+                                    className={`py-2 text-center align-top ${field === "documentationSaved" ? "pl-1 pr-3" : "px-1"}`}>
                                     <button
                                       type="button"
                                       disabled={busy === r.rowKey + field}
@@ -389,7 +419,7 @@ export default function PayrollChanges() {
         {data && data.decisions.length > 0 && (
           <Reveal index={5}>
             <section className="surface overflow-hidden rounded-card ring-1 ring-brand-line">
-              <div className="band flex items-baseline gap-3 px-5 py-3">
+              <div className="band flex items-center gap-3 px-5 py-3">
                 <h2 className="text-title font-semibold tracking-tight text-brand-navy">
                   Needs a decision
                 </h2>
