@@ -57,6 +57,41 @@ const FIELDS = [
   ["documentationSaved", "Docs"],
 ] as const;
 
+/**
+ * The board is worked in the order the week runs — Brad's framing: a pay rate
+ * change hits earnings AND billing so it must land before invoicing; a housing
+ * deduction only hits the check and belongs in Wednesday's PAS run. The route
+ * comes from the server (Tiana's own "Pre or Post Time card" routing, learned
+ * per change type); this list only says how to present it.
+ */
+const ROUTE_SECTIONS = [
+  {
+    key: "Ops", title: "Ops — Zenople housekeeping",
+    doBy: "Before the Master export — the file must be right first",
+    preInvoice: true,
+  },
+  {
+    key: "TMS", title: "TMS — transactions",
+    doBy: "Mon–Tue, before transaction batches close — billing at risk",
+    preInvoice: true,
+  },
+  {
+    key: "2TMS", title: "2TMS — round-2 import",
+    doBy: "Tue, after the timecard, with the second import",
+    preInvoice: true,
+  },
+  {
+    key: "PAS", title: "PAS — payroll module",
+    doBy: "Wed, in the PAS run — after invoicing, check only",
+    preInvoice: false,
+  },
+  {
+    key: null, title: "Needs a route",
+    doBy: "Unrecognised change type — route it by hand before keying",
+    preInvoice: false,
+  },
+] as const;
+
 function upcomingFriday(): string {
   const n = new Date();
   const d = new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()));
@@ -183,89 +218,111 @@ export default function PayrollChanges() {
             No action rows for this period yet. They arrive from the payroll@ sweep.
           </div>
         ) : (
-          <section className="overflow-x-auto rounded-lg bg-white shadow-sm ring-1 ring-border">
-            <table className="w-full min-w-[64rem] text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">Customer</th>
-                  <th className="px-3 py-2 font-medium">Employee</th>
-                  <th className="px-3 py-2 font-medium">Type</th>
-                  <th className="px-3 py-2 font-medium">Action to take</th>
-                  <th className="px-3 py-2 text-right font-medium">Hours</th>
-                  <th className="px-3 py-2 text-right font-medium">Amount</th>
-                  <th className="px-3 py-2 font-medium">Route</th>
-                  {FIELDS.map(([, label]) => (
-                    <th key={label} className="px-2 py-2 text-center font-medium">{label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {data.actions.map((r) => (
-                  <tr key={r.rowKey} className={r.isRetro ? "bg-amber-50/40" : undefined}>
-                    <td className="px-3 py-2 align-top text-muted-foreground">{r.customer}</td>
-                    <td className="px-3 py-2 align-top">
-                      {r.employee}
-                      {r.peopleCount > 1 && (
-                        <span className="ml-1 text-xs text-muted-foreground">
-                          ({r.peopleCount} people)
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 align-top text-muted-foreground">
-                      {r.changeType}
-                      {r.isRetro && (
-                        <span className="ml-1 rounded bg-amber-100 px-1 text-xs font-medium text-amber-800">
-                          RETRO {r.weekEnding}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      <span className="font-medium text-foreground">{r.action}</span>
-                      {r.supersedes && (
-                        <span className="mt-0.5 block text-xs text-orange-700">
-                          Supersedes: {r.supersedes}
-                        </span>
-                      )}
-                      {r.pairedWithRowKey && (
-                        <span className="mt-0.5 block text-xs font-medium text-orange-700">
-                          Paired — do not enter alone
-                        </span>
-                      )}
-                      {r.notes && (
-                        <span className="mt-0.5 block text-xs text-muted-foreground">{r.notes}</span>
-                      )}
-                    </td>
-                    <td className="fin-num px-3 py-2 text-right align-top">{r.hours ?? ""}</td>
-                    <td className="fin-num px-3 py-2 text-right align-top">{r.amount ?? ""}</td>
-                    <td className="px-3 py-2 align-top text-xs text-muted-foreground">{r.route}</td>
-                    {FIELDS.map(([field]) => {
-                      const v = r[field];
-                      const done = v === -1 || v >= Math.max(1, r.peopleCount);
-                      return (
-                        <td key={field} className="px-2 py-2 text-center align-top">
-                          <button
-                            type="button"
-                            disabled={busy === r.rowKey + field}
-                            onClick={() => void patch(r, field, cycle(v, r.peopleCount))}
-                            title={v === -1 ? "n/a" : `${v} of ${Math.max(1, r.peopleCount)}`}
-                            className={`h-6 w-9 rounded text-xs font-medium ring-1 transition-colors ${
-                              v === -1
-                                ? "bg-zinc-100 text-zinc-500 ring-zinc-400/25"
-                                : done
-                                  ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
-                                  : "bg-white text-muted-foreground ring-border hover:ring-brand-navy/30"
-                            }`}
-                          >
-                            {v === -1 ? "n/a" : `${v}/${Math.max(1, r.peopleCount)}`}
-                          </button>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
+          <div className="space-y-5">
+            {ROUTE_SECTIONS.map((sec) => {
+              const rows = data.actions.filter((r) =>
+                sec.key === null
+                  ? !r.route || !ROUTE_SECTIONS.some((x) => x.key === r.route)
+                  : r.route === sec.key);
+              if (rows.length === 0) return null;
+              return (
+                <section key={sec.title}
+                  className="overflow-x-auto rounded-lg bg-white shadow-sm ring-1 ring-border">
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border px-4 py-2.5">
+                    <h2 className="text-sm font-semibold text-brand-navy">{sec.title}</h2>
+                    {sec.preInvoice && (
+                      <span className="rounded bg-brand-navy px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                        Pre-invoice
+                      </span>
+                    )}
+                    <span className="text-xs text-muted-foreground">{sec.doBy}</span>
+                    <span className="fin-num ml-auto text-xs text-muted-foreground">
+                      {rows.length} {rows.length === 1 ? "row" : "rows"}
+                    </span>
+                  </div>
+                  <table className="w-full min-w-[62rem] text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                        <th className="px-3 py-2 font-medium">Customer</th>
+                        <th className="px-3 py-2 font-medium">Employee</th>
+                        <th className="px-3 py-2 font-medium">Type</th>
+                        <th className="px-3 py-2 font-medium">Action to take</th>
+                        <th className="px-3 py-2 text-right font-medium">Hours</th>
+                        <th className="px-3 py-2 text-right font-medium">Amount</th>
+                        {FIELDS.map(([, label]) => (
+                          <th key={label} className="px-2 py-2 text-center font-medium">{label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {rows.map((r) => (
+                        <tr key={r.rowKey} className={r.isRetro ? "bg-amber-50/40" : undefined}>
+                          <td className="px-3 py-2 align-top text-muted-foreground">{r.customer}</td>
+                          <td className="px-3 py-2 align-top">
+                            {r.employee}
+                            {r.peopleCount > 1 && (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                ({r.peopleCount} people)
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 align-top text-muted-foreground">
+                            {r.changeType}
+                            {r.isRetro && (
+                              <span className="ml-1 rounded bg-amber-100 px-1 text-xs font-medium text-amber-800">
+                                RETRO {r.weekEnding}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 align-top">
+                            <span className="font-medium text-foreground">{r.action}</span>
+                            {r.supersedes && (
+                              <span className="mt-0.5 block text-xs text-orange-700">
+                                Supersedes: {r.supersedes}
+                              </span>
+                            )}
+                            {r.pairedWithRowKey && (
+                              <span className="mt-0.5 block text-xs font-medium text-orange-700">
+                                Paired — do not enter alone
+                              </span>
+                            )}
+                            {r.notes && (
+                              <span className="mt-0.5 block text-xs text-muted-foreground">{r.notes}</span>
+                            )}
+                          </td>
+                          <td className="fin-num px-3 py-2 text-right align-top">{r.hours ?? ""}</td>
+                          <td className="fin-num px-3 py-2 text-right align-top">{r.amount ?? ""}</td>
+                          {FIELDS.map(([field]) => {
+                            const v = r[field];
+                            const done = v === -1 || v >= Math.max(1, r.peopleCount);
+                            return (
+                              <td key={field} className="px-2 py-2 text-center align-top">
+                                <button
+                                  type="button"
+                                  disabled={busy === r.rowKey + field}
+                                  onClick={() => void patch(r, field, cycle(v, r.peopleCount))}
+                                  title={v === -1 ? "n/a" : `${v} of ${Math.max(1, r.peopleCount)}`}
+                                  className={`h-6 w-9 rounded text-xs font-medium ring-1 transition-colors ${
+                                    v === -1
+                                      ? "bg-zinc-100 text-zinc-500 ring-zinc-400/25"
+                                      : done
+                                        ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
+                                        : "bg-white text-muted-foreground ring-border hover:ring-brand-navy/30"
+                                  }`}
+                                >
+                                  {v === -1 ? "n/a" : `${v}/${Math.max(1, r.peopleCount)}`}
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </section>
+              );
+            })}
+          </div>
         )}
 
         {data && data.decisions.length > 0 && (

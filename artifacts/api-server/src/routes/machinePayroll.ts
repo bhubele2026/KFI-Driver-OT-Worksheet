@@ -2,7 +2,9 @@ import { Router, type IRouter, type NextFunction, type Request, type Response } 
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "../lib/db.js";
 import { requirePulseKey } from "./pulse.js";
-import { normalizeChangeType } from "../lib/payrollChangeTypes.js";
+import {
+  normalizeChangeType, routeForChangeType, seedFromCategory,
+} from "../lib/payrollChangeTypes.js";
 import {
   mergeSweep, sweepIsSafeToApply, rowKeyFor,
   type SweptRow, type StoredRow,
@@ -99,8 +101,16 @@ machinePayrollRouter.post("/machine/payroll", requirePulseKey,
           changeType: c.changeType,
           weekEnding: c.weekEnding ?? null,
         });
+        // Route: the sender's explicit value wins; otherwise the type's default
+        // (Tiana's own routing, learned); otherwise the Outlook category as a
+        // prior. "Other" with no category stays null and shows as needing a
+        // route rather than being guessed into a stage.
+        const route = c.route
+          ?? routeForChangeType(changeType)
+          ?? seedFromCategory(c.category)?.route
+          ?? null;
         return {
-          ...c, rowKey, changeType,
+          ...c, rowKey, changeType, route,
           changeTypeRaw: c.changeTypeRaw ?? c.changeType,
           action: c.action,
         } as SweptRow;

@@ -58,6 +58,8 @@ export const CHANGE_TYPES = [
   "Direct Deposit Update",
   "Tax Update",
   "Pay No Bill",
+  "Fringe",
+  "Termination",
   "Other",
 ] as const;
 export type ChangeType = (typeof CHANGE_TYPES)[number];
@@ -72,8 +74,24 @@ export type ChangeType = (typeof CHANGE_TYPES)[number];
  * Observed across all periods: 749 PAS, 554 2TMS, 240 TMS. The distinction
  * decides both where the work happens and what has to be re-verified.
  */
-export const CHANGE_ROUTES = ["PAS", "TMS", "2TMS"] as const;
+export const CHANGE_ROUTES = ["Ops", "TMS", "2TMS", "PAS"] as const;
 export type ChangeRoute = (typeof CHANGE_ROUTES)[number];
+
+/**
+ * The order a processor works the board, which is the order of the week itself:
+ * Zenople housekeeping before the Master export, transactions before Tuesday's
+ * batch close (earnings AND billing at stake), the round-2 import, then the
+ * Wednesday PAS run (check only, invoicing already done).
+ */
+export const ROUTE_ORDER: readonly ChangeRoute[] = ["Ops", "TMS", "2TMS", "PAS"];
+
+/** When each route's work is due, phrased the way the checklist phrases it. */
+export const DO_BY: Record<ChangeRoute, string> = {
+  Ops: "Before the Master export — the Zenople file must be right first",
+  TMS: "Mon–Tue, before transaction batches close — billing at risk",
+  "2TMS": "Tue, with the round-2 import",
+  PAS: "Wed, in the PAS payroll run",
+};
 
 /** Cheap fold so casing, punctuation and doubled spaces stop mattering. */
 function fold(s: string): string {
@@ -134,6 +152,8 @@ const RULES: Array<[RegExp, ChangeType]> = [
   [/transportation.*start/, "Transportation Deductions Start"],
 
   [/housing (fringe|rebate fringe)/, "Housing Fringe"],
+  [/^term(ination)?s?( |$)|terminated|assignment close|work state|residence state/, "Termination"],
+  [/(^| )fringe( |$)/, "Fringe"],
   [/^mn esst$/, "MN ESST"],
   [/^holiday pay$/, "Holiday Pay"],
   [/^vacation pay$/, "Vacation Pay"],
@@ -208,4 +228,108 @@ export function parseVerification(cell: string | null | undefined): Verification
 /** Is this row fully verified for `people` people? */
 export function isVerified(v: VerificationValue, people: number): boolean {
   return v.kind === "not_applicable" || v.done >= Math.max(1, people);
+}
+
+/**
+ * Where each change type lands by default — Tiana's own "Pre or Post Time card"
+ * column, learned from her ledgers rather than invented (749 PAS / 554 2TMS /
+ * 240 TMS across every period), plus Brad's calls of 2026-09-01: MN ESST rides
+ * the round-2 import, and terminations are their own Ops bucket because they
+ * are Zenople housekeeping, not payroll transactions.
+ *
+ * ⚠️ THE REFUND RULE IS THE TRAP. Starting, stopping or pro-rating a deduction
+ * is PAS — but REFUNDING one pushes money back to the employee, which runs on
+ * the earnings side. Tiana files Acevedo/Cruz refunds as 2TMS in the same week
+ * she files Russell/Cortez pro-rates as PAS. The taxonomy keeps refunds as
+ * separate canonical types precisely so this map cannot mix them up.
+ *
+ * "Other" is deliberately null: an unrecognised change should surface as
+ * "needs routing", never be quietly guessed into a stage.
+ */
+export const ROUTE_FOR: Record<ChangeType, ChangeRoute | null> = {
+  // Earnings + billing — must beat Tuesday's batch close.
+  "Special Pay Rate": "TMS",
+  "Pay Rate Increase": "TMS",
+  "Pay Rate Decrease": "TMS",
+  "Pay Rate Correction": "TMS",
+  "Bill Rate Change": "TMS",
+  "Retro Pay": "TMS",
+  "Retro Pay OT": "TMS",
+  "Retro Driver Pay": "TMS",
+  "Driver Adjustment": "TMS",
+  "Pay No Bill": "TMS",
+
+  // Earnings side, entered on the second pass after the timecard.
+  "MN ESST": "2TMS",
+  "Holiday Pay": "2TMS",
+  "Vacation Pay": "2TMS",
+  "Bonus": "2TMS",
+  "Bonus Referral": "2TMS",
+  "Bonus Incentive": "2TMS",
+  "Expense Reimbursement": "2TMS",
+  "Cell Phone Reimbursement": "2TMS",
+  "ACH Reimbursement": "2TMS",
+  "Refund Housing Deductions": "2TMS",
+  "Refund Transportation Deductions": "2TMS",
+  "Refund Housing and Transportation Deductions": "2TMS",
+  "Housing Fringe": "2TMS",
+  "Retro Housing Fringe": "2TMS",
+  "Fringe": "2TMS",
+
+  // Check only — Wednesday's PAS run, after invoicing.
+  "Housing Deductions Start": "PAS",
+  "Housing Deductions Start and Pro Rate": "PAS",
+  "Housing Deductions Pro Rate": "PAS",
+  "Housing Deductions Stop": "PAS",
+  "Housing Deductions Update": "PAS",
+  "Transportation Deductions Start": "PAS",
+  "Transportation Deductions Start and Pro Rate": "PAS",
+  "Transportation Deductions Pro Rate": "PAS",
+  "Transportation Deductions Stop": "PAS",
+  "Transportation Deductions Suppress": "PAS",
+  "Housing and Transportation Deductions Start and Pro Rate": "PAS",
+  "Housing and Transportation Deductions Pro Rate": "PAS",
+  "Housing and Transportation Deductions Stop": "PAS",
+  "Retro Housing Deductions": "PAS",
+  "Retro Transportation Deductions": "PAS",
+  "Expense Deduction": "PAS",
+  "Advance": "PAS",
+  "Advance Pay Back": "PAS",
+  "Tax Update": "PAS",
+  "Direct Deposit Update": "PAS",
+
+  // Zenople housekeeping that must precede the Master export.
+  "Termination": "Ops",
+
+  // Unrecognised stays unrouted, loudly.
+  "Other": null,
+};
+
+export function routeForChangeType(t: ChangeType): ChangeRoute | null {
+  return ROUTE_FOR[t] ?? null;
+}
+
+/**
+ * The Outlook category on the source thread, as a classifier PRIOR.
+ *
+ * Tiana tags most payroll threads herself; her tag is the starting point and
+ * the email body sharpens it. An unnamed category ("Green Category" — the name
+ * IS the colour) carries no meaning and seeds nothing, and an untagged thread
+ * ("Terms and Job Changes" arrived with no tag at all) falls through to the
+ * body alone. The seed NEVER overrides an explicit type or route — it only
+ * fills what nothing else supplied.
+ */
+export function seedFromCategory(
+  category: string | null | undefined,
+): { changeType?: ChangeType; route: ChangeRoute } | null {
+  const c = fold(category ?? "");
+  if (!c || /^(red|orange|yellow|green|blue|purple) category$/.test(c)) return null;
+  if (c === "pay rate change") return { route: "TMS" };
+  if (c === "retro pay") return { changeType: "Retro Pay", route: "TMS" };
+  if (c === "driver") return { changeType: "Driver Adjustment", route: "TMS" };
+  if (c === "sick time") return { changeType: "MN ESST", route: "2TMS" };
+  if (c === "transportation") return { route: "PAS" };
+  if (c === "housing change" || c === "housing") return { route: "PAS" };
+  if (c === "expense deduction") return { changeType: "Expense Deduction", route: "PAS" };
+  return null;
 }

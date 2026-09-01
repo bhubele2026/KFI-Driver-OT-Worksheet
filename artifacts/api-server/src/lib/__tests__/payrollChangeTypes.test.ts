@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   normalizeChangeType, parseVerification, isVerified, CHANGE_TYPES,
+  ROUTE_FOR, ROUTE_ORDER, routeForChangeType, seedFromCategory,
 } from "../payrollChangeTypes";
 
 describe("normalizeChangeType — real drift from the ledger", () => {
@@ -117,5 +118,74 @@ describe("parseVerification — an x per person, not a boolean", () => {
 
   it("tolerates a capital X", () => {
     assert.equal(isVerified(parseVerification("X"), 1), true);
+  });
+});
+
+describe("routeForChangeType — where in Zenople, when in the week", () => {
+  it("covers every declared change type", () => {
+    for (const t of CHANGE_TYPES) {
+      assert.ok(t in ROUTE_FOR, `no route decision for ${t}`);
+    }
+  });
+
+  it("routes earnings-and-billing work to TMS, before the batch close", () => {
+    assert.equal(routeForChangeType("Pay Rate Increase"), "TMS");
+    assert.equal(routeForChangeType("Retro Pay"), "TMS");
+    assert.equal(routeForChangeType("Driver Adjustment"), "TMS");
+    assert.equal(routeForChangeType("Bill Rate Change"), "TMS");
+  });
+
+  it("routes deduction starts/stops/pro-rates to PAS, after invoicing", () => {
+    assert.equal(routeForChangeType("Housing Deductions Start"), "PAS");
+    assert.equal(routeForChangeType("Transportation Deductions Pro Rate"), "PAS");
+    assert.equal(routeForChangeType("Advance Pay Back"), "PAS");
+    assert.equal(routeForChangeType("Tax Update"), "PAS");
+  });
+
+  it("THE REFUND RULE: a refund is 2TMS even though the deduction it undoes is PAS", () => {
+    // Tiana files Acevedo/Cruz refunds as 2TMS in the same week she files
+    // Russell/Cortez pro-rates as PAS. Money back to the employee = earnings side.
+    assert.equal(routeForChangeType("Refund Transportation Deductions"), "2TMS");
+    assert.equal(routeForChangeType("Refund Housing Deductions"), "2TMS");
+    assert.equal(routeForChangeType("Transportation Deductions Stop"), "PAS");
+  });
+
+  it("MN ESST rides the round-2 import (Brad, 2026-09-01)", () => {
+    assert.equal(routeForChangeType("MN ESST"), "2TMS");
+  });
+
+  it("terminations are Ops — Zenople housekeeping before the Master export", () => {
+    assert.equal(normalizeChangeType("Termination"), "Termination");
+    assert.equal(normalizeChangeType("Term and work state fix"), "Termination");
+    assert.equal(routeForChangeType("Termination"), "Ops");
+  });
+
+  it("refuses to guess a route for Other", () => {
+    assert.equal(routeForChangeType("Other"), null);
+  });
+
+  it("orders the board the way the week runs", () => {
+    assert.deepEqual([...ROUTE_ORDER], ["Ops", "TMS", "2TMS", "PAS"]);
+  });
+});
+
+describe("seedFromCategory — Tiana's Outlook tag as a prior", () => {
+  it("seeds the route from her named tags", () => {
+    assert.deepEqual(seedFromCategory("Pay Rate Change"), { route: "TMS" });
+    assert.deepEqual(seedFromCategory("Sick Time"),
+      { changeType: "MN ESST", route: "2TMS" });
+    assert.equal(seedFromCategory("Transportation")?.route, "PAS");
+    assert.equal(seedFromCategory("Housing Change")?.route, "PAS");
+  });
+
+  it("an unnamed colour category means nothing", () => {
+    // The name IS the colour — it carries no classification.
+    assert.equal(seedFromCategory("Green Category"), null);
+  });
+
+  it("no tag, no seed — the body decides alone", () => {
+    assert.equal(seedFromCategory(null), null);
+    assert.equal(seedFromCategory(""), null);
+    assert.equal(seedFromCategory("Some Unknown Tag"), null);
   });
 });
