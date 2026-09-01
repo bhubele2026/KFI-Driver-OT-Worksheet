@@ -770,6 +770,12 @@ export const GetWeekSummaryResponse = zod.object({
         .describe(
           "Number of punches in this driver-week with `flagged_for_review =\ntrue`. Drives a compact red flag badge next to the driver's\nreviewed pill on the week dashboard \/ sidebar.\n",
         ),
+      customerOverlapCount: zod
+        .number()
+        .optional()
+        .describe(
+          "Number of Customer-source punches in this driver-week that\noverlap another Customer punch by >10 minutes under a DIFFERENT\ncustomer attribution — the shape of a timesheet row imported\nunder the wrong person (two same-named workers at two\ncustomers). Same-customer multi-leg overlaps are intentionally\nnot counted (task #355). Drives a small warning indicator on\nthe driver row in the week dashboard \/ sidebar.\n",
+        ),
       hasOverriddenDay: zod
         .boolean()
         .describe(
@@ -858,6 +864,12 @@ export const GetWeekSummaryResponse = zod.object({
             .optional()
             .describe(
               "Number of punches in this driver-week with `flagged_for_review =\ntrue`. Drives a compact red flag badge next to the driver's\nreviewed pill on the week dashboard \/ sidebar.\n",
+            ),
+          customerOverlapCount: zod
+            .number()
+            .optional()
+            .describe(
+              "Number of Customer-source punches in this driver-week that\noverlap another Customer punch by >10 minutes under a DIFFERENT\ncustomer attribution — the shape of a timesheet row imported\nunder the wrong person (two same-named workers at two\ncustomers). Same-customer multi-leg overlaps are intentionally\nnot counted (task #355). Drives a small warning indicator on\nthe driver row in the week dashboard \/ sidebar.\n",
             ),
           hasOverriddenDay: zod
             .boolean()

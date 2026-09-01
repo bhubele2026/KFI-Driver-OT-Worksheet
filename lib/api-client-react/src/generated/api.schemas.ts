@@ -29,6 +29,8 @@ export type PulseStatusWeeksItem = { [key: string]: unknown };
 
 export type PulseStatusGaps = { [key: string]: unknown };
 
+export type PulseStatusZenople = { [key: string]: unknown };
+
 export interface PulseStatus {
   ok: boolean;
   service: string;
@@ -38,6 +40,7 @@ export interface PulseStatus {
   config?: PulseStatusConfig;
   weeks?: PulseStatusWeeksItem[];
   gaps?: PulseStatusGaps;
+  zenople?: PulseStatusZenople;
   [key: string]: unknown;
 }
 
@@ -482,6 +485,15 @@ true`. Drives a compact red flag badge next to the driver's
 reviewed pill on the week dashboard / sidebar.
  */
   flaggedPunchCount?: number;
+  /** Number of Customer-source punches in this driver-week that
+overlap another Customer punch by >10 minutes under a DIFFERENT
+customer attribution — the shape of a timesheet row imported
+under the wrong person (two same-named workers at two
+customers). Same-customer multi-leg overlaps are intentionally
+not counted (task #355). Drives a small warning indicator on
+the driver row in the week dashboard / sidebar.
+ */
+  customerOverlapCount?: number;
   /** True when at least one day in this driver-week has its total
 dispatcher-overridden (every contributing punch on that day is
 flagged `edited=true`). Drives a small indicator on the driver

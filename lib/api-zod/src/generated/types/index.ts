@@ -158,6 +158,7 @@ export * from "./pulseStatusConfig";
 export * from "./pulseStatusDb";
 export * from "./pulseStatusGaps";
 export * from "./pulseStatusWeeksItem";
+export * from "./pulseStatusZenople";
 export * from "./punch";
 export * from "./punchSource";
 export * from "./rateLimitBucket";

@@ -220,6 +220,8 @@
     "tileOt": "{{hours}} OT",
     "tileReviewed": "{{n}}/{{total}}",
     "tileNoCt": "{{count}}",
+    "overlapTitle_one": "1 customer punch overlaps another customer's time — likely a misattributed timesheet row",
+    "overlapTitle_other": "{{count}} customer punches overlap another customer's time — likely misattributed timesheet rows",
     "tileNoCtTitle": "{{count}} driver(s) with hours but no Connecteam time this week"
   },
   "driverDetail": {
@@ -557,7 +559,9 @@
       "clearOverrideFailedTitle": "Couldn't clear override",
       "allReviewed": "All drivers reviewed for this week"
     },
-    "noCtTitle": "No Connecteam time this week — customer-sheet hours only"
+    "noCtTitle": "No Connecteam time this week — customer-sheet hours only",
+    "overlapTitle_one": "1 customer punch overlaps another customer's time — likely a misattributed timesheet row",
+    "overlapTitle_other": "{{count}} customer punches overlap another customer's time — likely misattributed timesheet rows"
   },
   "editingIndicator": {
     "singular": "{{email}} is editing",

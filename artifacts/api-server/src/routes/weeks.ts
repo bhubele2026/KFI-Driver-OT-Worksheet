@@ -49,6 +49,7 @@ import {
 } from "../lib/connecteam.js";
 import {
   computeChecks,
+  computeCustomerOverlapConflicts,
   computeDailyTotals,
   computeDriverTotals,
 } from "../lib/hoursEngine.js";
@@ -725,6 +726,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     lastTouchedAt: string | null;
     noteCount: number;
     flaggedPunchCount: number;
+    customerOverlapCount: number;
     displayTz: string | null;
     effectiveDispTz: string;
     connecteamParity: {
@@ -750,6 +752,9 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
     const hasCustomerTzMismatch = ps.some(
       (p) => p.source === "Customer" && p.dispTz !== driverEffTz,
     );
+    // Cross-customer punch overlaps = the misattributed-timesheet-row shape
+    // (two same-named workers at two customers). Same array, no extra query.
+    const customerOverlapCount = computeCustomerOverlapConflicts(ps).length;
     totDriver += t.totalDriver;
     totCust += t.totalCustomer;
     totRt += t.regularHours;
@@ -817,6 +822,7 @@ weeksRouter.get("/weeks/:weekStart/summary", async (req, res) => {
       lastTouchedAt,
       noteCount: noteCountByKfi.get(kfiId) ?? 0,
       flaggedPunchCount: ps.filter((p) => p.flaggedForReview).length,
+      customerOverlapCount,
       displayTz: meta?.displayTz ?? null,
       effectiveDispTz: driverEffTz,
       connecteamParity: {

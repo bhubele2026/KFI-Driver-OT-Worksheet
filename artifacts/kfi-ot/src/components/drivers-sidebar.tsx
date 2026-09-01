@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   Circle,
   Flag,
+  Layers2,
   Lock,
   Menu,
   MoreHorizontal,
@@ -278,6 +279,9 @@ function DriversList({
                 : t("driversSidebar.bubble.markReviewed", { name: driver.name });
               const flaggedCount = (driver as { flaggedPunchCount?: number })
                 .flaggedPunchCount;
+              const overlapCount =
+                (driver as { customerOverlapCount?: number })
+                  .customerOverlapCount ?? 0;
               const originalCustomer = (driver as {
                 originalCustomer?: string | null;
               }).originalCustomer;
@@ -376,6 +380,20 @@ function DriversList({
                         title={t("driversSidebar.noCtTitle")}
                       >
                         <AlertTriangle className="h-3 w-3 text-warning" />
+                      </span>
+                    )}
+                    {overlapCount > 0 && (
+                      <span
+                        className="inline-flex shrink-0"
+                        data-testid={`sidebar-overlap-${driver.kfiId}`}
+                        title={t(
+                          overlapCount === 1
+                            ? "driversSidebar.overlapTitle_one"
+                            : "driversSidebar.overlapTitle_other",
+                          { count: overlapCount },
+                        )}
+                      >
+                        <Layers2 className="h-3 w-3 text-warning" />
                       </span>
                     )}
                     {driver.totalHours > 0 && (

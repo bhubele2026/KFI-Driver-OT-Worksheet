@@ -1,29 +1,39 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Punch } from "@workspace/db/schema";
-import { computeDailyTotals, computeDriverTotals } from "../hoursEngine.js";
+import {
+  computeChecks,
+  computeCustomerOverlapConflicts,
+  computeDailyTotals,
+  computeDriverTotals,
+} from "../hoursEngine.js";
 
 // Build a synthetic Punch row. Only the fields the engine reads matter:
-// `clockIn` (for chronological ordering), `hours`, and `source`.
+// `clockIn` (for chronological ordering), `hours`, and `source` — plus
+// `clockOut`/`customer`/`dispTz` for the overlap-conflict cases.
 function p(opts: {
   clockIn: string;
   hours: number;
   source: "Driver" | "Customer";
   date?: string;
   edited?: boolean;
+  clockOut?: string;
+  customer?: string;
+  dispTz?: string;
+  id?: number;
 }): Punch {
   return {
-    id: 0,
+    id: opts.id ?? 0,
     weekStart: "2026-01-05",
     kfiId: "TEST",
-    customer: "Test",
+    customer: opts.customer ?? "Test",
     source: opts.source,
     date: opts.date ?? opts.clockIn.slice(0, 10),
     clockIn: opts.clockIn,
-    clockOut: opts.clockIn,
+    clockOut: opts.clockOut ?? opts.clockIn,
     hours: String(opts.hours),
     payType: null,
-    dispTz: "America/Chicago",
+    dispTz: opts.dispTz ?? "America/Chicago",
     isManual: false,
     edited: opts.edited ?? false,
     ctExternalKey: null,
@@ -190,4 +200,98 @@ test("computeDailyTotals: hasOverrides = all contributing punches edited", () =>
   assert.equal(byDate.get("2026-01-07")?.hasOverrides, false);
   // Empty days never flag (no contributing punches).
   assert.equal(byDate.get("2026-01-08")?.hasOverrides, false);
+});
+
+// ---------------------------------------------------------------------------
+// Cross-customer overlap conflicts — the David Navarro case (2026-08-28).
+// A saved alias imported LSI's David Davis rows under Shusters' David
+// Navarro, so one 9.4h Shusters punch fully covered two LSI punches the
+// same day. The engine must flag Customer-vs-Customer overlaps ONLY when
+// the two rows carry different customers; same-customer multi-leg rows
+// stay silent (task #355).
+// ---------------------------------------------------------------------------
+
+test("computeCustomerOverlapConflicts: flags the Navarro cross-customer shape", () => {
+  const punches = [
+    p({ id: 1, clockIn: "2026-08-28 7:31 AM", clockOut: "2026-08-28 5:25 PM", hours: 9.4, source: "Customer", customer: "Shuster's" }),
+    p({ id: 2, clockIn: "2026-08-28 9:00 AM", clockOut: "2026-08-28 11:30 AM", hours: 2.5, source: "Customer", customer: "LSI" }),
+    p({ id: 3, clockIn: "2026-08-28 12:00 PM", clockOut: "2026-08-28 3:30 PM", hours: 3.5, source: "Customer", customer: "LSI" }),
+  ];
+  const conflicts = computeCustomerOverlapConflicts(punches);
+  assert.equal(conflicts.length, 2);
+  assert.deepEqual(conflicts.map((c) => c.overlapMinutes), [150, 210]);
+  assert.ok(conflicts.every((c) => c.date === "2026-08-28"));
+  assert.ok(conflicts.every((c) => c.customers[0] === "Shuster's" && c.customers[1] === "LSI"));
+
+  const warns = computeChecks(punches).filter((c) => c.message.includes("overlap"));
+  assert.equal(warns.length, 2);
+  assert.ok(warns.every((w) => w.level === "warn"));
+  assert.ok(warns.every((w) => w.message.includes("Shuster's") && w.message.includes("LSI")));
+});
+
+test("computeCustomerOverlapConflicts: same-customer multi-leg overlaps stay silent (task #355)", () => {
+  const punches = [
+    p({ id: 1, clockIn: "2026-08-28 7:31 AM", clockOut: "2026-08-28 5:25 PM", hours: 9.4, source: "Customer", customer: "Shuster's" }),
+    p({ id: 2, clockIn: "2026-08-28 9:00 AM", clockOut: "2026-08-28 11:30 AM", hours: 2.5, source: "Customer", customer: "Shuster's" }),
+    p({ id: 3, clockIn: "2026-08-28 12:00 PM", clockOut: "2026-08-28 3:30 PM", hours: 3.5, source: "Customer", customer: "shuster's " }),
+  ];
+  assert.equal(computeCustomerOverlapConflicts(punches).length, 0);
+  assert.equal(computeChecks(punches).filter((c) => c.message.includes("overlap")).length, 0);
+});
+
+test("computeChecks: Driver-Driver overlap warning is unchanged", () => {
+  const punches = [
+    p({ id: 1, clockIn: "2026-08-28 8:00 AM", clockOut: "2026-08-28 10:00 AM", hours: 2, source: "Driver" }),
+    p({ id: 2, clockIn: "2026-08-28 9:00 AM", clockOut: "2026-08-28 11:00 AM", hours: 2, source: "Driver" }),
+  ];
+  const warns = computeChecks(punches).filter((c) => c.message.includes("overlap"));
+  assert.equal(warns.length, 1);
+  assert.equal(warns[0].message, "Driver punches overlap by 60 min");
+});
+
+test("computeCustomerOverlapConflicts: compares in absolute time via each row's dispTz", () => {
+  // August: New York is UTC-4 (EDT), Chicago UTC-5 (CDT) — 1h apart.
+  // Wall-clock says these overlap 60 min; in absolute time the NY row ends
+  // exactly when the Chicago row starts. Must NOT flag.
+  const touching = [
+    p({ id: 1, clockIn: "2026-08-28 9:00 AM", clockOut: "2026-08-28 11:00 AM", hours: 2, source: "Customer", customer: "DeLallo", dispTz: "America/New_York" }),
+    p({ id: 2, clockIn: "2026-08-28 10:00 AM", clockOut: "2026-08-28 12:00 PM", hours: 2, source: "Customer", customer: "Orgill", dispTz: "America/Chicago" }),
+  ];
+  assert.equal(computeCustomerOverlapConflicts(touching).length, 0);
+
+  // Wall-clock says these merely touch; in absolute time the NY row is
+  // 9:00–11:00 Chicago, overlapping the 8:00–10:00 Chicago row by 60 min.
+  const hidden = [
+    p({ id: 1, clockIn: "2026-08-28 10:00 AM", clockOut: "2026-08-28 12:00 PM", hours: 2, source: "Customer", customer: "DeLallo", dispTz: "America/New_York" }),
+    p({ id: 2, clockIn: "2026-08-28 8:00 AM", clockOut: "2026-08-28 10:00 AM", hours: 2, source: "Customer", customer: "Orgill", dispTz: "America/Chicago" }),
+  ];
+  const conflicts = computeCustomerOverlapConflicts(hidden);
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].overlapMinutes, 60);
+});
+
+test("computeCustomerOverlapConflicts: >10 min threshold suppresses rounding noise", () => {
+  const atThreshold = [
+    p({ id: 1, clockIn: "2026-08-28 8:00 AM", clockOut: "2026-08-28 9:00 AM", hours: 1, source: "Customer", customer: "A Co" }),
+    p({ id: 2, clockIn: "2026-08-28 8:50 AM", clockOut: "2026-08-28 10:00 AM", hours: 1.17, source: "Customer", customer: "B Co" }),
+  ];
+  assert.equal(computeCustomerOverlapConflicts(atThreshold).length, 0);
+
+  const overThreshold = [
+    p({ id: 1, clockIn: "2026-08-28 8:00 AM", clockOut: "2026-08-28 9:00 AM", hours: 1, source: "Customer", customer: "A Co" }),
+    p({ id: 2, clockIn: "2026-08-28 8:49 AM", clockOut: "2026-08-28 10:00 AM", hours: 1.18, source: "Customer", customer: "B Co" }),
+  ];
+  const conflicts = computeCustomerOverlapConflicts(overThreshold);
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].overlapMinutes, 11);
+});
+
+test("computeCustomerOverlapConflicts: unparseable tz falls back to wall-clock and still flags", () => {
+  const punches = [
+    p({ id: 1, clockIn: "2026-08-28 8:00 AM", clockOut: "2026-08-28 4:00 PM", hours: 8, source: "Customer", customer: "A Co", dispTz: "Bogus/Zone" }),
+    p({ id: 2, clockIn: "2026-08-28 9:00 AM", clockOut: "2026-08-28 10:00 AM", hours: 1, source: "Customer", customer: "B Co", dispTz: "Bogus/Zone" }),
+  ];
+  const conflicts = computeCustomerOverlapConflicts(punches);
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].overlapMinutes, 60);
 });

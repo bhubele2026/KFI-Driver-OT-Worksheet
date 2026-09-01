@@ -1,5 +1,6 @@
 import type { Punch } from "@workspace/db/schema";
 import { CT_TZ, localStrToSortMs, isoDateToUtcMs, listDates } from "./time.js";
+import { wallClockToMs } from "./punchAutoAlign.js";
 
 export const OT_THRESHOLD = 40;
 
@@ -191,6 +192,61 @@ export interface PunchCheck {
 }
 
 /** Validation flags shown on the driver detail page. */
+export interface CustomerOverlapConflict {
+  /** Punch `date` of the later-starting row in the pair. */
+  date: string;
+  ids: [number, number];
+  customers: [string | null, string | null];
+  overlapMinutes: number;
+}
+
+/**
+ * Customer rows that overlap >10 min across DIFFERENT customer attributions —
+ * the shape of a timesheet row imported under the wrong person (two same-named
+ * workers at two customers, e.g. LSI's David landing under Shusters' David).
+ * Same-customer overlaps are deliberately NOT conflicts: customer files
+ * routinely carry multi-trip/multi-leg rows for one driver/day (task #355).
+ *
+ * Compared in absolute time via each row's own dispTz — same-day rows can
+ * carry different zones on multi-plant weeks, where wall-clock comparison is
+ * off by the zone gap. Falls back to naive wall-clock ms when a row's
+ * timestamp or zone won't parse.
+ */
+export function computeCustomerOverlapConflicts(punches: Punch[]): CustomerOverlapConflict[] {
+  const items: { punch: Punch; start: number; end: number }[] = [];
+  for (const p of punches) {
+    if (p.source !== "Customer") continue;
+    if (!p.clockIn || p.clockIn === p.date) continue;
+    if (!p.clockOut || p.clockOut === p.date) continue;
+    const tz = p.dispTz ?? CT_TZ;
+    const start = wallClockToMs(p.clockIn, tz) ?? localStrToSortMs(p.clockIn);
+    const end = wallClockToMs(p.clockOut, tz) ?? localStrToSortMs(p.clockOut);
+    if (start === null || end === null || end <= start) continue;
+    items.push({ punch: p, start, end });
+  }
+  items.sort((a, b) => a.start - b.start);
+
+  const normCust = (c: string | null | undefined): string => (c ?? "").trim().toLowerCase();
+  const conflicts: CustomerOverlapConflict[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const b = items[i];
+    for (let j = 0; j < i; j++) {
+      const a = items[j];
+      const overlapMs = Math.min(a.end, b.end) - Math.max(a.start, b.start);
+      if (overlapMs <= 10 * 60 * 1000) continue;
+      if (normCust(a.punch.customer) === normCust(b.punch.customer)) continue;
+      conflicts.push({
+        date: b.punch.date,
+        ids: [a.punch.id, b.punch.id],
+        customers: [a.punch.customer ?? null, b.punch.customer ?? null],
+        overlapMinutes: Math.round(overlapMs / 60000),
+      });
+      break; // one conflict per row, matching the Driver-source loop's restraint
+    }
+  }
+  return conflicts;
+}
+
 export function computeChecks(punches: Punch[]): PunchCheck[] {
   const out: PunchCheck[] = [];
   const sorted = [...punches].sort((a, b) => {
@@ -217,7 +273,10 @@ export function computeChecks(punches: Punch[]): PunchCheck[] {
     if (ci !== null && co !== null) {
       // Same-source overlap >10 min = data error.
       // Customer files routinely contain multiple overlapping rows per
-      // driver/day (multi-trip / multi-leg), so only flag Driver-source.
+      // driver/day (multi-trip / multi-leg), so this loop only flags
+      // Driver-source (task #355). Customer rows are handled below by
+      // computeCustomerOverlapConflicts, which flags overlaps only when the
+      // two rows belong to DIFFERENT customers — the misattributed-row shape.
       if (r.source === "Customer") continue;
       for (let j = 0; j < i; j++) {
         const prev = sorted[j];
@@ -237,6 +296,13 @@ export function computeChecks(punches: Punch[]): PunchCheck[] {
         }
       }
     }
+  }
+  for (const c of computeCustomerOverlapConflicts(punches)) {
+    out.push({
+      level: "warn",
+      message: `Customer punches overlap by ${c.overlapMinutes} min (${c.customers[0] || "?"} vs ${c.customers[1] || "?"})`,
+      date: c.date,
+    });
   }
   return out;
 }

@@ -75,6 +75,7 @@ import {
   Globe,
   MoreHorizontal,
   Flag,
+  Layers2,
   Download,
   Check,
   X as XIcon,
@@ -974,6 +975,18 @@ export default function WeekSummary() {
                                             aria-label={t("weekSummary.tileNoCt", {
                                               count: 1,
                                             })}
+                                          />
+                                        ) : null}
+                                        {(d.customerOverlapCount ?? 0) > 0 ? (
+                                          <Layers2
+                                            className="h-3.5 w-3.5 text-warning"
+                                            data-testid={`week-overlap-${d.kfiId}`}
+                                            aria-label={t(
+                                              d.customerOverlapCount === 1
+                                                ? "weekSummary.overlapTitle_one"
+                                                : "weekSummary.overlapTitle_other",
+                                              { count: d.customerOverlapCount },
+                                            )}
                                           />
                                         ) : null}
                                         {flagged > 0 ? (

@@ -9,6 +9,7 @@ import type { PulseStatusConfig } from "./pulseStatusConfig";
 import type { PulseStatusDb } from "./pulseStatusDb";
 import type { PulseStatusGaps } from "./pulseStatusGaps";
 import type { PulseStatusWeeksItem } from "./pulseStatusWeeksItem";
+import type { PulseStatusZenople } from "./pulseStatusZenople";
 
 export interface PulseStatus {
   ok: boolean;
@@ -19,5 +20,6 @@ export interface PulseStatus {
   config?: PulseStatusConfig;
   weeks?: PulseStatusWeeksItem[];
   gaps?: PulseStatusGaps;
+  zenople?: PulseStatusZenople;
   [key: string]: unknown;
 }

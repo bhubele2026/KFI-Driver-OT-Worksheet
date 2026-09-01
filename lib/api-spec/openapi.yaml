@@ -2984,6 +2984,16 @@ components:
             Number of punches in this driver-week with `flagged_for_review =
             true`. Drives a compact red flag badge next to the driver's
             reviewed pill on the week dashboard / sidebar.
+        customerOverlapCount:
+          type: integer
+          description: |
+            Number of Customer-source punches in this driver-week that
+            overlap another Customer punch by >10 minutes under a DIFFERENT
+            customer attribution — the shape of a timesheet row imported
+            under the wrong person (two same-named workers at two
+            customers). Same-customer multi-leg overlaps are intentionally
+            not counted (task #355). Drives a small warning indicator on
+            the driver row in the week dashboard / sidebar.
         hasOverriddenDay:
           type: boolean
           description: |

@@ -220,6 +220,8 @@
     "tileOt": "{{hours}} extra",
     "tileReviewed": "{{n}}/{{total}}",
     "tileNoCt": "{{count}}",
+    "overlapTitle_one": "1 marcaje de cliente se superpone con el tiempo de otro cliente — probablemente una fila mal asignada",
+    "overlapTitle_other": "{{count}} marcajes de cliente se superponen con el tiempo de otro cliente — probablemente filas mal asignadas",
     "tileNoCtTitle": "{{count}} chofer(es) con horas pero sin tiempo de Connecteam esta semana"
   },
   "driverDetail": {
@@ -557,7 +559,9 @@
       "clearOverrideFailedTitle": "No se pudo quitar la anulación",
       "allReviewed": "Todos los conductores revisados esta semana"
     },
-    "noCtTitle": "Sin tiempo de Connecteam esta semana — solo horas del cliente"
+    "noCtTitle": "Sin tiempo de Connecteam esta semana — solo horas del cliente",
+    "overlapTitle_one": "1 marcaje de cliente se superpone con el tiempo de otro cliente — probablemente una fila mal asignada",
+    "overlapTitle_other": "{{count}} marcajes de cliente se superponen con el tiempo de otro cliente — probablemente filas mal asignadas"
   },
   "editingIndicator": {
     "singular": "{{email}} está editando",
