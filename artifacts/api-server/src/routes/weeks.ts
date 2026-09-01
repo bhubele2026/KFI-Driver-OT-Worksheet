@@ -70,6 +70,11 @@ import {
 } from "../lib/customersStore.js";
 import { aiExtractRows } from "../lib/parsers/aiExtract.js";
 import { fastExtractRows } from "../lib/parsers/fastExtract.js";
+import {
+  ignoreClearKeysForPick,
+  isIgnoredRow,
+  normalizeIgnoreKey,
+} from "../lib/parsers/ignoredExternals.js";
 import { getXlsxWorkerPoolStats } from "../lib/parsers/xlsxWorkerPool.js";
 import { loadLessonsForPrompt, MAX_LESSON_CHARS } from "../lib/chat/lessonsStore.js";
 import { runChatTurn } from "../lib/chat/claudeChat.js";
@@ -180,7 +185,9 @@ async function loadIgnoredExternalIds(
     .where(
       sql`lower(${schema.customerIgnoredExternalsTable.customer}) = lower(${customer})`,
     );
-  return new Set(rows.map((r) => r.externalId.toLowerCase()));
+  // normalizeIgnoreKey collapse-ws matches ignoreKeysForRow on the veto side
+  // so a name-keyed rule survives doc-side whitespace drift.
+  return new Set(rows.map((r) => normalizeIgnoreKey(r.externalId)));
 }
 
 /**
@@ -2312,6 +2319,7 @@ weeksRouter.post(
           log: req.log,
           importRules: customerRules,
           ctActiveKfiIds: await loadCtActiveKfiIds(startDate),
+          ignoredExternalIds: await loadIgnoredExternalIds(detectedCustomer),
           aiOpts: {
             budget: aiBudget,
             allowGeminiFallback,
@@ -2808,6 +2816,7 @@ weeksRouter.post(
           log: req.log,
           importRules: reCustomerRules,
           ctActiveKfiIds: await loadCtActiveKfiIds(startDate),
+          ignoredExternalIds: await loadIgnoredExternalIds(sample.customer),
           aiOpts: {
             budget: reBudget,
             allowGeminiFallback: reAllowGemini,
@@ -2985,6 +2994,12 @@ weeksRouter.post(
 
     const lockedKfiIds = await loadLockedKfiIds(startDate);
     const lockedSkipped: string[] = [];
+    // Pending rows skipped because a "not a driver — never import" rule
+    // vetoed them at confirm time (labels: `id (name)`).
+    const ignoredSkipped: string[] = [];
+    // Ignore rules DELETED because the dispatcher explicitly mapped the
+    // same worker in the picker — the newest human decision wins.
+    const ignoreCleared: string[] = [];
     // Filled inside the tx with the result of the AUTHORITATIVE re-parse
     // (which uses the merged map AFTER any picker aliases are written).
     // Used after the tx for the response payload + audit logging.
@@ -3058,6 +3073,40 @@ weeksRouter.post(
           }
         }
 
+        // (1c) An explicit picker pick LIFTS a stale "not a driver" rule —
+        // the newest human decision wins (Brad, 2026-09-01). A badge pick
+        // also clears the person's name-keyed rule (saved in a week where
+        // the row carried no id), or the pick would be vetoed again on the
+        // next upload. Runs AFTER (1b) so a same-confirm ignore+map for one
+        // worker resolves in favor of the map. Whitespace-collapsed compare
+        // matches normalizeIgnoreKey on the veto side.
+        for (const a of cleanedAliases) {
+          for (const key of ignoreClearKeysForPick(a.externalId, a.sampleName)) {
+            const deleted = await tx.execute(sql`
+              DELETE FROM customer_ignored_externals
+              WHERE lower(customer) = lower(${customer})
+                AND lower(regexp_replace(external_id, '\\s+', ' ', 'g')) = ${key}
+              RETURNING external_id
+            `);
+            for (const row of deleted.rows as Array<{ external_id: string }>) {
+              if (!ignoreCleared.includes(row.external_id)) {
+                ignoreCleared.push(row.external_id);
+              }
+            }
+          }
+        }
+        if (ignoreCleared.length > 0) {
+          req.log.warn(
+            { customer, ignoreCleared },
+            "Explicit picker pick lifted not-a-driver ignore rule(s)",
+          );
+          await tx.insert(schema.userAuditLogTable).values({
+            actorUserId: req.session.userId ?? null,
+            targetEmail: `ignore-cleared:${customer}:${ignoreCleared.join(",")}`.slice(0, 255),
+            action: "ignore-cleared-by-pick",
+          });
+        }
+
         // (2) Re-parse with the merged map (now including the just-written
         // picker aliases) so previously-dropped rows are imported in the
         // same run.
@@ -3105,6 +3154,22 @@ weeksRouter.post(
             for (const r of nameAliasRows) {
               nameMap.set(r.nameOnDoc.toLowerCase(), r.kfiId);
             }
+            // "Not a driver — never import" set, loaded IN-TX so it sees
+            // the (1b) inserts and the (1c) pick-lifts deletes from this
+            // same confirm. Vetoes pending rows before any resolution —
+            // and thereby keeps the auto-learn below from ever writing an
+            // alias for an ignored id.
+            const inTxIgnoredRows = await tx
+              .select({
+                externalId: schema.customerIgnoredExternalsTable.externalId,
+              })
+              .from(schema.customerIgnoredExternalsTable)
+              .where(
+                sql`lower(${schema.customerIgnoredExternalsTable.customer}) = lower(${customer})`,
+              );
+            const inTxIgnored = new Set(
+              inTxIgnoredRows.map((r) => normalizeIgnoreKey(r.externalId)),
+            );
             // Task #363 collision guard context — same shape the
             // extract-side AI/cache paths use. Without it, a pending
             // row whose `badgeOrId` happens to equal a real KFI badge
@@ -3126,6 +3191,13 @@ weeksRouter.post(
               let kfiId: string | null = null;
               const badge = (p.badgeOrId ?? "").trim();
               const pendingName = p.driverNameOnDoc?.trim() ?? "";
+              if (isIgnoredRow(inTxIgnored, badge, pendingName)) {
+                const label = badge
+                  ? `${badge} (${pendingName || "?"})`
+                  : pendingName;
+                if (!ignoredSkipped.includes(label)) ignoredSkipped.push(label);
+                continue;
+              }
               if (badge) {
                 const mapped = mergedMap[badge];
                 const candidate =
@@ -3166,7 +3238,10 @@ weeksRouter.post(
               // confirm. Using `lower(external_id)` as the conflict
               // target keeps the prior mapping (case-insensitive) as
               // the source of truth and only learns brand-new badges.
-              if (badge) {
+              // Belt-and-braces beside the loop-top veto: never learn a
+              // badge alias for an ignored id (the veto already `continue`d
+              // such rows, so this guard only matters if the veto moves).
+              if (badge && !inTxIgnored.has(normalizeIgnoreKey(badge))) {
                 const sampleName = p.driverNameOnDoc.trim() || null;
                 const actor = req.session.userId ?? null;
                 await tx.execute(sql`
@@ -3424,6 +3499,8 @@ weeksRouter.post(
       punchesUpserted: insertablePunches.length,
       unmappedIds: visibleUnmappedConfirm,
       lockedSkipped,
+      ignoredSkipped,
+      ignoreCleared,
     });
   },
 );
@@ -4599,6 +4676,7 @@ weeksRouter.post(
       drivers: rosterDrivers,
       idMap: rosterIdMap,
       nameAliasMap: nameAliasMapForRoster,
+      ignoredExternalIds: await loadIgnoredExternalIds(customer),
     });
     const ingestionIdNew = randomUUID();
     try {
@@ -5035,6 +5113,27 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", requireTile("upload")
         kfiId,
         updatedBy: req.session.userId ?? null,
       });
+      // An explicit mapping lifts a stale name-keyed "not a driver" rule —
+      // every row here is a human pick, so the newest decision wins
+      // (mirrors confirm-customer-file step 1c).
+      const clearedRows = await tx.execute(sql`
+        DELETE FROM customer_ignored_externals
+        WHERE lower(customer) = lower(${customer})
+          AND lower(regexp_replace(external_id, '\\s+', ' ', 'g')) =
+              ${"name:" + normalizeIgnoreKey(nameOnDoc)}
+        RETURNING external_id
+      `);
+      for (const row of clearedRows.rows as Array<{ external_id: string }>) {
+        req.log.warn(
+          { customer, externalId: row.external_id },
+          "Explicit new-customer mapping lifted not-a-driver ignore rule",
+        );
+        await tx.insert(schema.userAuditLogTable).values({
+          actorUserId: req.session.userId ?? null,
+          targetEmail: `ignore-cleared:${customer}:${row.external_id}`.slice(0, 255),
+          action: "ignore-cleared-by-pick",
+        });
+      }
     }
   });
 

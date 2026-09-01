@@ -2,6 +2,7 @@
 // dispatcher-supplied driver name on an unknown customer document. Token-set
 // based: order-insensitive, robust to "LAST, FIRST" vs "First Last" and
 // extra middle initials.
+import { isIgnoredRow } from "./ignoredExternals.js";
 
 // Below this name-similarity score, a badge → driver match is treated as a
 // name collision and vetoed even when the customer lines up (see
@@ -250,10 +251,15 @@ export function resolveDriverId(
     nameAliasMap?: ReadonlyMap<string, string>;
     uploadedCustomer: string;
     driversByKfi: ReadonlyMap<string, { name: string; customer: string | null }>;
+    /** Normalized "not a driver" keys — vetoes resolution before every lane. */
+    ignoredExternalIds?: ReadonlySet<string>;
   },
 ): string | null {
   const badge = (input.badge ?? "").trim();
   const nameOnDoc = (input.nameOnDoc ?? "").trim();
+  // "Not a driver — never import" veto, doc-side keyed, before every lane —
+  // an explicit alias must never resolve an explicitly-ignored worker.
+  if (isIgnoredRow(ctx.ignoredExternalIds, badge, nameOnDoc)) return null;
   if (badge) {
     // Explicit alias mapping is authoritative (case-insensitive to match the
     // driver_id_aliases lower(external_id) index); it wins outright.

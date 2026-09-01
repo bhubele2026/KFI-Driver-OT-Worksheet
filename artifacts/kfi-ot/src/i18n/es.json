@@ -1164,6 +1164,8 @@
     "forgetFailed": "No se pudo olvidar el alias"
   },
   "adminDriverIdsExtra": {
+    "overriddenByIgnore": "Anulado por regla de ignorados — {{customers}}",
+    "aliasExistsForIgnored": "Existe un mapeo guardado — las importaciones siguen bloqueadas",
     "addCardTitle": "Añadir una nueva asignación",
     "addDescription": "Asigne un ID de nómina de cliente (código TELD, número de credencial, número de empleado, etc.) a un conductor de KFI. Las nuevas asignaciones tienen efecto en la próxima subida de archivo de cliente — sin cambios de código. Para anular una asignación interna obsoleta, simplemente introduzca el mismo ID; la fila guardada gana.",
     "externalIdLabel": "ID de nómina del cliente",
@@ -1305,6 +1307,9 @@
     "dropZoneSubtitle": ".xlsx, .pdf o fotos (JPG/PNG/HEIC) — lo demás se omite"
   },
   "customerPreview": {
+    "blockedIgnored_one": "Se bloqueó 1 fila — marcada \"no es chofer\"",
+    "blockedIgnored_other": "Se bloquearon {{count}} filas — marcadas \"no es chofer\"",
+    "ignoreClearedByPick": "Regla de ignorados levantada por tu selección",
     "reviewTitle": "Revisar subida de {{customer}}",
     "description": "Nada se guarda hasta que confirme.",
     "readBy": "Leído por:",

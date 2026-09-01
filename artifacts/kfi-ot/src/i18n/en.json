@@ -1164,6 +1164,8 @@
     "forgetFailed": "Couldn't forget alias"
   },
   "adminDriverIdsExtra": {
+    "overriddenByIgnore": "Overridden by ignore rule — {{customers}}",
+    "aliasExistsForIgnored": "A saved mapping exists — imports stay blocked",
     "addCardTitle": "Add a new mapping",
     "addDescription": "Map a customer payroll id (TELD code, badge #, employee number, etc.) to a KFI driver. New mappings take effect on the next customer-file upload — no code change needed. To override a stale built-in mapping, just enter the same id; the saved row wins.",
     "externalIdLabel": "Customer payroll id",
@@ -1305,6 +1307,9 @@
     "dropZoneSubtitle": ".xlsx, .pdf, or photos"
   },
   "customerPreview": {
+    "blockedIgnored_one": "Blocked 1 row — marked \"not a driver\"",
+    "blockedIgnored_other": "Blocked {{count}} rows — marked \"not a driver\"",
+    "ignoreClearedByPick": "Ignore lifted by your pick",
     "reviewTitle": "Review {{customer}} upload",
     "description": "Nothing is saved until you confirm.",
     "statusPunches_one": "{{count}} punch",

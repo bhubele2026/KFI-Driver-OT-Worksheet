@@ -283,6 +283,26 @@ export function CustomerPreviewDialog({
       },
       {
         onSuccess: (body) => {
+          const ignoredSkipped = body.ignoredSkipped ?? [];
+          if (ignoredSkipped.length > 0) {
+            toast({
+              title: t(
+                ignoredSkipped.length === 1
+                  ? "customerPreview.blockedIgnored_one"
+                  : "customerPreview.blockedIgnored_other",
+                { count: ignoredSkipped.length },
+              ),
+              description: ignoredSkipped.join(", "),
+              variant: "destructive",
+            });
+          }
+          const ignoreCleared = body.ignoreCleared ?? [];
+          if (ignoreCleared.length > 0) {
+            toast({
+              title: t("customerPreview.ignoreClearedByPick"),
+              description: ignoreCleared.join(", "),
+            });
+          }
           const unmapped = body.unmappedIds ?? [];
           if (unmapped.length > 0) {
             const formatted = unmapped

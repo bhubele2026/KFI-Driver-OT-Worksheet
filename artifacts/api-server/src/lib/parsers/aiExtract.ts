@@ -163,6 +163,16 @@ export interface RosterContext {
    * Blocked workers surface as strangers with an explicit reason.
    */
   ctActiveKfiIds?: string[];
+  /**
+   * "Not a driver — never import" keys for THIS customer, normalized
+   * (lower-cased, inner whitespace collapsed): bare badge/external ids and
+   * `name:<name-on-doc>` sentinels, exactly as stored in
+   * customer_ignored_externals. When present, any document row whose badge
+   * OR name matches is HARD-BLOCKED before every matching lane — including
+   * saved badge/name aliases (Davis→Navarro lesson: an alias must never
+   * beat an explicit ignore). Prompt builders do not read this field.
+   */
+  ignoredExternalIds?: string[];
 }
 
 /**

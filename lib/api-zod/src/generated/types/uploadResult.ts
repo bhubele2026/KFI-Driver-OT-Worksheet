@@ -11,6 +11,19 @@ export interface UploadResult {
   customer: string;
   fileName: string;
   punchesUpserted: number;
+  /** Rows skipped at confirm time because a "not a driver — never
+import" rule vetoed them (labels are `id (name)`). The veto is
+keyed on the row's own badge/name, so it also beats saved
+badge/name aliases (the Davis→Navarro lesson, 2026-09-01).
+ */
+  ignoredSkipped?: string[];
+  /** "Not a driver" rules DELETED by this confirm because the
+dispatcher explicitly mapped the same worker in the picker —
+the newest human decision wins (audited as
+`ignore-cleared-by-pick`). Values are the stored external ids
+(badge or `name:<name>` sentinel).
+ */
+  ignoreCleared?: string[];
   /** True when the uploaded file's SHA-256 matched the most recent
 successful import for this (week, customer) and the server
 short-circuited without re-parsing or re-writing punches.

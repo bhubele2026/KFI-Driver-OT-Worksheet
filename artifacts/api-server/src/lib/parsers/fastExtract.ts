@@ -9,6 +9,7 @@ import {
   type RosterContext,
 } from "./aiExtract.js";
 import { nameSimilarity, nameMatchQuality } from "./fuzzy.js";
+import { isIgnoredRow } from "./ignoredExternals.js";
 import { repairZipSizes } from "./zipRepair.js";
 import type { SalvageLogger } from "./jsonSalvage.js";
 import type { IngestionBudgetSummary } from "./ingestionBudget.js";
@@ -207,8 +208,11 @@ export function matchCensusToFleet(
     fuzzyConfident: number;
     fuzzyBorderline: number;
     zeroCtBlocked: number;
+    ignoredBlocked: number;
   };
   laneSamples: string[];
+  /** Workers vetoed by a "not a driver — never import" rule (doc-side identity). */
+  ignoredWorkers: Array<{ name: string; badge: string | null }>;
 } {
   const drivers = roster?.drivers ?? [];
   const laneCounts = {
@@ -217,8 +221,27 @@ export function matchCensusToFleet(
     fuzzyConfident: 0,
     fuzzyBorderline: 0,
     zeroCtBlocked: 0,
+    ignoredBlocked: 0,
   };
   const laneSamples: string[] = [];
+  const ignoredWorkers: Array<{ name: string; badge: string | null }> = [];
+  // "Not a driver — never import" veto. Keyed on the DOC-side identity
+  // (badge and name sentinel), so it fires BEFORE every lane — a saved
+  // badge/name alias must never resolve an explicitly-ignored worker
+  // (Davis→Navarro, 2026-09-01). Runs even with no fleet context.
+  const ignored = roster?.ignoredExternalIds?.length
+    ? new Set(roster.ignoredExternalIds)
+    : null;
+  const ignoreBlocked = (w: CensusWorker, strangers: string[]): boolean => {
+    if (!isIgnoredRow(ignored, w.badge, w.name)) return false;
+    laneCounts.ignoredBlocked++;
+    if (laneSamples.length < 15) {
+      laneSamples.push(`${w.name}|${w.badge ?? "-"} BLOCKED not-a-driver`);
+    }
+    strangers.push(`${w.name} — marked "not a driver" for this customer`);
+    ignoredWorkers.push({ name: w.name, badge: w.badge ?? null });
+    return true;
+  };
   // Hard zero-CT rule: with the set provided, NO lane may attach customer
   // time to a driver who has no Connecteam time this week. Returns true
   // (and files the worker as a stranger with the reason) when blocked.
@@ -234,11 +257,16 @@ export function matchCensusToFleet(
   };
   if (drivers.length === 0) {
     // No fleet context — extract everyone and let the picker sort it out.
+    // The ignore veto still applies: "never import" holds with no roster.
+    const noRosterStrangers: string[] = [];
     return {
-      targets: workers.map((w) => ({ name: w.name, badge: w.badge, kfiId: null })),
-      strangers: [],
+      targets: workers
+        .filter((w) => !ignoreBlocked(w, noRosterStrangers))
+        .map((w) => ({ name: w.name, badge: w.badge, kfiId: null })),
+      strangers: noRosterStrangers,
       laneCounts,
       laneSamples,
+      ignoredWorkers,
     };
   }
   // Pinned badges (driver_id_aliases — dispatcher-vouched) are trusted
@@ -260,6 +288,7 @@ export function matchCensusToFleet(
   const targets: Array<{ name: string; badge: string | null; kfiId: string | null }> = [];
   const strangers: string[] = [];
   for (const w of workers) {
+    if (ignoreBlocked(w, strangers)) continue;
     const badge = (w.badge ?? "").trim();
     let badgeHit = badge ? byPinnedBadge.get(badge.toLowerCase()) : undefined;
     if (!badgeHit && badge) {
@@ -350,7 +379,7 @@ export function matchCensusToFleet(
       strangers.push(w.badge ? `${w.name} (${w.badge})` : w.name);
     }
   }
-  return { targets, strangers, laneCounts, laneSamples };
+  return { targets, strangers, laneCounts, laneSamples, ignoredWorkers };
 }
 
 /**
@@ -370,6 +399,8 @@ export async function fastExtractRows(
 ): Promise<{
   rows: AiExtractedRow[];
   otherWorkers?: string[];
+  /** Census workers vetoed by a "not a driver — never import" rule. */
+  ignoredWorkers?: Array<{ name: string; badge: string | null }>;
   budgetSummary?: IngestionBudgetSummary;
 }> {
   const parts = await prepareContentParts(
@@ -423,10 +454,8 @@ export async function fastExtractRows(
   }
 
   // ---- Server-side matching: census vs the full fleet ----
-  const { targets, strangers, laneCounts, laneSamples } = matchCensusToFleet(
-    workers,
-    roster,
-  );
+  const { targets, strangers, laneCounts, laneSamples, ignoredWorkers } =
+    matchCensusToFleet(workers, roster);
   log?.warn(
     {
       customer,
@@ -444,7 +473,7 @@ export async function fastExtractRows(
   if (targets.length === 0) {
     // Nobody on the sheet matches the fleet — no extract call needed. The
     // route turns this into an honest error that names who WAS on the sheet.
-    return { rows: [], otherWorkers: strangers };
+    return { rows: [], otherWorkers: strangers, ignoredWorkers };
   }
 
   // ---- Pass 2: extract punches for exactly the matched workers ----
@@ -477,5 +506,5 @@ export async function fastExtractRows(
     },
     "fastExtract two-call complete",
   );
-  return { rows: out, otherWorkers: strangers };
+  return { rows: out, otherWorkers: strangers, ignoredWorkers };
 }

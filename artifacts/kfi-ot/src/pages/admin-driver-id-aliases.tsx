@@ -121,6 +121,23 @@ export default function AdminDriverIdAliases() {
 
   const drivers = useMemo(() => data?.drivers ?? [], [data]);
   const aliases = useMemo(() => data?.aliases ?? [], [data]);
+  // Ignore rules beat saved aliases at import time (Davis→Navarro,
+  // 2026-09-01) — mark both sides of an id that appears in both lists so
+  // an admin can see why a mapping "isn't working" for a customer.
+  const ignoreCustomersByExternalId = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const r of ignoredRows) {
+      const key = r.externalId.trim().toLowerCase();
+      const arr = m.get(key) ?? [];
+      if (!arr.includes(r.customer)) arr.push(r.customer);
+      m.set(key, arr);
+    }
+    return m;
+  }, [ignoredRows]);
+  const aliasExternalIdSet = useMemo(
+    () => new Set(aliases.map((a) => a.externalId.trim().toLowerCase())),
+    [aliases],
+  );
 
   if (!meLoading && me && !me.isAdmin) {
     return <Redirect to="/" />;
@@ -392,7 +409,24 @@ export default function AdminDriverIdAliases() {
                       <Fragment key={a.externalId}>
                         <TableRow>
                           <TableCell className="fin-num text-xs align-top">
-                            {a.externalId}
+                            <div className="flex flex-col gap-0.5">
+                              <span>{a.externalId}</span>
+                              {ignoreCustomersByExternalId.has(
+                                a.externalId.trim().toLowerCase(),
+                              ) && (
+                                <span
+                                  className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 fin-num flex items-center gap-1"
+                                  data-testid={`alias-ignored-${a.externalId}`}
+                                >
+                                  <AlertTriangle className="h-3 w-3" />
+                                  {t("adminDriverIdsExtra.overriddenByIgnore", {
+                                    customers: ignoreCustomersByExternalId
+                                      .get(a.externalId.trim().toLowerCase())!
+                                      .join(", "),
+                                  })}
+                                </span>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="text-xs align-top">
                             {a.driverName ? (
@@ -553,7 +587,20 @@ export default function AdminDriverIdAliases() {
                         {r.customer}
                       </TableCell>
                       <TableCell className="fin-num text-xs align-top">
-                        {r.externalId}
+                        <div className="flex flex-col gap-0.5">
+                          <span>{r.externalId}</span>
+                          {aliasExternalIdSet.has(
+                            r.externalId.trim().toLowerCase(),
+                          ) && (
+                            <span
+                              className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 fin-num flex items-center gap-1"
+                              data-testid={`ignored-has-alias-${r.id}`}
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              {t("adminDriverIdsExtra.aliasExistsForIgnored")}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs align-top">
                         {r.sampleName ? (

@@ -1787,6 +1787,18 @@ export const ConfirmCustomerFileResponse = zod.object({
   customer: zod.string(),
   fileName: zod.string(),
   punchesUpserted: zod.number(),
+  ignoredSkipped: zod
+    .array(zod.string())
+    .optional()
+    .describe(
+      'Rows skipped at confirm time because a \"not a driver — never\nimport\" rule vetoed them (labels are `id (name)`). The veto is\nkeyed on the row\'s own badge\/name, so it also beats saved\nbadge\/name aliases (the Davis→Navarro lesson, 2026-09-01).\n',
+    ),
+  ignoreCleared: zod
+    .array(zod.string())
+    .optional()
+    .describe(
+      '\"Not a driver\" rules DELETED by this confirm because the\ndispatcher explicitly mapped the same worker in the picker —\nthe newest human decision wins (audited as\n`ignore-cleared-by-pick`). Values are the stored external ids\n(badge or `name:<name>` sentinel).\n',
+    ),
   skipped: zod
     .boolean()
     .optional()

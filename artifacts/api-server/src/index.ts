@@ -320,6 +320,48 @@ async function main() {
       } catch (auditErr) {
         logger.warn({ err: auditErr }, "boot summary log failed");
       }
+      // Read-only contradiction audit: ids that carry BOTH a "not a
+      // driver" ignore rule and a saved alias. Since 2026-09-01 the
+      // ignore VETOES the alias at import time (Davis→Navarro), so each
+      // pair means "that alias is suppressed for that customer" — worth
+      // a look on /admin/driver-id-aliases, never auto-fixed here.
+      try {
+        const { db } = await import("./lib/db.js");
+        const { sql } = await import("drizzle-orm");
+        const contradictions = await db.execute(sql`
+          SELECT i.customer, i.external_id
+          FROM customer_ignored_externals i
+          JOIN driver_id_aliases a
+            ON lower(a.external_id) = lower(i.external_id)
+          UNION
+          SELECT i.customer, i.external_id
+          FROM customer_ignored_externals i
+          JOIN customer_name_aliases n
+            ON lower(n.customer) = lower(i.customer)
+           AND 'name:' || lower(n.name_on_doc) = lower(i.external_id)
+          LIMIT 50
+        `);
+        const rows = contradictions.rows as Array<{
+          customer: string;
+          external_id: string;
+        }>;
+        if (rows.length > 0) {
+          logger.warn(
+            {
+              count: rows.length,
+              samples: rows
+                .slice(0, 10)
+                .map((r) => `${r.customer} · ${r.external_id}`),
+            },
+            "ignore rules overriding saved aliases — review on /admin/driver-id-aliases",
+          );
+        }
+      } catch (contradictionErr) {
+        logger.warn(
+          { err: contradictionErr },
+          "ignore/alias contradiction audit failed",
+        );
+      }
     })();
   });
 }

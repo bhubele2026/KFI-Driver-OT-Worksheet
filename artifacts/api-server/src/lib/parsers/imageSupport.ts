@@ -15,6 +15,7 @@ import {
   type RosterContext,
 } from "./aiExtract.js";
 import { fastExtractRows } from "./fastExtract.js";
+import { isIgnoredRow } from "./ignoredExternals.js";
 import type { IngestionBudgetSummary } from "./ingestionBudget.js";
 import {
   isDroppableTotalRow,
@@ -38,8 +39,10 @@ export function buildRosterContext(args: {
   nameAliasMap?: Map<string, string>;
   /** kfiIds with Connecteam time this week — enables the zero-CT hard block. */
   ctActiveKfiIds?: ReadonlySet<string>;
+  /** Normalized "not a driver" keys for this customer — enables the ignore veto. */
+  ignoredExternalIds?: ReadonlySet<string>;
 }): RosterContext {
-  const { customer, drivers, idMap, nameAliasMap, ctActiveKfiIds } = args;
+  const { customer, drivers, idMap, nameAliasMap, ctActiveKfiIds, ignoredExternalIds } = args;
   const badgesByKfi = new Map<string, string[]>();
   for (const [externalId, kfiId] of Object.entries(idMap)) {
     const arr = badgesByKfi.get(kfiId) ?? [];
@@ -66,6 +69,7 @@ export function buildRosterContext(args: {
       aliases: (aliasesByKfi.get(d.kfiId) ?? []).slice(0, 8),
     })),
     ctActiveKfiIds: ctActiveKfiIds ? [...ctActiveKfiIds] : undefined,
+    ignoredExternalIds: ignoredExternalIds ? [...ignoredExternalIds] : undefined,
   };
 }
 
@@ -190,6 +194,15 @@ export async function extractImageForKnownCustomer(args: {
    * attaching to any driver not in the set (2026-08-04 standing rule).
    */
   ctActiveKfiIds?: ReadonlySet<string>;
+  /**
+   * Normalized "not a driver — never import" keys for this customer
+   * (bare badge ids + `name:<name>` sentinels). When provided, any row
+   * whose badge OR name matches is hard-blocked BEFORE resolution — a
+   * saved alias must never resolve an explicitly-ignored worker
+   * (Davis→Navarro, 2026-09-01). Blocked rows land in droppedRows with
+   * reason `not_a_driver_alias`, never in the picker.
+   */
+  ignoredExternalIds?: ReadonlySet<string>;
 }): Promise<ParseResult & { aiBudgetSummary?: IngestionBudgetSummary }> {
   const {
     fileName,
@@ -206,6 +219,7 @@ export async function extractImageForKnownCustomer(args: {
     aiOpts,
     importRules,
     ctActiveKfiIds,
+    ignoredExternalIds,
   } = args;
   // The roster sent to the AI is a HINT (id/spelling accuracy), never a
   // filter — so it always contains ALL active drivers. Narrowing it to the
@@ -218,6 +232,7 @@ export async function extractImageForKnownCustomer(args: {
     idMap,
     nameAliasMap,
     ctActiveKfiIds,
+    ignoredExternalIds,
   });
   // Clean-slate default: one model call, no chunking (fastExtractRows).
   // FAST_IMPORT=0 falls back to the legacy chunked extractor for rollback.
@@ -251,6 +266,11 @@ export async function extractImageForKnownCustomer(args: {
   // only) — powers the honest zero-punch message + missed-driver check.
   const otherWorkers =
     "otherWorkers" in extractResult ? (extractResult.otherWorkers ?? []) : [];
+  // Census workers vetoed by "not a driver — never import" rules (fast lane
+  // only): record each in droppedRows so the preview names who was blocked
+  // even though no rows were extracted for them.
+  const censusIgnoredWorkers =
+    "ignoredWorkers" in extractResult ? (extractResult.ignoredWorkers ?? []) : [];
 
   // Normalize Gemini's date shape before the string-compare window filter.
   // Without this, any row whose `date` came back as `5/12/2026` or
@@ -265,6 +285,20 @@ export async function extractImageForKnownCustomer(args: {
   // typed reason so the chat can answer "why didn't row X land?"
   // without re-running extraction.
   const dropped = new DroppedRowAccumulator();
+  for (const w of censusIgnoredWorkers) {
+    dropped.add({
+      reason: "not_a_driver_alias",
+      detail: `"${w.name}" is marked "not a driver" for ${customer}`,
+      rawRow: {
+        driverNameOnDoc: w.name,
+        badgeOrId: w.badge,
+        date: null,
+        timeIn: null,
+        timeOut: null,
+        hours: null,
+      },
+    });
+  }
   for (const r of rawRows) {
     const iso = normalizeIsoDate(r.date);
     if (!iso) {
@@ -343,6 +377,27 @@ export async function extractImageForKnownCustomer(args: {
   );
 
   for (const r of inWindow) {
+    // "Not a driver — never import" veto, keyed on the row's OWN badge and
+    // name BEFORE any resolution lane. Vetoed rows go to droppedRows — never
+    // to unmapped/pendingNamedRows, so they cannot reach the picker or the
+    // confirm-time re-resolution. Covers the legacy chunked lane too (the
+    // fast lane already filtered them at census, so this is belt-and-braces
+    // there against the model extracting rows for unrequested workers).
+    if (isIgnoredRow(ignoredExternalIds, r.badgeOrId, r.driverNameOnDoc)) {
+      dropped.add({
+        reason: "not_a_driver_alias",
+        detail: `"${r.driverNameOnDoc}" is marked "not a driver" for ${customer}`,
+        rawRow: {
+          driverNameOnDoc: r.driverNameOnDoc ?? null,
+          badgeOrId: (r.badgeOrId ?? "").trim() || null,
+          date: r.date,
+          timeIn: r.timeIn ?? null,
+          timeOut: r.timeOut ?? null,
+          hours: typeof r.hours === "number" ? r.hours : null,
+        },
+      });
+      continue;
+    }
     const kfiId = resolveKfiId(
       r,
       idMap,
