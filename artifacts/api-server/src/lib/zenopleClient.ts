@@ -1,4 +1,4 @@
-// CANONICAL @kfi/zenople v1.0.0 — sha256:fc7a2a403eb27cf8204619d111dcafa9c8ffde8a79a011a4ab448d7bbe16e83e
+// CANONICAL @kfi/zenople v1.0.0 — sha256:d6c02a5e73fdcea763e8e2162dfc2d0123c0b8571e23bcfcd0e01abd735bb135
 // VENDORED COPY — do not edit. Change KFI-Financial-Dashboard/packages/zenople/src/client.ts,
 // then run `pnpm --filter @kfi/zenople sync`. Local edits fail this repo's green gate.
 /**
@@ -213,9 +213,34 @@ function waitFor(now: number): number {
   return gap > 0 ? gap : 0;
 }
 
+/**
+ * Hold the event loop open exactly while the queue has work.
+ *
+ * ⚠️ An unref'd timer does not keep Node alive. Unref this while requests are waiting — which is
+ * every time the limiter pauses: the minute or hour window filling, a 429 hold, the same-payload
+ * cooldown — and the pump becomes the only thing pending, so Node runs out of work and **exits
+ * with code 0** while every queued request sits unsettled. The caller's `await` neither resolves
+ * nor rejects; its job simply stops mid-run, having reported success.
+ *
+ * That is not hypothetical: it is why marts.fact_assignment sat unchanged from 2026-08-20 while
+ * zenople-ops "succeeded" nightly. Its JobData windows pushed the limiter into a wait, the process
+ * died there, and refresh.ts saw exit 0 and recorded the source as healthy.
+ *
+ * Idle stays unref'd, so a long-lived API process is never held open by this client.
+ */
+function setPumpRef(): void {
+  if (!pumpTimer || typeof pumpTimer !== "object") return;
+  const t = pumpTimer as unknown as { ref?: () => void; unref?: () => void };
+  if (waiters.length === 0) t.unref?.();
+  else t.ref?.();
+}
+
 function schedulePump(ms: number): void {
   const at = Date.now() + Math.max(0, ms);
-  if (pumpTimer && at >= pumpAt) return; // an earlier pump is already booked
+  if (pumpTimer && at >= pumpAt) {
+    setPumpRef(); // an earlier pump is booked — but it may have been booked while idle
+    return;
+  }
   if (pumpTimer) clearTimeout(pumpTimer);
   pumpAt = at;
   pumpTimer = setTimeout(() => {
@@ -223,9 +248,7 @@ function schedulePump(ms: number): void {
     pumpAt = Number.POSITIVE_INFINITY;
     pump();
   }, Math.max(0, ms));
-  if (typeof pumpTimer === "object" && pumpTimer && "unref" in pumpTimer) {
-    (pumpTimer as unknown as { unref: () => void }).unref();
-  }
+  setPumpRef();
 }
 
 function pump(): void {
