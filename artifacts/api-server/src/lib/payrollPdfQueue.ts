@@ -9,6 +9,17 @@
  * processor to distrust every link on the board.
  */
 
+/**
+ * Clamp a requested long-poll hold to what the ingress tolerates: Azure
+ * Container Apps cuts a request around 240s, and a 504 mid-hold teaches the
+ * daemon to treat healthy silence as failure. 230s leaves room to answer.
+ */
+export function clampWaitMs(input: unknown): number {
+  const n = Number(input ?? 230);
+  const s = Number.isFinite(n) ? n : 230;
+  return Math.min(Math.max(s, 5), 230) * 1000;
+}
+
 export type PdfResult = {
   periodId: number;
   rowKey: string;

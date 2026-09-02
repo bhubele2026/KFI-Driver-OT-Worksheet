@@ -1,8 +1,10 @@
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
-import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db, schema } from "../lib/db.js";
 import { requirePulseKey } from "./pulse.js";
-import { pdfResultPatch, validatePdfResult, type PdfResult } from "../lib/payrollPdfQueue.js";
+import {
+  clampWaitMs, pdfResultPatch, validatePdfResult, type PdfResult,
+} from "../lib/payrollPdfQueue.js";
 import {
   normalizeChangeType, routeForChangeType, seedFromCategory,
 } from "../lib/payrollChangeTypes.js";
@@ -37,13 +39,15 @@ export const machinePayrollRouter: IRouter = Router();
 type Body = {
   payDate?: string;
   isOffCycle?: boolean;
-  kind?: "changes" | "artifacts" | "ping" | "pdf-claim" | "pdf-result";
+  kind?: "changes" | "artifacts" | "ping" | "pdf-claim" | "pdf-result" | "pdf-wait";
   /** True when more chunks follow; the empty-sweep guard is skipped until the
    *  last one, or a chunked push would look like an empty sweep. */
   more?: boolean;
-  /** pdf-claim: just say how many are pending — the 15-minute poll's cheap
-   *  question, asked before anything heavier is started. */
+  /** pdf-claim: just say how many are pending — the cheap question, asked
+   *  before anything heavier is started. */
   countOnly?: boolean;
+  /** pdf-wait: how long to hold the long-poll (clamped to 5–230s). */
+  timeoutSeconds?: number;
   /** pdf-result: what the executor did with each claimed request. */
   results?: unknown[];
   changes?: Array<Partial<SweptRow> & { changeType: string; action: string }>;
@@ -69,6 +73,29 @@ machinePayrollRouter.post("/machine/payroll", requirePulseKey,
     // the requests here, files each email as a PDF, and reports back. These
     // two kinds span periods, so they carry no payDate — and they ride this
     // same endpoint because of the one-excluded-path rule above.
+    if (body.kind === "pdf-wait") {
+      // Long-poll: hold the response until a Create-PDF press appears, so the
+      // Mac-side daemon starts filing within seconds of the button instead of
+      // on a cycle. Server-side it is a 3s existence check on an indexed
+      // column — no NOTIFY plumbing to go wrong. The hold is clamped under
+      // the ingress timeout so the daemon always gets a clean answer, never
+      // a 504 it would have to treat as a failure.
+      const deadline = Date.now() + clampWaitMs(body.timeoutSeconds);
+      for (;;) {
+        const [c] = await db.select({ n: sql<number>`count(*)::int` })
+          .from(schema.payrollChangesTable)
+          .where(eq(schema.payrollChangesTable.pdfStatus, "requested"));
+        const n = c?.n ?? 0;
+        if (n > 0 || Date.now() >= deadline) {
+          res.json({ ok: true, pending: n });
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 3_000));
+        // The daemon gave up or reconnected — stop holding a dead socket.
+        if (res.destroyed || res.writableEnded) return;
+      }
+    }
+
     if (body.kind === "pdf-claim") {
       const t = schema.payrollChangesTable;
       const p = schema.payrollPeriodsTable;

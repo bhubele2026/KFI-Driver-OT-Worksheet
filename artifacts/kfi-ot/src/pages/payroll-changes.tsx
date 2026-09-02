@@ -229,6 +229,15 @@ export default function PayrollChanges() {
     return () => window.clearTimeout(t);
   }, [data, load]);
 
+  // While a PDF request is outstanding the executor is usually seconds away —
+  // keep the board fresh so the chip flips to filed (or failed with its
+  // reason) without anyone reloading. Only runs while something is requested.
+  useEffect(() => {
+    if (!data?.actions.some((a) => a.pdfStatus === "requested")) return;
+    const t = window.setInterval(() => void load(), 10_000);
+    return () => window.clearInterval(t);
+  }, [data, load]);
+
   /**
    * Optimistic: the tick lands on screen the frame it is clicked, the PATCH
    * follows, and a failure reverts by reloading the truth. The old flow
@@ -509,8 +518,8 @@ export default function PayrollChanges() {
                                       ) : r.pdfStatus === "requested" ? (
                                         <span
                                           className="rounded bg-warn-bg px-2 py-1 text-micro font-semibold text-warn"
-                                          title="Files on the executor's next pass — usually within 15 minutes.">
-                                          PDF requested
+                                          title="The press wakes the executor — filing usually starts within a minute, and this board updates itself.">
+                                          PDF requested…
                                         </span>
                                       ) : r.pdfStatus === "failed" ? (
                                         <>

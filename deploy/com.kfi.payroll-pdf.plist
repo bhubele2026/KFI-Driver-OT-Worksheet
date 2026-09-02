@@ -1,15 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  The Create-PDF queue poll — every 15 minutes, and once at login.
+  The Create-PDF executor daemon — always on, wakes on the button.
 
   ⚠️ THIS RUNS ON BRAD'S MAC because the payroll@ mailbox and the OneDrive-synced
   SharePoint folder are reachable only here — same arrangement as
   com.kfi.payroll-bridge, whose keychain item this reuses.
 
-  A run with nothing pending is one HTTPS round trip. When a processor has
-  pressed "Create PDF" on the Changes & Deductions board, the poll starts a
-  Claude session running the ~/.claude/skills/payroll-pdf skill, which finds
-  the source email, renders it, files it in `New PDF/`, and reports back.
+  The script holds a long-poll against the app (kind "pdf-wait"); a Create PDF
+  press on the Changes & Deductions board releases it within seconds, and the
+  executor (a Claude session running ~/.claude/skills/payroll-pdf) finds the
+  source email, renders it, files it in `New PDF/`, and reports back. Idle cost
+  is one held HTTPS request re-armed every ~4 minutes.
+
+  KeepAlive restarts the daemon if it ever exits; ThrottleInterval stops a
+  crash from becoming a respawn storm.
 
   Install:
     cp deploy/com.kfi.payroll-pdf.plist ~/Library/LaunchAgents/
@@ -18,7 +22,7 @@
     launchctl unload ~/Library/LaunchAgents/com.kfi.payroll-pdf.plist
   Watch it:
     tail -f ~/Library/Logs/kfi-payroll-pdf.log
-  Run once by hand:
+  Run one sweep by hand (no daemon):
     PAYROLL_API=https://kfi-ot-worksheet.livelybeach-7684c741.eastus2.azurecontainerapps.io \
     PAYROLL_BRIDGE_KEY=$(security find-generic-password -a "$USER" -s kfi-payroll-bridge-key -w) \
     pnpm --filter @workspace/scripts exec tsx src/payroll-pdf-poll.ts
@@ -33,19 +37,16 @@
     <!-- ⚠️ launchd gets no login-shell PATH; node lives under ~/.local/node and
          the claude CLI under ~/.local/bin on this machine, so both are exported
          here or the job dies with "command not found" and nothing else. -->
-    <string>export PATH="$HOME/.local/node/bin:$HOME/.local/bin:$PATH"; export PAYROLL_BRIDGE_KEY=$(security find-generic-password -a "$USER" -s kfi-payroll-bridge-key -w) || exit 1; cd "$HOME/projects/KFI-Driver-OT-Worksheet" &amp;&amp; exec pnpm --filter @workspace/scripts exec tsx src/payroll-pdf-poll.ts</string>
+    <string>export PATH="$HOME/.local/node/bin:$HOME/.local/bin:$PATH"; export PAYROLL_BRIDGE_KEY=$(security find-generic-password -a "$USER" -s kfi-payroll-bridge-key -w) || exit 1; cd "$HOME/projects/KFI-Driver-OT-Worksheet" &amp;&amp; exec pnpm --filter @workspace/scripts exec tsx src/payroll-pdf-poll.ts --wait</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PAYROLL_API</key><string>https://kfi-ot-worksheet.livelybeach-7684c741.eastus2.azurecontainerapps.io</string>
   </dict>
-  <key>StartInterval</key><integer>900</integer>
-  <!-- A hung executor must not become a permanent stop: the script bounds the
-       claim request (60s) and the whole executor session (20 min) itself.
-       ExitTimeOut only governs how long launchd waits after SIGTERM. -->
-  <key>ExitTimeOut</key><integer>30</integer>
-  <!-- Also run once at login, so requests queued overnight catch up. -->
   <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>ExitTimeOut</key><integer>30</integer>
   <key>StandardOutPath</key><string>/Users/bhubele/Library/Logs/kfi-payroll-pdf.log</string>
   <key>StandardErrorPath</key><string>/Users/bhubele/Library/Logs/kfi-payroll-pdf.log</string>
 </dict>

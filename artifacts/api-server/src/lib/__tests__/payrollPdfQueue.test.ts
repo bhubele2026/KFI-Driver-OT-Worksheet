@@ -1,6 +1,23 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { validatePdfResult, pdfResultPatch, type PdfResult } from "../payrollPdfQueue";
+import {
+  clampWaitMs, validatePdfResult, pdfResultPatch, type PdfResult,
+} from "../payrollPdfQueue";
+
+describe("clampWaitMs — the long-poll hold stays under the ingress timeout", () => {
+  it("defaults to 230s and caps anything longer", () => {
+    assert.equal(clampWaitMs(undefined), 230_000);
+    assert.equal(clampWaitMs(9_999), 230_000);
+  });
+  it("floors tiny and junk values instead of spinning", () => {
+    assert.equal(clampWaitMs(0), 5_000);
+    assert.equal(clampWaitMs(-3), 5_000);
+    assert.equal(clampWaitMs("junk"), 230_000);
+  });
+  it("passes a sane ask through", () => {
+    assert.equal(clampWaitMs(60), 60_000);
+  });
+});
 
 const filed = (o: Partial<PdfResult> = {}): PdfResult => ({
   periodId: 7, rowKey: "abc123", outcome: "filed",
