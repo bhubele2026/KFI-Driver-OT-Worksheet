@@ -254,7 +254,7 @@
     "needsRoster": "Requiere limpieza de plantilla",
     "customer": "Cliente:",
     "kfiId": "KFI ID:",
-    "nextDayTitle": "Termina el d\u00eda siguiente",
+    "nextDayTitle": "Termina el día siguiente",
     "driverConnect": "Conductor",
     "customerSource": "Cliente",
     "overtimeThreshold": "Umbral de horas extra",
@@ -330,6 +330,18 @@
     "displayTz": {
       "title": "Zona horaria de visualización — clic para cambiar la anulación, volver a descargar o desplazar los registros existentes.",
       "label": "Zona horaria de visualización"
+    },
+    "tagNumber": {
+      "title": "Número de etiqueta del conductor — clic para cambiar.",
+      "addLabel": "Agregar etiqueta",
+      "label": "Número de etiqueta",
+      "placeholder": "p. ej. 10020908",
+      "savingHelp": "Se guarda en esta aplicación. Las etiquetas de perfil de Connecteam no se pueden leer automáticamente.",
+      "updatedTitle": "Número de etiqueta actualizado",
+      "savedDesc": "Ahora {{tag}}.",
+      "clearedDesc": "Número de etiqueta borrado.",
+      "updateFailed": "Error al actualizar",
+      "clear": "Borrar"
     },
     "summaryHeading": "Resumen",
     "noConnecteamBaselineTitle": "Aún no hay línea base de Connecteam — actualice desde Connecteam para habilitar la comparación de paridad.",

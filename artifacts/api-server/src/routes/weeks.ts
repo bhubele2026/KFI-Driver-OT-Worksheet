@@ -29,6 +29,7 @@ import {
 import { db, pool, schema } from "../lib/db.js";
 import { autoAlignWeek } from "../lib/punchAutoAlign.js";
 import { reconcileDriverIdentities } from "../lib/driverIdentity.js";
+import { parseTagNumberInput } from "../lib/driverTagNumber.js";
 import { guardBulkPunchDelete } from "../lib/safeBulkDelete.js";
 import {
   computeNoteRemap,
@@ -1043,6 +1044,7 @@ weeksRouter.get("/weeks/:weekStart/drivers/:kfiId", async (req, res) => {
       isDriver: driver?.isDriver ?? true,
       displayTz: driver?.displayTz ?? null,
       effectiveDispTz: driverEffectiveTz,
+      tagNumber: driver?.tagNumber ?? null,
     },
     weekStart,
     endDate,
@@ -7828,6 +7830,51 @@ weeksRouter.patch(
       isDriver: row.isDriver,
       displayTz: row.displayTz ?? null,
       effectiveDispTz: resolveDispTz(row.kfiId, row.displayTz ?? null),
+    });
+  },
+);
+
+// Per-driver tag number (`drivers.tag_number`) — locally maintained on the
+// driver header. Connecteam's profile "Tags" feature is not API-readable, so
+// the app is the system of record here and the CT roster upsert never touches it.
+weeksRouter.patch(
+  "/drivers/:kfiId/tag-number",
+  requireSupervisorOrAdmin,
+  async (req, res) => {
+    const kfiId = String(req.params.kfiId ?? "").trim();
+    if (!kfiId) {
+      res.status(400).json({ error: "kfiId is required" });
+      return;
+    }
+    const body = req.body as { tagNumber?: unknown } | undefined;
+    const parsed = parseTagNumberInput(body?.tagNumber);
+    if (!parsed.ok) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    const tagNumber = parsed.value;
+    const driver = await db.query.driversTable.findFirst({
+      where: eq(schema.driversTable.kfiId, kfiId),
+    });
+    if (!driver) {
+      res.status(404).json({ error: "Driver not found" });
+      return;
+    }
+    const userId = req.session.userId ?? null;
+    const [row] = await db
+      .update(schema.driversTable)
+      .set({
+        tagNumber,
+        tagNumberUpdatedBy: userId,
+        tagNumberUpdatedAt: new Date(),
+      })
+      .where(eq(schema.driversTable.kfiId, kfiId))
+      .returning();
+    res.json({
+      kfiId: row.kfiId,
+      name: row.name,
+      customer: row.customer,
+      tagNumber: row.tagNumber ?? null,
     });
   },
 );

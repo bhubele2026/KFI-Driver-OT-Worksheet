@@ -331,6 +331,18 @@
       "title": "Display timezone — click to change override, re-pull, or shift existing punches.",
       "label": "Display timezone"
     },
+    "tagNumber": {
+      "title": "Driver tag number — click to change.",
+      "addLabel": "Add tag",
+      "label": "Tag number",
+      "placeholder": "e.g. 10020908",
+      "savingHelp": "Kept in this app. Connecteam profile tags can't be read automatically.",
+      "updatedTitle": "Tag number updated",
+      "savedDesc": "Now {{tag}}.",
+      "clearedDesc": "Tag number cleared.",
+      "updateFailed": "Update failed",
+      "clear": "Clear"
+    },
     "summaryHeading": "Summary",
     "noConnecteamBaselineTitle": "No Connecteam baseline yet — refresh from Connecteam to enable parity comparison.",
     "perPunchReviewedTitle": "Per-punch reviewed checkboxes",

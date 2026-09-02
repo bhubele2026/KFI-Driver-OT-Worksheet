@@ -16,6 +16,7 @@ import {
   useRefreshConnecteamForDriver,
   useShiftDriverWeekPunches,
   useUpdateDriverTimezone,
+  useUpdateDriverTagNumber,
   useUpsertCustomerTzPreference,
   useGetAllowedTimezones,
   useLockDriverWeek,
@@ -41,7 +42,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, ChevronsUpDown, Lock, LockOpen, ThumbsDown, Undo2, MessageSquarePlus, Globe, Flag, MoreHorizontal } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Edit2, Trash2, AlertCircle, AlertTriangle, Save, X, RefreshCw, Keyboard, Printer, Check as CheckIcon, ChevronsUpDown, Lock, LockOpen, ThumbsDown, Undo2, MessageSquarePlus, Globe, Flag, MoreHorizontal, Tag as TagIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -475,10 +476,41 @@ export default function DriverDetail() {
   const refreshCtForDriver = useRefreshConnecteamForDriver();
   const shiftPunches = useShiftDriverWeekPunches();
   const updateDriverTz = useUpdateDriverTimezone();
+  const updateDriverTag = useUpdateDriverTagNumber();
   const upsertCustomerTz = useUpsertCustomerTzPreference();
   const { data: allowedTzs } = useGetAllowedTimezones();
   const [tzPopoverOpen, setTzPopoverOpen] = useState(false);
   const [tzDraft, setTzDraft] = useState<string>("__default__");
+  const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
+  const [tagDraft, setTagDraft] = useState<string>("");
+  const saveDriverTag = (value: string) => {
+    const trimmed = value.trim();
+    const target = trimmed === "" ? null : trimmed;
+    updateDriverTag.mutate(
+      { kfiId, data: { tagNumber: target } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getGetDriverWeekQueryKey(weekStart, kfiId),
+          });
+          toast({
+            title: t("driverDetail.tagNumber.updatedTitle"),
+            description:
+              target === null
+                ? t("driverDetail.tagNumber.clearedDesc")
+                : t("driverDetail.tagNumber.savedDesc", { tag: target }),
+          });
+          setTagPopoverOpen(false);
+        },
+        onError: (err) =>
+          toast({
+            title: t("driverDetail.tagNumber.updateFailed"),
+            description: errMsg(err, t("driverDetail.unknownError")),
+            variant: "destructive",
+          }),
+      },
+    );
+  };
   const [shiftHours, setShiftHours] = useState<string>("1");
   // Per-customer tz popover: tracks which customer's badge is open plus the
   // local-only draft tz and shift-hours so two open popovers (this and the
@@ -1479,6 +1511,90 @@ export default function DriverDetail() {
             <span className="text-foreground">{customerLabel}</span>
             <span className="text-muted-foreground/60">·</span>
             <span className="text-foreground">{data.driver.kfiId}</span>
+            <span
+              className={
+                data.driver.tagNumber
+                  ? "text-muted-foreground/60"
+                  : "text-muted-foreground/60 print:hidden"
+              }
+            >
+              ·
+            </span>
+            <span className={data.driver.tagNumber ? undefined : "print:hidden"}>
+              <Popover
+                open={tagPopoverOpen}
+                onOpenChange={(o) => {
+                  setTagPopoverOpen(o);
+                  if (o) setTagDraft(data.driver.tagNumber ?? "");
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    data-testid="button-driver-tag"
+                    title={t("driverDetail.tagNumber.title")}
+                    className={
+                      data.driver.tagNumber
+                        ? "inline-flex items-center gap-1 rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[11px] text-foreground hover:bg-primary/15"
+                        : "inline-flex items-center gap-1 rounded border border-dashed border-border/60 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
+                    }
+                  >
+                    <TagIcon className="h-3 w-3" />
+                    <span className="fin-num">
+                      {data.driver.tagNumber ?? t("driverDetail.tagNumber.addLabel")}
+                    </span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-64 space-y-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">
+                      {t("driverDetail.tagNumber.label")}
+                    </Label>
+                    <Input
+                      value={tagDraft}
+                      onChange={(e) => setTagDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveDriverTag(tagDraft);
+                      }}
+                      placeholder={t("driverDetail.tagNumber.placeholder")}
+                      maxLength={32}
+                      className="h-8 text-xs fin-num"
+                      data-testid="input-driver-tag"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      {t("driverDetail.tagNumber.savingHelp")}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updateDriverTag.isPending}
+                      data-testid="button-save-driver-tag"
+                      onClick={() => saveDriverTag(tagDraft)}
+                    >
+                      {updateDriverTag.isPending ? (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      ) : (
+                        <Save className="h-3 w-3 mr-1" />
+                      )}
+                      {t("common.save")}
+                    </Button>
+                    {data.driver.tagNumber ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={updateDriverTag.isPending}
+                        data-testid="button-clear-driver-tag"
+                        onClick={() => saveDriverTag("")}
+                      >
+                        {t("driverDetail.tagNumber.clear")}
+                      </Button>
+                    ) : null}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </span>
             <span className="text-muted-foreground/60 print:hidden">·</span>
             <span className="print:hidden">
               <Popover open={tzPopoverOpen} onOpenChange={(o) => {

@@ -205,6 +205,8 @@ export * from "./updateCustomerNameAliasBody";
 export * from "./updateCustomerNameAliasParams";
 export * from "./updateDriverIdAliasBody";
 export * from "./updateDriverPayrollProfileBody";
+export * from "./updateDriverTagNumberInput";
+export * from "./updateDriverTagNumberResult";
 export * from "./updateDriverTimezoneInput";
 export * from "./updateLanguageBody";
 export * from "./updateLanguageBodyPreferredLanguage";

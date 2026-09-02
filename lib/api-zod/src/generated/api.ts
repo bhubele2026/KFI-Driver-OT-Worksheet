@@ -965,6 +965,12 @@ export const GetDriverWeekResponse = zod.object({
       .describe(
         "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
       ),
+    tagNumber: zod
+      .string()
+      .nullish()
+      .describe(
+        "Locally-maintained driver tag number (`drivers.tag_number`) shown on the driver header. Not sourced from Connecteam — its profile Tags feature is not API-readable. Null when unset.",
+      ),
   }),
   weekStart: zod.string(),
   endDate: zod.string(),
@@ -2300,6 +2306,12 @@ export const ListCustomerNameAliasesResponse = zod.object({
         .describe(
           "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
         ),
+      tagNumber: zod
+        .string()
+        .nullish()
+        .describe(
+          "Locally-maintained driver tag number (`drivers.tag_number`) shown on the driver header. Not sourced from Connecteam — its profile Tags feature is not API-readable. Null when unset.",
+        ),
     }),
   ),
 });
@@ -2520,6 +2532,12 @@ export const ListDriverIdAliasesResponse = zod.object({
         .nullish()
         .describe(
           "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
+        ),
+      tagNumber: zod
+        .string()
+        .nullish()
+        .describe(
+          "Locally-maintained driver tag number (`drivers.tag_number`) shown on the driver header. Not sourced from Connecteam — its profile Tags feature is not API-readable. Null when unset.",
         ),
     }),
   ),
@@ -2754,6 +2772,12 @@ export const ListConnecteamUserAliasesResponse = zod.object({
         .nullish()
         .describe(
           "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
+        ),
+      tagNumber: zod
+        .string()
+        .nullish()
+        .describe(
+          "Locally-maintained driver tag number (`drivers.tag_number`) shown on the driver header. Not sourced from Connecteam — its profile Tags feature is not API-readable. Null when unset.",
         ),
     }),
   ),
@@ -3852,6 +3876,35 @@ export const UpdateDriverTimezoneResponse = zod.object({
     .describe(
       "Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.",
     ),
+  tagNumber: zod
+    .string()
+    .nullish()
+    .describe(
+      "Locally-maintained driver tag number (`drivers.tag_number`) shown on the driver header. Not sourced from Connecteam — its profile Tags feature is not API-readable. Null when unset.",
+    ),
+});
+
+/**
+ * @summary Set or clear a driver's tag number (`drivers.tag_number`) — locally maintained; Connecteam's profile Tags feature is not API-readable. Supervisor/Admin.
+ */
+export const UpdateDriverTagNumberParams = zod.object({
+  kfiId: zod.coerce.string(),
+});
+
+export const UpdateDriverTagNumberBody = zod.object({
+  tagNumber: zod
+    .string()
+    .nullable()
+    .describe(
+      "Tag number to store (trimmed, at most 32 printable characters), or null\/empty to clear.",
+    ),
+});
+
+export const UpdateDriverTagNumberResponse = zod.object({
+  kfiId: zod.string(),
+  name: zod.string(),
+  customer: zod.string(),
+  tagNumber: zod.string().nullish(),
 });
 
 /**

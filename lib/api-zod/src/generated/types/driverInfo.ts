@@ -23,4 +23,9 @@ export interface DriverInfo {
    * @nullable
    */
   effectiveDispTz?: string | null;
+  /**
+   * Locally-maintained driver tag number (`drivers.tag_number`) shown on the driver header. Not sourced from Connecteam — its profile Tags feature is not API-readable. Null when unset.
+   * @nullable
+   */
+  tagNumber?: string | null;
 }

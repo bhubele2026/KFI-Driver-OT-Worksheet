@@ -420,6 +420,11 @@ export interface DriverInfo {
    * @nullable
    */
   effectiveDispTz?: string | null;
+  /**
+   * Locally-maintained driver tag number (`drivers.tag_number`) shown on the driver header. Not sourced from Connecteam — its profile Tags feature is not API-readable. Null when unset.
+   * @nullable
+   */
+  tagNumber?: string | null;
 }
 
 /**
@@ -2051,6 +2056,22 @@ export interface UpdateDriverTimezoneInput {
    * @nullable
    */
   displayTz: string | null;
+}
+
+export interface UpdateDriverTagNumberInput {
+  /**
+   * Tag number to store (trimmed, at most 32 printable characters), or null/empty to clear.
+   * @nullable
+   */
+  tagNumber: string | null;
+}
+
+export interface UpdateDriverTagNumberResult {
+  kfiId: string;
+  name: string;
+  customer: string;
+  /** @nullable */
+  tagNumber?: string | null;
 }
 
 export interface RefreshConnecteamDriverResult {

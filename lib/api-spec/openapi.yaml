@@ -2086,6 +2086,28 @@ paths:
         "403": { description: Supervisor or admin only }
         "404": { description: Driver not found }
 
+  /drivers/{kfiId}/tag-number:
+    patch:
+      operationId: updateDriverTagNumber
+      tags: [weeks]
+      summary: Set or clear a driver's tag number (`drivers.tag_number`) — locally maintained; Connecteam's profile Tags feature is not API-readable. Supervisor/Admin.
+      parameters:
+        - $ref: "#/components/parameters/KfiId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateDriverTagNumberInput" }
+      responses:
+        "200":
+          description: Updated driver tag number
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateDriverTagNumberResult" }
+        "400": { description: Invalid tag number }
+        "403": { description: Supervisor or admin only }
+        "404": { description: Driver not found }
+
   /weeks/{weekStart}/drivers/{kfiId}/refresh-connecteam:
     post:
       operationId: refreshConnecteamForDriver
@@ -2934,6 +2956,9 @@ components:
         effectiveDispTz:
           type: ["string", "null"]
           description: Resolved display tz actually used for this driver — `displayTz` if set, otherwise IWG → CT_TZ.
+        tagNumber:
+          type: ["string", "null"]
+          description: Locally-maintained driver tag number (`drivers.tag_number`) shown on the driver header. Not sourced from Connecteam — its profile Tags feature is not API-readable. Null when unset.
 
     DriverSummaryRow:
       type: object
@@ -4697,6 +4722,24 @@ components:
         displayTz:
           type: ["string", "null"]
           description: IANA tz string from `ALLOWED_TZS`, or null to clear the override and fall back to IWG/CT defaults.
+
+    UpdateDriverTagNumberInput:
+      type: object
+      required: [tagNumber]
+      properties:
+        tagNumber:
+          type: ["string", "null"]
+          description: Tag number to store (trimmed, at most 32 printable characters), or null/empty to clear.
+
+    UpdateDriverTagNumberResult:
+      type: object
+      required: [kfiId, name, customer]
+      properties:
+        kfiId: { type: string }
+        name: { type: string }
+        customer: { type: string }
+        tagNumber:
+          type: ["string", "null"]
 
     RefreshConnecteamDriverResult:
       type: object

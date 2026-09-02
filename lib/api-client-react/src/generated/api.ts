@@ -138,6 +138,8 @@ import type {
   UpdateCustomerNameAliasParams,
   UpdateDriverIdAliasBody,
   UpdateDriverPayrollProfileBody,
+  UpdateDriverTagNumberInput,
+  UpdateDriverTagNumberResult,
   UpdateDriverTimezoneInput,
   UpdateLanguageBody,
   UpdateUserBody,
@@ -9746,6 +9748,97 @@ export const useUpdateDriverTimezone = <
   TContext
 > => {
   return useMutation(getUpdateDriverTimezoneMutationOptions(options));
+};
+
+/**
+ * @summary Set or clear a driver's tag number (`drivers.tag_number`) — locally maintained; Connecteam's profile Tags feature is not API-readable. Supervisor/Admin.
+ */
+export const getUpdateDriverTagNumberUrl = (kfiId: string) => {
+  return `/api/drivers/${kfiId}/tag-number`;
+};
+
+export const updateDriverTagNumber = async (
+  kfiId: string,
+  updateDriverTagNumberInput: UpdateDriverTagNumberInput,
+  options?: RequestInit,
+): Promise<UpdateDriverTagNumberResult> => {
+  return customFetch<UpdateDriverTagNumberResult>(
+    getUpdateDriverTagNumberUrl(kfiId),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(updateDriverTagNumberInput),
+    },
+  );
+};
+
+export const getUpdateDriverTagNumberMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDriverTagNumber>>,
+    TError,
+    { kfiId: string; data: BodyType<UpdateDriverTagNumberInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateDriverTagNumber>>,
+  TError,
+  { kfiId: string; data: BodyType<UpdateDriverTagNumberInput> },
+  TContext
+> => {
+  const mutationKey = ["updateDriverTagNumber"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateDriverTagNumber>>,
+    { kfiId: string; data: BodyType<UpdateDriverTagNumberInput> }
+  > = (props) => {
+    const { kfiId, data } = props ?? {};
+
+    return updateDriverTagNumber(kfiId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateDriverTagNumberMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateDriverTagNumber>>
+>;
+export type UpdateDriverTagNumberMutationBody =
+  BodyType<UpdateDriverTagNumberInput>;
+export type UpdateDriverTagNumberMutationError = ErrorType<void>;
+
+/**
+ * @summary Set or clear a driver's tag number (`drivers.tag_number`) — locally maintained; Connecteam's profile Tags feature is not API-readable. Supervisor/Admin.
+ */
+export const useUpdateDriverTagNumber = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDriverTagNumber>>,
+    TError,
+    { kfiId: string; data: BodyType<UpdateDriverTagNumberInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateDriverTagNumber>>,
+  TError,
+  { kfiId: string; data: BodyType<UpdateDriverTagNumberInput> },
+  TContext
+> => {
+  return useMutation(getUpdateDriverTagNumberMutationOptions(options));
 };
 
 /**

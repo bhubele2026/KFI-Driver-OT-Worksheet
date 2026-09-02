@@ -25,6 +25,12 @@ export const driversTable = pgTable(
     displayTz: text("display_tz"),
     displayTzUpdatedBy: integer("display_tz_updated_by"),
     displayTzUpdatedAt: timestamp("display_tz_updated_at", { withTimezone: true }),
+    // Locally-owned driver tag number (badge-style, e.g. "10020908"), entered
+    // in-app on the driver header. Connecteam's profile "Tags" feature is not
+    // API-readable, so this is maintained here and never touched by the CT upsert.
+    tagNumber: text("tag_number"),
+    tagNumberUpdatedBy: integer("tag_number_updated_by"),
+    tagNumberUpdatedAt: timestamp("tag_number_updated_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
