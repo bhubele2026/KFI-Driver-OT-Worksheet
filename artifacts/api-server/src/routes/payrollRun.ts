@@ -1,5 +1,5 @@
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { db, schema } from "../lib/db.js";
 import { requireAuth } from "../lib/auth.js";
 import { requireTile, type AuthedRequest } from "../lib/entraAuth.js";
@@ -547,6 +547,49 @@ payrollRunRouter.post("/payroll-run/periods/:payDate/changes/:rowKey/pdf-request
     });
 
     res.json({ ok: true, row: updated[0] });
+  });
+
+/**
+ * Queue the WHOLE period — every action row without a filed PDF gets
+ * `requested` in one press (failed rows re-queue, filed and in-flight rows
+ * are skipped, decisions are never queued: a discussed intent has no action
+ * email worth filing yet). One audit row summarises the batch; the executor
+ * still gives every row its own verdict.
+ */
+payrollRunRouter.post("/payroll-run/periods/:payDate/pdf-request-all",
+  requireAuth, requireTile("payroll_changes"), async (req: Request, res: Response) => {
+    const a = req as AuthedRequest;
+    const payDate = String(req.params.payDate);
+    const isOffCycle = String(req.query.offCycle ?? "") === "1";
+    if (badPayDate(payDate, isOffCycle, res)) return;
+    const period = await ensurePayrollPeriod(payDate, isOffCycle);
+
+    const now = new Date();
+    const updated = await db.update(schema.payrollChangesTable).set({
+      pdfStatus: "requested",
+      pdfRequestedBy: a.user?.email ?? a.authEmail ?? null,
+      pdfRequestedAt: now,
+      pdfError: null,
+      updatedAt: now,
+    }).where(and(
+      eq(schema.payrollChangesTable.periodId, period.id),
+      eq(schema.payrollChangesTable.needsDecision, false),
+      or(isNull(schema.payrollChangesTable.pdfStatus),
+         eq(schema.payrollChangesTable.pdfStatus, "failed")),
+    )).returning({ rowKey: schema.payrollChangesTable.rowKey });
+
+    if (updated.length > 0) {
+      await db.insert(schema.payrollStepAuditTable).values({
+        periodId: period.id,
+        stepKey: "pdf-request-all",
+        status: "pdf-requested",
+        note: JSON.stringify({ queued: updated.length }),
+        actorUserId: a.user?.id ?? null,
+        actorEmail: a.user?.email ?? a.authEmail ?? null,
+      });
+    }
+
+    res.json({ ok: true, queued: updated.length });
   });
 
 /**

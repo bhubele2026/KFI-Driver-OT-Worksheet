@@ -135,6 +135,7 @@ const COLS = (
     <col style={{ width: "3.5rem" }} />
     <col style={{ width: "3.5rem" }} />
     <col style={{ width: "3.5rem" }} />
+    <col style={{ width: "3.5rem" }} />
     <col style={{ width: "4.25rem" }} />
   </colgroup>
 );
@@ -277,6 +278,27 @@ export default function PayrollChanges() {
     [payDate, load],
   );
 
+  /**
+   * Queue the whole period at once — every action row that is not already
+   * filed or in flight (failed rows re-queue). The wake daemon picks the
+   * batch up within seconds; each row still gets its own verdict.
+   */
+  const requestAllPdfs = useCallback(async () => {
+    setBusy("pdfall");
+    try {
+      const r = await guardedFetch(
+        `${base}api/payroll-run/periods/${payDate}/pdf-request-all`,
+        { method: "POST" },
+      );
+      if (!r.ok) throw new Error(`request ${r.status}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not queue the PDFs");
+    } finally {
+      setBusy(null);
+      await load();
+    }
+  }, [payDate, load]);
+
   /** -1 is n/a; otherwise a count against the row's headcount. Cycle 0 → n → n/a. */
   const cycle = (cur: number, people: number): number =>
     cur === -1 ? 0 : cur >= Math.max(1, people) ? -1 : Math.max(1, people);
@@ -332,7 +354,15 @@ export default function PayrollChanges() {
               {data?.period.label ?? "Every change for the period, staged in the order the week runs."}
             </p>
           </div>
-          <PayDatePicker value={payDate} onChange={setPayDate} />
+          <div className="flex items-end gap-2">
+            <button type="button" disabled={busy === "pdfall"}
+              onClick={() => void requestAllPdfs()}
+              title="File every row's source email as a PDF in SharePoint › New PDF (rows already filed are skipped)"
+              className="press h-9 rounded bg-brand-navy px-3 text-label font-semibold text-white shadow-rest disabled:opacity-60">
+              Create all PDFs
+            </button>
+            <PayDatePicker value={payDate} onChange={setPayDate} />
+          </div>
         </div>
 
         {error && (
@@ -409,12 +439,12 @@ export default function PayrollChanges() {
                             <th className="px-3 py-2.5 font-semibold">Action to take</th>
                             <th className="px-3 py-2.5 text-right font-semibold">Hours</th>
                             <th className="px-3 py-2.5 text-right font-semibold">Amount</th>
-                            {FIELDS.map(([, label], fi) => (
-                              <th key={label}
-                                className={`py-2.5 text-center font-semibold ${fi === FIELDS.length - 1 ? "pl-1 pr-3" : "px-1"}`}>
+                            {FIELDS.map(([, label]) => (
+                              <th key={label} className="px-1 py-2.5 text-center font-semibold">
                                 {label}
                               </th>
                             ))}
+                            <th className="py-2.5 pl-1 pr-3 text-center font-semibold">PDF</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -457,8 +487,7 @@ export default function PayrollChanges() {
                                 const v = r[field];
                                 const done2 = rowDone(r, field);
                                 return (
-                                  <td key={field}
-                                    className={`py-2 text-center align-top ${field === "documentationSaved" ? "pl-1 pr-3" : "px-1"}`}>
+                                  <td key={field} className="px-1 py-2 text-center align-top">
                                     <button
                                       type="button"
                                       disabled={busy === r.rowKey + field}
@@ -477,9 +506,38 @@ export default function PayrollChanges() {
                                   </td>
                                 );
                               })}
+                              <td className="py-2 pl-1 pr-3 text-center align-top">
+                                {r.pdfStatus === "filed" && r.pdfWebUrl ? (
+                                  <a href={r.pdfWebUrl} target="_blank" rel="noreferrer"
+                                    title={r.fileNaming ?? "Open the filed PDF"}
+                                    className="press inline-flex h-6 w-9 items-center justify-center rounded bg-brand-navy text-micro font-semibold text-white no-underline ring-1 ring-brand-navy">
+                                    PDF
+                                  </a>
+                                ) : r.pdfStatus === "requested" ? (
+                                  <span
+                                    title="Requested — filing starts within seconds; this board updates itself."
+                                    className="inline-flex h-6 w-9 items-center justify-center rounded bg-warn-bg text-micro font-semibold text-warn">
+                                    …
+                                  </span>
+                                ) : r.pdfStatus === "failed" ? (
+                                  <button type="button" disabled={busy === r.rowKey + "pdf"}
+                                    onClick={() => void requestPdf(r)}
+                                    title={`Failed — ${r.pdfError ?? "unknown"}. Click to retry; the reason is in the row's drawer.`}
+                                    className="press inline-flex h-6 w-9 items-center justify-center rounded bg-bad-bg text-micro font-semibold text-bad ring-1 ring-bad/30">
+                                    !
+                                  </button>
+                                ) : (
+                                  <button type="button" disabled={busy === r.rowKey + "pdf"}
+                                    onClick={() => void requestPdf(r)}
+                                    title="Create PDF — file this row's source email in SharePoint › New PDF"
+                                    className="press inline-flex h-6 w-9 items-center justify-center rounded bg-white text-micro font-semibold text-brand-navy ring-1 ring-brand-navy/25 hover:ring-brand-navy/60">
+                                    PDF
+                                  </button>
+                                )}
+                              </td>
                             </tr>
                             <tr aria-hidden={!open}>
-                              <td colSpan={10} className="p-0">
+                              <td colSpan={11} className="p-0">
                                 <Collapse open={open}>
                                   <div className="space-y-1.5 bg-brand-tint/60 py-3 pl-[3.25rem] pr-5 text-label">
                                     {r.summary && r.summary !== r.action && (
