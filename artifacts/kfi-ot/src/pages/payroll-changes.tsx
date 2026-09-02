@@ -279,44 +279,51 @@ export default function PayrollChanges() {
   );
 
   /**
-   * Queue the whole period at once — every action row that is not already
-   * filed or in flight (failed rows re-queue). The wake daemon picks the
-   * batch up within seconds; each row still gets its own verdict.
+   * Run the selection — sends every 'selected' row to the executor at once.
+   * The wake daemon picks the batch up within seconds; each row still gets
+   * its own verdict, and the 10s self-refresh shows them landing.
    */
-  const requestAllPdfs = useCallback(async () => {
-    setBusy("pdfall");
+  const runPdfs = useCallback(async () => {
+    setBusy("pdfrun");
+    setData((d) => d && {
+      ...d,
+      actions: d.actions.map((r) =>
+        r.pdfStatus === "selected" ? { ...r, pdfStatus: "requested" } : r),
+    });
     try {
       const r = await guardedFetch(
-        `${base}api/payroll-run/periods/${payDate}/pdf-request-all`,
+        `${base}api/payroll-run/periods/${payDate}/pdf-run`,
         { method: "POST" },
       );
-      if (!r.ok) throw new Error(`request ${r.status}`);
+      if (!r.ok) throw new Error(`run ${r.status}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "could not queue the PDFs");
+      setError(e instanceof Error ? e.message : "could not start the PDFs");
+      await load();
     } finally {
       setBusy(null);
-      await load();
     }
   }, [payDate, load]);
+
+  const selectedCount = data?.actions.filter((a) => a.pdfStatus === "selected").length ?? 0;
 
   /** -1 is n/a; otherwise a count against the row's headcount. Cycle 0 → n → n/a. */
   const cycle = (cur: number, people: number): number =>
     cur === -1 ? 0 : cur >= Math.max(1, people) ? -1 : Math.max(1, people);
 
   /**
-   * Queue the row's source email for filing as a PDF. Optimistic like the
-   * ticks: the chip flips to "requested" on the click, the POST follows, and
-   * the executor's verdict (filed with a link, or failed with a reason)
-   * arrives on the next load.
+   * Toggle a row in or out of the PDF selection. A press only PICKS — nothing
+   * runs until the Create PDFs button sends the whole selection at once.
+   * Optimistic like the ticks; a failed POST reverts by reloading the truth.
    */
-  const requestPdf = useCallback(
+  const togglePdf = useCallback(
     async (row: Change) => {
+      const selecting = row.pdfStatus !== "selected";
       setBusy(row.rowKey + "pdf");
       setData((d) => d && {
         ...d,
         actions: d.actions.map((r) =>
           r.rowKey === row.rowKey
-            ? { ...r, pdfStatus: "requested", pdfError: null }
+            ? { ...r, pdfStatus: selecting ? "selected" : null, pdfError: null }
             : r,
         ),
       });
@@ -325,9 +332,9 @@ export default function PayrollChanges() {
           `${base}api/payroll-run/periods/${payDate}/changes/${row.rowKey}/pdf-request`,
           { method: "POST" },
         );
-        if (!r.ok) throw new Error(`request ${r.status}`);
+        if (!r.ok) throw new Error(`select ${r.status}`);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "could not request the PDF");
+        setError(e instanceof Error ? e.message : "could not update the selection");
         await load();
       } finally {
         setBusy(null);
@@ -355,11 +362,15 @@ export default function PayrollChanges() {
             </p>
           </div>
           <div className="flex items-end gap-2">
-            <button type="button" disabled={busy === "pdfall"}
-              onClick={() => void requestAllPdfs()}
-              title="File every row's source email as a PDF in SharePoint › New PDF (rows already filed are skipped)"
-              className="press h-9 rounded bg-brand-navy px-3 text-label font-semibold text-white shadow-rest disabled:opacity-60">
-              Create all PDFs
+            <button type="button" disabled={busy === "pdfrun" || selectedCount === 0}
+              onClick={() => void runPdfs()}
+              title={selectedCount === 0
+                ? "Pick rows first — press a row's PDF button to select it"
+                : "File the selected rows' source emails in SharePoint › New PDF — starts within seconds"}
+              className="press h-9 rounded bg-brand-navy px-3 text-label font-semibold text-white shadow-rest disabled:opacity-50">
+              {selectedCount === 0
+                ? "Create PDFs"
+                : `Create ${selectedCount} PDF${selectedCount === 1 ? "" : "s"}`}
             </button>
             <PayDatePicker value={payDate} onChange={setPayDate} />
           </div>
@@ -515,21 +526,28 @@ export default function PayrollChanges() {
                                   </a>
                                 ) : r.pdfStatus === "requested" ? (
                                   <span
-                                    title="Requested — filing starts within seconds; this board updates itself."
+                                    title="Running — filing starts within seconds; this board updates itself."
                                     className="inline-flex h-6 w-9 items-center justify-center rounded bg-warn-bg text-micro font-semibold text-warn">
                                     …
                                   </span>
+                                ) : r.pdfStatus === "selected" ? (
+                                  <button type="button" disabled={busy === r.rowKey + "pdf"}
+                                    onClick={() => void togglePdf(r)}
+                                    title="Selected — press Create PDFs (top right) to run; click to unselect"
+                                    className="press inline-flex h-6 w-9 items-center justify-center rounded bg-brand-wash text-micro font-bold text-brand-navy ring-2 ring-brand-navy">
+                                    PDF
+                                  </button>
                                 ) : r.pdfStatus === "failed" ? (
                                   <button type="button" disabled={busy === r.rowKey + "pdf"}
-                                    onClick={() => void requestPdf(r)}
-                                    title={`Failed — ${r.pdfError ?? "unknown"}. Click to retry; the reason is in the row's drawer.`}
+                                    onClick={() => void togglePdf(r)}
+                                    title={`Failed — ${r.pdfError ?? "unknown"}. Click to select for a re-run; the reason is in the row's drawer.`}
                                     className="press inline-flex h-6 w-9 items-center justify-center rounded bg-bad-bg text-micro font-semibold text-bad ring-1 ring-bad/30">
                                     !
                                   </button>
                                 ) : (
                                   <button type="button" disabled={busy === r.rowKey + "pdf"}
-                                    onClick={() => void requestPdf(r)}
-                                    title="Create PDF — file this row's source email in SharePoint › New PDF"
+                                    onClick={() => void togglePdf(r)}
+                                    title="Select for PDF — then press Create PDFs (top right) to run"
                                     className="press inline-flex h-6 w-9 items-center justify-center rounded bg-white text-micro font-semibold text-brand-navy ring-1 ring-brand-navy/25 hover:ring-brand-navy/60">
                                     PDF
                                   </button>
@@ -576,8 +594,12 @@ export default function PayrollChanges() {
                                       ) : r.pdfStatus === "requested" ? (
                                         <span
                                           className="rounded bg-warn-bg px-2 py-1 text-micro font-semibold text-warn"
-                                          title="The press wakes the executor — filing usually starts within a minute, and this board updates itself.">
-                                          PDF requested…
+                                          title="Filing usually starts within a minute, and this board updates itself.">
+                                          PDF running…
+                                        </span>
+                                      ) : r.pdfStatus === "selected" ? (
+                                        <span className="rounded bg-brand-wash px-2 py-1 text-micro font-semibold text-brand-navy ring-1 ring-brand-navy/40">
+                                          Selected for PDF — press Create PDFs to run
                                         </span>
                                       ) : r.pdfStatus === "failed" ? (
                                         <>
@@ -585,17 +607,17 @@ export default function PayrollChanges() {
                                             PDF failed{r.pdfError ? ` — ${r.pdfError}` : ""}
                                           </span>
                                           <button type="button" disabled={busy === r.rowKey + "pdf"}
-                                            onClick={() => void requestPdf(r)}
+                                            onClick={() => void togglePdf(r)}
                                             className="press rounded bg-white px-2 py-1 text-micro font-semibold text-brand-navy ring-1 ring-brand-navy/25 hover:ring-brand-navy/60">
-                                            Retry
+                                            Select for re-run
                                           </button>
                                         </>
                                       ) : (
                                         <button type="button" disabled={busy === r.rowKey + "pdf"}
-                                          onClick={() => void requestPdf(r)}
-                                          title="Files the source email as a PDF in SharePoint › New PDF"
+                                          onClick={() => void togglePdf(r)}
+                                          title="Adds this row to the selection; Create PDFs (top right) runs it"
                                           className="press rounded bg-white px-2 py-1 text-micro font-semibold text-brand-navy ring-1 ring-brand-navy/25 hover:ring-brand-navy/60">
-                                          Create PDF
+                                          Select for PDF
                                         </button>
                                       )}
                                     </div>

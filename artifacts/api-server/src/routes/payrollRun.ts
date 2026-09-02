@@ -1,5 +1,5 @@
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
-import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "../lib/db.js";
 import { requireAuth } from "../lib/auth.js";
 import { requireTile, type AuthedRequest } from "../lib/entraAuth.js";
@@ -505,13 +505,13 @@ payrollRunRouter.patch("/payroll-run/periods/:payDate/changes/:rowKey", requireA
   });
 
 /**
- * Queue "file this row's source email as a PDF" — the Create PDF button.
+ * Toggle a row in or out of the PDF SELECTION — a press picks, it never runs.
  *
- * The press only records the ask. The Mac-side executor (the only thing that
- * can read payroll@ and reach the SharePoint folder — the app can do neither,
- * same constraint as the bridge) claims it over the machine endpoint, renders
- * the email, files it in `New PDF/`, and reports filed or failed back onto
- * the row. A repeat press re-stamps; a press on a failed row re-queues it.
+ * Brad's model, stated on the board: pick the rows first, then one button
+ * runs the machine on exactly that selection. 'selected' is invisible to the
+ * executor by construction — the wake daemon and the claim look only for
+ * 'requested', which pdf-run below sets. A failed row presses back into the
+ * selection for a re-run; a row already in flight or filed is left alone.
  */
 payrollRunRouter.post("/payroll-run/periods/:payDate/changes/:rowKey/pdf-request",
   requireAuth, requireTile("payroll_changes"), async (req: Request, res: Response) => {
@@ -522,25 +522,41 @@ payrollRunRouter.post("/payroll-run/periods/:payDate/changes/:rowKey/pdf-request
     if (badPayDate(payDate, isOffCycle, res)) return;
     const period = await ensurePayrollPeriod(payDate, isOffCycle);
 
-    const now = new Date();
-    const updated = await db.update(schema.payrollChangesTable).set({
-      pdfStatus: "requested",
-      pdfRequestedBy: a.user?.email ?? a.authEmail ?? null,
-      pdfRequestedAt: now,
-      pdfError: null,
-      updatedAt: now,
-    }).where(and(eq(schema.payrollChangesTable.periodId, period.id),
+    const existing = await db.select().from(schema.payrollChangesTable)
+      .where(and(eq(schema.payrollChangesTable.periodId, period.id),
                  eq(schema.payrollChangesTable.rowKey, rowKey)))
-      .returning();
-    if (!updated[0]) {
+      .limit(1);
+    if (!existing[0]) {
       res.status(404).json({ error: "no such row for this period" });
       return;
     }
 
+    const cur = existing[0].pdfStatus;
+    if (cur === "requested" || cur === "filed") {
+      // In flight, or already linked to its document — nothing to toggle.
+      res.json({ ok: true, row: existing[0] });
+      return;
+    }
+
+    const selecting = cur !== "selected";
+    const now = new Date();
+    const updated = await db.update(schema.payrollChangesTable).set(
+      selecting
+        ? {
+            pdfStatus: "selected",
+            pdfRequestedBy: a.user?.email ?? a.authEmail ?? null,
+            pdfError: null,
+            updatedAt: now,
+          }
+        : { pdfStatus: null, updatedAt: now },
+    ).where(and(eq(schema.payrollChangesTable.periodId, period.id),
+                eq(schema.payrollChangesTable.rowKey, rowKey)))
+      .returning();
+
     await db.insert(schema.payrollStepAuditTable).values({
       periodId: period.id,
       stepKey: `change:${rowKey}`,
-      status: "pdf-requested",
+      status: selecting ? "pdf-selected" : "pdf-unselected",
       note: null,
       actorUserId: a.user?.id ?? null,
       actorEmail: a.user?.email ?? a.authEmail ?? null,
@@ -550,13 +566,11 @@ payrollRunRouter.post("/payroll-run/periods/:payDate/changes/:rowKey/pdf-request
   });
 
 /**
- * Queue the WHOLE period — every action row without a filed PDF gets
- * `requested` in one press (failed rows re-queue, filed and in-flight rows
- * are skipped, decisions are never queued: a discussed intent has no action
- * email worth filing yet). One audit row summarises the batch; the executor
- * still gives every row its own verdict.
+ * Run the selection — the Create PDFs button. Moves every 'selected' row in
+ * the period to 'requested'; the Mac daemon's long-poll releases within
+ * seconds and the executor gives each row its own verdict.
  */
-payrollRunRouter.post("/payroll-run/periods/:payDate/pdf-request-all",
+payrollRunRouter.post("/payroll-run/periods/:payDate/pdf-run",
   requireAuth, requireTile("payroll_changes"), async (req: Request, res: Response) => {
     const a = req as AuthedRequest;
     const payDate = String(req.params.payDate);
@@ -567,21 +581,17 @@ payrollRunRouter.post("/payroll-run/periods/:payDate/pdf-request-all",
     const now = new Date();
     const updated = await db.update(schema.payrollChangesTable).set({
       pdfStatus: "requested",
-      pdfRequestedBy: a.user?.email ?? a.authEmail ?? null,
       pdfRequestedAt: now,
-      pdfError: null,
       updatedAt: now,
     }).where(and(
       eq(schema.payrollChangesTable.periodId, period.id),
-      eq(schema.payrollChangesTable.needsDecision, false),
-      or(isNull(schema.payrollChangesTable.pdfStatus),
-         eq(schema.payrollChangesTable.pdfStatus, "failed")),
+      eq(schema.payrollChangesTable.pdfStatus, "selected"),
     )).returning({ rowKey: schema.payrollChangesTable.rowKey });
 
     if (updated.length > 0) {
       await db.insert(schema.payrollStepAuditTable).values({
         periodId: period.id,
-        stepKey: "pdf-request-all",
+        stepKey: "pdf-run",
         status: "pdf-requested",
         note: JSON.stringify({ queued: updated.length }),
         actorUserId: a.user?.id ?? null,
