@@ -1,7 +1,8 @@
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 import { db, schema } from "../lib/db.js";
 import { requirePulseKey } from "./pulse.js";
+import { pdfResultPatch, validatePdfResult, type PdfResult } from "../lib/payrollPdfQueue.js";
 import {
   normalizeChangeType, routeForChangeType, seedFromCategory,
 } from "../lib/payrollChangeTypes.js";
@@ -36,10 +37,15 @@ export const machinePayrollRouter: IRouter = Router();
 type Body = {
   payDate?: string;
   isOffCycle?: boolean;
-  kind?: "changes" | "artifacts" | "ping";
+  kind?: "changes" | "artifacts" | "ping" | "pdf-claim" | "pdf-result";
   /** True when more chunks follow; the empty-sweep guard is skipped until the
    *  last one, or a chunked push would look like an empty sweep. */
   more?: boolean;
+  /** pdf-claim: just say how many are pending — the 15-minute poll's cheap
+   *  question, asked before anything heavier is started. */
+  countOnly?: boolean;
+  /** pdf-result: what the executor did with each claimed request. */
+  results?: unknown[];
   changes?: Array<Partial<SweptRow> & { changeType: string; action: string }>;
   sources?: Array<{
     messageId: string; conversationId?: string; subject?: string; sender?: string;
@@ -56,6 +62,117 @@ type Body = {
 machinePayrollRouter.post("/machine/payroll", requirePulseKey,
   async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Body;
+
+    // ── the Create-PDF queue ─────────────────────────────────────────────
+    // A processor presses "Create PDF" on a change row; the Mac-side executor
+    // (the only thing that can read payroll@ and the SharePoint folder) claims
+    // the requests here, files each email as a PDF, and reports back. These
+    // two kinds span periods, so they carry no payDate — and they ride this
+    // same endpoint because of the one-excluded-path rule above.
+    if (body.kind === "pdf-claim") {
+      const t = schema.payrollChangesTable;
+      const p = schema.payrollPeriodsTable;
+      const rows = await db.select({
+        periodId: t.periodId, rowKey: t.rowKey,
+        payDate: p.payDate, isOffCycle: p.isOffCycle, periodLabel: p.label,
+        customer: t.customer, employee: t.employee,
+        changeType: t.changeType, action: t.action, category: t.category,
+        weekEnding: t.weekEnding, effectiveDate: t.effectiveDate,
+        conversationId: t.conversationId, sourceMessageId: t.sourceMessageId,
+        sourceRef: t.sourceRef, sourceReceivedAt: t.sourceReceivedAt,
+        requestedBy: t.requestedBy, fileNaming: t.fileNaming,
+        pdfRequestedBy: t.pdfRequestedBy, pdfRequestedAt: t.pdfRequestedAt,
+      }).from(t).innerJoin(p, eq(t.periodId, p.id))
+        .where(eq(t.pdfStatus, "requested"))
+        .orderBy(asc(t.pdfRequestedAt));
+      if (body.countOnly === true) {
+        res.json({ ok: true, pending: rows.length });
+        return;
+      }
+      // Attach the sweep's message record where one names this row — subject,
+      // sender and attachment names make finding the mail exact instead of a
+      // search. Claiming does NOT flip the status: a crashed executor must
+      // leave the request claimable on the next cycle, and the only writer of
+      // "filed" is a verified file on disk.
+      const periodIds = [...new Set(rows.map((r) => r.periodId))];
+      const sources = periodIds.length === 0 ? [] :
+        await db.select().from(schema.payrollChangeSourcesTable)
+          .where(inArray(schema.payrollChangeSourcesTable.periodId, periodIds));
+      const sourceFor = (r: (typeof rows)[number]) =>
+        sources.find((s) => s.periodId === r.periodId
+          && (s.drivesRowKeys?.includes(r.rowKey) ?? false))
+        ?? sources.find((s) => s.periodId === r.periodId
+          && r.conversationId != null && s.conversationId === r.conversationId)
+        ?? null;
+      res.json({
+        ok: true,
+        pending: rows.length,
+        requests: rows.map((r) => {
+          const s = sourceFor(r);
+          return {
+            ...r,
+            source: s === null ? null : {
+              messageId: s.messageId, conversationId: s.conversationId,
+              subject: s.subject, sender: s.sender, receivedAt: s.receivedAt,
+              attachmentNames: s.attachmentNames,
+            },
+          };
+        }),
+      });
+      return;
+    }
+
+    if (body.kind === "pdf-result") {
+      const raw = Array.isArray(body.results) ? body.results : [];
+      if (raw.length === 0) {
+        res.status(400).json({ error: "results is required for kind pdf-result" });
+        return;
+      }
+      const results: PdfResult[] = [];
+      for (const r of raw) {
+        const v = validatePdfResult(r);
+        if (!v.ok) {
+          res.status(400).json({ error: v.error });
+          return;
+        }
+        results.push(v.result);
+      }
+      const now = new Date();
+      let updated = 0;
+      const missing: string[] = [];
+      for (const r of results) {
+        const hit = await db.update(schema.payrollChangesTable)
+          .set(pdfResultPatch(r, now))
+          .where(and(
+            eq(schema.payrollChangesTable.periodId, r.periodId),
+            eq(schema.payrollChangesTable.rowKey, r.rowKey),
+            // Only rows that entered the lifecycle — a mistyped key must not
+            // decorate an unrelated row with a PDF it never asked for.
+            isNotNull(schema.payrollChangesTable.pdfStatus),
+          ))
+          .returning({ rowKey: schema.payrollChangesTable.rowKey });
+        if (!hit[0]) {
+          missing.push(r.rowKey);
+          continue;
+        }
+        updated++;
+        await db.insert(schema.payrollStepAuditTable).values({
+          periodId: r.periodId,
+          stepKey: `change:${r.rowKey}`,
+          status: r.outcome === "filed" ? "pdf-filed" : "pdf-failed",
+          note: JSON.stringify({
+            by: "payroll-pdf executor",
+            webUrl: r.webUrl ?? null, fileName: r.fileName ?? null,
+            error: r.error ?? null,
+          }),
+          actorUserId: null,
+          actorEmail: null,
+        });
+      }
+      res.json({ ok: true, updated, missing });
+      return;
+    }
+
     const payDate = body.payDate ?? "";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(payDate)) {
       res.status(400).json({ error: "payDate must be YYYY-MM-DD" });
@@ -118,10 +235,21 @@ machinePayrollRouter.post("/machine/payroll", requirePulseKey,
           ?? routeForChangeType(changeType)
           ?? seedFromCategory(c.category)?.route
           ?? null;
+        // JSON has no Date: the bridge sends sourceReceivedAt as an ISO
+        // string, and drizzle's timestamp column requires a real Date. The
+        // sources block below always converted; the rows never did, which
+        // surfaced the moment a sweep actually supplied the field. undefined
+        // stays undefined — the merge reads that as "not supplied".
+        const rawReceived = c.sourceReceivedAt as unknown;
+        const sourceReceivedAt = rawReceived == null
+          ? (rawReceived as null | undefined)
+          : new Date(rawReceived as string | Date);
         return {
           ...c, rowKey, changeType, route,
           changeTypeRaw: c.changeTypeRaw ?? c.changeType,
           action: c.action,
+          sourceReceivedAt: sourceReceivedAt instanceof Date
+            && Number.isNaN(sourceReceivedAt.getTime()) ? null : sourceReceivedAt,
         } as SweptRow;
       });
 
@@ -150,7 +278,8 @@ machinePayrollRouter.post("/machine/payroll", requirePulseKey,
         isRetro: r.isRetro, action: r.action, supersedes: r.supersedes,
         pairedWithRowKey: r.pairedWithRowKey, requestedBy: r.requestedBy,
         approvedBy: r.approvedBy, category: r.category,
-        conversationId: r.conversationId, sourceRef: r.sourceRef,
+        conversationId: r.conversationId, sourceMessageId: r.sourceMessageId,
+        sourceRef: r.sourceRef, sourceReceivedAt: r.sourceReceivedAt,
         needsDecision: r.needsDecision, decisionQuestion: r.decisionQuestion,
         decisionOwner: r.decisionOwner,
         enteredZenople: r.enteredZenople, verifiedTs: r.verifiedTs,
@@ -174,6 +303,7 @@ machinePayrollRouter.post("/machine/payroll", requirePulseKey,
           pairedWithRowKey: row.pairedWithRowKey ?? null,
           requestedBy: row.requestedBy ?? null, approvedBy: row.approvedBy ?? null,
           category: row.category ?? null, conversationId: row.conversationId ?? null,
+          sourceMessageId: row.sourceMessageId ?? null,
           sourceRef: row.sourceRef ?? null,
           sourceReceivedAt: row.sourceReceivedAt ?? null,
           needsDecision: row.needsDecision ?? false,
@@ -201,6 +331,15 @@ machinePayrollRouter.post("/machine/payroll", requirePulseKey,
             pairedWithRowKey: row.pairedWithRowKey ?? null,
             requestedBy: row.requestedBy ?? null, approvedBy: row.approvedBy ?? null,
             category: row.category ?? null,
+            // Provenance is a fact too. These were insert-only once, which
+            // meant a re-sweep could never backfill the email link onto a row
+            // that predates it — and the Create-PDF flow lives on that link.
+            // (The merge carried the stored values when a sweep omits them,
+            // so writing the merged row here cannot blank anything.)
+            conversationId: row.conversationId ?? null,
+            sourceMessageId: row.sourceMessageId ?? null,
+            sourceRef: row.sourceRef ?? null,
+            sourceReceivedAt: row.sourceReceivedAt ?? null,
             needsDecision: row.needsDecision ?? false,
             decisionQuestion: row.decisionQuestion ?? null,
             decisionOwner: row.decisionOwner ?? null,

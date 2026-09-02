@@ -139,3 +139,26 @@ describe("sweepIsSafeToApply — the unattended-run guard", () => {
     assert.equal(sweepIsSafeToApply(12, 12).ok, true);
   });
 });
+
+describe("source email provenance — a fact the sweep may backfill", () => {
+  it("a re-sweep ADDS sourceMessageId to a row that predates it", () => {
+    // Rows minted before the sweeps carried message ids have only the thread;
+    // the Create-PDF flow lives on the exact message, so the link must be able
+    // to arrive late.
+    const out = mergeRow(
+      swept({ sourceMessageId: "msg-9" }),
+      stored({ sourceMessageId: undefined }),
+    );
+    assert.equal(out.row.sourceMessageId, "msg-9");
+  });
+
+  it("a sweep that omits sourceMessageId leaves the stored one standing", () => {
+    const out = mergeRow(swept(), stored({ sourceMessageId: "msg-9" }));
+    assert.equal(out.row.sourceMessageId, "msg-9");
+  });
+
+  it("provenance alone does not mark the row changed — nothing to re-key", () => {
+    const out = mergeRow(swept({ sourceMessageId: "msg-9" }), stored());
+    assert.equal(out.state, "unchanged");
+  });
+});

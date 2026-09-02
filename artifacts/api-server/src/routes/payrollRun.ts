@@ -505,6 +505,51 @@ payrollRunRouter.patch("/payroll-run/periods/:payDate/changes/:rowKey", requireA
   });
 
 /**
+ * Queue "file this row's source email as a PDF" — the Create PDF button.
+ *
+ * The press only records the ask. The Mac-side executor (the only thing that
+ * can read payroll@ and reach the SharePoint folder — the app can do neither,
+ * same constraint as the bridge) claims it over the machine endpoint, renders
+ * the email, files it in `New PDF/`, and reports filed or failed back onto
+ * the row. A repeat press re-stamps; a press on a failed row re-queues it.
+ */
+payrollRunRouter.post("/payroll-run/periods/:payDate/changes/:rowKey/pdf-request",
+  requireAuth, requireTile("payroll_changes"), async (req: Request, res: Response) => {
+    const a = req as AuthedRequest;
+    const payDate = String(req.params.payDate);
+    const rowKey = String(req.params.rowKey);
+    const isOffCycle = String(req.query.offCycle ?? "") === "1";
+    if (badPayDate(payDate, isOffCycle, res)) return;
+    const period = await ensurePayrollPeriod(payDate, isOffCycle);
+
+    const now = new Date();
+    const updated = await db.update(schema.payrollChangesTable).set({
+      pdfStatus: "requested",
+      pdfRequestedBy: a.user?.email ?? a.authEmail ?? null,
+      pdfRequestedAt: now,
+      pdfError: null,
+      updatedAt: now,
+    }).where(and(eq(schema.payrollChangesTable.periodId, period.id),
+                 eq(schema.payrollChangesTable.rowKey, rowKey)))
+      .returning();
+    if (!updated[0]) {
+      res.status(404).json({ error: "no such row for this period" });
+      return;
+    }
+
+    await db.insert(schema.payrollStepAuditTable).values({
+      periodId: period.id,
+      stepKey: `change:${rowKey}`,
+      status: "pdf-requested",
+      note: null,
+      actorUserId: a.user?.id ?? null,
+      actorEmail: a.user?.email ?? a.authEmail ?? null,
+    });
+
+    res.json({ ok: true, row: updated[0] });
+  });
+
+/**
  * Wednesday's register checks, run against live Zenople.
  *
  * Unlike the tie-outs this is not persisted — it is a read of the register as

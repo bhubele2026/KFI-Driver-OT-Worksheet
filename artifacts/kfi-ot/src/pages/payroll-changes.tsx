@@ -47,6 +47,12 @@ type Change = {
   documentationSaved: number;
   /** AI-terse row label; null when unavailable — the full action shows instead. */
   summary: string | null;
+  /** Create-PDF lifecycle: null → requested → filed | failed. */
+  pdfStatus: string | null;
+  pdfRequestedAt: string | null;
+  pdfWebUrl: string | null;
+  pdfError: string | null;
+  fileNaming: string | null;
 };
 
 type Payload = {
@@ -266,6 +272,39 @@ export default function PayrollChanges() {
   const cycle = (cur: number, people: number): number =>
     cur === -1 ? 0 : cur >= Math.max(1, people) ? -1 : Math.max(1, people);
 
+  /**
+   * Queue the row's source email for filing as a PDF. Optimistic like the
+   * ticks: the chip flips to "requested" on the click, the POST follows, and
+   * the executor's verdict (filed with a link, or failed with a reason)
+   * arrives on the next load.
+   */
+  const requestPdf = useCallback(
+    async (row: Change) => {
+      setBusy(row.rowKey + "pdf");
+      setData((d) => d && {
+        ...d,
+        actions: d.actions.map((r) =>
+          r.rowKey === row.rowKey
+            ? { ...r, pdfStatus: "requested", pdfError: null }
+            : r,
+        ),
+      });
+      try {
+        const r = await guardedFetch(
+          `${base}api/payroll-run/periods/${payDate}/changes/${row.rowKey}/pdf-request`,
+          { method: "POST" },
+        );
+        if (!r.ok) throw new Error(`request ${r.status}`);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "could not request the PDF");
+        await load();
+      } finally {
+        setBusy(null);
+      }
+    },
+    [payDate, load],
+  );
+
   const c = data?.counts;
 
   return (
@@ -371,10 +410,8 @@ export default function PayrollChanges() {
                         </thead>
                         <tbody>
                           {rows.map((r) => {
-                            const hasDetail = Boolean(
-                              (r.summary && r.summary !== r.action) || r.supersedes ||
-                              r.pairedWithRowKey || r.notes || r.requestedBy || r.approvedBy,
-                            );
+                            // Every row opens: even a bare one now carries the
+                            // Create-PDF control (and its status) in the drawer.
                             const open = expanded.has(r.rowKey);
                             return (
                             <Fragment key={r.rowKey}>
@@ -398,19 +435,12 @@ export default function PayrollChanges() {
                                 )}
                               </td>
                               <td className="px-3 py-3 align-top">
-                                {hasDetail ? (
-                                  <button type="button" onClick={() => toggleRow(r.rowKey)}
-                                    title={r.summary ? r.action : undefined}
-                                    className="press flex w-full items-baseline gap-1.5 text-left">
-                                    <Caret open={open} className="w-3 shrink-0 text-neutral-400" />
-                                    <span className="font-medium text-brand-ink">{r.summary ?? r.action}</span>
-                                  </button>
-                                ) : (
-                                  <span className="flex items-baseline gap-1.5">
-                                    <span aria-hidden className="w-3 shrink-0" />
-                                    <span className="font-medium text-brand-ink">{r.summary ?? r.action}</span>
-                                  </span>
-                                )}
+                                <button type="button" onClick={() => toggleRow(r.rowKey)}
+                                  title={r.summary ? r.action : undefined}
+                                  className="press flex w-full items-baseline gap-1.5 text-left">
+                                  <Caret open={open} className="w-3 shrink-0 text-neutral-400" />
+                                  <span className="font-medium text-brand-ink">{r.summary ?? r.action}</span>
+                                </button>
                               </td>
                               <td className="fin-num px-3 py-3 text-right align-top text-brand-ink">{r.hours ?? ""}</td>
                               <td className="fin-num px-3 py-3 text-right align-top text-brand-ink">{r.amount ?? ""}</td>
@@ -439,38 +469,73 @@ export default function PayrollChanges() {
                                 );
                               })}
                             </tr>
-                            {hasDetail && (
-                              <tr aria-hidden={!open}>
-                                <td colSpan={10} className="p-0">
-                                  <Collapse open={open}>
-                                    <div className="space-y-1.5 bg-brand-tint/60 py-3 pl-[3.25rem] pr-5 text-label">
-                                      {r.summary && r.summary !== r.action && (
-                                        <p className="text-brand-ink">{r.action}</p>
-                                      )}
-                                      {r.supersedes && (
-                                        <p className="font-semibold text-brand-navy">
-                                          Supersedes: {r.supersedes}
-                                        </p>
-                                      )}
-                                      {r.pairedWithRowKey && (
-                                        <p className="font-semibold text-brand-navy">
-                                          Paired — do not enter alone
-                                        </p>
-                                      )}
-                                      {r.notes && <p className="text-neutral-500">{r.notes}</p>}
-                                      {(r.requestedBy || r.approvedBy) && (
-                                        <p className="text-micro text-neutral-500">
-                                          {[
-                                            r.requestedBy && `Requested by ${r.requestedBy}`,
-                                            r.approvedBy && `Approved by ${r.approvedBy}`,
-                                          ].filter(Boolean).join(" · ")}
-                                        </p>
+                            <tr aria-hidden={!open}>
+                              <td colSpan={10} className="p-0">
+                                <Collapse open={open}>
+                                  <div className="space-y-1.5 bg-brand-tint/60 py-3 pl-[3.25rem] pr-5 text-label">
+                                    {r.summary && r.summary !== r.action && (
+                                      <p className="text-brand-ink">{r.action}</p>
+                                    )}
+                                    {r.supersedes && (
+                                      <p className="font-semibold text-brand-navy">
+                                        Supersedes: {r.supersedes}
+                                      </p>
+                                    )}
+                                    {r.pairedWithRowKey && (
+                                      <p className="font-semibold text-brand-navy">
+                                        Paired — do not enter alone
+                                      </p>
+                                    )}
+                                    {r.notes && <p className="text-neutral-500">{r.notes}</p>}
+                                    {(r.requestedBy || r.approvedBy) && (
+                                      <p className="text-micro text-neutral-500">
+                                        {[
+                                          r.requestedBy && `Requested by ${r.requestedBy}`,
+                                          r.approvedBy && `Approved by ${r.approvedBy}`,
+                                        ].filter(Boolean).join(" · ")}
+                                      </p>
+                                    )}
+                                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                                      {r.pdfStatus === "filed" && r.pdfWebUrl ? (
+                                        <>
+                                          <a href={r.pdfWebUrl} target="_blank" rel="noreferrer"
+                                            className="press rounded bg-brand-navy px-2 py-1 text-micro font-semibold text-white no-underline shadow-rest">
+                                            PDF filed — open
+                                          </a>
+                                          {r.fileNaming && (
+                                            <span className="text-micro text-neutral-500">{r.fileNaming}</span>
+                                          )}
+                                        </>
+                                      ) : r.pdfStatus === "requested" ? (
+                                        <span
+                                          className="rounded bg-warn-bg px-2 py-1 text-micro font-semibold text-warn"
+                                          title="Files on the executor's next pass — usually within 15 minutes.">
+                                          PDF requested
+                                        </span>
+                                      ) : r.pdfStatus === "failed" ? (
+                                        <>
+                                          <span className="rounded bg-bad-bg px-2 py-1 text-micro font-semibold text-bad">
+                                            PDF failed{r.pdfError ? ` — ${r.pdfError}` : ""}
+                                          </span>
+                                          <button type="button" disabled={busy === r.rowKey + "pdf"}
+                                            onClick={() => void requestPdf(r)}
+                                            className="press rounded bg-white px-2 py-1 text-micro font-semibold text-brand-navy ring-1 ring-brand-navy/25 hover:ring-brand-navy/60">
+                                            Retry
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <button type="button" disabled={busy === r.rowKey + "pdf"}
+                                          onClick={() => void requestPdf(r)}
+                                          title="Files the source email as a PDF in SharePoint › New PDF"
+                                          className="press rounded bg-white px-2 py-1 text-micro font-semibold text-brand-navy ring-1 ring-brand-navy/25 hover:ring-brand-navy/60">
+                                          Create PDF
+                                        </button>
                                       )}
                                     </div>
-                                  </Collapse>
-                                </td>
-                              </tr>
-                            )}
+                                  </div>
+                                </Collapse>
+                              </td>
+                            </tr>
                             </Fragment>
                             );
                           })}

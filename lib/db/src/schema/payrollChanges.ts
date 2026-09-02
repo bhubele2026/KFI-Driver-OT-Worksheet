@@ -65,6 +65,12 @@ export const payrollChangesTable = pgTable(
     sourceKind: text("source_kind").notNull().default("email"),
     sourceRef: text("source_ref"),
     conversationId: text("conversation_id"),
+    /**
+     * Graph id of THE message that drove this row. The conversationId above is
+     * only the thread — a corrected thread has many messages, and the
+     * Create-PDF flow needs to file the exact one.
+     */
+    sourceMessageId: text("source_message_id"),
     sourceReceivedAt: timestamp("source_received_at", { withTimezone: true }),
 
     /**
@@ -80,6 +86,20 @@ export const payrollChangesTable = pgTable(
     notes: text("notes"),
     /** Generated per the Documentation/ naming formula. */
     fileNaming: text("file_naming"),
+
+    /**
+     * Create-PDF lifecycle: a processor asks for the source email as a PDF in
+     * the SharePoint `New PDF` folder; the Mac-side executor fulfils it and
+     * reports back. null = never asked; requested → filed | failed.
+     * ⚠️ Owned by the button and the executor, like `notes` is owned by the
+     * human — the sweep upsert must never list these in its set block.
+     */
+    pdfStatus: text("pdf_status"),
+    pdfRequestedBy: text("pdf_requested_by"),
+    pdfRequestedAt: timestamp("pdf_requested_at", { withTimezone: true }),
+    pdfFiledAt: timestamp("pdf_filed_at", { withTimezone: true }),
+    pdfWebUrl: text("pdf_web_url"),
+    pdfError: text("pdf_error"),
 
     /**
      * A discussed intent is NOT an approval. Anything still a question lands
@@ -102,6 +122,8 @@ export const payrollChangesTable = pgTable(
     index("payroll_changes_type_idx").on(t.changeType),
     index("payroll_changes_decision_idx").on(t.needsDecision),
     index("payroll_changes_conversation_idx").on(t.conversationId),
+    // The executor polls for pdf_status = 'requested' every 15 minutes.
+    index("payroll_changes_pdf_status_idx").on(t.pdfStatus),
   ],
 );
 

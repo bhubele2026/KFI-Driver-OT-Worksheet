@@ -71,6 +71,8 @@ export type SweptRow = {
   approvedBy?: string | null;
   category?: string | null;
   conversationId?: string | null;
+  /** Graph id of THE message that drove the row — not just the thread. */
+  sourceMessageId?: string | null;
   sourceRef?: string | null;
   sourceReceivedAt?: Date | null;
   needsDecision?: boolean;
