@@ -1,4 +1,4 @@
-// CANONICAL @kfi/zenople v1.1.0 — sha256:99528c2840d0716eb585271eeaf06cd5d5b42887e6d1f84ae3912e19d3dbb282
+// CANONICAL @kfi/zenople v1.1.1 — sha256:5cf976c04e7e603b1a9e7ca9da3f07b811d0f6a7bead4067ecc4894bf750e38e
 // VENDORED COPY — do not edit. Change KFI-Financial-Dashboard/packages/zenople/src/client.ts,
 // then run `pnpm --filter @kfi/zenople sync`. Local edits fail this repo's green gate.
 /**
@@ -29,7 +29,7 @@
 
 import { createHash } from "node:crypto";
 
-export const ZENOPLE_CLIENT_VERSION = "1.1.0";
+export const ZENOPLE_CLIENT_VERSION = "1.1.1";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
@@ -69,12 +69,25 @@ export const zenopleConfigured = (): boolean => {
   return Boolean(c.clientId && c.clientSecret);
 };
 
-/** Tests replace `sleep` to assert the backoff ladder without waiting for it. */
+/**
+ * Tests replace `sleep` to assert the backoff ladder without waiting for it.
+ *
+ * ⚠️ This timer stays REF'd, unlike the pump. Same failure as `setPumpRef` above, reached by a
+ * different road: an unref'd timer does not keep Node alive, so when a sleep is the only thing
+ * pending the process **exits 0 mid-await** and the caller's job stops having reported success.
+ * The pump can afford to unref because idle means nobody is waiting; a sleep is never idle — it
+ * exists only because a caller is awaiting it, so there is always work pending and it must hold
+ * the loop open.
+ *
+ * Three call sites reach here and every one of them is on the money path: the HTTP retry backoff,
+ * the LargeDataSetError halving, and `pullRange`'s `chunkGapMs`. A standalone script that hit any
+ * of them printed nothing and exited 0 — which is how a pull that fetched no rows read as a clean
+ * run. Never judge a Zenople pull by its exit status; assert on row counts.
+ */
 export const __zenopleTestHooks = {
   sleep: (ms: number): Promise<void> =>
     new Promise((resolve) => {
-      const t = setTimeout(resolve, ms);
-      if (typeof t === "object" && t && "unref" in t) (t as { unref: () => void }).unref();
+      setTimeout(resolve, ms);
     }),
 };
 const sleep = (ms: number) => __zenopleTestHooks.sleep(ms);
@@ -564,7 +577,15 @@ export async function pull<T = Record<string, unknown>>(action: string, opts: Pu
 // ── pullRange(): sequential date chunks, halving on "Large data set" ────────
 
 export interface PullRangeOptions extends Omit<PullOptions, "start" | "end" | "lookbackDays"> {
-  /** Days per chunk. Keep it small — the vendor asks for reasonable ranges. */
+  /**
+   * Days per chunk. Keep it small — the vendor asks for reasonable ranges.
+   *
+   * FRACTIONS ARE ALLOWED and are the right answer for a dense action. Halving only narrows
+   * AFTER a refusal, and it doubles the request count at every level: a 30-day chunk that has
+   * to reach seconds is ~18 levels deep, so the walk drowns in requests long before it gets
+   * narrow. Starting narrow costs one cheap extra call per quiet window and skips all of that.
+   * `PayrollTaxData` across a check date is the known case — 0.25 (6h) walks it; 30 stalls.
+   */
   chunkDays?: number;
   /** Pause between chunks, on top of the queue's own gap. */
   chunkGapMs?: number;
@@ -622,7 +643,10 @@ export async function pullRange<T = Record<string, unknown>>(
   end: Date | string | number,
   opts: PullRangeOptions = {},
 ): Promise<PullRangeResult<T>> {
-  const chunkMs = Math.max(1, opts.chunkDays ?? 14) * 86_400_000;
+  // Floor at the halving floor, not at one day: a caller asking for a narrow first slice on a
+  // dense action is doing the right thing, and clamping that back up to 24h is what forced the
+  // deep halving it was trying to avoid.
+  const chunkMs = Math.max(HALVING_FLOOR_MS, (opts.chunkDays ?? 14) * 86_400_000);
   const endMs = asDate(end).getTime();
   const rows: T[] = [];
   const skipped: string[] = [];
