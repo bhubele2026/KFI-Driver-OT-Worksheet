@@ -1,4 +1,4 @@
-// CANONICAL @kfi/zenople v1.0.0 — sha256:d6c02a5e73fdcea763e8e2162dfc2d0123c0b8571e23bcfcd0e01abd735bb135
+// CANONICAL @kfi/zenople v1.1.0 — sha256:99528c2840d0716eb585271eeaf06cd5d5b42887e6d1f84ae3912e19d3dbb282
 // VENDORED COPY — do not edit. Change KFI-Financial-Dashboard/packages/zenople/src/client.ts,
 // then run `pnpm --filter @kfi/zenople sync`. Local edits fail this repo's green gate.
 /**
@@ -29,7 +29,7 @@
 
 import { createHash } from "node:crypto";
 
-export const ZENOPLE_CLIENT_VERSION = "1.0.0";
+export const ZENOPLE_CLIENT_VERSION = "1.1.0";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
@@ -332,11 +332,13 @@ function remember(key: string, rows: unknown[]): void {
 /** Drop every memoised response. Does not clear the token or the rate windows. */
 export function resetZenopleCache(): void {
   cache.clear();
+  derivedWindows.clear();
 }
 
 /** Tests only: full reset of queue, token, cache and counters. */
 export function __resetZenopleState(): void {
   cache.clear();
+  derivedWindows.clear();
   inFlightByKey.clear();
   waiters.length = 0;
   minuteWindow.length = 0;
@@ -396,13 +398,65 @@ export interface PullOptions {
   timeoutMs?: number;
 }
 
+/**
+ * The window `lookbackDays` resolves to, snapped to the caller's own cache
+ * floor — the SAME expression `pull` uses to decide whether a memo entry is
+ * still fresh, so the key stays stable for exactly as long as the caller asked
+ * to cache and not a moment longer.
+ *
+ * ⚠️ WHY THIS EXISTS. The memo is keyed on the request BODY, and the body
+ * carries this window through `zTime` at `.fffffff` precision. A bare
+ * `Date.now()` therefore produced a UNIQUE KEY ON EVERY CALL, so the TTL memo
+ * could never hit for any `lookbackDays` caller anywhere in the fleet — and
+ * because the cache is capped at CACHE_MAX_ENTRIES, those throwaway keys also
+ * EVICTED the entries that would have hit. `pullRange` inherits it: every
+ * chunk cursor derives from `start`, so a one-millisecond drift moved every
+ * chunk key, not just the last.
+ *
+ * This was invisible from the call sites: with `lookbackDays` the caller never
+ * writes a date at all. Found 2026-09-03 in KFI-Driver-OT-Worksheet, where the
+ * driver card measured 12.9s cold and 12.67s "warm" — i.e. no caching at all.
+ */
+/** The last window handed out per lookback length. Cleared with the cache. */
+const derivedWindows = new Map<number, { at: number; start: Date; end: Date }>();
+
+/**
+ * STICKY, not merely rounded. Flooring the clock into buckets would only make
+ * the key stable on average — two calls seconds apart still straddle a bucket
+ * edge and miss, which is exactly what a 7.9s pull did in testing. Reusing the
+ * previous window for the whole floor duration makes the guarantee exact: for
+ * as long as a memo entry could still be served, the body that addresses it is
+ * identical.
+ *
+ * The floor is the same expression `pull` uses to judge freshness, so a window
+ * never outlives the entry it keys. `force` collapses it to the cooldown, so a
+ * forced call re-mints the window as soon as the vendor would accept a repeat.
+ *
+ * ⚠️ EXPORTED because `pullRange` takes explicit dates and so never reaches the
+ * `lookbackDays` branch below. Any caller building a rolling window to hand to
+ * `pullRange` must build it HERE rather than from its own `Date.now()`, or it
+ * re-introduces the unstable key one layer up — and `pullRange` derives every
+ * chunk cursor from `start`, so a one-millisecond drift moves EVERY chunk key,
+ * not just the last.
+ */
+export function stableWindow(days: number, opts: PullOptions = {}): { start: Date; end: Date } {
+  const floor = Math.max(opts.force ? 0 : (opts.cacheTtlMs ?? 0), COOLDOWN_MS());
+  const now = Date.now();
+  const prev = derivedWindows.get(days);
+  if (prev && floor > 0 && now - prev.at < floor) return { start: prev.start, end: prev.end };
+  const fresh = { at: now, start: new Date(now - days * 86_400_000), end: new Date(now) };
+  derivedWindows.set(days, fresh);
+  return { start: fresh.start, end: fresh.end };
+}
+
 function buildFilters(opts: PullOptions): Record<string, string> {
   const filters: Record<string, string> = {};
   let { start, end } = opts;
   if (opts.lookbackDays != null && start === undefined && end === undefined) {
-    const now = Date.now();
-    end = new Date(now);
-    start = new Date(now - opts.lookbackDays * 86_400_000);
+    // ⚠️ ONLY this derived window is stabilised. An explicit start/end is
+    // caller-meaningful — a check-date window, a ±21d padding — and moving it
+    // would silently change which rows come back on a money path.
+    ({ start, end } = stableWindow(opts.lookbackDays, opts));
   }
   if (start !== undefined) filters["uTCStartDateTime"] = zTime(start);
   if (end !== undefined) filters["uTCEndDateTime"] = zTime(end);

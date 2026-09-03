@@ -17,7 +17,7 @@
 import type { ClientBase } from "pg";
 import { fingerprintName } from "@workspace/db/seedDriverPayrollProfiles";
 import { zenopleLiveIdentityEnabled } from "./zenopleExport.js";
-import { pullRange, zenopleConfigured } from "./zenopleClient.js";
+import { pullRange, stableWindow, zenopleConfigured } from "./zenopleClient.js";
 
 // ---------------------------------------------------------------------------
 // API client
@@ -42,15 +42,15 @@ const EXPORT_FACTS_TTL_MS = 10 * 60 * 1000;
  * ranges to begin with, so nothing has to fail first.
  */
 async function fetchAction(action: string, days = 365, opts: { cacheTtlMs?: number; force?: boolean } = {}): Promise<Record<string, unknown>[]> {
-  // ⚠️ QUANTIZED, and the memo depends on it. The client keys its TTL cache on
-  // the request BODY, and the body carries this window down to the
-  // millisecond — so a bare `new Date()` made every call a fresh key and the
-  // ten-minute memo could never hit. Nobody noticed while the only caller was
+  // ⚠️ THE WINDOW MUST COME FROM `stableWindow`, never from `new Date()`. The
+  // client keys its TTL memo on the request BODY, and the body carries this
+  // window to the millisecond, so a fresh clock read mints a fresh key every
+  // call and the memo can never hit. Nobody noticed while the only caller was
   // a once-a-week export button; the driver card calls this on every open, and
-  // measured cold that is ~13s. Snapping both ends to the memo bucket makes
-  // repeat calls byte-identical, so they are served from cache.
-  const end = new Date(Math.floor(Date.now() / EXPORT_FACTS_TTL_MS) * EXPORT_FACTS_TTL_MS);
-  const start = new Date(end.getTime() - days * 86_400_000);
+  // that measured 12.9s cold / 12.67s "warm" — no caching whatsoever.
+  // `pullRange` takes explicit dates, so it never reaches the client's own
+  // lookbackDays branch — the stabilising has to happen right here.
+  const { start, end } = stableWindow(days, opts);
   const { rows, skipped } = await pullRange<Record<string, unknown>>(action, start, end, {
     chunkDays: 30,
     ...opts,
