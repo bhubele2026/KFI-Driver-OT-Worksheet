@@ -17,10 +17,20 @@ import { periodEndFor } from "./time.js";
  *   ShiftDifferentialOT  +X @ OT pay rate  (OT bill rate)
  * where X = that driver's DriverRT hours; the normal DriverRT/DriverOT rows
  * still follow. Keyed by the exact Zenople customer label.
+ *
+ * ⚠️ EMPTY ON PURPOSE (2026-09-03, Tiana: "it is still doing the shift
+ * differential for the Shusters drivers"). This held
+ * "Shuster's Building Components" from 2026-08-05, when it was built to
+ * reproduce that month's reference workbook; Shuster's no longer re-rates.
+ * The mechanism is kept — re-enabling a customer is one line here — and it
+ * stays under test via the `shiftDiffCustomers` parameter of
+ * `buildZenopleRows` rather than by pinning a live customer's name.
+ *
+ * ⚠️ Turning a customer back on ALSO suppresses their RT/OT rows and hides
+ * their hours from the pay-vs-bill tie-out (`payrollTieOuts.ts` excludes both
+ * ShiftDifferential codes from every code set).
  */
-export const SHIFT_DIFF_CUSTOMERS = new Set<string>([
-  "Shuster's Building Components",
-]);
+export const SHIFT_DIFF_CUSTOMERS = new Set<string>([]);
 
 // Exact header strings from the attached Zenople sample
 // (Driver_Pay_Units_customer_and_Driver_time_PD_05.15.2026_…xlsx).
@@ -159,6 +169,7 @@ function rateFor(
 export function buildZenopleRows(
   drivers: ZenopleDriverInput[],
   weekStartIso: string,
+  shiftDiffCustomers: ReadonlySet<string> = SHIFT_DIFF_CUSTOMERS,
 ): ZenopleRow[] {
   const out: ZenopleRow[] = [];
   // Uniform PPE: the app week's Saturday, for every customer.
@@ -168,7 +179,7 @@ export function buildZenopleRows(
     const totals = computeDriverTotals(d.punches);
     const customer = d.profile.zenopleCustomer ?? "";
     let buckets: Array<[ZenopleTxnCode, number]>;
-    if (SHIFT_DIFF_CUSTOMERS.has(customer)) {
+    if (shiftDiffCustomers.has(customer)) {
       // Shift-diff customers: no RT/OT rows; the pair re-rates the driver
       // hours (negative at RT, positive at OT), then the driver rows.
       const x = r2(totals.driverRt);

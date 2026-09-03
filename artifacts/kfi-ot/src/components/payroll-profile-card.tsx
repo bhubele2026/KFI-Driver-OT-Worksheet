@@ -21,6 +21,12 @@ import { Edit2, Save, X, DollarSign, ChevronDown, AlertTriangle } from "lucide-r
 interface Props {
   kfiId: string;
   canEdit: boolean;
+  /**
+   * Resolves rates as-of this payroll week, exactly as the export does. Without
+   * it the card falls back to the saved row — which is how this card and the
+   * workbook silently disagreed for weeks.
+   */
+  weekStart?: string;
 }
 
 type FieldDef = {
@@ -65,19 +71,30 @@ const FIELDS: FieldDef[] = [...RATE_FIELDS, ...IDENTIFIER_FIELDS];
 
 type FormState = Record<string, string>;
 
+/**
+ * ⚠️ Seeds from `stored`, NOT from the effective rates on the response body.
+ * PATCH is a full replace: seeding from the effective values would let a single
+ * Save freeze whatever Zenople happened to say today as a permanent override on
+ * every rate. Identifiers have no live/stored split, so they read straight off
+ * the body.
+ */
 function toForm(p: unknown): FormState {
   const f: FormState = {};
   const obj = (p ?? {}) as Record<string, unknown>;
+  const stored = (obj.stored ?? {}) as Record<string, unknown>;
   for (const fd of FIELDS) {
-    const v = obj[fd.key];
+    const v = fd.kind === "money" && fd.key in stored ? stored[fd.key] : obj[fd.key];
     f[fd.key] = v == null ? "" : String(v);
   }
   return f;
 }
 
-export function PayrollProfileCard({ kfiId, canEdit }: Props) {
+export function PayrollProfileCard({ kfiId, canEdit, weekStart }: Props) {
   const { t } = useTranslation();
-  const { data: profile } = useGetDriverPayrollProfile(kfiId);
+  const { data: profile } = useGetDriverPayrollProfile(
+    kfiId,
+    weekStart ? { weekStart } : undefined,
+  );
   const update = useUpdateDriverPayrollProfile();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -168,6 +185,24 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
     return v == null || v === "";
   });
 
+  const body = profile as Record<string, unknown> | undefined;
+  const provenance = (body?.provenance ?? {}) as Record<string, string>;
+  const storedRates = (body?.stored ?? {}) as Record<string, unknown>;
+  const overridden = new Set((body?.overriddenRateFields ?? []) as string[]);
+
+  const provenanceLabel = (key: string): string | null => {
+    switch (provenance[key]) {
+      case "zenople":
+        return t("payrollProfile.fromZenople");
+      case "derived":
+        return t("payrollProfile.derivedOt");
+      case "saved":
+        return t("payrollProfile.fromSaved");
+      default:
+        return null;
+    }
+  };
+
   const renderEditInputs = (fields: FieldDef[]) => (
     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
       {fields.map((fd) => (
@@ -252,6 +287,17 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
         ) : null}
         {editing ? (
           <div className="space-y-4">
+            {overridden.size > 0 ? (
+              <div
+                className="flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+                data-testid="banner-payroll-edit-ignored"
+              >
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span className="text-[11px]">
+                  {t("payrollProfile.editIgnoredWarning")}
+                </span>
+              </div>
+            ) : null}
             {renderEditInputs(RATE_FIELDS)}
             <div className="pt-2 border-t border-border/50">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
@@ -263,23 +309,52 @@ export function PayrollProfileCard({ kfiId, canEdit }: Props) {
         ) : (
           <>
             <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 text-sm">
-              {RATE_FIELDS.map((fd) => (
-                <div
-                  key={fd.key}
-                  className="flex justify-between items-baseline border-b border-border/50 pb-1"
-                  data-testid={`row-payroll-${fd.key}`}
-                >
-                  <dt className="text-xs text-muted-foreground">{fd.label}</dt>
-                  <dd className="fin-num">
-                    {fmtView(
-                      (profile as Record<string, unknown> | undefined)?.[
-                        fd.key
-                      ] as number | string | null | undefined,
-                      fd.kind,
-                    )}
-                  </dd>
-                </div>
-              ))}
+              {RATE_FIELDS.map((fd) => {
+                const badge = provenanceLabel(fd.key);
+                const isOverridden = overridden.has(fd.key);
+                return (
+                  <div
+                    key={fd.key}
+                    className="border-b border-border/50 pb-1"
+                    data-testid={`row-payroll-${fd.key}`}
+                  >
+                    <div className="flex justify-between items-baseline">
+                      <dt className="text-xs text-muted-foreground">{fd.label}</dt>
+                      <dd className="fin-num">
+                        {fmtView(
+                          body?.[fd.key] as number | string | null | undefined,
+                          fd.kind,
+                        )}
+                      </dd>
+                    </div>
+                    {badge || isOverridden ? (
+                      <div className="flex justify-between items-baseline gap-2">
+                        <span
+                          className="text-[10px] uppercase tracking-wide text-muted-foreground/70"
+                          data-testid={`provenance-payroll-${fd.key}`}
+                        >
+                          {badge}
+                        </span>
+                        {isOverridden ? (
+                          // The saved number exists but is NOT what exports.
+                          // Saying so beats letting someone "fix" a dead field.
+                          <span
+                            className="text-[10px] text-amber-700 dark:text-amber-400"
+                            data-testid={`override-payroll-${fd.key}`}
+                          >
+                            {t("payrollProfile.savedIgnored", {
+                              value: fmtView(
+                                storedRates[fd.key] as number | string | null | undefined,
+                                fd.kind,
+                              ),
+                            })}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </dl>
             <Collapsible
               open={identifiersOpen}

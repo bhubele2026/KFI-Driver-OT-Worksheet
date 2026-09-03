@@ -1125,6 +1125,15 @@ export const GetDriverPayrollProfileParams = zod.object({
   kfiId: zod.coerce.string(),
 });
 
+export const GetDriverPayrollProfileQueryParams = zod.object({
+  weekStart: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "Resolve rates as-of this payroll week, exactly as the Zenople export would. Omit to return the stored row alone.",
+    ),
+});
+
 export const GetDriverPayrollProfileResponse = zod.object({
   kfiId: zod.string(),
   ssn: zod.string().nullish(),
@@ -1140,6 +1149,31 @@ export const GetDriverPayrollProfileResponse = zod.object({
   driverRtBillRate: zod.number().nullish(),
   driverOtPayRate: zod.number().nullish(),
   driverOtBillRate: zod.number().nullish(),
+  stored: zod
+    .object({
+      rtPayRate: zod.number().nullish(),
+      rtBillRate: zod.number().nullish(),
+      otPayRate: zod.number().nullish(),
+      otBillRate: zod.number().nullish(),
+      driverRtPayRate: zod.number().nullish(),
+      driverRtBillRate: zod.number().nullish(),
+      driverOtPayRate: zod.number().nullish(),
+      driverOtBillRate: zod.number().nullish(),
+    })
+    .optional()
+    .describe(
+      "The saved DB row's rates, before any live Zenople resolution. The eight top-level rate fields are the EFFECTIVE rates the export will ship; these are what an edit form must seed from.",
+    ),
+  provenance: zod
+    .record(zod.string(), zod.string())
+    .optional()
+    .describe("Per-rate origin - zenople | derived | saved | missing."),
+  overriddenRateFields: zod
+    .array(zod.string())
+    .optional()
+    .describe(
+      "Rates where a saved value exists but Zenople supplied a different one, so the saved value is NOT in force. Editing these is a no-op.",
+    ),
   updatedAt: zod.coerce.date().nullish(),
   updatedByEmail: zod.string().nullish(),
 });
@@ -1182,6 +1216,31 @@ export const UpdateDriverPayrollProfileResponse = zod.object({
   driverRtBillRate: zod.number().nullish(),
   driverOtPayRate: zod.number().nullish(),
   driverOtBillRate: zod.number().nullish(),
+  stored: zod
+    .object({
+      rtPayRate: zod.number().nullish(),
+      rtBillRate: zod.number().nullish(),
+      otPayRate: zod.number().nullish(),
+      otBillRate: zod.number().nullish(),
+      driverRtPayRate: zod.number().nullish(),
+      driverRtBillRate: zod.number().nullish(),
+      driverOtPayRate: zod.number().nullish(),
+      driverOtBillRate: zod.number().nullish(),
+    })
+    .optional()
+    .describe(
+      "The saved DB row's rates, before any live Zenople resolution. The eight top-level rate fields are the EFFECTIVE rates the export will ship; these are what an edit form must seed from.",
+    ),
+  provenance: zod
+    .record(zod.string(), zod.string())
+    .optional()
+    .describe("Per-rate origin - zenople | derived | saved | missing."),
+  overriddenRateFields: zod
+    .array(zod.string())
+    .optional()
+    .describe(
+      "Rates where a saved value exists but Zenople supplied a different one, so the saved value is NOT in force. Editing these is a no-op.",
+    ),
   updatedAt: zod.coerce.date().nullish(),
   updatedByEmail: zod.string().nullish(),
 });

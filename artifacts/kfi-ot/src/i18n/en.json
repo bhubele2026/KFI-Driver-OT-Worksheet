@@ -930,7 +930,7 @@
     "action": "Refresh"
   },
   "payrollProfile": {
-    "cardTitle": "Pay & bill rates (Zenople)",
+    "cardTitle": "Pay & bill rates",
     "identifiers": "Identifiers",
     "invalidValue": "Invalid value",
     "mustBeInteger": "{{label}} must be an integer",
@@ -940,7 +940,12 @@
     "lastUpdated": "Last updated {{date}}",
     "lastUpdatedBy": "Last updated {{date}} by {{email}}",
     "needsInfo": "Needs info",
-    "needsInfoDetail": "{{fields}} not on file — check the old Replit app / Zenople"
+    "needsInfoDetail": "{{fields}} not on file — Zenople has no rate and none is saved",
+    "fromZenople": "Zenople",
+    "derivedOt": "1.5× RT",
+    "fromSaved": "saved",
+    "savedIgnored": "saved {{value}} not used",
+    "editIgnoredWarning": "Rates marked Zenople or 1.5× RT come from Zenople every export — editing them here changes nothing. Fix the rate in Zenople instead. Saved values are only used where Zenople has none."
   },
   "adminRealtime": {
     "title": "Realtime snapshot",

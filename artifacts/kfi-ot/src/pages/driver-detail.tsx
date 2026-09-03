@@ -2986,7 +2986,11 @@ export default function DriverDetail() {
         </div>
 
         {/* Zenople pay & bill rates (admin-edit) */}
-        <PayrollProfileCard kfiId={kfiId} canEdit={!!me?.isAdmin} />
+        <PayrollProfileCard
+          kfiId={kfiId}
+          canEdit={!!me?.isAdmin}
+          weekStart={weekStart}
+        />
         </main>
       </div>
 

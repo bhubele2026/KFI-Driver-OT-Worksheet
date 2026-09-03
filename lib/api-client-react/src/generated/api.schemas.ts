@@ -551,6 +551,33 @@ Null when no override is set.
   overrideSetAt?: string | null;
 }
 
+/**
+ * The saved DB row's rates, before any live Zenople resolution. The eight top-level rate fields are the EFFECTIVE rates the export will ship; these are what an edit form must seed from.
+ */
+export type DriverPayrollProfileStored = {
+  /** @nullable */
+  rtPayRate?: number | null;
+  /** @nullable */
+  rtBillRate?: number | null;
+  /** @nullable */
+  otPayRate?: number | null;
+  /** @nullable */
+  otBillRate?: number | null;
+  /** @nullable */
+  driverRtPayRate?: number | null;
+  /** @nullable */
+  driverRtBillRate?: number | null;
+  /** @nullable */
+  driverOtPayRate?: number | null;
+  /** @nullable */
+  driverOtBillRate?: number | null;
+};
+
+/**
+ * Per-rate origin - zenople | derived | saved | missing.
+ */
+export type DriverPayrollProfileProvenance = { [key: string]: string };
+
 export interface DriverPayrollProfile {
   kfiId: string;
   /** @nullable */
@@ -579,6 +606,12 @@ export interface DriverPayrollProfile {
   driverOtPayRate?: number | null;
   /** @nullable */
   driverOtBillRate?: number | null;
+  /** The saved DB row's rates, before any live Zenople resolution. The eight top-level rate fields are the EFFECTIVE rates the export will ship; these are what an edit form must seed from. */
+  stored?: DriverPayrollProfileStored;
+  /** Per-rate origin - zenople | derived | saved | missing. */
+  provenance?: DriverPayrollProfileProvenance;
+  /** Rates where a saved value exists but Zenople supplied a different one, so the saved value is NOT in force. Editing these is a no-op. */
+  overriddenRateFields?: string[];
   /** @nullable */
   updatedAt?: string | null;
   /** @nullable */
@@ -2628,6 +2661,13 @@ export type ListUserAuditLogParams = {
    */
   limit?: number;
   targetUserId?: number;
+};
+
+export type GetDriverPayrollProfileParams = {
+  /**
+   * Resolve rates as-of this payroll week, exactly as the Zenople export would. Omit to return the stored row alone.
+   */
+  weekStart?: string;
 };
 
 export type ExtractCustomerFileParams = {

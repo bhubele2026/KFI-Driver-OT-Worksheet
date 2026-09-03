@@ -622,6 +622,13 @@ paths:
       summary: Get the Zenople payroll profile (rates + ids) for a driver
       parameters:
         - $ref: "#/components/parameters/KfiId"
+        - name: weekStart
+          in: query
+          required: false
+          description: >-
+            Resolve rates as-of this payroll week, exactly as the Zenople
+            export would. Omit to return the stored row alone.
+          schema: { type: string }
       responses:
         "200":
           description: Driver payroll profile (always returns; fields may be null)
@@ -3090,6 +3097,31 @@ components:
         driverRtBillRate: { type: ["number", "null"] }
         driverOtPayRate: { type: ["number", "null"] }
         driverOtBillRate: { type: ["number", "null"] }
+        stored:
+          description: >-
+            The saved DB row's rates, before any live Zenople resolution. The
+            eight top-level rate fields are the EFFECTIVE rates the export will
+            ship; these are what an edit form must seed from.
+          type: object
+          properties:
+            rtPayRate: { type: ["number", "null"] }
+            rtBillRate: { type: ["number", "null"] }
+            otPayRate: { type: ["number", "null"] }
+            otBillRate: { type: ["number", "null"] }
+            driverRtPayRate: { type: ["number", "null"] }
+            driverRtBillRate: { type: ["number", "null"] }
+            driverOtPayRate: { type: ["number", "null"] }
+            driverOtBillRate: { type: ["number", "null"] }
+        provenance:
+          description: Per-rate origin - zenople | derived | saved | missing.
+          type: object
+          additionalProperties: { type: string }
+        overriddenRateFields:
+          description: >-
+            Rates where a saved value exists but Zenople supplied a different
+            one, so the saved value is NOT in force. Editing these is a no-op.
+          type: array
+          items: { type: string }
         updatedAt: { type: ["string", "null"], format: date-time }
         updatedByEmail: { type: ["string", "null"] }
 

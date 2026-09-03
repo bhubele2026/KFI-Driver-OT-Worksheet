@@ -324,7 +324,6 @@ test("shift-diff customer: SD pair replaces RT/OT, sized by DriverRT hours (Luna
     driverOtPayRate: 27,
     driverOtBillRate: 0,
   };
-  assert.ok(SHIFT_DIFF_CUSTOMERS.has(profile.zenopleCustomer!));
   const driver: ZenopleDriverInput = {
     kfiId: "2005940",
     name: "Aldo Lunar",
@@ -337,7 +336,10 @@ test("shift-diff customer: SD pair replaces RT/OT, sized by DriverRT hours (Luna
       p("Customer", "2026-07-21", "2026-07-21 6:00 AM", "2026-07-21 11:00 AM", 5),
     ],
   };
-  const rows = buildZenopleRows([driver], "2026-07-19");
+  // The set is injected rather than read from SHIFT_DIFF_CUSTOMERS: the
+  // mechanism stays covered without pinning a live customer's name, so
+  // turning a customer on or off is a data change, not a test rewrite.
+  const rows = buildZenopleRows([driver], "2026-07-19", new Set([profile.zenopleCustomer!]));
   const codes = rows.map((r) => r.code);
   assert.deepEqual(codes, ["ShiftDifferential", "ShiftDifferentialOT", "DriverRT"]);
   const [sd, sdot, drt] = rows;
@@ -351,6 +353,51 @@ test("shift-diff customer: SD pair replaces RT/OT, sized by DriverRT hours (Luna
   assert.equal(drt.payRate, 10);
   // PPE for week 2026-07-19 = Saturday 7/25 = 46228 (reference file).
   assert.equal(sd.ppe, 46228);
+});
+
+/**
+ * 2026-09-03, Tiana: "it is still doing the shift differential for the
+ * Shusters drivers." It was never switched off — the constant had held
+ * Shuster's since it was written on 2026-08-05.
+ */
+test("no customer re-rates by default: Shuster's now exports plain RT/OT", () => {
+  const profile: ZenopleProfile = {
+    ssn: "XXX-XX-6454",
+    jobId: 850,
+    personId: 2005940,
+    assignmentId: 3454,
+    zenopleCustomer: "Shuster's Building Components",
+    rtPayRate: 18,
+    rtBillRate: 25.92,
+    otPayRate: 27,
+    otBillRate: 37.8,
+    driverRtPayRate: 10,
+    driverRtBillRate: 0,
+    driverOtPayRate: 27,
+    driverOtBillRate: 0,
+  };
+  assert.equal(SHIFT_DIFF_CUSTOMERS.size, 0);
+  const rows = buildZenopleRows(
+    [
+      {
+        kfiId: "2005940",
+        name: "Aldo Lunar",
+        zenopleName: "LUNAR, ALDO",
+        profile,
+        punches: [
+          p("Driver", "2026-07-20", "2026-07-20 6:00 AM", "2026-07-20 1:40 PM", 7.67),
+          p("Customer", "2026-07-21", "2026-07-21 6:00 AM", "2026-07-21 11:00 AM", 5),
+        ],
+      },
+    ],
+    "2026-07-19",
+  );
+  assert.deepEqual(rows.map((r) => r.code), ["RT", "DriverRT"]);
+  // The customer hours are no longer suppressed, and nothing is negative.
+  const rt = rows.find((r) => r.code === "RT")!;
+  assert.equal(rt.payUnit, 5);
+  assert.equal(rt.payRate, 18);
+  assert.ok(rows.every((r) => r.payUnit > 0));
 });
 
 test("mergeProfileWithLive (liveIdentity): live wins per field, profile fills the gaps", () => {

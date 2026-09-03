@@ -930,7 +930,7 @@
     "action": "Actualizar"
   },
   "payrollProfile": {
-    "cardTitle": "Tarifas de pago y facturación (Zenople)",
+    "cardTitle": "Tarifas de pago y facturación",
     "identifiers": "Identificadores",
     "invalidValue": "Valor no válido",
     "mustBeInteger": "{{label}} debe ser un número entero",
@@ -940,7 +940,12 @@
     "lastUpdated": "Actualizado por última vez {{date}}",
     "lastUpdatedBy": "Actualizado por última vez {{date}} por {{email}}",
     "needsInfo": "Falta información",
-    "needsInfoDetail": "{{fields}} sin registrar — consulte la antigua app de Replit / Zenople"
+    "needsInfoDetail": "{{fields}} sin registrar — Zenople no tiene tarifa y no hay ninguna guardada",
+    "fromZenople": "Zenople",
+    "derivedOt": "1.5× RT",
+    "fromSaved": "guardado",
+    "savedIgnored": "guardado {{value}} sin usar",
+    "editIgnoredWarning": "Las tarifas marcadas como Zenople o 1.5× RT se toman de Zenople en cada exportación: editarlas aquí no cambia nada. Corrija la tarifa en Zenople. Los valores guardados solo se usan cuando Zenople no tiene ninguno."
   },
   "adminRealtime": {
     "title": "Instantánea en tiempo real",

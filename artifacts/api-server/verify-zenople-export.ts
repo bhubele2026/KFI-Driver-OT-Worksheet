@@ -5,12 +5,13 @@ import { asc, eq } from "drizzle-orm";
 import { db, schema } from "./src/lib/db.js";
 import {
   buildZenopleRows,
-  mergeProfileWithLive,
   type ZenopleDriverInput,
   type ZenopleProfile,
 } from "./src/lib/zenopleExport.js";
 import { loadZenopleExportFacts } from "./src/lib/zenopleRates.js";
+import { resolveProfile } from "./src/lib/rateResolution.js";
 import { computeDriverTotals } from "./src/lib/hoursEngine.js";
+import { weekEndOf } from "./src/lib/time.js";
 
 const WEEK = process.argv[2] ?? "2026-07-19";
 
@@ -45,7 +46,10 @@ function profileFromRow(row: typeof schema.driverPayrollProfilesTable.$inferSele
   const profilesArr = await db.select().from(schema.driverPayrollProfilesTable);
   const profiles = new Map(profilesArr.map((p) => [p.kfiId, p]));
 
-  const liveFacts = await loadZenopleExportFacts();
+  // Same as-of-the-week resolution the route uses, or this diffs apples to oranges.
+  const liveFacts = await loadZenopleExportFacts({
+    week: { start: WEEK, end: weekEndOf(WEEK) },
+  });
   console.error(`liveFacts: ${liveFacts.size} persons`);
 
   const inputs: ZenopleDriverInput[] = [...punchesByKfi.keys()]
@@ -57,7 +61,7 @@ function profileFromRow(row: typeof schema.driverPayrollProfilesTable.$inferSele
         kfiId,
         name: d?.name ?? kfiId,
         zenopleName: live?.personLabel ?? null,
-        profile: mergeProfileWithLive(stored, live),
+        profile: resolveProfile(stored, live).effective,
         punches: punchesByKfi.get(kfiId)!,
       };
     })

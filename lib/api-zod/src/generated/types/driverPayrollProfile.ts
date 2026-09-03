@@ -5,6 +5,8 @@
  * KFI Driver OT Worksheet API
  * OpenAPI spec version: 0.1.0
  */
+import type { DriverPayrollProfileProvenance } from "./driverPayrollProfileProvenance";
+import type { DriverPayrollProfileStored } from "./driverPayrollProfileStored";
 
 export interface DriverPayrollProfile {
   kfiId: string;
@@ -34,6 +36,12 @@ export interface DriverPayrollProfile {
   driverOtPayRate?: number | null;
   /** @nullable */
   driverOtBillRate?: number | null;
+  /** The saved DB row's rates, before any live Zenople resolution. The eight top-level rate fields are the EFFECTIVE rates the export will ship; these are what an edit form must seed from. */
+  stored?: DriverPayrollProfileStored;
+  /** Per-rate origin - zenople | derived | saved | missing. */
+  provenance?: DriverPayrollProfileProvenance;
+  /** Rates where a saved value exists but Zenople supplied a different one, so the saved value is NOT in force. Editing these is a no-op. */
+  overriddenRateFields?: string[];
   /** @nullable */
   updatedAt?: Date | null;
   /** @nullable */

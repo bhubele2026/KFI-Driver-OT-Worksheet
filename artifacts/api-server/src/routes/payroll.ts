@@ -19,7 +19,6 @@ import {
   buildExportSnapshot,
   buildZenopleRows,
   isoToExcelSerial,
-  mergeProfileWithLive,
   missingProfileFields,
   workbookFromRows,
   zenopleFileName,
@@ -31,6 +30,7 @@ import {
   loadZenopleExportFacts,
   type ZenopleLiveFacts,
 } from "../lib/zenopleRates.js";
+import { overriddenRateFields, resolveProfile } from "../lib/rateResolution.js";
 
 const router = Router();
 
@@ -73,7 +73,18 @@ function profileFromRow(
   };
 }
 
-async function loadProfileResponse(kfiId: string) {
+/**
+ * The card's payload. The eight top-level rate fields are the EFFECTIVE rates
+ * — what the workbook will actually ship — so the card can no longer show a
+ * number the export disagrees with. The saved row rides alongside under
+ * `stored`, because the Edit form must seed from that: PATCH is a full
+ * replace, so seeding the form from `effective` would let one Save silently
+ * freeze today's live Zenople rate as a permanent override on every driver.
+ *
+ * `weekStart` picks the week rates resolve as-of. Without it the card falls
+ * back to the stored row rather than guessing a week.
+ */
+async function loadProfileResponse(kfiId: string, week?: { start: string; end: string }, log?: { warn: (o: unknown, m: string) => void }) {
   const row =
     (await db.query.driverPayrollProfilesTable.findFirst({
       where: eq(schema.driverPayrollProfilesTable.kfiId, kfiId),
@@ -86,7 +97,23 @@ async function loadProfileResponse(kfiId: string) {
     });
     updatedByEmail = user?.email ?? null;
   }
-  const p = profileFromRow(row);
+  const stored = profileFromRow(row);
+  // Shares the ten-minute memo with the export, so the first card opened in a
+  // window pays the Zenople pull and the rest are free. A failure degrades to
+  // the stored row — never blocks the card.
+  let live: ZenopleLiveFacts | undefined;
+  if (week) {
+    try {
+      const facts = await loadZenopleExportFacts({ week });
+      live =
+        (stored.personId != null ? facts.get(String(stored.personId)) : undefined) ??
+        facts.get(kfiId);
+    } catch (err) {
+      log?.warn({ err }, "payroll-profile: live Zenople fetch failed — showing stored rates");
+    }
+  }
+  const resolved = resolveProfile(stored, live);
+  const p = resolved.effective;
   return {
     kfiId,
     ssn: p.ssn,
@@ -102,6 +129,18 @@ async function loadProfileResponse(kfiId: string) {
     driverRtBillRate: p.driverRtBillRate,
     driverOtPayRate: p.driverOtPayRate,
     driverOtBillRate: p.driverOtBillRate,
+    stored: {
+      rtPayRate: stored.rtPayRate,
+      rtBillRate: stored.rtBillRate,
+      otPayRate: stored.otPayRate,
+      otBillRate: stored.otBillRate,
+      driverRtPayRate: stored.driverRtPayRate,
+      driverRtBillRate: stored.driverRtBillRate,
+      driverOtPayRate: stored.driverOtPayRate,
+      driverOtBillRate: stored.driverOtBillRate,
+    },
+    provenance: resolved.provenance,
+    overriddenRateFields: overriddenRateFields(resolved),
     updatedAt: row?.updatedAt ? row.updatedAt.toISOString() : null,
     updatedByEmail,
   };
@@ -116,7 +155,11 @@ router.get("/drivers/:kfiId/payroll-profile", requireAuth, async (req, res) => {
     res.status(404).json({ error: "Driver not found" });
     return;
   }
-  const body = await loadProfileResponse(kfiId);
+  const weekStartRaw = String(req.query.weekStart ?? "").trim();
+  const week = weekStartRaw
+    ? { start: sundayOf(weekStartRaw), end: weekEndOf(sundayOf(weekStartRaw)) }
+    : undefined;
+  const body = await loadProfileResponse(kfiId, week, req.log);
   const parsed = GetDriverPayrollProfileResponse.safeParse(body);
   if (!parsed.success) {
     req.log.error({ issues: parsed.error.issues }, "payroll profile shape");
@@ -340,10 +383,15 @@ router.get(
     // unreachable or unconfigured.
     // Cached for ten minutes (see loadZenopleExportFacts); `?fresh=1` re-pulls
     // for the case where a rate has just been corrected in Zenople.
+    // ⚠️ The week is passed in so rates resolve AS-OF the week being paid: an
+    // assignment that started after it closed must not supply the rate, and
+    // actuals must come from the pay period that week fell in rather than a
+    // year-long blend across every raise.
     const fresh = String(req.query.fresh ?? "") === "1";
+    const rateWeek = { start: sunday, end: readiness.weekEnd };
     let liveFacts = new Map<string, ZenopleLiveFacts>();
     try {
-      liveFacts = await loadZenopleExportFacts(fresh);
+      liveFacts = await loadZenopleExportFacts({ week: rateWeek, fresh });
     } catch (err) {
       req.log.warn(
         { err },
@@ -369,7 +417,7 @@ router.get(
           kfiId: d.kfiId,
           name: d.name,
           zenopleName: live?.personLabel ?? null,
-          profile: mergeProfileWithLive(stored, live),
+          profile: resolveProfile(stored, live).effective,
           punches: punchesByKfi.get(d.kfiId) ?? [],
         };
       })

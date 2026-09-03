@@ -74,6 +74,7 @@ import type {
   EmailDeliveryResult,
   ExtractCustomerFileParams,
   ForgetCustomerNameAliasParams,
+  GetDriverPayrollProfileParams,
   HealthStatus,
   HiddenNotesUnseenCount,
   InactiveCustomer,
@@ -3051,16 +3052,32 @@ export function useGetDriverWeek<
 /**
  * @summary Get the Zenople payroll profile (rates + ids) for a driver
  */
-export const getGetDriverPayrollProfileUrl = (kfiId: string) => {
-  return `/api/drivers/${kfiId}/payroll-profile`;
+export const getGetDriverPayrollProfileUrl = (
+  kfiId: string,
+  params?: GetDriverPayrollProfileParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/drivers/${kfiId}/payroll-profile?${stringifiedParams}`
+    : `/api/drivers/${kfiId}/payroll-profile`;
 };
 
 export const getDriverPayrollProfile = async (
   kfiId: string,
+  params?: GetDriverPayrollProfileParams,
   options?: RequestInit,
 ): Promise<DriverPayrollProfile> => {
   return customFetch<DriverPayrollProfile>(
-    getGetDriverPayrollProfileUrl(kfiId),
+    getGetDriverPayrollProfileUrl(kfiId, params),
     {
       ...options,
       method: "GET",
@@ -3068,8 +3085,14 @@ export const getDriverPayrollProfile = async (
   );
 };
 
-export const getGetDriverPayrollProfileQueryKey = (kfiId: string) => {
-  return [`/api/drivers/${kfiId}/payroll-profile`] as const;
+export const getGetDriverPayrollProfileQueryKey = (
+  kfiId: string,
+  params?: GetDriverPayrollProfileParams,
+) => {
+  return [
+    `/api/drivers/${kfiId}/payroll-profile`,
+    ...(params ? [params] : []),
+  ] as const;
 };
 
 export const getGetDriverPayrollProfileQueryOptions = <
@@ -3077,6 +3100,7 @@ export const getGetDriverPayrollProfileQueryOptions = <
   TError = ErrorType<unknown>,
 >(
   kfiId: string,
+  params?: GetDriverPayrollProfileParams,
   options?: {
     query?: UseQueryOptions<
       Awaited<ReturnType<typeof getDriverPayrollProfile>>,
@@ -3089,12 +3113,12 @@ export const getGetDriverPayrollProfileQueryOptions = <
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
   const queryKey =
-    queryOptions?.queryKey ?? getGetDriverPayrollProfileQueryKey(kfiId);
+    queryOptions?.queryKey ?? getGetDriverPayrollProfileQueryKey(kfiId, params);
 
   const queryFn: QueryFunction<
     Awaited<ReturnType<typeof getDriverPayrollProfile>>
   > = ({ signal }) =>
-    getDriverPayrollProfile(kfiId, { signal, ...requestOptions });
+    getDriverPayrollProfile(kfiId, params, { signal, ...requestOptions });
 
   return {
     queryKey,
@@ -3122,6 +3146,7 @@ export function useGetDriverPayrollProfile<
   TError = ErrorType<unknown>,
 >(
   kfiId: string,
+  params?: GetDriverPayrollProfileParams,
   options?: {
     query?: UseQueryOptions<
       Awaited<ReturnType<typeof getDriverPayrollProfile>>,
@@ -3131,7 +3156,11 @@ export function useGetDriverPayrollProfile<
     request?: SecondParameter<typeof customFetch>;
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetDriverPayrollProfileQueryOptions(kfiId, options);
+  const queryOptions = getGetDriverPayrollProfileQueryOptions(
+    kfiId,
+    params,
+    options,
+  );
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

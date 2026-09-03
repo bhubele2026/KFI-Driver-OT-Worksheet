@@ -51,7 +51,7 @@ test("dual-lane person: driver OT bases on the customer RT rate (seed rule)", ()
   assert.equal(fill.rtPayRate, 21.93);
   assert.equal(fill.rtBillRate, 31.58);
   assert.equal(fill.otPayRate, 32.9); // 1.5 × 21.93 rounded
-  assert.equal(fill.otBillRate, undefined); // bill OT only from actuals
+  assert.equal(fill.otBillRate, 47.37); // 1.5 × 31.58 — same rule as OT pay
   assert.equal(fill.driverRtPayRate, 10);
   assert.equal(fill.driverOtPayRate, 32.9); // 1.5 × customer RT, not 1.5 × 10
   // identifiers prefer the CUSTOMER assignment (reference-workbook rule)
@@ -101,13 +101,75 @@ test("identity prefers the ACTIVE assignment: ended customer role loses to activ
   assert.equal(fill.driverRtPayRate, 16); // 199.36 / 12.46 from actuals
 });
 
-test("effective OT rates come from transaction actuals when present", () => {
+/**
+ * ⚠️ THE BUG, 2026-09-03. Baez (2003283) exported at OT 32.55 while Zenople had
+ * been paying him 32.90 for twelve straight pay periods and his card said so.
+ * 32.55 was `sum(OTPay)/sum(OTPayHours)` over a YEAR of transactions — a blend
+ * across every raise he ever had (32.55 = 1.5 × 21.70, a rate he left behind).
+ *
+ * The assignment rate is the rate. Actuals are a fallback for an unrated
+ * assignment, never an override.
+ */
+test("stale OT actuals LOSE to the assignment rate (Baez: 32.55 blend vs 32.90 real)", () => {
+  const staleBlend = {
+    PersonId: 2003283,
+    JobPosition: "Production",
+    PayPeriodEndDate: "2025-11-29",
+    RTPay: 868.0,
+    RTPayHours: 40,
+    RTBill: 1228.0,
+    RTBillHours: 40,
+    OTPay: 325.5, // 32.55/hr — the old rate, still sitting in history
+    OTPayHours: 10,
+    OTBill: 434.3,
+    OTBillHours: 10,
+  };
+  const fill = computeProfileFill([customerAsg], [staleBlend]);
+  assert.equal(fill.rtPayRate, 21.93);
+  assert.equal(fill.otPayRate, 32.9); // 1.5 × 21.93 — NOT the 32.55 blend
+  assert.equal(fill.otBillRate, 47.37); // 1.5 × 31.58 — NOT the 43.43 blend
+});
+
+test("Medina case: assignment 21.00 → OT 31.50, not the 30.27 year-blend", () => {
   const fill = computeProfileFill(
-    [customerAsg],
+    [
+      {
+        ...customerAsg,
+        AssignmentId: 2966,
+        PersonId: 2004792,
+        JobId: 740,
+        PayRate: 21,
+        BillRate: 30.45,
+      },
+    ],
+    [
+      {
+        PersonId: 2004792,
+        JobPosition: "Production",
+        PayPeriodEndDate: "2026-02-07",
+        RTPay: 740,
+        RTPayHours: 40,
+        RTBill: 0,
+        RTBillHours: 0,
+        OTPay: 302.69, // 30.27/hr blended across his older, lower assignments
+        OTPayHours: 10,
+        OTBill: 0,
+        OTBillHours: 0,
+      },
+    ],
+  );
+  assert.equal(fill.rtPayRate, 21);
+  assert.equal(fill.otPayRate, 31.5);
+});
+
+test("an UNRATED assignment still falls through to actuals (rates never regress to 0)", () => {
+  const fill = computeProfileFill(
+    [{ ...customerAsg, PayRate: 0, BillRate: 0 }],
     [
       {
         PersonId: 2003283,
         JobPosition: "Production",
+        PayPeriodEndDate: "2026-08-22",
         RTPay: 877.2,
         RTPayHours: 40,
         RTBill: 1263.2,
@@ -119,8 +181,36 @@ test("effective OT rates come from transaction actuals when present", () => {
       },
     ],
   );
-  assert.equal(fill.otPayRate, 32.9); // 164.50 / 5
+  assert.equal(fill.rtPayRate, 21.93); // 877.20 / 40
+  assert.equal(fill.otPayRate, 32.9); // 164.50 / 5 — actuals, no assignment rate to beat them
   assert.equal(fill.otBillRate, 43.43); // 217.15 / 5
+  assert.notEqual(fill.rtPayRate, 0);
+});
+
+/**
+ * Actuals, when they ARE used, come from the pay period the week fell in —
+ * never a blend spanning a rate change.
+ */
+test("windowed actuals: the period covering the week wins, later periods are ignored", () => {
+  const row = (ppe: string, otPay: number) => ({
+    PersonId: 2003283,
+    JobPosition: "Production",
+    PayPeriodEndDate: ppe,
+    RTPay: 0,
+    RTPayHours: 0,
+    RTBill: 0,
+    RTBillHours: 0,
+    OTPay: otPay,
+    OTPayHours: 10,
+    OTBill: 0,
+    OTBillHours: 0,
+  });
+  const fill = computeProfileFill(
+    [{ ...customerAsg, PayRate: 0 }],
+    [row("2026-06-06", 300), row("2026-07-04", 325.5), row("2026-08-22", 329)],
+    { start: "2026-06-28", end: "2026-07-04" },
+  );
+  assert.equal(fill.otPayRate, 32.55); // the 07-04 period, not the later 08-22 one
 });
 
 test("no assignment: RT falls back to transaction effective rates", () => {
@@ -147,7 +237,10 @@ test("no assignment: RT falls back to transaction effective rates", () => {
 
 test("nothing known → empty fill (no invented zeros)", () => {
   const fill = computeProfileFill([], []);
-  for (const v of Object.values(fill)) assert.equal(v, undefined);
+  // `sources` is provenance for the card, not a profile column.
+  const { sources, ...columns } = fill;
+  for (const v of Object.values(columns)) assert.equal(v, undefined);
+  assert.deepEqual(sources, {});
 });
 
 // ---------------------------------------------------------------------------
@@ -191,4 +284,36 @@ test("computeProfileFill: latest StartDate wins today — why Landscape beat Org
   const fill = computeProfileFill([orgill, landscape], []);
   assert.equal(fill.zenopleCustomer, "Landscape Structures");
   assert.equal(fill.assignmentId, 3529);
+
+  // ...and the fix: told which week it is exporting, it can no longer be
+  // hijacked by an assignment created after that week closed.
+  const asOfWeek = computeProfileFill([orgill, landscape], [], {
+    start: "2026-08-02",
+    end: "2026-08-08",
+  });
+  assert.equal(asOfWeek.zenopleCustomer, "Orgill, Inc.");
+  assert.equal(asOfWeek.assignmentId, 3354);
+  assert.equal(asOfWeek.rtPayRate, 20); // Orgill's rate, not Landscape's 19
+  assert.equal(asOfWeek.otPayRate, 30); // 1.5 × 20
+});
+
+test("week-scoping never costs a rate: an ended assignment still supplies one", () => {
+  // Baez's driver assignment ended 2025-11-29 but the workbook still needs a
+  // driver rate for him. Dropping it would ship a $0 pay unit — the 2026-08-06
+  // incident. The ladder falls back rather than zeroing.
+  const endedDriver = {
+    AssignmentId: 2523, PersonId: 2003283, JobId: 483, JobPosition: "Driver",
+    Organization: "Burnett Dairy - Grantsburg", StartDate: "2025-04-27T00:00:00",
+    EndDate: "2025-11-29T00:00:00", IsActiveToday: false, PayRate: 10, BillRate: 0,
+    SSN: "123-45-5416",
+  };
+  const fill = computeProfileFill([customerAsg, endedDriver], [], {
+    start: "2026-08-30",
+    end: "2026-09-05",
+  });
+  assert.equal(fill.driverRtPayRate, 10);
+  assert.equal(fill.driverOtPayRate, 32.9); // 1.5 × the customer RT 21.93
+  assert.equal(fill.rtPayRate, 21.93);
+  // identity still comes from the assignment that actually covers the week
+  assert.equal(fill.assignmentId, 2541);
 });
