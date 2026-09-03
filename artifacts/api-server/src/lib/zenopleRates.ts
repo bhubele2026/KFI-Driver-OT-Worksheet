@@ -29,6 +29,9 @@ import { pullRange, zenopleConfigured } from "./zenopleClient.js";
 // cooldown and the one cached token (only 20 token requests/hr are allowed).
 export { zenopleConfigured, zenopleStats } from "./zenopleClient.js";
 
+/** Memo window for the live export facts, and the quantum `fetchAction` snaps to. */
+const EXPORT_FACTS_TTL_MS = 10 * 60 * 1000;
+
 /**
  * Pull an action over the last `days`, in sequential 30-day chunks.
  *
@@ -39,7 +42,14 @@ export { zenopleConfigured, zenopleStats } from "./zenopleClient.js";
  * ranges to begin with, so nothing has to fail first.
  */
 async function fetchAction(action: string, days = 365, opts: { cacheTtlMs?: number; force?: boolean } = {}): Promise<Record<string, unknown>[]> {
-  const end = new Date();
+  // ⚠️ QUANTIZED, and the memo depends on it. The client keys its TTL cache on
+  // the request BODY, and the body carries this window down to the
+  // millisecond — so a bare `new Date()` made every call a fresh key and the
+  // ten-minute memo could never hit. Nobody noticed while the only caller was
+  // a once-a-week export button; the driver card calls this on every open, and
+  // measured cold that is ~13s. Snapping both ends to the memo bucket makes
+  // repeat calls byte-identical, so they are served from cache.
+  const end = new Date(Math.floor(Date.now() / EXPORT_FACTS_TTL_MS) * EXPORT_FACTS_TTL_MS);
   const start = new Date(end.getTime() - days * 86_400_000);
   const { rows, skipped } = await pullRange<Record<string, unknown>>(action, start, end, {
     chunkDays: 30,
@@ -389,8 +399,6 @@ function personLabelFromAssignment(a: Record<string, unknown>): string | undefin
  * again — each click costing two Zenople pulls. `fresh` skips the memo for the
  * case where someone has just corrected a rate in Zenople and needs to see it.
  */
-const EXPORT_FACTS_TTL_MS = 10 * 60 * 1000;
-
 export async function loadZenopleExportFacts(
   opts_: { week?: RateWeek; fresh?: boolean } = {},
 ): Promise<Map<string, ZenopleLiveFacts>> {
@@ -399,8 +407,11 @@ export async function loadZenopleExportFacts(
   if (!zenopleConfigured()) return out;
   const opts = { cacheTtlMs: EXPORT_FACTS_TTL_MS, force: fresh };
   const [assignments, transactions] = await Promise.all([
+    // Assignments stay wide: the rate ladder falls back to older ones.
     fetchAction("AssignmentData", 365, opts),
-    fetchAction("TransactionData", 365, opts),
+    // Transactions are only a fallback now, and windowed to the pay period the
+    // exported week fell in — a year of them was 13 chunks of dead weight.
+    fetchAction("TransactionData", 180, opts),
   ]);
   const asgByPerson = new Map<string, Record<string, unknown>[]>();
   for (const a of assignments) {
