@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, gte, inArray } from "drizzle-orm";
 import { db, schema } from "../lib/db.js";
 import { computeDriverTotals } from "../lib/hoursEngine.js";
+import { buildDriverTagFeed } from "../lib/driverTagFeed.js";
 import { requirePulseKey } from "./pulse.js";
 
 /**
@@ -29,6 +30,13 @@ import { requirePulseKey } from "./pulse.js";
  *
  * ⚠️ NO SSNs AND NO RATES. `driver_payroll_profiles` holds both; this reads the
  * PersonId out of it and nothing else. A join key is not a pay rate.
+ *
+ * ⭐ TWO GRAINS, ONE PATH. `rows` is per driver-week; `driverTags` is per driver
+ * (see lib/driverTagFeed.ts). They share this route because Easy Auth's
+ * `excludedPaths` is an EXACT-path list and a second path is an ARM change that
+ * lives outside git — the same reason /machine/payroll is one endpoint with a
+ * `kind`. `driverTags` ignores `since` and `weeks`; a windowed tag would be a
+ * tag that disappears when its owner stops punching.
  */
 const router: IRouter = Router();
 
@@ -73,15 +81,32 @@ router.get("/machine/driver-weeks", requirePulseKey, async (req, res) => {
       : real.slice(-weeksBack)
   ).map((w) => w.startDate);
 
+  // ⚠️ THE ROSTER LOADS BEFORE THE EMPTY-WEEKS BRANCH, NOT AFTER. The tag array
+  // is person-grain and must not depend on weeks at all; left below the early
+  // return it would vanish exactly when the weeks table is empty or `since` is
+  // in the future — a payload that disappears under a query param the consumer
+  // is free to send. Same reason `gaps` now rides both return paths: it used to
+  // be dropped here, and the consumer only tolerated that by defaulting.
+  const [drivers, profiles] = await Promise.all([
+    db.select().from(schema.driversTable),
+    db.select().from(schema.driverPayrollProfilesTable),
+  ]);
+  const { driverTags, taggedDrivers, taggedNoPersonId } = buildDriverTagFeed(drivers, profiles);
+
   if (weekStarts.length === 0) {
-    res.json({ ok: true, service: "kfi-ot-worksheet", weeks: [], rows: [] });
+    res.json({
+      ok: true,
+      service: "kfi-ot-worksheet",
+      weeks: [],
+      rows: [],
+      driverTags,
+      gaps: { nullPersonIds: 0, driversTotal: drivers.length, taggedDrivers, taggedNoPersonId },
+    });
     return;
   }
 
-  const [punches, drivers, profiles, overrides, reviewed] = await Promise.all([
+  const [punches, overrides, reviewed] = await Promise.all([
     db.select().from(schema.punchesTable).where(inArray(schema.punchesTable.weekStart, weekStarts)),
-    db.select().from(schema.driversTable),
-    db.select().from(schema.driverPayrollProfilesTable),
     db.select().from(schema.driverCustomerOverridesTable),
     db
       .select()
@@ -138,7 +163,8 @@ router.get("/machine/driver-weeks", requirePulseKey, async (req, res) => {
     service: "kfi-ot-worksheet",
     weeks: weekStarts,
     rows,
-    gaps: { nullPersonIds, driversTotal: drivers.length },
+    driverTags,
+    gaps: { nullPersonIds, driversTotal: drivers.length, taggedDrivers, taggedNoPersonId },
   });
 });
 
