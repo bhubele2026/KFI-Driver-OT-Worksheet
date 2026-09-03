@@ -136,7 +136,15 @@ async function runChunk(chunk: SummarizableRow[]): Promise<void> {
  *  deploy) into the in-process cache. One indexed lookup on a primary key over
  *  the hashes this request actually needs. */
 async function hydrateFromStore(hashes: string[]): Promise<void> {
-  const missing = hashes.filter((h) => cache.get(h) === undefined);
+  // ⚠️ FALSY, not `undefined`. A row this process refused is cached as "" — and
+  // if we skipped those, a replica could never learn that a SIBLING replica
+  // summarized the same action text successfully and persisted it. That is not
+  // hypothetical: with minReplicas=2, period 2026-09-04 sat at 34 summaries on
+  // one replica and 41 on the other, so the label on a row appeared and
+  // disappeared as you reloaded, forever, with nothing outstanding to explain
+  // it. Re-reading a refusal costs one indexed PK lookup and it is what makes
+  // the two replicas converge.
+  const missing = hashes.filter((h) => !cache.get(h));
   if (!missing.length) return;
   try {
     const rows = await db
