@@ -59,6 +59,8 @@ type Payload = {
   period: { label: string };
   actions: Change[];
   decisions: Change[];
+  /** Rows still being summarized in the background; 0 means nothing more is coming. */
+  summariesPending?: number;
   counts: {
     actions: number; decisions: number; complete: number; retro: number;
     paired: number; newSinceLastSweep: number; changedSinceLastSweep: number;
@@ -83,6 +85,11 @@ type Field = (typeof FIELDS)[number][0];
  * comes from the server (Tiana's own "Pre or Post Time card" routing, learned
  * per change type); this list only says how to present it.
  */
+/** Re-ask for the terse row labels on this backoff. The board answers without
+ *  waiting for the model, so the labels land a few seconds later; three tries
+ *  covers a normal generation and then stops rather than polling forever. */
+const SUMMARY_BACKOFF_MS = [1_500, 3_000, 6_000];
+
 const ROUTE_SECTIONS = [
   {
     key: "Ops", title: "Ops — Zenople housekeeping",
@@ -197,7 +204,14 @@ export default function PayrollChanges() {
   // under another week's heading. In a payroll tool somebody would read last
   // week's figures believing they are this week's.
   const seq = useRef(0);
+  /** How many times we have re-asked for the terse labels this period. */
+  const summaryTries = useRef(0);
+  /** Two timers can call load() — the summary backoff and the pdfStatus poll.
+   *  `seq` stops a stale payload landing; this stops the duplicate request. */
+  const loading = useRef(false);
   const load = useCallback(async () => {
+    if (loading.current) return;
+    loading.current = true;
     const mine = ++seq.current;
     setError(null);
     try {
@@ -212,21 +226,40 @@ export default function PayrollChanges() {
       if (mine !== seq.current) return;
       setError(e instanceof Error ? e.message : "could not load the changes");
       setData(null);
+    } finally {
+      loading.current = false;
     }
   }, [payDate]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    summaryTries.current = 0; // a new period starts its own backoff
+    void load();
+  }, [load]);
 
   // Summaries are generated in the background on the server's first sight of
-  // a period; a cold load renders full text. Re-fetch ONCE, quietly, so the
-  // terse labels arrive without anyone reloading. (load() is sequence-guarded
-  // and replaces data in place — no flash.)
-  const retriedForSummaries = useRef(false);
+  // a period; a cold load renders full text. Pick the terse labels up on a
+  // short backoff so they arrive without anyone reloading. (load() is
+  // sequence-guarded and replaces data in place — no flash.)
+  //
+  // ⚠️ This used to be ONE retry at 8s, which was tuned for a server that
+  // blocked 3.5s before answering. The board no longer waits for the model at
+  // all, so a cold load lands instantly with no labels and the model finishes
+  // ~3-6s later — a single 8s shot is both too slow to feel responsive and,
+  // if it lands early, the only chance the labels ever get.
   useEffect(() => {
-    if (!data || retriedForSummaries.current) return;
-    if (data.actions.length === 0 || data.actions.some((a) => a.summary)) return;
-    retriedForSummaries.current = true;
-    const t = window.setTimeout(() => void load(), 8_000);
+    if (!data || data.actions.length === 0) return;
+    // ⚠️ Stop on the SERVER's signal, not on the data shape. "every row has a
+    // summary" is never true for a period containing rows whose summary flunked
+    // the faithfulness check — 2026-09-04 sits at 36 of 45 permanently — so
+    // that test would re-fetch the busiest board on every single page view.
+    if (!data.summariesPending) return;
+    if (summaryTries.current >= SUMMARY_BACKOFF_MS.length) return;
+    // The pdfStatus poll below already refreshes the whole board every 10s;
+    // stacking a second timer on top would double the load for no gain.
+    if (data.actions.some((a) => a.pdfStatus === "requested")) return;
+    const delay = SUMMARY_BACKOFF_MS[summaryTries.current]!;
+    summaryTries.current += 1;
+    const t = window.setTimeout(() => void load(), delay);
     return () => window.clearTimeout(t);
   }, [data, load]);
 

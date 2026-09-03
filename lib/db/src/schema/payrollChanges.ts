@@ -156,3 +156,33 @@ export const payrollChangeSourcesTable = pgTable(
 );
 
 export type PayrollChangeSource = typeof payrollChangeSourcesTable.$inferSelect;
+
+/**
+ * Durable store for the Changes board's terse row labels.
+ *
+ * ⚠️ WHY THIS TABLE EXISTS. The summaries used to live only in an in-process
+ * `Map`, and the board's GET blocked up to 3.5s waiting for a cold one to fill
+ * — then returned the rows with NO summaries anyway. Every deploy wiped the
+ * Map, so that 3.5s came back on every period, forever. Measured 2026-09-03:
+ * cold load 3,594ms / 0 summaries, next load 52ms / all 12. The wait bought
+ * the user nothing.
+ *
+ * Keyed on sha1(action) — the TEXT, not the row — which matches the cache
+ * semantics it replaces and means a recurring deduction worded identically is
+ * summarized once for ALL periods, not once per period.
+ *
+ * Only FAITHFUL summaries are stored (see summaryIsFaithful). A row whose
+ * summary flunked the digit/negation check is remembered in-process only:
+ * persisting that refusal would suppress the row forever, including after a
+ * better model ships.
+ */
+export const payrollChangeSummaryTable = pgTable("payroll_change_summary", {
+  /** sha1 of the action text — the same keyFor() the in-process cache uses. */
+  actionHash: text("action_hash").primaryKey(),
+  summary: text("summary").notNull(),
+  /** Which model wrote it, so a model change can be invalidated deliberately. */
+  model: text("model"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type PayrollChangeSummary = typeof payrollChangeSummaryTable.$inferSelect;

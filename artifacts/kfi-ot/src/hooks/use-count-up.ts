@@ -6,7 +6,15 @@ import { useEffect, useRef, useState } from "react";
  * First render starts from 0; later changes glide from the old value.
  * Snaps instantly when the user prefers reduced motion.
  */
-export function useCountUp(value: number, durationMs = 1200): number {
+// ⚠️ 1200ms → 600ms (2026-09-03). This is a CORRECTNESS fix, not a pace one —
+// index.css records "keep the animation slowness, I love it", and the shared
+// motion dials there are deliberately untouched.
+//
+// With the ease-out cubic below, the displayed integer does not round to the
+// true value until p > 0.777. At 1200ms a tile counting to 45 therefore showed
+// a WRONG NUMBER for 933ms after the data had already landed. At 600ms that is
+// 466ms. The tiles still count; they just stop lying for a second first.
+export function useCountUp(value: number, durationMs = 600): number {
   const [display, setDisplay] = useState(0);
   const fromRef = useRef(0);
   const rafRef = useRef<number | null>(null);

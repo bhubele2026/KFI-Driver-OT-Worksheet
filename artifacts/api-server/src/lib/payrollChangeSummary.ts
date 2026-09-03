@@ -1,8 +1,28 @@
 import { createHash } from "node:crypto";
+import { inArray } from "drizzle-orm";
+// ⚠️ `db` AND `schema` both come from ./db.js — never `import * as schema from
+// "@workspace/db"`. That root export builds a SECOND pg.Pool at module scope
+// from the RAW DATABASE_URL, which (a) makes this module throw without a
+// database, breaking the pure summaryIsFaithful test, and (b) skips the
+// sslmode strip in db.ts that exists to stop pg>=8.16's SECURITY WARNING being
+// filed as a Sentry error on every boot.
+import { db, schema } from "./db.js";
+import { summaryIsFaithful } from "./payrollSummaryFaithful.js";
 import { getClaudeClient } from "./parsers/claude.js";
 import { logger } from "./logger.js";
 
 /**
+ * ⚠️ THE BOARD NEVER WAITS FOR THE MODEL. There is no soft-wait here any more.
+ *
+ * It used to `await Promise.race([all, sleep(3_500)])`. Measured against
+ * production on 2026-09-03: a cold period took 3,594ms and came back with ZERO
+ * summaries; the very next load took 52ms and had all of them. The wait cost
+ * the user 3.5 seconds and bought them nothing — the model work finishes
+ * moments later either way. The old comment already said "never block the
+ * board"; now the code agrees. Cold rows return absent and the client fills
+ * them in on a short backoff. If you are tempted to await this again: make the
+ * summary arrive sooner, do not make the board arrive later.
+ *
  * Terse row labels for the Changes board — Brad: "too many words, use AI to
  * summarize." One batched call per period load, cached in-process per action
  * text (the app is pinned to a single replica), and NEVER load-bearing: a
@@ -23,18 +43,13 @@ export type SummarizableRow = {
 };
 
 const MODEL = process.env.CLAUDE_SUMMARY_MODEL ?? "claude-haiku-4-5-20251001";
-const MAX_LEN = 64;
 /** Real limit for a model call — generous, because it runs in the background. */
 const TIMEOUT_MS = 60_000;
-/** How long a board response will WAIT for summaries. A warm cache answers
- *  instantly; a cold one fills in the background and the NEXT load has them.
- *  The first deploy blocked the whole GET on a 15s model timeout — the board
- *  sat on skeletons and still rendered wordy. Never block the board. */
-const SOFT_WAIT_MS = 3_500;
-/** Rows per model call — three short calls beat one long one under a wait. */
+/** Rows per model call. */
 const CHUNK = 16;
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+/** Chunks in flight at once. Nothing waits on these now, so there is no reason
+ *  to fan 200 rows out into ~13 simultaneous calls and invite 429s. */
+const MAX_PARALLEL_CHUNKS = 3;
 
 /** Action-hashes currently being summarized, so overlapping board loads never
  *  double-spend a call on the same rows. */
@@ -46,22 +61,10 @@ const cache = new Map<string, string>();
 const keyFor = (action: string): string =>
   createHash("sha1").update(action).digest("hex");
 
-const digitTokens = (text: string): string[] => text.match(/\d[\d,.:/-]*\d|\d/g) ?? [];
-
-/** Digit-runs (rates, hours, dates) must survive VERBATIM — exact token
- *  membership, not substring: "20.5" hiding inside "20.50", or "1.5" inside
- *  "31.50", is precisely the corruption this exists to stop. Negation must
- *  not vanish either. Exported for tests. */
-export function summaryIsFaithful(action: string, summary: string): boolean {
-  if (!summary || summary.length > MAX_LEN + 16) return false;
-  const allowed = new Set(digitTokens(action));
-  for (const t of digitTokens(summary)) {
-    if (!allowed.has(t)) return false;
-  }
-  const negated = /\b(not|never|don'?t|no)\b/i;
-  if (negated.test(action) && !negated.test(summary)) return false;
-  return true;
-}
+// The faithfulness check lives in its own import-free module so it stays
+// testable without a database — this file needs `db` now. Re-exported so
+// existing importers (and the test) keep working either way.
+export { summaryIsFaithful } from "./payrollSummaryFaithful.js";
 
 const RULES = `You compress payroll instructions into terse row labels for a board a payroll
 specialist works down. For each input row return ONE imperative label.
@@ -97,16 +100,29 @@ async function runChunk(chunk: SummarizableRow[]): Promise<void> {
       .join("")
       .replace(/^```(?:json)?\s*|\s*```$/g, "");
     const parsed = JSON.parse(text) as Record<string, unknown>;
+    const durable: { actionHash: string; summary: string; model: string }[] = [];
     for (const r of chunk) {
       const raw = parsed[r.rowKey];
       const summary =
         typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
       if (summary && summaryIsFaithful(r.action, summary)) {
         cache.set(keyFor(r.action), summary);
+        durable.push({ actionHash: keyFor(r.action), summary, model: MODEL });
       } else {
         // Cache the refusal too — an unfaithful summary would be regenerated
         // (and re-rejected) on every single board load otherwise.
         cache.set(keyFor(r.action), "");
+      }
+    }
+    // One batched upsert per chunk (<=16 rows) — never a per-row loop. A write
+    // failure must not lose the summaries we just computed, so it only warns:
+    // the in-process cache still has them for this process's lifetime.
+    if (durable.length) {
+      try {
+        await db.insert(schema.payrollChangeSummaryTable).values(durable)
+          .onConflictDoNothing();
+      } catch (err) {
+        logger.warn({ err, rows: durable.length }, "change summaries not persisted");
       }
     }
   } catch (err) {
@@ -116,30 +132,87 @@ async function runChunk(chunk: SummarizableRow[]): Promise<void> {
   }
 }
 
-/** Summaries for the given rows — cache hits immediately, everything else
- *  from chunked background calls this response waits on only briefly.
- *  Always resolves; failures just resolve smaller. */
+/** Load any summaries we already computed in a previous life (or a previous
+ *  deploy) into the in-process cache. One indexed lookup on a primary key over
+ *  the hashes this request actually needs. */
+async function hydrateFromStore(hashes: string[]): Promise<void> {
+  const missing = hashes.filter((h) => cache.get(h) === undefined);
+  if (!missing.length) return;
+  try {
+    const rows = await db
+      .select({
+        actionHash: schema.payrollChangeSummaryTable.actionHash,
+        summary: schema.payrollChangeSummaryTable.summary,
+      })
+      .from(schema.payrollChangeSummaryTable)
+      .where(inArray(schema.payrollChangeSummaryTable.actionHash, missing));
+    for (const r of rows) cache.set(r.actionHash, r.summary);
+  } catch (err) {
+    // The board does not depend on this. A read failure just means some rows
+    // get re-summarized in the background — never a slower or broken response.
+    logger.warn({ err }, "change summary store unreadable");
+  }
+}
+
+/** Summaries for the given rows. Returns whatever is KNOWN RIGHT NOW and kicks
+ *  off background work for the rest — it never waits on the model.
+ *
+ *  Rows with no summary yet come back absent, render as their full action text,
+ *  and the client picks up the labels on a short backoff. Always resolves.
+ *
+ *  `pending` is how many rows were just queued for background work. The client
+ *  needs this to know when to STOP re-asking: it cannot infer "everything that
+ *  will arrive has arrived" from the data, because a row whose summary flunked
+ *  the faithfulness check is cached as "" and correctly never gets a label.
+ *  Period 2026-09-04 sits at 36 summaries of 45 rows permanently — a client
+ *  waiting for all 45 would re-fetch on every single page view, forever. */
 export async function summarizeChangeActions(
   rows: SummarizableRow[],
-): Promise<Map<string, string>> {
+): Promise<{ summaries: Map<string, string>; pending: number }> {
+  await hydrateFromStore([...new Set(rows.map((r) => keyFor(r.action)))]);
+
+  // Dedupe by action hash: two rows with byte-identical action text are ONE
+  // unit of work. Without this both enter `pending`, we pay the model twice for
+  // the same string, and if they land in different chunks the first chunk's
+  // cleanup deletes the shared inflight key while the second is still running.
+  const seen = new Set<string>();
   const pending: SummarizableRow[] = [];
   for (const r of rows) {
     const k = keyFor(r.action);
-    if (cache.get(k) === undefined && !inflightKeys.has(k)) pending.push(r);
+    if (cache.get(k) === undefined && !inflightKeys.has(k) && !seen.has(k)) {
+      seen.add(k);
+      pending.push(r);
+    }
   }
 
   if (pending.length) {
     for (const r of pending) inflightKeys.add(keyFor(r.action));
-    const jobs: Promise<void>[] = [];
+    const chunks: SummarizableRow[][] = [];
     for (let i = 0; i < pending.length; i += CHUNK) {
-      jobs.push(runChunk(pending.slice(i, i + CHUNK)));
+      chunks.push(pending.slice(i, i + CHUNK));
     }
-    const all = Promise.allSettled(jobs).then(() => {
-      for (const r of pending) inflightKeys.delete(keyFor(r.action));
-    });
-    // Wait briefly: a warm model lands inside this window and the response
-    // carries summaries; a cold one keeps filling the cache after we return.
-    await Promise.race([all, sleep(SOFT_WAIT_MS)]);
+    // Fire and forget, at a bounded concurrency.
+    //
+    // ⚠️ Each chunk releases ITS OWN keys as it settles. This used to clear
+    // every key only after all chunks settled, so one chunk crawling toward
+    // TIMEOUT_MS (60s) kept unrelated rows marked in-flight — and every board
+    // load for the next minute returned no summaries and never retried them.
+    void (async () => {
+      let next = 0;
+      const worker = async (): Promise<void> => {
+        while (next < chunks.length) {
+          const chunk = chunks[next++]!;
+          try {
+            await runChunk(chunk);
+          } finally {
+            for (const r of chunk) inflightKeys.delete(keyFor(r.action));
+          }
+        }
+      };
+      await Promise.allSettled(
+        Array.from({ length: Math.min(MAX_PARALLEL_CHUNKS, chunks.length) }, worker),
+      );
+    })();
   }
 
   const out = new Map<string, string>();
@@ -147,5 +220,5 @@ export async function summarizeChangeActions(
     const hit = cache.get(keyFor(r.action));
     if (hit) out.set(r.rowKey, hit);
   }
-  return out;
+  return { summaries: out, pending: pending.length };
 }

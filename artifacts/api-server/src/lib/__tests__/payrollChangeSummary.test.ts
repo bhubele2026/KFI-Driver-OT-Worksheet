@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { summaryIsFaithful } from "../payrollChangeSummary.js";
+import { summaryIsFaithful } from "../payrollSummaryFaithful.js";
 
 describe("summary faithfulness — the mechanical guard behind the AI pass", () => {
   const action =

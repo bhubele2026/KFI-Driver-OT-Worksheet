@@ -414,7 +414,7 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/changes", requireAuth,
     // Terse row labels — one cached AI pass per period. Never load-bearing:
     // a failure or a summary that flunks the number/negation check simply
     // leaves the row showing its full action text.
-    const summaries = await summarizeChangeActions(
+    const { summaries, pending: summariesPending } = await summarizeChangeActions(
       actions.map((r) => ({
         rowKey: r.rowKey, changeType: r.changeType,
         employee: r.employee, action: r.action,
@@ -432,6 +432,10 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/changes", requireAuth,
       period: { ...period, ...(period.isOffCycle ? {} : periodDatesFor(period.payDate)) },
       actions: actions.map((r) => ({ ...r, summary: summaries.get(r.rowKey) ?? null })),
       decisions,
+      // How many labels are still being written in the background. The client
+      // re-asks only while this is > 0 — it cannot tell from the rows alone,
+      // because a row that flunked the faithfulness check never gets one.
+      summariesPending,
       counts: {
         actions: actions.length,
         decisions: decisions.length,
