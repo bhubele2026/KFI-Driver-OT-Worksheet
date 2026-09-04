@@ -48,3 +48,9 @@ Thumbs.db
 .cache/
 .local/
 artifacts/api-server/*-2026-08-04.cjs
+
+# Local secrets and rig config. NOT previously ignored here — a .env in this repo
+# would have been committable, and the api-server rig needs one to run its DB tests.
+.env
+.env.local
+.env.*.local
