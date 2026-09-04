@@ -1,4 +1,4 @@
-// CANONICAL @kfi/zenople v1.1.1 — sha256:5cf976c04e7e603b1a9e7ca9da3f07b811d0f6a7bead4067ecc4894bf750e38e
+// CANONICAL @kfi/zenople v1.2.0 — sha256:2a61b4ffc94302612f8081ed490c43269abf0e09ae9290ce834f42260c15eb5a
 // VENDORED COPY — do not edit. Change KFI-Financial-Dashboard/packages/zenople/src/client.ts,
 // then run `pnpm --filter @kfi/zenople sync`. Local edits fail this repo's green gate.
 /**
@@ -15,9 +15,15 @@
  *     every call. We sit under both at 55/min and 900/hr.
  *   • An over-wide window does NOT error: HTTP 200 with a non-array body
  *     {"msg":"Large data set"}. That means "chunk it", never "no data".
- *   • Zenople added a SAME-PAYLOAD COOLDOWN: re-sending an identical body
- *     immediately is rejected as duplicate processing. `COOLDOWN_MS` below is
- *     our side of that contract and is NOT bypassable, not even with `force`.
+ *   • Zenople REJECTS A REPEATED BODY. Since 2026-09-04 a request byte-identical to
+ *     one it served in the previous 60 MINUTES answers HTTP 429
+ *     {"message":"You have N minutes left before you can make the same request."}.
+ *     A per-payload dedup keyed on the exact bytes (proven: a one-second nudge on
+ *     the window goes through), NOT a rate limit — re-sending the same body is
+ *     pointless, and identical bodies from two PROCESSES or two APPS collide too.
+ *     `COOLDOWN_MS` below is only the in-process floor of that contract (not
+ *     bypassable, not even with `force`); the vendor's answer surfaces as
+ *     `ZenopleDuplicateRequestError`, never retried, never pausing the queue.
  *
  * ── What this client guarantees its callers ────────────────────────────────
  *   queue + bounded concurrency · exponential backoff honoring Retry-After ·
@@ -29,7 +35,7 @@
 
 import { createHash } from "node:crypto";
 
-export const ZENOPLE_CLIENT_VERSION = "1.1.1";
+export const ZENOPLE_CLIENT_VERSION = "1.2.0";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
@@ -89,6 +95,10 @@ export const __zenopleTestHooks = {
     new Promise((resolve) => {
       setTimeout(resolve, ms);
     }),
+  /** Tests only: pretend every memo entry was stored `ms` earlier than it was. */
+  ageCache(ms: number): void {
+    for (const e of cache.values()) e.at -= ms;
+  },
 };
 const sleep = (ms: number) => __zenopleTestHooks.sleep(ms);
 
@@ -117,6 +127,28 @@ export class ZenopleHttpError extends Error {
   }
 }
 
+/**
+ * HTTP 429 whose body says the vendor served this EXACT payload within the last
+ * hour. Not a rate limit: the queue is not paused, nothing is retried (the same
+ * bytes would be refused again) and `rateLimited` is not counted. If this
+ * process still holds the memo for that key from inside the vendor's window,
+ * `pull` answers from it instead of throwing.
+ */
+export class ZenopleDuplicateRequestError extends ZenopleHttpError {
+  /** Minutes the vendor says remain on the lockout, when the body states them. */
+  readonly minutesLeft: number | null;
+  constructor(action: string, body: string) {
+    super(action, 429, body);
+    this.name = "ZenopleDuplicateRequestError";
+    const m = /(\d+)\s*minute/i.exec(body);
+    this.minutesLeft = m ? Number(m[1]) : null;
+  }
+}
+
+const DUPLICATE_BODY = /before you can make the same request/i;
+/** The vendor's dedup horizon; a memo entry older than this cannot be what it saw. */
+const DUPLICATE_WINDOW_MS = 60 * 60_000;
+
 // ── Stats (fed to each app's /api/pulse) ────────────────────────────────────
 
 const stats = {
@@ -127,6 +159,12 @@ const stats = {
   coalesced: 0,
   errors: 0,
   chunksSkipped: 0,
+  /** Bodies the vendor refused as already served within the hour. */
+  duplicateRejected: 0,
+  /** …of which this process answered from its own memo. */
+  dedupServed: 0,
+  /** HTTP 200 with zero rows — data to the client, a warning to the caller. */
+  emptyResponses: 0,
   lastError: null as string | null,
   lastErrorAt: null as string | null,
   lastSuccessAt: null as string | null,
@@ -141,6 +179,9 @@ export interface ZenopleStats {
   coalesced: number;
   errors: number;
   chunksSkipped: number;
+  duplicateRejected: number;
+  dedupServed: number;
+  emptyResponses: number;
   queueDepth: number;
   inFlight: number;
   lastError: string | null;
@@ -372,6 +413,9 @@ export function __resetZenopleState(): void {
     coalesced: 0,
     errors: 0,
     chunksSkipped: 0,
+    duplicateRejected: 0,
+    dedupServed: 0,
+    emptyResponses: 0,
     lastError: null,
     lastErrorAt: null,
     lastSuccessAt: null,
@@ -521,6 +565,19 @@ export async function pull<T = Record<string, unknown>>(action: string, opts: Pu
 
         if (!res.ok) {
           const text = await res.text().catch(() => "");
+          if (res.status === 429 && DUPLICATE_BODY.test(text)) {
+            // The vendor already served these exact bytes within the hour. Re-sending
+            // them is guaranteed to fail and pausing the queue would punish every
+            // OTHER body, so neither happens. Answer from our own copy if we still
+            // have it and it is young enough to be the one the vendor saw.
+            stats.duplicateRejected++;
+            const own = cache.get(key);
+            if (!opts.force && own && Date.now() - own.at <= DUPLICATE_WINDOW_MS) {
+              stats.dedupServed++;
+              return own.rows;
+            }
+            throw new ZenopleDuplicateRequestError(action, text);
+          }
           const err = new ZenopleHttpError(action, res.status, text);
           if (res.status === 429 || res.status === 503) {
             stats.rateLimited++;
@@ -537,6 +594,11 @@ export async function pull<T = Record<string, unknown>>(action: string, opts: Pu
           if (/large data set/i.test(text)) throw new LargeDataSetError(action);
           throw new Error(`Zenople ${action}: unexpected response ${text.slice(0, 200)}`);
         }
+        if (json.length === 0) {
+          // Data to this client, but the one shape a caller cannot tell from a broken feed.
+          stats.emptyResponses++;
+          console.warn(`[zenople] ${action}: 0 rows for ${JSON.stringify(filters).slice(0, 160)}`);
+        }
 
         stats.lastSuccessAt = new Date().toISOString();
         remember(key, json);
@@ -545,8 +607,9 @@ export async function pull<T = Record<string, unknown>>(action: string, opts: Pu
         lastError = e;
         // Never retry a wide window or a client mistake — only transient faults.
         const retryable =
-          (e instanceof ZenopleHttpError && (RETRYABLE_STATUS.has(e.status) || e.status === 401)) ||
-          isTransientNetworkError(e);
+          !(e instanceof ZenopleDuplicateRequestError) &&
+          ((e instanceof ZenopleHttpError && (RETRYABLE_STATUS.has(e.status) || e.status === 401)) ||
+            isTransientNetworkError(e));
         if (!retryable || attempt >= MAX_RETRIES()) {
           stats.errors++;
           stats.lastError = e instanceof Error ? e.message : String(e);
