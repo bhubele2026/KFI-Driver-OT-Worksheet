@@ -76,11 +76,16 @@ test("dedupeAiRows collapses without doubling when only one side has hours (labe
   assert.equal(out[0].hours, 8, "hours preserved, not doubled");
 });
 
-test("dedupeAiRows sanity-check prefers the larger value when stated hours disagree with clock-time span", () => {
-  // Single AI row, no duplicate at all — but the AI's stated hours
-  // (4) drastically under-reports the actual 8-hour clock span. The
-  // backstop should warn and prefer the larger value so payroll
-  // doesn't silently truncate.
+test("dedupeAiRows sanity-check WARNS but keeps the stated hours when they disagree with the clock span", () => {
+  // ⚠️ REVERSED (Task #376, revised) — this test previously asserted the LARGER value won.
+  // It does not, and must not. Customer files report a Total/Hours column that already nets
+  // the unpaid break and the customer's own rounding: Orgill 5:58 AM–6:30 PM states 12.0,
+  // not the 12.53 raw span. Preferring the span over-reported every one of those breaks,
+  // every week. The document is the source of truth for hours; the span is only a tripwire.
+  //
+  // So: single AI row, stated 4h against an 8h clock span. The backstop LOGS the divergence
+  // (a real parse error still surfaces for review) and KEEPS 4. If you are changing this back,
+  // read the backstop comment in aiExtract.ts first.
   const warnings: Array<{ obj: Record<string, unknown>; msg: string }> = [];
   const log = {
     warn: (obj: Record<string, unknown>, msg: string) => warnings.push({ obj, msg }),
@@ -97,7 +102,7 @@ test("dedupeAiRows sanity-check prefers the larger value when stated hours disag
   ];
   const out = dedupeAiRows(rows, { log, customer: "Acme", fileName: "test.xlsx" });
   assert.equal(out.length, 1);
-  assert.equal(out[0].hours, 8, "larger (computed span) wins over the AI's stated value");
+  assert.equal(out[0].hours, 4, "the document's stated hours win — break/rounding is baked in");
   assert.equal(warnings.length, 1, "one warning logged");
   assert.match(warnings[0].msg, /disagree/i);
   assert.equal(warnings[0].obj.customer, "Acme");

@@ -210,7 +210,13 @@ export function __chunkBodyLineCount(chunk: string): number {
   const lines = chunk.split("\n");
   // chunk shape: marker line, header line, then body lines.
   const body = lines.slice(2);
-  return body.filter((ln) => ln.trim().replace(/,/g, "")).length;
+  // Strip ALL whitespace, not just the ends. `.trim().replace(/,/g,"")` left the INNER
+  // spaces of a spacer like "   ,  ," as "  " — a truthy string — so whitespace spacers
+  // counted as real data and inflated the denominator. That is precisely the false-trip
+  // this helper exists to prevent: 30 real rows among 90 spacers read as 30/120 = 25%,
+  // under the 50% yield floor, firing a halve-and-retry that either doubles the spend or
+  // hard-fails on the second halving.
+  return body.filter((ln) => ln.replace(/[\s,]/g, "")).length;
 }
 
 export function normalizeIsoDate(input: unknown): string | null {
@@ -666,9 +672,14 @@ function buildClaudePrompt(
  * After dedupe we also run a sanity-check backstop: for each row with
  * both clock times AND a stated `hours`, if the stated hours disagree
  * with the clock-time span by more than `HOURS_SANITY_TOLERANCE`, we
- * log a structured warning and prefer the LARGER value so payroll
- * never silently under-reports. This is defense-in-depth for future
- * format drift the dedupe rule doesn't catch.
+ * log a structured warning and TRUST THE STATED VALUE.
+ *
+ * ⚠️ It used to prefer the LARGER value, and that was wrong — see the
+ * revised Task #376 note at the backstop itself. Customer files report a
+ * Total/Hours column that already nets the unpaid break and their own
+ * rounding, so preferring the raw span over-reported breaks every week.
+ * If you are here because a test says "prefers the larger value", the
+ * TEST is the stale half; reverting the code re-creates the over-report.
  */
 const HOURS_SANITY_TOLERANCE = 0.5;
 

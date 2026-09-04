@@ -299,17 +299,27 @@ test("chunked path runs chunks in parallel, not sequentially (Task #267)", async
     resolve(here, "../aiExtract.ts"),
     "utf8",
   );
+  // The constant stopped being a bare literal: it is now
+  // `Math.max(1, Number(process.env.CHUNK_CONCURRENCY) || 10)` so it can be tuned per
+  // environment. Match the DEFAULT out of either shape rather than pinning the syntax —
+  // the old /= \d+;/ regex failed against the expression form and took this whole test
+  // down with it, which is how a green gate went quietly red.
   assert.match(
     source,
-    /const XLSX_CHUNK_CONCURRENCY = \d+;/,
+    /const XLSX_CHUNK_CONCURRENCY =/,
     "XLSX_CHUNK_CONCURRENCY constant must exist (Task #267 parallelism)",
   );
-  const concurrencyMatch = source.match(/const XLSX_CHUNK_CONCURRENCY = (\d+);/);
-  assert.ok(concurrencyMatch);
+  const concurrencyMatch =
+    source.match(/Number\(process\.env\.CHUNK_CONCURRENCY\) \|\| (\d+)/) ??
+    source.match(/const XLSX_CHUNK_CONCURRENCY = (\d+);/);
+  assert.ok(concurrencyMatch, "must be able to read the default fan-out");
   const concurrency = Number(concurrencyMatch[1]);
+  // Was 3-8. Deliberately widened to 10: the token pacer (400k ITPM) is the real rate
+  // bound, so a wider fan-out just collapses a multi-chunk file into ~1 wave instead of
+  // several. The bound here only guards against a runaway or a disabled fan-out.
   assert.ok(
-    concurrency >= 3 && concurrency <= 8,
-    `XLSX_CHUNK_CONCURRENCY should be a small bounded number (3-8), got ${concurrency}`,
+    concurrency >= 3 && concurrency <= 32,
+    `XLSX_CHUNK_CONCURRENCY should be a small bounded number (3-32), got ${concurrency}`,
   );
 
   // Behavioral check: a worker pool implementation must use Promise.all
