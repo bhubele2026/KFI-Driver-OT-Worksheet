@@ -7,6 +7,7 @@ import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { useAccess } from "@/lib/access";
 import { GearButton } from "@/components/gear-button";
+import { MappingsButton } from "@/components/mappings-button";
 
 // The nav is driven by GET /api/tiles (same source as the home grid), so a
 // tile the owner switched off disappears from BOTH without a second list to
@@ -60,6 +61,7 @@ export function AppShell({
             {user?.email && (
               <span className="hidden text-xs text-white/60 lg:inline">{user.email}</span>
             )}
+            {access?.isAdmin && <MappingsButton className="h-8 w-8" />}
             {access?.isOwner && <GearButton className="h-8 w-8" />}
             <Button
               variant="ghost"

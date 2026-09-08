@@ -100,6 +100,13 @@ export interface CustomerPreviewData {
    * confirming the upload.
    */
   droppedRows?: CustomerPreviewDroppedRow[];
+  /**
+   * People the census read off the sheet that the server could not place
+   * against the fleet. Until 2026-09-08 these existed nowhere a human could
+   * see: not rows, not `unmappedIds`, not `droppedRows` — so a real driver
+   * could lose a week of pay and the upload looked completely clean.
+   */
+  unplacedWorkers?: string[];
 }
 
 export interface CustomerPreviewDroppedRow {
@@ -590,6 +597,29 @@ export function CustomerPreviewDialog({
               ) : null}
             </div>
           )}
+          {preview.unplacedWorkers && preview.unplacedWorkers.length > 0 ? (
+            <div
+              className="rounded-md border border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 space-y-2"
+              data-testid="text-unplaced-warning"
+            >
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  {t("customerPreview.unplacedHeadline", {
+                    count: preview.unplacedWorkers.length,
+                  })}
+                </span>
+              </div>
+              <ul className="ml-6 max-h-[20vh] list-disc space-y-0.5 overflow-auto">
+                {preview.unplacedWorkers.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+              <p className="ml-6 opacity-80">
+                {t("customerPreview.unplacedHelp")}
+              </p>
+            </div>
+          ) : null}
           {preview.droppedRows && preview.droppedRows.length > 0 ? (
             <DroppedBreakdown
               rows={preview.droppedRows}

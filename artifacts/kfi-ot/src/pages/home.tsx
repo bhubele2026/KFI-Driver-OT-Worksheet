@@ -6,6 +6,7 @@ import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { useAccess } from "@/lib/access";
 import { GearButton } from "@/components/gear-button";
+import { MappingsButton } from "@/components/mappings-button";
 
 /**
  * The tile list is NOT hardcoded here any more. It comes from GET /api/tiles,
@@ -42,6 +43,7 @@ export default function Home() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {access?.isAdmin && <MappingsButton />}
             {access?.isOwner && <GearButton />}
             <Button
               variant="ghost"

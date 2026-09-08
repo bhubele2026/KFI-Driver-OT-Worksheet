@@ -1,3 +1,5 @@
+import { useAccess } from "@/lib/access";
+import { OwnerOnlyNotice } from "@/components/owner-only-notice";
 import { useTranslation } from "react-i18next";
 import { Link, Redirect } from "wouter";
 import { useEffect } from "react";
@@ -60,8 +62,14 @@ export default function AdminDeletedNotes() {
 
   const restoreNote = useRestoreDriverNote();
 
+  const access = useAccess();
   if (!meLoading && me && !me.isAdmin) {
     return <Redirect to="/" />;
+  }
+  // The API for this page is owner-only; without this an admin sees an empty
+  // table instead of being told the page isn't theirs.
+  if (access && !access.isOwner) {
+    return <OwnerOnlyNotice title="Deleted notes" />;
   }
 
   const handleRestore = (n: DeletedDriverNote) => {

@@ -1147,7 +1147,7 @@ paths:
     delete:
       operationId: forgetCustomerNameAlias
       tags: [ingest]
-      summary: Forget a previously-saved (customer, nameOnDoc) → kfiId mapping so the dispatcher can re-decide next time.
+      summary: Forget a previously-saved (customer, nameOnDoc) → kfiId mapping so the dispatcher can re-decide next time (admin-only).
       parameters:
         - name: customer
           in: query
@@ -1160,6 +1160,7 @@ paths:
       responses:
         "204": { description: Forgotten (or no alias existed) }
         "400": { description: Invalid input }
+        "403": { description: Admin only }
 
   /customer-aliases/audit-log:
     get:
@@ -4057,6 +4058,22 @@ components:
             row. The preview dialog buckets these by reason so the
             dispatcher can fix obvious problems (missing alias, wrong
             week, …) BEFORE confirming the upload.
+        unplacedWorkers:
+          type: array
+          items: { type: string }
+          description: |
+            People the census read off the sheet that the server could
+            not place against the fleet — `name` or `name (badge)`, or
+            a short reason such as "matched a driver with no
+            Connecteam time this week".
+
+            These were invisible before 2026-09-08: they are not rows,
+            not `unmappedIds` and not `droppedRows`, and were shown to
+            a human only when the file yielded ZERO rows. On a normal
+            upload a skipped driver therefore left no trace at all —
+            which is how Burnett Grantsburg's Willie Medina lost a
+            week of pay silently (his sheet spelling, "Anthony
+            Medina", scores 0.571 against the roster's legal name).
 
     ConfirmCustomerFileInput:
       type: object

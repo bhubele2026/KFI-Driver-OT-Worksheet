@@ -460,7 +460,12 @@ export async function extractImageForKnownCustomer(args: {
       drivers.map((d) => ({ kfiId: d.kfiId, name: d.name, customer: d.customer ?? "" })),
       1,
     )[0];
-    return best && best.confidence >= 0.85;
+    // 0.5, not 0.85. The old floor made this warn useless for the exact
+    // failure it exists to catch: "Anthony Medina" vs the roster's "Willie
+    // Medina" scores 0.571, so the one driver we actually lost never
+    // appeared here. Anything sharing a strong token with a real driver is
+    // worth a line in the log.
+    return best && best.confidence >= 0.5;
   });
   if (likelySkippedDrivers.length > 0) {
     log?.warn(

@@ -1,3 +1,5 @@
+import { useAccess } from "@/lib/access";
+import { OwnerOnlyNotice } from "@/components/owner-only-notice";
 import { Link, Redirect } from "wouter";
 import {
   useGetMe,
@@ -45,8 +47,14 @@ export default function AdminBootAudit() {
     },
   );
 
+  const access = useAccess();
   if (!meLoading && me && !me.isAdmin) {
     return <Redirect to="/" />;
+  }
+  // The API for this page is owner-only; without this an admin sees an empty
+  // table instead of being told the page isn't theirs.
+  if (access && !access.isOwner) {
+    return <OwnerOnlyNotice title="Boot audit" />;
   }
 
   const rows: BootAuditRow[] = data ?? [];

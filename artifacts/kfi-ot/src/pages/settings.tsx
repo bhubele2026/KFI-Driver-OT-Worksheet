@@ -22,7 +22,10 @@ const GROUPS: { label: string; tiles: SettingTile[] }[] = [
     tiles: [
       { href: "/admin/customers", title: "Customers", blurb: "Active customers, filename keywords, and Gemini fallback." },
       { href: "/admin/customer-import-rules", title: "Import rules", blurb: "Per-customer read exceptions: sheet, name layout, actual-vs-scheduled, total rows to drop." },
-      { href: "/admin/customer-aliases", title: "Customer aliases", blurb: "Alternate names that map to a customer." },
+      // Was "Customer aliases / Alternate names that map to a customer" — which
+      // describes company-name aliases. The page maps PEOPLE: a name on a
+      // timesheet to the KFI driver it means. Its own title always said so.
+      { href: "/admin/customer-aliases", title: "Customer-driver mappings", blurb: "A name as it appears on a customer's timesheet, and the KFI driver it means." },
       { href: "/admin/inactive-customers", title: "Inactive customers", blurb: "Archived customers kept for history." },
     ],
   },

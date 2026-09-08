@@ -2663,6 +2663,13 @@ weeksRouter.post(
       geminiFallbackUsed,
       sameAsLastImport,
       droppedRows: result.droppedRows ?? [],
+      // People the census read off the sheet that the server could not place
+      // against the fleet. Before this they existed ONLY on `ParseResult` and
+      // were surfaced to a human just once — when the file yielded zero rows —
+      // so on a normal upload a skipped driver was invisible in every surface:
+      // not a row, not an unmappedId, not a droppedRow. That is how Burnett's
+      // Willie Medina went missing without a trace (2026-09-08).
+      unplacedWorkers: result.otherWorkerNames ?? [],
     });
   },
 );
@@ -2996,6 +3003,8 @@ weeksRouter.post(
 
     const lockedKfiIds = await loadLockedKfiIds(startDate);
     const lockedSkipped: string[] = [];
+    /** Drivers whose rows were dropped for having no Connecteam time this week. */
+    const noCtSkipped: string[] = [];
     // Pending rows skipped because a "not a driver — never import" rule
     // vetoed them at confirm time (labels: `id (name)`).
     const ignoredSkipped: string[] = [];
@@ -3329,6 +3338,9 @@ weeksRouter.post(
               },
               "confirm-customer-file: blocked Customer punches for drivers with no Connecteam time this week",
             );
+            for (const k of byDriver.keys()) {
+              if (!noCtSkipped.includes(k)) noCtSkipped.push(k);
+            }
             insertablePunches = insertablePunches.filter((p) => ctActive.has(p.kfiId));
           }
         }
@@ -3501,6 +3513,11 @@ weeksRouter.post(
       punchesUpserted: insertablePunches.length,
       unmappedIds: visibleUnmappedConfirm,
       lockedSkipped,
+      // Was log-only here, while the sibling /confirm-new-customer already
+      // returned it. A dispatcher who maps someone in the picker and still
+      // sees no hours deserves to be told the rows were dropped for having
+      // no Connecteam time, rather than concluding the pick failed.
+      noCtSkipped,
       ignoredSkipped,
       ignoreCleared,
     });
@@ -5609,7 +5626,12 @@ weeksRouter.patch("/customer-aliases", requireAdmin, async (req, res) => {
   });
 });
 
-weeksRouter.delete("/customer-aliases", async (req, res) => {
+// requireAdmin, matching its GET/PATCH/audit-log siblings. It was the only
+// one of the four without a guard, so any signed-in user could forget any
+// saved name->driver mapping. The schema comment for customer_alias_audit_log
+// contemplates "or dispatcher, in the case of forgets", but the only UI that
+// exposes this is the admin-gated mappings page, so nothing needed the hole.
+weeksRouter.delete("/customer-aliases", requireAdmin, async (req, res) => {
   const customer = String(req.query.customer ?? "").trim();
   const nameOnDoc = String(req.query.nameOnDoc ?? "").trim();
   if (!customer || !nameOnDoc) {

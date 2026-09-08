@@ -1,3 +1,5 @@
+import { useAccess } from "@/lib/access";
+import { OwnerOnlyNotice } from "@/components/owner-only-notice";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, Redirect, useSearch, useLocation } from "wouter";
@@ -152,8 +154,14 @@ export default function AdminAiSamples() {
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [filtered]);
 
+  const access = useAccess();
   if (!meLoading && me && !me.isAdmin) {
     return <Redirect to="/" />;
+  }
+  // The API for this page is owner-only; without this an admin sees an empty
+  // table instead of being told the page isn't theirs.
+  if (access && !access.isOwner) {
+    return <OwnerOnlyNotice title="AI samples" />;
   }
 
   const setCustomer = (next: string) => {

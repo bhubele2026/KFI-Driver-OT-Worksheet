@@ -49,6 +49,7 @@ import AdminAccess from "@/pages/admin-access";
 import DriverUpload from "@/pages/driver-upload";
 import History from "@/pages/history";
 import Settings from "@/pages/settings";
+import Mappings from "@/pages/mappings";
 import WeekSummary from "@/pages/week-summary";
 import DriverDetail from "@/pages/driver-detail";
 import { VersionRefreshBanner } from "@/components/version-refresh-banner";
@@ -192,6 +193,7 @@ function Router() {
         <Route path="/timesheets" component={WeekSummary} />
         <Route path="/history" component={History} />
         <Route path="/settings" component={Settings} />
+        <Route path="/mappings" component={Mappings} />
         {/* Sub-tiles before the spine: each is its own grantable tile, and
             wouter matches in order. */}
         <Route path="/payroll-process/changes" component={PayrollChanges} />

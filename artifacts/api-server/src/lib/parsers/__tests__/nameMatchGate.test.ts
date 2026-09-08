@@ -231,3 +231,137 @@ test("resolveDriverId: bare first name no longer resolves", () => {
     "2005201",
   );
 });
+
+// ---------- 2026-09-08: Burnett's preferred names (Willie "Anthony" Medina) ----------
+//
+// Burnett Grantsburg's punch export carries `Last Name` + `Preferred/First
+// Name`. Column E is the NICKNAME, so the sheet says "Medina, Anthony" while
+// the roster — built from Connecteam firstName + lastName — says "Willie
+// Medina". Tiana reported both of these as "didn't come in" on PD 09.11.2026.
+
+function burnettRoster(over: Partial<RosterContext> = {}): RosterContext {
+  return {
+    customer: "Burnett Dairy - Grantsburg",
+    drivers: [
+      {
+        kfiId: "2004792",
+        name: "Willie Medina",
+        badges: [],
+        aliases: [],
+        customer: "Burnett Dairy - Grantsburg",
+      },
+      {
+        kfiId: "2005128",
+        // The same file really does contain an Anthony. Any nickname-tolerant
+        // scoring would hand Willie's hours to this man first.
+        name: "Anthony Evans",
+        badges: [],
+        aliases: [],
+        customer: "Burnett Dairy - Grantsburg",
+      },
+      {
+        kfiId: "2003301",
+        name: "Luis Ceballos Martinez",
+        badges: [],
+        aliases: [],
+        customer: "Burnett Dairy - Grantsburg",
+      },
+    ],
+    ...over,
+  };
+}
+
+test("preferred-name mismatch scores BELOW the wrong driver (why we don't loosen the gate)", () => {
+  const toWillie = nameMatchQuality("Anthony Medina", "Willie Medina");
+  const toEvans = nameMatchQuality("Anthony Medina", "Anthony Evans");
+  assert.equal(toWillie.strongPairs, 1);
+  assert.equal(toEvans.strongPairs, 1);
+  // The correct answer scores LOWER than the wrong one. Any threshold loose
+  // enough to auto-claim Willie claims Anthony Evans first.
+  assert.ok(
+    toEvans.score > toWillie.score,
+    `expected Evans (${toEvans.score}) > Willie (${toWillie.score})`,
+  );
+  assert.equal(isAutoAssignableName("Anthony Medina", "Willie Medina"), false);
+  assert.equal(isAutoAssignableName("Anthony Medina", "Anthony Evans"), false);
+});
+
+test("a shared surname reaches the PICKER instead of being dropped silently", () => {
+  const out = matchCensusToFleet(
+    [{ name: "Anthony Medina", badge: "10658" }],
+    burnettRoster(),
+  );
+  // Before 2026-09-08 this landed in `strangers`: never extracted, absent from
+  // rows, unmappedIds and droppedRows alike — a whole week of pay with no
+  // trace anywhere in the UI.
+  assert.deepEqual(out.strangers, []);
+  assert.equal(out.targets.length, 1);
+  assert.equal(out.targets[0].kfiId, null, "must NOT auto-assign");
+  assert.equal(out.targets[0].badge, "10658");
+  assert.equal(out.laneCounts.surnameNearMiss, 1);
+});
+
+test("a pinned badge beats a name the matcher cannot resolve", () => {
+  const out = matchCensusToFleet(
+    [{ name: "Anthony Medina", badge: "10658" }],
+    burnettRoster({
+      drivers: burnettRoster().drivers.map((d) =>
+        d.kfiId === "2004792" ? { ...d, badges: ["10658"] } : d,
+      ),
+    }),
+  );
+  assert.equal(out.targets.length, 1);
+  assert.equal(out.targets[0].kfiId, "2004792");
+  assert.equal(out.laneCounts.badge, 1);
+  assert.equal(out.laneCounts.surnameNearMiss, 0);
+});
+
+test("a saved name alias resolves the preferred spelling outright", () => {
+  const out = matchCensusToFleet(
+    [{ name: "Anthony Medina", badge: null }],
+    burnettRoster({
+      drivers: burnettRoster().drivers.map((d) =>
+        d.kfiId === "2004792" ? { ...d, aliases: ["Anthony Medina"] } : d,
+      ),
+    }),
+  );
+  assert.equal(out.targets[0].kfiId, "2004792");
+  assert.equal(out.laneCounts.nameAlias, 1);
+});
+
+test("a two-surname name still auto-assigns; the surname cell ALONE does not", () => {
+  const whole = matchCensusToFleet(
+    [{ name: "Luis Ceballos Martinez", badge: "10542" }],
+    burnettRoster(),
+  );
+  assert.equal(whole.targets[0].kfiId, "2003301", "full name auto-assigns");
+
+  // What a census blind to `nameMode: splitLastFirst` can return instead.
+  const surnameOnly = matchCensusToFleet(
+    [{ name: "Ceballos Martinez", badge: "10542" }],
+    burnettRoster(),
+  );
+  assert.equal(surnameOnly.targets.length, 1);
+  assert.equal(surnameOnly.targets[0].kfiId, null);
+  assert.deepEqual(surnameOnly.strangers, [], "must reach the picker, not vanish");
+});
+
+test("a genuinely unrelated worker is still a stranger", () => {
+  const out = matchCensusToFleet(
+    [{ name: "Priyanka Raghunathan", badge: "88881" }],
+    burnettRoster(),
+  );
+  assert.equal(out.targets.length, 0);
+  assert.equal(out.strangers.length, 1);
+  assert.equal(out.laneCounts.surnameNearMiss, 0);
+});
+
+test("the ignore veto still beats a surname near-miss (no weekly re-prompt)", () => {
+  const out = matchCensusToFleet(
+    [{ name: "Anthony Medina", badge: "10658" }],
+    burnettRoster({ ignoredExternalIds: ["10658"] }),
+  );
+  assert.equal(out.targets.length, 0);
+  assert.equal(out.laneCounts.ignoredBlocked, 1);
+  assert.equal(out.laneCounts.surnameNearMiss, 0);
+});

@@ -123,13 +123,26 @@ interface CensusWorker {
   badge: string | null;
 }
 
-/** Pass 1 — names only. No matching, no punches: mechanical and tiny. */
-function buildCensusPrompt(customer: string): string {
+/**
+ * Pass 1 — names only. No matching, no punches: mechanical and tiny.
+ *
+ * ⚠️ The census decides WHO GETS IMPORTED: pass 2 only ever extracts for the
+ * workers the server could match from this list, so a person the census names
+ * badly is dropped before extraction and never reaches the picker. That makes
+ * the per-customer read rules (`rulesToDirectives`) and the dispatcher's
+ * lessons load-bearing HERE, not just in `buildExtractPrompt` — Burnett
+ * Grantsburg splits its people across `Last Name` + `Preferred/First Name`
+ * columns, and a census that returns the surname cell alone ("Ceballos
+ * Martinez") scores 0.562 against the roster and is silently discarded.
+ */
+function buildCensusPrompt(customer: string, lessons?: string[]): string {
+  const lessonsBlock = formatLessonsBlockInline(lessons);
   return [
+    ...(lessonsBlock ? [lessonsBlock] : []),
     `You read a customer's timesheet document for KFI Staffing. Customer: "${customer}".`,
     ``,
     `List every distinct WORKER (person) who appears on the sheet — one entry per person, even if they have many rows.`,
-    `- name: exactly as written on the sheet.`,
+    `- name: the worker's FULL name. If the sheet splits the name across separate columns (for example a Last Name column and a First/Preferred Name column), combine them into one "First Last" value — never return the surname cell on its own.`,
     `- badge: the worker's id/badge/employee-number on the sheet, if shown; else null.`,
     `Skip column headers, blank rows, page footers, and total/subtotal rows. Do not invent names.`,
     ``,
@@ -207,6 +220,8 @@ export function matchCensusToFleet(
     nameAlias: number;
     fuzzyConfident: number;
     fuzzyBorderline: number;
+    /** Promoted to the picker on a single shared strong token (usually a surname). */
+    surnameNearMiss: number;
     zeroCtBlocked: number;
     ignoredBlocked: number;
   };
@@ -220,6 +235,7 @@ export function matchCensusToFleet(
     nameAlias: 0,
     fuzzyConfident: 0,
     fuzzyBorderline: 0,
+    surnameNearMiss: 0,
     zeroCtBlocked: 0,
     ignoredBlocked: 0,
   };
@@ -375,6 +391,26 @@ export function matchCensusToFleet(
         laneSamples.push(`${w.name}~${bestName} @${bestScore.toFixed(2)}`);
       }
       targets.push({ name: w.name, badge: w.badge, kfiId: null });
+    } else if (scored.some((x) => x.q.strongPairs >= 1)) {
+      // ONE strong token — in practice a shared surname. This is the lane that
+      // used to lose people silently, and it loses a whole WEEK OF PAY when it
+      // does: Burnett Grantsburg writes its people by preferred name, so
+      // "Anthony Medina" scores 0.571 / 1-of-2 against the roster's legal
+      // "Willie Medina" and fell straight through to `strangers` — never
+      // extracted, never in the picker, never in droppedRows, and below the
+      // 0.85 floor of the "likely skipped driver" warn, so not even logged.
+      //
+      // A shared surname is exactly the case a human should adjudicate, so
+      // extract the rows and let the picker decide. The cost is a one-time
+      // picker prompt for unrelated people who happen to share a surname with
+      // a driver; that is what the v97 ignore list is for — "not a driver"
+      // sticks and vetoes them on every later upload, so this cannot become a
+      // weekly re-prompt.
+      laneCounts.surnameNearMiss++;
+      if (laneSamples.length < 15) {
+        laneSamples.push(`${w.name}≈${bestName} @${bestScore.toFixed(2)} SURNAME`);
+      }
+      targets.push({ name: w.name, badge: w.badge, kfiId: null });
     } else {
       strangers.push(w.badge ? `${w.name} (${w.badge})` : w.name);
     }
@@ -413,7 +449,10 @@ export async function fastExtractRows(
 
   // ---- Pass 1: census (who is on this sheet?) ----
   const census = await client.generate({
-    parts: [...parts, { kind: "text", text: buildCensusPrompt(customer) }],
+    parts: [
+      ...parts,
+      { kind: "text", text: buildCensusPrompt(customer, lessons) },
+    ],
     maxOutputTokens: 16384,
     timeoutMs: 120_000,
   });
