@@ -1,4 +1,4 @@
-// CANONICAL @kfi/zenople v1.2.0 — sha256:2a61b4ffc94302612f8081ed490c43269abf0e09ae9290ce834f42260c15eb5a
+// CANONICAL @kfi/zenople v1.3.0 — sha256:63889d32e866e15a779957a922a6197f39952aa51fe7f625313f9000f22e62bf
 // VENDORED COPY — do not edit. Change KFI-Financial-Dashboard/packages/zenople/src/client.ts,
 // then run `pnpm --filter @kfi/zenople sync`. Local edits fail this repo's green gate.
 /**
@@ -24,6 +24,13 @@
  *     `COOLDOWN_MS` below is only the in-process floor of that contract (not
  *     bypassable, not even with `force`); the vendor's answer surfaces as
  *     `ZenopleDuplicateRequestError`, never retried, never pausing the queue.
+ *   • A WINDOW MAY NOT EXCEED 32 DAYS (also since 2026-09-04), and the refusal is
+ *     HTTP 200 with a ONE-ROW ARRAY: [{"message":"Date range between
+ *     uTCStartDateTime and uTCEndDateTime cannot exceed 32 days."}]. To a caller
+ *     that is one row of data, and it silently emptied every wide pull in the
+ *     fleet for four days. `pull` now throws `WindowTooWideError` (a
+ *     LargeDataSetError, so `pullRange` halves into it) and any other lone
+ *     {"message"} row as `ZenopleMessageError`.
  *
  * ── What this client guarantees its callers ────────────────────────────────
  *   queue + bounded concurrency · exponential backoff honoring Retry-After ·
@@ -35,7 +42,7 @@
 
 import { createHash } from "node:crypto";
 
-export const ZENOPLE_CLIENT_VERSION = "1.2.0";
+export const ZENOPLE_CLIENT_VERSION = "1.3.0";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
@@ -66,6 +73,13 @@ const TIMEOUT_MS = () => Math.max(1000, envNum("ZENOPLE_TIMEOUT_MS", 120_000));
 /** Our side of the vendor's same-payload cooldown. Never bypassable. */
 const COOLDOWN_MS = () => envNum("ZENOPLE_COOLDOWN_MS", 10_000);
 const MAX_RETRIES = () => envNum("ZENOPLE_MAX_RETRIES", 4);
+/**
+ * The vendor's window cap (32 days since 2026-09-04). A wider ask is walked in slices of
+ * WINDOW_CAP_DAYS − 2 inside `pull` itself, so no caller has to know — and a refusal that
+ * names a LOWER cap re-slices to that.
+ */
+const WINDOW_CAP_DAYS = () => Math.max(1, envNum("ZENOPLE_WINDOW_CAP_DAYS", 32));
+const SLICE_DAYS = (cap: number) => Math.max(0.5, cap - 2);
 const BACKOFF_BASE_MS = () => Math.max(1, envNum("ZENOPLE_BACKOFF_BASE_MS", 1000));
 const MAX_BACKOFF_MS = () => Math.max(1000, envNum("ZENOPLE_MAX_BACKOFF_MS", 60_000));
 const CACHE_MAX_ENTRIES = 200;
@@ -107,12 +121,57 @@ const sleep = (ms: number) => __zenopleTestHooks.sleep(ms);
 /** HTTP 200 + {"msg":"Large data set"} — narrow the window, do not treat as data. */
 export class LargeDataSetError extends Error {
   readonly action: string;
-  constructor(action: string) {
-    super(`Zenople ${action}: window too wide ("Large data set") — narrow or chunk it`);
+  constructor(action: string, detail?: string) {
+    super(`Zenople ${action}: window too wide ("Large data set") — narrow or chunk it${detail ? ` (${detail})` : ""}`);
     this.name = "LargeDataSetError";
     this.action = action;
   }
 }
+
+/**
+ * HTTP 200 whose body is a single {"message": …} row — the vendor's other way of
+ * refusing. Never data; never retried.
+ */
+export class ZenopleMessageError extends Error {
+  readonly action: string;
+  readonly vendorMessage: string;
+  constructor(action: string, message: string) {
+    super(`Zenople ${action}: ${message}`);
+    this.name = "ZenopleMessageError";
+    this.action = action;
+    this.vendorMessage = message;
+  }
+}
+
+/**
+ * "Date range … cannot exceed N days" (N = 32 as of 2026-09-04). A LargeDataSetError on
+ * purpose: every "narrow it" path — `pullRange`'s halving, callers' string checks for
+ * "Large data set" — already does the right thing with it.
+ */
+export class WindowTooWideError extends LargeDataSetError {
+  readonly maxDays: number;
+  readonly vendorMessage: string;
+  constructor(action: string, maxDays: number, message: string) {
+    super(action);
+    this.message =
+      `Zenople ${action}: window too wide — the vendor caps a window at ${maxDays} days ` +
+      `("Large data set" handling applies: narrow or chunk it). Vendor said: ${message}`;
+    this.name = "WindowTooWideError";
+    this.maxDays = maxDays;
+    this.vendorMessage = message;
+  }
+}
+
+/** A lone {"message": "…"} element — the refusal shape, never a data row. */
+const asMessageRow = (rows: unknown[]): string | null => {
+  if (rows.length !== 1) return null;
+  const r = rows[0];
+  if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+  const keys = Object.keys(r as object);
+  if (keys.length !== 1 || keys[0] !== "message") return null;
+  const m = (r as { message: unknown }).message;
+  return typeof m === "string" ? m : null;
+};
 
 export class ZenopleHttpError extends Error {
   readonly action: string;
@@ -355,7 +414,7 @@ function backoffMs(attempt: number): number {
 }
 
 const isTransientNetworkError = (e: unknown): boolean => {
-  if (e instanceof ZenopleHttpError || e instanceof LargeDataSetError) return false;
+  if (e instanceof ZenopleHttpError || e instanceof LargeDataSetError || e instanceof ZenopleMessageError) return false;
   const name = (e as { name?: string })?.name ?? "";
   const msg = String((e as { message?: string })?.message ?? e ?? "");
   return (
@@ -506,8 +565,8 @@ export function stableWindow(days: number, opts: PullOptions = {}): { start: Dat
   return { start: fresh.start, end: fresh.end };
 }
 
-function buildFilters(opts: PullOptions): Record<string, string> {
-  const filters: Record<string, string> = {};
+/** The window a pull will ask for, once `lookbackDays` has been resolved. */
+function resolveWindow(opts: PullOptions): { start?: Date | string | number; end?: Date | string | number } {
   let { start, end } = opts;
   if (opts.lookbackDays != null && start === undefined && end === undefined) {
     // ⚠️ ONLY this derived window is stabilised. An explicit start/end is
@@ -515,6 +574,15 @@ function buildFilters(opts: PullOptions): Record<string, string> {
     // would silently change which rows come back on a money path.
     ({ start, end } = stableWindow(opts.lookbackDays, opts));
   }
+  return { start, end };
+}
+
+const spanDays = (w: { start?: Date | string | number; end?: Date | string | number }): number =>
+  w.start === undefined || w.end === undefined ? 0 : (asDate(w.end).getTime() - asDate(w.start).getTime()) / 86_400_000;
+
+function buildFilters(opts: PullOptions): Record<string, string> {
+  const filters: Record<string, string> = {};
+  const { start, end } = resolveWindow(opts);
   if (start !== undefined) filters["uTCStartDateTime"] = zTime(start);
   if (end !== undefined) filters["uTCEndDateTime"] = zTime(end);
   const include = opts.includeData === undefined ? "Current" : opts.includeData;
@@ -530,6 +598,12 @@ export async function pull<T = Record<string, unknown>>(action: string, opts: Pu
   const filters = buildFilters(opts);
   const body = JSON.stringify({ action, filters });
   const key = createHash("sha256").update(body).digest("hex");
+  const window = resolveWindow(opts);
+  const span = spanDays(window);
+
+  // A window over the vendor's cap is never sent as one request: it is walked in slices and
+  // memoised under THIS body, so a caller's cacheTtlMs / coalescing still apply to the wide ask.
+  if (span > WINDOW_CAP_DAYS()) return pullWide<T>(action, opts, window, key, SLICE_DAYS(WINDOW_CAP_DAYS()));
 
   // An identical request already in flight: join it rather than send a second.
   const running = inFlightByKey.get(key);
@@ -594,6 +668,12 @@ export async function pull<T = Record<string, unknown>>(action: string, opts: Pu
           if (/large data set/i.test(text)) throw new LargeDataSetError(action);
           throw new Error(`Zenople ${action}: unexpected response ${text.slice(0, 200)}`);
         }
+        const refusal = asMessageRow(json);
+        if (refusal !== null) {
+          const cap = /cannot exceed (\d+) days/i.exec(refusal);
+          if (cap) throw new WindowTooWideError(action, Number(cap[1]), refusal);
+          throw new ZenopleMessageError(action, refusal);
+        }
         if (json.length === 0) {
           // Data to this client, but the one shape a caller cannot tell from a broken feed.
           stats.emptyResponses++;
@@ -629,6 +709,56 @@ export async function pull<T = Record<string, unknown>>(action: string, opts: Pu
     throw lastError instanceof Error ? lastError : new Error(`Zenople ${action}: exhausted retries`);
   })();
 
+  inFlightByKey.set(key, task);
+  try {
+    return (await task).slice() as T[];
+  } catch (e) {
+    // The vendor named a cap LOWER than the one we assume: re-ask in slices of that cap.
+    // (A refusal at or under its own cap is a real error — re-slicing to the same width
+    // would loop — and is thrown as it is.)
+    if (e instanceof WindowTooWideError && e.maxDays < span && span > 1) {
+      inFlightByKey.delete(key); // or the re-ask would join the task that just failed
+      return pullWide<T>(action, opts, window, key, SLICE_DAYS(e.maxDays));
+    }
+    throw e;
+  } finally {
+    inFlightByKey.delete(key);
+  }
+}
+
+/**
+ * One logical pull answered from slices the vendor accepts. Concatenation is the whole answer:
+ * every action filters rows by ONE date (last-modified, check date, accounting period…), so a
+ * row lives in exactly one slice and the union is the wide window's result.
+ */
+async function pullWide<T>(
+  action: string,
+  opts: PullOptions,
+  window: { start?: Date | string | number; end?: Date | string | number },
+  key: string,
+  sliceDays: number,
+): Promise<T[]> {
+  const running = inFlightByKey.get(key);
+  if (running) {
+    stats.coalesced++;
+    return (await running).slice() as T[];
+  }
+  const floor = Math.max(opts.force ? 0 : (opts.cacheTtlMs ?? 0), COOLDOWN_MS());
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < floor) {
+    stats.cacheHits++;
+    return hit.rows.slice() as T[];
+  }
+  const task = (async (): Promise<unknown[]> => {
+    const { lookbackDays: _lb, start: _s, end: _e, ...rest } = opts;
+    const { rows, skipped } = await pullRange<T>(action, window.start!, window.end!, { ...rest, chunkDays: sliceDays });
+    if (skipped.length) {
+      // `pull` promises the whole window or an error — never a quietly thinner answer.
+      throw new LargeDataSetError(action, `${skipped.length} slice(s) unpullable at any width: ${skipped.slice(0, 3).join(", ")}`);
+    }
+    remember(key, rows);
+    return rows;
+  })();
   inFlightByKey.set(key, task);
   try {
     return (await task).slice() as T[];
@@ -680,6 +810,9 @@ async function pullHalving<T>(
   } catch (e) {
     if (!(e instanceof LargeDataSetError)) throw e;
     const span = new Date(endISO).getTime() - new Date(startISO).getTime();
+    // A window the vendor refused although it is already inside the cap it named is not a
+    // size problem — halving it would only loop. Let the caller see the refusal.
+    if (e instanceof WindowTooWideError && span <= e.maxDays * 86_400_000) throw e;
     if (span <= HALVING_FLOOR_MS) {
       skipped.push(`${startISO}..${endISO}`);
       stats.chunksSkipped++;
