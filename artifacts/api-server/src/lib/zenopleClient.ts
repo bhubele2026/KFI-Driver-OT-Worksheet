@@ -1,4 +1,4 @@
-// CANONICAL @kfi/zenople v1.3.0 — sha256:63889d32e866e15a779957a922a6197f39952aa51fe7f625313f9000f22e62bf
+// CANONICAL @kfi/zenople v1.3.1 — sha256:aa2a9204e3905aa6e28c4857b88eaff5cc499f51a4d021a3f94406769b2641a5
 // VENDORED COPY — do not edit. Change KFI-Financial-Dashboard/packages/zenople/src/client.ts,
 // then run `pnpm --filter @kfi/zenople sync`. Local edits fail this repo's green gate.
 /**
@@ -42,7 +42,7 @@
 
 import { createHash } from "node:crypto";
 
-export const ZENOPLE_CLIENT_VERSION = "1.3.0";
+export const ZENOPLE_CLIENT_VERSION = "1.3.1";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
@@ -432,6 +432,8 @@ interface CacheEntry {
 }
 const cache = new Map<string, CacheEntry>();
 const inFlightByKey = new Map<string, Promise<unknown[]>>();
+/** Actions already warned about for an empty answer — once per process, the rest are only counted. */
+const warnedEmpty = new Set<string>();
 
 function remember(key: string, rows: unknown[]): void {
   cache.set(key, { at: Date.now(), rows });
@@ -451,6 +453,7 @@ export function resetZenopleCache(): void {
 /** Tests only: full reset of queue, token, cache and counters. */
 export function __resetZenopleState(): void {
   cache.clear();
+  warnedEmpty.clear();
   derivedWindows.clear();
   inFlightByKey.clear();
   waiters.length = 0;
@@ -676,8 +679,13 @@ export async function pull<T = Record<string, unknown>>(action: string, opts: Pu
         }
         if (json.length === 0) {
           // Data to this client, but the one shape a caller cannot tell from a broken feed.
+          // Counted every time (stats.emptyResponses), said ONCE per action: a 30-day walk over
+          // years of JobData is empty for most of 2021 and that is not news sixty times a run.
           stats.emptyResponses++;
-          console.warn(`[zenople] ${action}: 0 rows for ${JSON.stringify(filters).slice(0, 160)}`);
+          if (!warnedEmpty.has(action)) {
+            warnedEmpty.add(action);
+            console.warn(`[zenople] ${action}: 0 rows for ${JSON.stringify(filters).slice(0, 160)} (further empty answers are counted, not logged)`);
+          }
         }
 
         stats.lastSuccessAt = new Date().toISOString();
