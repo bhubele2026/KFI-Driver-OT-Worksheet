@@ -1,4 +1,4 @@
-// CANONICAL @kfi/zenople v1.3.1 — sha256:aa2a9204e3905aa6e28c4857b88eaff5cc499f51a4d021a3f94406769b2641a5
+// CANONICAL @kfi/zenople v1.3.2 — sha256:5fc4fdf712ba356a72e3e60f9dd8f28c6e94450a4df212e9a62ad2cdfcccbaac
 // VENDORED COPY — do not edit. Change KFI-Financial-Dashboard/packages/zenople/src/client.ts,
 // then run `pnpm --filter @kfi/zenople sync`. Local edits fail this repo's green gate.
 /**
@@ -42,7 +42,7 @@
 
 import { createHash } from "node:crypto";
 
-export const ZENOPLE_CLIENT_VERSION = "1.3.1";
+export const ZENOPLE_CLIENT_VERSION = "1.3.2";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
@@ -699,7 +699,9 @@ export async function pull<T = Record<string, unknown>>(action: string, opts: Pu
           ((e instanceof ZenopleHttpError && (RETRYABLE_STATUS.has(e.status) || e.status === 401)) ||
             isTransientNetworkError(e));
         if (!retryable || attempt >= MAX_RETRIES()) {
-          stats.errors++;
+          // A duplicate refusal has its own counter and is routinely handled by the caller
+          // (stored copy, skipped window); counting it here too made a clean run read "86 errors".
+          if (!(e instanceof ZenopleDuplicateRequestError)) stats.errors++;
           stats.lastError = e instanceof Error ? e.message : String(e);
           stats.lastErrorAt = new Date().toISOString();
           throw e;
