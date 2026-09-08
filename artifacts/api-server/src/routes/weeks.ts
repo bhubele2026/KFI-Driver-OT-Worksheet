@@ -117,7 +117,7 @@ import {
   sanitizeRulesForStore,
 } from "../lib/parsers/customerRules.js";
 import { isBadgeMatchTrustworthy, topMatches } from "../lib/parsers/fuzzy.js";
-import { narrowDriverPool } from "../lib/parsers/candidatePool.js";
+import { keepsTimeInZenople } from "../lib/payrollRates.js";
 import {
   ALLOWED_TZS,
   diffHours,
@@ -208,6 +208,53 @@ async function loadCtActiveKfiIds(weekStart: string): Promise<Set<string>> {
       ),
     );
   return new Set(rows.map((r) => r.kfiId));
+}
+
+/**
+ * Does this customer keep time in Zenople rather than Connecteam?
+ *
+ * ⚠️ For a `zenople` customer, having NO Connecteam time is the expected
+ * state, not a warning sign — they send no timesheet through Connecteam at
+ * all, and only the drivers among them clock in, only for driving. Applying
+ * the 2026-08-04 zero-Connecteam rule there silently deletes real customer
+ * hours for every non-driver, every week, with no surface saying so. That is
+ * what happened to Shuster's Aldo Ramirez (2026-09-08).
+ *
+ * `payroll_customers.timekeeping_mode` is the source of truth; the SOP list in
+ * payrollRates is only its seed, so fall back to that when a customer has no
+ * row yet. Name matching is deliberately tolerant on both sides — this
+ * customer wears at least four spellings ("Shuster", "Shusters", "Shuster's",
+ * "Shuster's Building Components") and an exact-equality miss here would
+ * re-introduce the very bug this guards against.
+ */
+async function loadZeroCtExempt(customer: string): Promise<boolean> {
+  const fold = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const target = fold(customer);
+  if (!target) return false;
+  try {
+    const rows = await db
+      .select({
+        zenopleName: schema.payrollCustomersTable.zenopleName,
+        displayName: schema.payrollCustomersTable.displayName,
+        fileToken: schema.payrollCustomersTable.fileToken,
+        mode: schema.payrollCustomersTable.timekeepingMode,
+      })
+      .from(schema.payrollCustomersTable);
+    for (const r of rows) {
+      const names = [r.zenopleName, r.displayName, r.fileToken]
+        .filter((n): n is string => !!n && n.trim().length > 0)
+        .map(fold);
+      const hit = names.some(
+        (n) => n === target || n.startsWith(target) || target.startsWith(n),
+      );
+      if (hit) return r.mode === "zenople";
+    }
+  } catch (err) {
+    // An unreadable roster must not silently flip the rule either way;
+    // fall through to the seed list, which is the documented default.
+    void err;
+  }
+  return keepsTimeInZenople(customer);
 }
 
 /**
@@ -2321,6 +2368,7 @@ weeksRouter.post(
           log: req.log,
           importRules: customerRules,
           ctActiveKfiIds: await loadCtActiveKfiIds(startDate),
+          zeroCtExempt: await loadZeroCtExempt(detectedCustomer),
           ignoredExternalIds: await loadIgnoredExternalIds(detectedCustomer),
           aiOpts: {
             budget: aiBudget,
@@ -2825,6 +2873,7 @@ weeksRouter.post(
           log: req.log,
           importRules: reCustomerRules,
           ctActiveKfiIds: await loadCtActiveKfiIds(startDate),
+          zeroCtExempt: await loadZeroCtExempt(sample.customer),
           ignoredExternalIds: await loadIgnoredExternalIds(sample.customer),
           aiOpts: {
             budget: reBudget,
@@ -3005,6 +3054,8 @@ weeksRouter.post(
     const lockedSkipped: string[] = [];
     /** Drivers whose rows were dropped for having no Connecteam time this week. */
     const noCtSkipped: string[] = [];
+    /** Drivers with no Connecteam time whose rows were imported anyway. */
+    const noCtBypassed: string[] = [];
     // Pending rows skipped because a "not a driver — never import" rule
     // vetoed them at confirm time (labels: `id (name)`).
     const ignoredSkipped: string[] = [];
@@ -3323,7 +3374,34 @@ weeksRouter.post(
         // Connecteam time this week. Blocked rows are dropped loudly.
         {
           const ctActive = await loadCtActiveKfiIds(startDate);
-          const blockedNoCt = insertablePunches.filter((p) => !ctActive.has(p.kfiId));
+          // Same two escapes as the census matcher (2026-09-08). A customer
+          // who keeps time in Zenople has no Connecteam side by design, and a
+          // driver the dispatcher pinned by badge or picked by hand has an
+          // identity that a Connecteam punch cannot improve on. Without these
+          // this backstop deleted rows the dispatcher had just confirmed BY
+          // NAME in the preview, and answered with a green success toast.
+          const zeroCtExempt = await loadZeroCtExempt(reparsed.customer);
+          const certainKfiIds = new Set<string>([
+            // Pinned badges and saved name aliases — earlier human decisions.
+            ...Object.values(await loadMergedIdMap()),
+            ...(await loadCustomerNameAliasMap(reparsed.customer)).values(),
+            // …and the picks made in THIS request's preview dialog.
+            ...cleanedAliases.map((a) => a.kfiId),
+          ]);
+          const blockedNoCt = zeroCtExempt
+            ? []
+            : insertablePunches.filter(
+                (p) => !ctActive.has(p.kfiId) && !certainKfiIds.has(p.kfiId),
+              );
+          for (const p of insertablePunches) {
+            if (
+              !ctActive.has(p.kfiId) &&
+              (zeroCtExempt || certainKfiIds.has(p.kfiId)) &&
+              !noCtBypassed.includes(p.kfiId)
+            ) {
+              noCtBypassed.push(p.kfiId);
+            }
+          }
           if (blockedNoCt.length > 0) {
             const byDriver = new Map<string, number>();
             for (const p of blockedNoCt) {
@@ -3341,7 +3419,10 @@ weeksRouter.post(
             for (const k of byDriver.keys()) {
               if (!noCtSkipped.includes(k)) noCtSkipped.push(k);
             }
-            insertablePunches = insertablePunches.filter((p) => ctActive.has(p.kfiId));
+            const blockedSet = new Set(blockedNoCt.map((p) => p.kfiId));
+            insertablePunches = insertablePunches.filter(
+              (p) => !blockedSet.has(p.kfiId),
+            );
           }
         }
         const insertableKfiIds = new Set(insertablePunches.map((p) => p.kfiId));
@@ -3518,6 +3599,7 @@ weeksRouter.post(
       // sees no hours deserves to be told the rows were dropped for having
       // no Connecteam time, rather than concluding the pick failed.
       noCtSkipped,
+      noCtBypassed,
       ignoredSkipped,
       ignoreCleared,
     });
@@ -6532,11 +6614,33 @@ weeksRouter.post("/weeks/:weekStart/manual-punches", async (req, res) => {
   if (parsed.data.source === "Customer") {
     const ctActive = await loadCtActiveKfiIds(startDate);
     if (!ctActive.has(parsed.data.kfiId)) {
-      res.status(400).json({
-        error:
-          "This driver has no Connecteam time this week, so customer time cannot be attached (zero-Connecteam rule).",
-      });
-      return;
+      // A dispatcher typing a punch against a named kfiId has ALREADY answered
+      // the identity question this rule exists to ask — and for a customer who
+      // keeps time in Zenople there is no Connecteam side to corroborate
+      // against at all. Still refuse by default so the rule keeps its warning
+      // value, but let it be overridden rather than making it a wall.
+      const customerForPunch = (parsed.data.customer ?? "").trim();
+      const exempt = customerForPunch
+        ? await loadZeroCtExempt(customerForPunch)
+        : false;
+      if (!exempt && !parsed.data.allowNoConnecteamTime) {
+        res.status(400).json({
+          error:
+            "This driver has no Connecteam time this week, so customer time cannot be attached (zero-Connecteam rule).",
+          code: "zero_connecteam",
+          overridable: true,
+        });
+        return;
+      }
+      req.log.warn(
+        {
+          weekStart: startDate,
+          kfiId: parsed.data.kfiId,
+          customer: customerForPunch,
+          reason: exempt ? "customer keeps time in Zenople" : "dispatcher override",
+        },
+        "manual-punches: attaching Customer time to a driver with no Connecteam time",
+      );
     }
   }
   const driverDisplayTz = await loadDriverTz(parsed.data.kfiId);

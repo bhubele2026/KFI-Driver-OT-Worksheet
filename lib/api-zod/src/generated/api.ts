@@ -3154,6 +3154,7 @@ export const CreateManualPunchBody = zod.object({
   clockOut: zod.string(),
   payType: zod.string().nullish(),
   dispTz: zod.string().nullish(),
+  allowNoConnecteamTime: zod.boolean().optional(),
 });
 
 export const CreateManualPunchResponse = zod.object({

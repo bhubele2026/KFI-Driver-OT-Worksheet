@@ -310,6 +310,22 @@ export function CustomerPreviewDialog({
               description: ignoreCleared.join(", "),
             });
           }
+          // The zero-Connecteam drop. The server has reported this since
+          // 2026-09-08 but nothing read it, so these rows disappeared behind a
+          // green success toast — a driver could be resolved by name, shown in
+          // the preview, confirmed, and silently discarded on the way to the
+          // database. Never let a success toast stand alone over lost hours.
+          const noCtSkipped =
+            (body as { noCtSkipped?: string[] }).noCtSkipped ?? [];
+          if (noCtSkipped.length > 0) {
+            toast({
+              title: t("customerPreview.noCtSkippedTitle"),
+              description: t("customerPreview.noCtSkippedDesc", {
+                names: noCtSkipped.join(", "),
+              }),
+              variant: "destructive",
+            });
+          }
           const unmapped = body.unmappedIds ?? [];
           if (unmapped.length > 0) {
             const formatted = unmapped

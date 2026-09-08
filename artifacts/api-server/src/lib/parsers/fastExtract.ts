@@ -223,6 +223,10 @@ export function matchCensusToFleet(
     /** Promoted to the picker on a single shared strong token (usually a surname). */
     surnameNearMiss: number;
     zeroCtBlocked: number;
+    /** No Connecteam time, imported anyway because identity was pinned. */
+    zeroCtBypassed: number;
+    /** No Connecteam time, not even checked — customer keeps time in Zenople. */
+    zeroCtExempted: number;
     ignoredBlocked: number;
   };
   laneSamples: string[];
@@ -237,6 +241,8 @@ export function matchCensusToFleet(
     fuzzyBorderline: 0,
     surnameNearMiss: 0,
     zeroCtBlocked: 0,
+    zeroCtBypassed: 0,
+    zeroCtExempted: 0,
     ignoredBlocked: 0,
   };
   const laneSamples: string[] = [];
@@ -262,8 +268,38 @@ export function matchCensusToFleet(
   // time to a driver who has no Connecteam time this week. Returns true
   // (and files the worker as a stranger with the reason) when blocked.
   const ctActive = roster?.ctActiveKfiIds ? new Set(roster.ctActiveKfiIds) : null;
-  const zeroCtBlocked = (w: CensusWorker, kfiId: string, strangers: string[]): boolean => {
+  /**
+   * The rule is a proxy for "is this really the right person?", and it is a
+   * poor one. Two cases where a better answer exists, and the block only
+   * destroys real pay:
+   *
+   * - `certain` lanes (a dispatcher-pinned badge, a saved name alias): identity
+   *   is already established by a human decision. A badge answers the identity
+   *   question far better than a Connecteam punch does.
+   * - `zeroCtExempt` customers keep time in Zenople, so having no Connecteam
+   *   time is normal there — blocking on it suppresses every non-driver.
+   *
+   * A plain fuzzy match still blocks: that is the case the rule was written
+   * for, and there the Connecteam corroboration is genuinely doing work.
+   */
+  const zeroCtBlocked = (
+    w: CensusWorker,
+    kfiId: string,
+    strangers: string[],
+    lane: "certain" | "fuzzy",
+  ): boolean => {
     if (!ctActive || ctActive.has(kfiId)) return false;
+    if (roster?.zeroCtExempt) {
+      laneCounts.zeroCtExempted++;
+      return false;
+    }
+    if (lane === "certain") {
+      laneCounts.zeroCtBypassed++;
+      if (laneSamples.length < 15) {
+        laneSamples.push(`${w.name}→${kfiId} no-CT-time BYPASSED (pinned identity)`);
+      }
+      return false;
+    }
     laneCounts.zeroCtBlocked++;
     if (laneSamples.length < 15) {
       laneSamples.push(`${w.name}→${kfiId} BLOCKED no-CT-time`);
@@ -319,7 +355,7 @@ export function matchCensusToFleet(
     const nameHit = byNameAlias.get(w.name.trim().toLowerCase());
     if (badgeHit || nameHit) {
       const resolved = badgeHit ?? nameHit ?? null;
-      if (resolved && zeroCtBlocked(w, resolved, strangers)) continue;
+      if (resolved && zeroCtBlocked(w, resolved, strangers, "certain")) continue;
       if (badgeHit) laneCounts.badge++;
       else laneCounts.nameAlias++;
       if (laneSamples.length < 15) {
@@ -362,7 +398,7 @@ export function matchCensusToFleet(
         if (tagged.length === 1) pick = tagged[0].d.kfiId;
       }
       if (pick) {
-        if (zeroCtBlocked(w, pick, strangers)) continue;
+        if (zeroCtBlocked(w, pick, strangers, "fuzzy")) continue;
         laneCounts.fuzzyConfident++;
         if (laneSamples.length < 15) {
           laneSamples.push(`${w.name}→${bestName} @${topScore.toFixed(2)}`);

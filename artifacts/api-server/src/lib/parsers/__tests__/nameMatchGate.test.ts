@@ -179,17 +179,31 @@ test("true stranger (different surname) stays a stranger", () => {
   assert.equal(strangers.length, 1);
 });
 
-test("zero-CT hard block: pinned badge to a no-CT driver is blocked with a reason", () => {
+test("zero-CT: a PINNED BADGE now imports anyway, and says so", () => {
+  // ⚠️ THIS TEST WAS REVERSED ON 2026-09-08, deliberately. It used to assert
+  // that a pinned badge to a no-CT driver was BLOCKED — the 2026-08-04 rule
+  // read literally, "no lane may attach". Brad's call after Shusters' Aldo
+  // Ramirez lost a week of pay: the rule is a proxy for "is this the right
+  // person?", and a badge a dispatcher pinned by hand answers that better
+  // than a Connecteam punch does.
+  //
+  // The cost is real and accepted: a WRONG pinned badge now imports hours
+  // onto the wrong driver where before it silently imported nothing. The
+  // mitigations are the v97 ignore veto (which still beats an alias, asserted
+  // below) and the re-map page, which admins can reach again as of v111.
+  // The fuzzy lane — the case the rule was actually written for — still
+  // blocks; see the next test.
   const r = roster({ ctActiveKfiIds: ["2005894"] });
-  r.drivers[0].badges = ["10747"]; // the bad Burnett alias shape
+  r.drivers[0].badges = ["10747"];
   const { targets, strangers, laneCounts } = matchCensusToFleet(
     [{ name: "Mirelez, Juan", badge: "10747" }],
     r,
   );
-  assert.equal(laneCounts.zeroCtBlocked, 1);
-  assert.equal(targets.length, 0);
-  assert.equal(strangers.length, 1);
-  assert.match(strangers[0], /no Connecteam time/);
+  assert.equal(laneCounts.zeroCtBlocked, 0);
+  assert.equal(laneCounts.zeroCtBypassed, 1);
+  assert.equal(targets.length, 1);
+  assert.equal(targets[0].kfiId, r.drivers[0].kfiId);
+  assert.deepEqual(strangers, []);
 });
 
 test("zero-CT hard block: exact-name match to a no-CT driver is blocked", () => {
@@ -364,4 +378,110 @@ test("the ignore veto still beats a surname near-miss (no weekly re-prompt)", ()
   assert.equal(out.targets.length, 0);
   assert.equal(out.laneCounts.ignoredBlocked, 1);
   assert.equal(out.laneCounts.surnameNearMiss, 0);
+});
+
+// ---------- 2026-09-08: the zero-Connecteam rule (Shusters' Aldo Ramirez) ----------
+//
+// Tiana: "Aldo Ramirez of Shusters also did not bring in Customer time."
+// He is on the sheet with badge 10077 for six full days and Zenople pays him
+// RT 40 / OT 12.5, but Shuster's keeps time in ZENOPLE, not Connecteam — so
+// zero Connecteam time is the normal state there, and the 2026-08-04 rule was
+// deleting real customer hours for every non-driver at that customer.
+
+function shustersRoster(over: Partial<RosterContext> = {}): RosterContext {
+  return {
+    customer: "Shuster's Building Components",
+    drivers: [
+      {
+        kfiId: "2006019",
+        name: "Aldo Ramirez",
+        badges: [],
+        aliases: [],
+        customer: "Shuster's Building Components",
+      },
+      {
+        // The other Aldo at the same customer — the mis-assignment risk.
+        kfiId: "2005937",
+        name: "Aldo Lunar",
+        badges: [],
+        aliases: [],
+        customer: "Shuster's Building Components",
+      },
+    ],
+    // Nobody has Connecteam time this week.
+    ctActiveKfiIds: [],
+    ...over,
+  };
+}
+
+test("zero-CT blocks a FUZZY match — the case the rule was written for", () => {
+  const out = matchCensusToFleet(
+    [{ name: "Ramirez, Aldo Noe", badge: "10077" }],
+    shustersRoster(),
+  );
+  assert.equal(out.targets.length, 0);
+  assert.equal(out.laneCounts.zeroCtBlocked, 1);
+  assert.match(out.strangers[0], /no Connecteam time/);
+});
+
+test("a PINNED BADGE beats the zero-CT rule — identity is already settled", () => {
+  const out = matchCensusToFleet(
+    [{ name: "Ramirez, Aldo Noe", badge: "10077" }],
+    shustersRoster({
+      drivers: shustersRoster().drivers.map((d) =>
+        d.kfiId === "2006019" ? { ...d, badges: ["10077"] } : d,
+      ),
+    }),
+  );
+  assert.equal(out.targets.length, 1);
+  assert.equal(out.targets[0].kfiId, "2006019");
+  assert.equal(out.laneCounts.zeroCtBypassed, 1);
+  assert.equal(out.laneCounts.zeroCtBlocked, 0);
+  assert.deepEqual(out.strangers, []);
+});
+
+test("a saved name alias also beats the zero-CT rule", () => {
+  const out = matchCensusToFleet(
+    [{ name: "Ramirez, Aldo Noe", badge: null }],
+    shustersRoster({
+      drivers: shustersRoster().drivers.map((d) =>
+        d.kfiId === "2006019" ? { ...d, aliases: ["Ramirez, Aldo Noe"] } : d,
+      ),
+    }),
+  );
+  assert.equal(out.targets[0].kfiId, "2006019");
+  assert.equal(out.laneCounts.zeroCtBypassed, 1);
+});
+
+test("a Zenople-timekeeping customer is exempt entirely", () => {
+  const out = matchCensusToFleet(
+    [{ name: "Ramirez, Aldo Noe", badge: "10077" }],
+    shustersRoster({ zeroCtExempt: true }),
+  );
+  assert.equal(out.targets.length, 1);
+  assert.equal(out.targets[0].kfiId, "2006019", "resolves to Ramirez, not Lunar");
+  assert.equal(out.laneCounts.zeroCtExempted, 1);
+  assert.equal(out.laneCounts.zeroCtBlocked, 0);
+  assert.deepEqual(out.strangers, []);
+});
+
+test("the two Aldos never cross-claim, exempt or not", () => {
+  // "Ramirez, Aldo Noe" vs "Aldo Lunar" shares only the FIRST name.
+  const q = nameMatchQuality("Ramirez, Aldo Noe", "Aldo Lunar");
+  assert.equal(q.strongPairs, 1);
+  assert.equal(isAutoAssignableName("Ramirez, Aldo Noe", "Aldo Lunar"), false);
+  const out = matchCensusToFleet(
+    [{ name: "Ramirez, Aldo Noe", badge: "10077" }],
+    shustersRoster({ zeroCtExempt: true }),
+  );
+  assert.notEqual(out.targets[0].kfiId, "2005937", "must never land on Lunar");
+});
+
+test("the ignore veto still beats every zero-CT escape", () => {
+  const out = matchCensusToFleet(
+    [{ name: "Ramirez, Aldo Noe", badge: "10077" }],
+    shustersRoster({ zeroCtExempt: true, ignoredExternalIds: ["10077"] }),
+  );
+  assert.equal(out.targets.length, 0);
+  assert.equal(out.laneCounts.ignoredBlocked, 1);
 });

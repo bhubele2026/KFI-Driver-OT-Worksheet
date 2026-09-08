@@ -39,10 +39,20 @@ export function buildRosterContext(args: {
   nameAliasMap?: Map<string, string>;
   /** kfiIds with Connecteam time this week — enables the zero-CT hard block. */
   ctActiveKfiIds?: ReadonlySet<string>;
+  /** Customer keeps time in Zenople — the zero-CT rule cannot apply. */
+  zeroCtExempt?: boolean;
   /** Normalized "not a driver" keys for this customer — enables the ignore veto. */
   ignoredExternalIds?: ReadonlySet<string>;
 }): RosterContext {
-  const { customer, drivers, idMap, nameAliasMap, ctActiveKfiIds, ignoredExternalIds } = args;
+  const {
+    customer,
+    drivers,
+    idMap,
+    nameAliasMap,
+    ctActiveKfiIds,
+    zeroCtExempt,
+    ignoredExternalIds,
+  } = args;
   const badgesByKfi = new Map<string, string[]>();
   for (const [externalId, kfiId] of Object.entries(idMap)) {
     const arr = badgesByKfi.get(kfiId) ?? [];
@@ -69,6 +79,7 @@ export function buildRosterContext(args: {
       aliases: (aliasesByKfi.get(d.kfiId) ?? []).slice(0, 8),
     })),
     ctActiveKfiIds: ctActiveKfiIds ? [...ctActiveKfiIds] : undefined,
+    zeroCtExempt,
     ignoredExternalIds: ignoredExternalIds ? [...ignoredExternalIds] : undefined,
   };
 }
@@ -195,6 +206,12 @@ export async function extractImageForKnownCustomer(args: {
    */
   ctActiveKfiIds?: ReadonlySet<string>;
   /**
+   * True when this customer keeps time in Zenople, where having no Connecteam
+   * time is normal — the zero-CT rule is skipped rather than deleting every
+   * non-driver's real customer hours.
+   */
+  zeroCtExempt?: boolean;
+  /**
    * Normalized "not a driver — never import" keys for this customer
    * (bare badge ids + `name:<name>` sentinels). When provided, any row
    * whose badge OR name matches is hard-blocked BEFORE resolution — a
@@ -219,6 +236,7 @@ export async function extractImageForKnownCustomer(args: {
     aiOpts,
     importRules,
     ctActiveKfiIds,
+    zeroCtExempt,
     ignoredExternalIds,
   } = args;
   // The roster sent to the AI is a HINT (id/spelling accuracy), never a
@@ -232,6 +250,7 @@ export async function extractImageForKnownCustomer(args: {
     idMap,
     nameAliasMap,
     ctActiveKfiIds,
+    zeroCtExempt,
     ignoredExternalIds,
   });
   // Clean-slate default: one model call, no chunking (fastExtractRows).

@@ -164,6 +164,17 @@ export interface RosterContext {
    */
   ctActiveKfiIds?: string[];
   /**
+   * True when this customer keeps time in Zenople rather than Connecteam
+   * (payroll_customers.timekeeping_mode = 'zenople' — Alamco, Bell, and
+   * Shuster's Building Components).
+   *
+   * ⚠️ For these customers ZERO Connecteam time is the EXPECTED state, not a
+   * red flag, so the standing 2026-08-04 rule cannot apply: it would block
+   * every non-driver at the customer, permanently and silently. Only the
+   * drivers among them clock into Connecteam at all, and only for driving.
+   */
+  zeroCtExempt?: boolean;
+  /**
    * "Not a driver — never import" keys for THIS customer, normalized
    * (lower-cased, inner whitespace collapsed): bare badge/external ids and
    * `name:<name-on-doc>` sentinels, exactly as stored in

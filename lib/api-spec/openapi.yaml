@@ -3607,6 +3607,17 @@ components:
           type: ["string", "null"]
         dispTz:
           type: ["string", "null"]
+        allowNoConnecteamTime:
+          type: boolean
+          description: |
+            Attach Customer time even though this driver has no Connecteam
+            time this week. The zero-Connecteam rule (2026-08-04) exists to
+            ask "is this really the right person?"; a dispatcher typing a
+            punch against a named kfiId has already answered that, so the
+            refusal is overridable rather than a wall. Without this flag the
+            request 400s with `code: "zero_connecteam"` and
+            `overridable: true`. Ignored for Driver-source punches, and
+            unnecessary for customers who keep time in Zenople.
 
     EditPunchInput:
       type: object
@@ -3784,6 +3795,28 @@ components:
         customer: { type: string }
         fileName: { type: string }
         punchesUpserted: { type: integer }
+        noCtSkipped:
+          type: array
+          items: { type: string }
+          description: |
+            KFI ids whose Customer rows were dropped by the zero-Connecteam
+            rule — a fuzzy name match to someone with no Connecteam time
+            this week.
+
+            ⚠️ This was log-only until 2026-09-08, which made it the most
+            misleading path in the app: on the cached/AI lane a driver could
+            be resolved BY NAME, shown in the preview table, confirmed, and
+            answered with a green "Imported N punches" toast while these rows
+            were deleted on the way to the database.
+        noCtBypassed:
+          type: array
+          items: { type: string }
+          description: |
+            KFI ids with no Connecteam time whose rows were imported ANYWAY,
+            because identity was already established — a pinned badge, a saved
+            name alias, or a pick in this request — or because the customer
+            keeps time in Zenople, where no Connecteam time is the normal
+            state. Reported so the bypass is never invisible either.
         ignoredSkipped:
           type: array
           items: { type: string }
