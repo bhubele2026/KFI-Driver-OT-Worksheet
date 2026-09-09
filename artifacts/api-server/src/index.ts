@@ -139,6 +139,140 @@ async function main() {
       client.release();
     }
 
+    // 2026-09-09 — get the three people Tiana reported importing, without
+    // her having to click anything.
+    //
+    // ⚠️ This lives at BOOT, not in preMigrate. The container CMD is just
+    // `node dist/index.mjs`; `pnpm --filter @workspace/db run push` (which is
+    // what runs preMigrate) is NOT part of a deploy, so a fixup put there
+    // would never have executed. Boot seeds like seedDriverPayrollProfiles
+    // above are the pattern that actually runs.
+    //
+    // Willie Medina and Luis Ceballos Martinez each carry a "not a driver"
+    // rule at Burnett. Since v97 an ignore is unrecoverable from the upload
+    // flow — a vetoed row never reaches the picker, and only a picker pick
+    // clears it — so no amount of clicking could have fixed this. Aldo
+    // Ramirez was lost to the zero-Connecteam rule instead; pinning his badge
+    // makes his identity "certain", which that rule now honours.
+    //
+    // Marker-gated: a rule a dispatcher deliberately re-adds later must NOT
+    // be resurrected by the next deploy.
+    {
+      const fixClient = await pool.connect();
+      const fixStartedAt = new Date();
+      const MARKER = "seed_tiana_three_imports_2026_09_09";
+      try {
+        await fixClient.query(`
+          CREATE TABLE IF NOT EXISTS schema_fixup_markers (
+            name text PRIMARY KEY,
+            applied_at timestamptz NOT NULL DEFAULT now()
+          )`);
+        const already = await fixClient.query(
+          `SELECT 1 FROM schema_fixup_markers WHERE name = $1`,
+          [MARKER],
+        );
+        if (already.rowCount) {
+          await recordMutation({
+            routine: "seedTianaThreeImports",
+            outcome: "noop",
+            rowsAffected: 0,
+            startedAt: fixStartedAt,
+            detail: "marker already present",
+          });
+        } else {
+          // Scoped to ONE customer and to exact keys — never a wildcard. The
+          // other ~30 Burnett "not a driver" rules are correct and stay.
+          // customer_ignored_externals is keyed (lower(customer),
+          // lower(external_id)) where external_id is a badge OR a
+          // `name:<name-on-doc>` sentinel, so both shapes must go.
+          const cleared = await fixClient.query(
+            `DELETE FROM customer_ignored_externals
+              WHERE lower(customer) = lower($1)
+                AND lower(external_id) = ANY($2::text[])`,
+            [
+              "Burnett Dairy - Grantsburg",
+              [
+                "10658",
+                "10542",
+                "name:anthony medina",
+                "name:medina, anthony",
+                "name:willie medina",
+                "name:medina jr, willie a",
+                "name:luis ceballos martinez",
+                "name:ceballos martinez, luis",
+                "name:ceballos martinez, luis e",
+              ],
+            ],
+          );
+          // driver_id_aliases.kfi_id has an FK to drivers.kfi_id, so a plain
+          // INSERT would throw for anyone missing from the roster. Insert on
+          // EXISTS instead and report the misses: no drivers row means the
+          // person is absent from Connecteam entirely, and then NOTHING here
+          // can import them. That is a finding, not a silent no-op.
+          const pinned = await fixClient.query(
+            `INSERT INTO driver_id_aliases (external_id, kfi_id, customer, sample_name, note)
+             SELECT v.external_id, v.kfi_id, v.customer, v.sample_name,
+                    'Seeded 2026-09-09: reported missing from the customer import.'
+               FROM (VALUES
+                 ('10658', '2004792', 'Burnett Dairy - Grantsburg',     'MEDINA JR, WILLIE A'),
+                 ('10542', '2003301', 'Burnett Dairy - Grantsburg',     'CEBALLOS MARTINEZ, LUIS E'),
+                 ('10077', '2006019', 'Shuster''s Building Components', 'RAMIREZ, ALDO NOE')
+               ) AS v(external_id, kfi_id, customer, sample_name)
+              WHERE EXISTS (SELECT 1 FROM drivers d WHERE d.kfi_id = v.kfi_id)
+             ON CONFLICT (external_id) DO NOTHING
+             RETURNING external_id, kfi_id`,
+          );
+          const missing = await fixClient.query(
+            `SELECT v.kfi_id, v.sample_name
+               FROM (VALUES
+                 ('2004792', 'MEDINA JR, WILLIE A'),
+                 ('2003301', 'CEBALLOS MARTINEZ, LUIS E'),
+                 ('2006019', 'RAMIREZ, ALDO NOE')
+               ) AS v(kfi_id, sample_name)
+              WHERE NOT EXISTS (SELECT 1 FROM drivers d WHERE d.kfi_id = v.kfi_id)`,
+          );
+          if (missing.rowCount) {
+            logger.warn(
+              {
+                missing: missing.rows.map(
+                  (r: { kfi_id: string; sample_name: string }) =>
+                    `${r.kfi_id} (${r.sample_name})`,
+                ),
+              },
+              "seedTianaThreeImports: no drivers row — badge NOT pinned, and this person still will not import (absent from Connecteam)",
+            );
+          }
+          await fixClient.query(
+            `INSERT INTO schema_fixup_markers (name) VALUES ($1)
+             ON CONFLICT (name) DO NOTHING`,
+            [MARKER],
+          );
+          const detail = `ignoresCleared=${cleared.rowCount ?? 0} badgesPinned=${pinned.rowCount ?? 0} noDriverRow=${missing.rowCount ?? 0}`;
+          logger.info({ detail }, "seedTianaThreeImports complete");
+          await recordMutation({
+            routine: "seedTianaThreeImports",
+            outcome:
+              (cleared.rowCount ?? 0) + (pinned.rowCount ?? 0) > 0 ? "ok" : "noop",
+            rowsAffected: (cleared.rowCount ?? 0) + (pinned.rowCount ?? 0),
+            startedAt: fixStartedAt,
+            detail,
+          });
+        }
+      } catch (err) {
+        await recordMutation({
+          routine: "seedTianaThreeImports",
+          outcome: "error",
+          rowsAffected: 0,
+          startedAt: fixStartedAt,
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        if (process.env.NODE_ENV !== "production") throw err;
+        logger.warn({ err }, "seedTianaThreeImports failed");
+      } finally {
+        fixClient.release();
+      }
+    }
+
     // Auto-align sweep: heal whole-day ±1h Connecteam device-clock errors
     // for the current + previous two weeks (idempotent — an aligned week
     // has nothing left in the ±1h anomaly band). Audited like every boot

@@ -9,7 +9,9 @@ import {
   type RosterContext,
 } from "./aiExtract.js";
 import { nameSimilarity, nameMatchQuality } from "./fuzzy.js";
-import { isIgnoredRow } from "./ignoredExternals.js";
+import { isIgnoredRow,
+  IGNORED_STRANGER_MARK,
+} from "./ignoredExternals.js";
 import { repairZipSizes } from "./zipRepair.js";
 import type { SalvageLogger } from "./jsonSalvage.js";
 import type { IngestionBudgetSummary } from "./ingestionBudget.js";
@@ -260,7 +262,7 @@ export function matchCensusToFleet(
     if (laneSamples.length < 15) {
       laneSamples.push(`${w.name}|${w.badge ?? "-"} BLOCKED not-a-driver`);
     }
-    strangers.push(`${w.name} — marked "not a driver" for this customer`);
+    strangers.push(`${w.name}${IGNORED_STRANGER_MARK}`);
     ignoredWorkers.push({ name: w.name, badge: w.badge ?? null });
     return true;
   };

@@ -19,6 +19,14 @@
 
 export const NAME_KEY_PREFIX = "name:";
 
+/**
+ * The suffix the census matcher appends when a worker is vetoed by a
+ * "not a driver" rule. Shared so the response layer can tell a DELIBERATE
+ * standing decision apart from a genuine "we could not place this person",
+ * which read identically once both were surfaced (2026-09-09).
+ */
+export const IGNORED_STRANGER_MARK = ' — marked "not a driver" for this customer';
+
 /** Collapse inner whitespace + lower-case, matching the loader's keying. */
 export function normalizeIgnoreKey(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();

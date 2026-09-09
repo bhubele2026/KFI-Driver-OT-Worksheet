@@ -761,6 +761,7 @@ function DroppedBreakdown({
   open: Set<CustomerPreviewDroppedRow["reason"]>;
   onToggle: (reason: CustomerPreviewDroppedRow["reason"]) => void;
 }) {
+  const { t } = useTranslation();
   // Bucket rows by typed reason while preserving server order so the
   // breakdown numbers line up with the rows displayed when expanded.
   const groups = useMemo(() => {
@@ -812,6 +813,19 @@ function DroppedBreakdown({
                   className="mt-1 ml-3 rounded border border-amber-500/20 bg-background/60 overflow-hidden"
                   data-testid={`rows-drop-reason-${reason}`}
                 >
+                  {/* A "not a driver" rule is the one drop reason a dispatcher
+                      cannot undo from this dialog: since v97 a vetoed row never
+                      reaches the picker, so mapping them here is impossible and
+                      would not lift the rule anyway. Say where it CAN be
+                      undone, next to the names it affects. */}
+                  {reason === "not_a_driver_alias" ? (
+                    <p
+                      className="px-2 py-1.5 text-[11px] text-muted-foreground border-b border-amber-500/10"
+                      data-testid="text-not-a-driver-help"
+                    >
+                      {t("customerPreview.droppedNotADriverHelp")}
+                    </p>
+                  ) : null}
                   <table className="w-full text-[11px]">
                     <thead className="bg-muted/40 text-muted-foreground">
                       <tr>

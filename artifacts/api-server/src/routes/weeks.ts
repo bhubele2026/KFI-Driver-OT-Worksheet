@@ -117,6 +117,7 @@ import {
   sanitizeRulesForStore,
 } from "../lib/parsers/customerRules.js";
 import { isBadgeMatchTrustworthy, topMatches } from "../lib/parsers/fuzzy.js";
+import { IGNORED_STRANGER_MARK } from "../lib/parsers/ignoredExternals.js";
 import { keepsTimeInZenople } from "../lib/payrollRates.js";
 import {
   ALLOWED_TZS,
@@ -2717,7 +2718,15 @@ weeksRouter.post(
       // so on a normal upload a skipped driver was invisible in every surface:
       // not a row, not an unmappedId, not a droppedRow. That is how Burnett's
       // Willie Medina went missing without a trace (2026-09-08).
-      unplacedWorkers: result.otherWorkerNames ?? [],
+      // ⚠️ EXCLUDE the ignore-vetoed. A "not a driver" rule is a STANDING
+      // DECISION someone already made, and it is reported properly in
+      // droppedRows as `not_a_driver_alias`. Listing them here too turned a
+      // normal Burnett upload into "32 people couldn't be matched" — alarming,
+      // duplicated, and the exact weekly nag v97 was built to end (2026-09-09).
+      // This field is for people we genuinely could not place.
+      unplacedWorkers: (result.otherWorkerNames ?? []).filter(
+        (w) => !w.endsWith(IGNORED_STRANGER_MARK),
+      ),
     });
   },
 );
@@ -5051,9 +5060,23 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", requireTile("upload")
   const unmappedNames = new Set<string>();
   const lockedKfiIds = await loadLockedKfiIds(startDate);
   const lockedSkipped: string[] = [];
-  // Zero-CT hard block: even an explicit picker assignment cannot attach
-  // customer time to a driver with no Connecteam time this week.
+  // Zero-CT block, with the same two escapes as the census matcher and
+  // confirm-customer-file (2026-09-09). This route was missed in the first
+  // pass, so a Shusters-style driver was still dropped whenever the
+  // dispatcher came through the "New customer file…" dialog rather than the
+  // customer row — the fix looked done and was half-applied.
   const ctActiveKfiIds = await loadCtActiveKfiIds(startDate);
+  const zeroCtExemptNew = await loadZeroCtExempt(customer);
+  const certainKfiIdsNew = new Set<string>([
+    ...Object.values(await loadMergedIdMap()),
+    ...(await loadCustomerNameAliasMap(customer)).values(),
+    // An explicit pick in this dialog IS the identity decision. Unmapped
+    // names come through as null, so drop those rather than seeding the set
+    // with a falsy id that would match nothing.
+    ...Object.values(parsed.data.mapping ?? {}).filter(
+      (v): v is string => typeof v === "string" && v.length > 0,
+    ),
+  ]);
   const noCtSkipped: string[] = [];
   const toInsert: Array<{
     kfiId: string;
@@ -5088,7 +5111,11 @@ weeksRouter.post("/weeks/:weekStart/confirm-new-customer", requireTile("upload")
       skipped++;
       continue;
     }
-    if (!ctActiveKfiIds.has(kfiId)) {
+    if (
+      !ctActiveKfiIds.has(kfiId) &&
+      !zeroCtExemptNew &&
+      !certainKfiIdsNew.has(kfiId)
+    ) {
       if (!noCtSkipped.includes(kfiId)) noCtSkipped.push(kfiId);
       skipped++;
       continue;
