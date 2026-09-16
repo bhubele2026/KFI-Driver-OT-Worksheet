@@ -124,6 +124,14 @@ export const TILES: TileDef[] = [
     source: "Per holiday",
   },
   {
+    key: "payroll_housing_notes",
+    group: "Payroll",
+    href: "/payroll-process/housing-notes",
+    title: "Housing & Transport Notes",
+    blurb: "Changes the housing team filed by hand — who left, what to stop, and the note that explains it.",
+    source: "This payroll",
+  },
+  {
     key: "upload",
     group: "The week",
     href: "/upload",

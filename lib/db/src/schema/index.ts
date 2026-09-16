@@ -42,3 +42,4 @@ export * from "./payrollSteps";
 export * from "./payrollCustomers";
 export * from "./payrollStepState";
 export * from "./payrollChanges";
+export * from "./housingNotes";

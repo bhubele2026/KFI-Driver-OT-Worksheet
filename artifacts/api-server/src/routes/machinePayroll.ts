@@ -1,7 +1,12 @@
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { timingSafeEqual } from "node:crypto";
 import { db, schema } from "../lib/db.js";
 import { requirePulseKey } from "./pulse.js";
+import {
+  payDateFromPayWeekEnd, validateNote,
+  type IncomingNote, type NoteRejection,
+} from "../lib/housingNotes.js";
 import {
   clampWaitMs, pdfResultPatch, validatePdfResult, type PdfResult,
 } from "../lib/payrollPdfQueue.js";
@@ -39,7 +44,16 @@ export const machinePayrollRouter: IRouter = Router();
 type Body = {
   payDate?: string;
   isOffCycle?: boolean;
-  kind?: "changes" | "artifacts" | "ping" | "pdf-claim" | "pdf-result" | "pdf-wait";
+  kind?: "changes" | "artifacts" | "ping" | "pdf-claim" | "pdf-result" | "pdf-wait"
+    | "housing-notes";
+  /**
+   * housing-notes: the SATURDAY the pay week ends, which is how the Housing app
+   * keys a week. This endpoint converts it to our Friday pay date — see
+   * payDateFromPayWeekEnd for why that conversion may not happen over there.
+   */
+  payWeekEnd?: string;
+  /** housing-notes: the notes Housing has for that week, as it holds them. */
+  notes?: IncomingNote[];
   /** True when more chunks follow; the empty-sweep guard is skipped until the
    *  last one, or a chunked push would look like an empty sweep. */
   more?: boolean;
@@ -63,7 +77,48 @@ type Body = {
 };
 
 
-machinePayrollRouter.post("/machine/payroll", requirePulseKey,
+/**
+ * ⚠️⚠️ ONE PATH, TWO KEYS — AND THE SECOND ONE IS THE POINT.
+ *
+ * The Mac bridge presents PULSE_SHARED_SECRET, which unlocks everything on this
+ * endpoint: claiming the PDF queue (which returns the source email's subject,
+ * sender and message id), rewriting any change row in any period, and a 230s
+ * long-poll against a single-replica app. The KFI Housing app needs to file
+ * notes and nothing else, so it gets its own credential that unlocks only the
+ * `housing-notes` kind.
+ *
+ * Housing's own repo already wrote this rule down, for the same reason, when
+ * its lease watcher wanted a second capability: "ITS OWN SECRET, NOT THE PULSE
+ * KEY. Pulse is read-only; this one creates properties. Two capabilities that
+ * different, sharing one credential, is how a read key quietly becomes a write
+ * key."
+ *
+ * Same path, so no new Easy Auth exclusion and no ARM change — only the key
+ * differs, chosen by the kind in the body.
+ */
+function requireHousingNotesKey(req: Request, res: Response, next: NextFunction): void {
+  const secret = process.env.HOUSING_NOTES_KEY;
+  if (!secret) {
+    res.status(503).json({ error: "housing notes not configured" });
+    return;
+  }
+  const given = Buffer.from(String(req.header("x-housing-notes-key") ?? ""));
+  const want = Buffer.from(secret);
+  if (given.length !== want.length || !timingSafeEqual(given, want)) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  next();
+}
+
+/** Pick the credential this request has to present, by what it is asking to do. */
+function machinePayrollAuth(req: Request, res: Response, next: NextFunction): void {
+  const kind = (req.body as Body | undefined)?.kind;
+  if (kind === "housing-notes") return requireHousingNotesKey(req, res, next);
+  return requirePulseKey(req, res, next);
+}
+
+machinePayrollRouter.post("/machine/payroll", machinePayrollAuth,
   async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Body;
 
@@ -197,6 +252,90 @@ machinePayrollRouter.post("/machine/payroll", requirePulseKey,
         });
       }
       res.json({ ok: true, updated, missing });
+      return;
+    }
+
+    // ── notes filed by hand in the KFI Housing app ───────────────────────
+    // Like the two PDF kinds above, this one sits BEFORE the payDate guard:
+    // it carries the Housing app's SATURDAY instead, because the Friday a
+    // period pays is this app's arithmetic to do (bank holidays), not theirs.
+    if (body.kind === "housing-notes") {
+      const payWeekEnd = String(body.payWeekEnd ?? "");
+      const payDate = payDateFromPayWeekEnd(payWeekEnd);
+      if (payDate === null) {
+        res.status(400).json({
+          error: "payWeekEnd must be the Saturday a pay week ends (YYYY-MM-DD)",
+        });
+        return;
+      }
+      const period = await ensurePayrollPeriod(payDate, false);
+      const incoming: IncomingNote[] = Array.isArray(body.notes) ? body.notes : [];
+
+      // ⚠️ AN EMPTY PUSH IS LEGAL HERE, unlike the `changes` sweep below. That
+      // guard exists because a mailbox sweep returning nothing means the sweep
+      // broke; Housing calling with nothing outstanding is its STEADY STATE,
+      // and refusing it would 409 the reconcile on every quiet board open.
+      const accepted: string[] = [];
+      const rejected: NoteRejection[] = [];
+      const now = new Date();
+
+      for (const raw of incoming) {
+        const v = validateNote(raw);
+        if (!v.ok) {
+          // ⚠️ NAMED, NEVER DROPPED. Housing stores this reason against the
+          // note and shows it as undeliverable. A task that vanishes between
+          // two apps is the failure this whole feature exists to prevent.
+          rejected.push(v.rejection);
+          continue;
+        }
+        const n = v.note;
+        const facts = {
+          personId: n.personId, personName: n.personName,
+          ask: n.ask, changeType: n.changeType, route: n.route, note: n.note,
+          customer: n.customer, shift: n.shift,
+          propertyName: n.propertyName, roomLabel: n.roomLabel, bedLabel: n.bedLabel,
+          vanLabel: n.vanLabel, vanRole: n.vanRole,
+          weeklyRent: n.weeklyRent, deducted: n.deducted, deductedWeek: n.deductedWeek,
+          payWeekEnd, byEmail: n.byEmail, notedAt: n.notedAt, voidedAt: n.voidedAt,
+        };
+        await db.insert(schema.housingNotesTable)
+          .values({ periodId: period.id, noteKey: n.noteKey, ...facts })
+          .onConflictDoUpdate({
+            target: [schema.housingNotesTable.periodId, schema.housingNotesTable.noteKey],
+            // ⚠️⚠️ FACTS ONLY. `handledAt`, `handledBy` and `handledNote` are
+            // deliberately ABSENT — Housing re-pushes every note on every board
+            // open, and listing them here would un-tick the processor's work on
+            // the next reconcile. Same discipline as the sweep omitting the
+            // verification counts further down this file.
+            set: { ...facts, updatedAt: now },
+          });
+        accepted.push(n.noteKey);
+      }
+
+      // The handled state for the WHOLE period, not just what was just sent:
+      // this response is the only way it travels back, and Housing reconciles
+      // its mirror from it.
+      const all = await db.select({
+        noteKey: schema.housingNotesTable.noteKey,
+        handledAt: schema.housingNotesTable.handledAt,
+        handledBy: schema.housingNotesTable.handledBy,
+        handledNote: schema.housingNotesTable.handledNote,
+      }).from(schema.housingNotesTable)
+        .where(and(
+          eq(schema.housingNotesTable.periodId, period.id),
+          isNotNull(schema.housingNotesTable.handledAt),
+        ));
+
+      res.json({
+        ok: true,
+        period: period.label,
+        periodId: period.id,
+        // Echoed so Housing displays OUR period rather than its own guess at it.
+        payDate,
+        accepted,
+        rejected,
+        handled: all,
+      });
       return;
     }
 

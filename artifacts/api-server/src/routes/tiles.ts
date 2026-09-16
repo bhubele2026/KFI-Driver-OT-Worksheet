@@ -145,7 +145,10 @@ tilesRouter.get(
         {
           key: PAYROLL_GROUP_KEY,
           group: "Payroll" as const,
-          title: "Payroll — all twelve boards",
+          // ⚠️ NO COUNT IN THIS TITLE. It said "all twelve boards" and went
+          // stale the moment a thirteenth shipped. `covers` below is derived,
+          // so the words are the only thing that can lie.
+          title: "Payroll — every board in this group",
           blurb:
             "For whoever runs payroll. Covers every board in this group, including ones added later.",
           ownerOnly: false,

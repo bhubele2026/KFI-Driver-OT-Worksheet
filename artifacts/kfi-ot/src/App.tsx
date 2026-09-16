@@ -45,6 +45,7 @@ import PayrollExpertPay from "@/pages/payroll-expert-pay";
 import PayrollRates from "@/pages/payroll-rates";
 import PayrollOffCycle from "@/pages/payroll-off-cycle";
 import PayrollHoliday from "@/pages/payroll-holiday";
+import PayrollHousingNotes from "@/pages/payroll-housing-notes";
 import AdminAccess from "@/pages/admin-access";
 import DriverUpload from "@/pages/driver-upload";
 import History from "@/pages/history";
@@ -207,6 +208,7 @@ function Router() {
         <Route path="/payroll-process/rates" component={PayrollRates} />
         <Route path="/payroll-process/off-cycle" component={PayrollOffCycle} />
         <Route path="/payroll-process/holiday" component={PayrollHoliday} />
+        <Route path="/payroll-process/housing-notes" component={PayrollHousingNotes} />
         <Route path="/payroll-process" component={PayrollProcess} />
         <Route path="/admin/access" component={AdminAccess} />
         {/* legacy paths still resolve to the worksheet */}
