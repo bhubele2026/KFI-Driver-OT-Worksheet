@@ -102,11 +102,11 @@ export default function PayrollExpertPay() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <Link href="/payroll-process"
-              className="text-xs font-medium text-muted-foreground no-underline hover:text-brand-navy">
+              className="text-xs font-medium text-neutral-500 no-underline hover:text-brand-navy">
               ← Payroll Process
             </Link>
             <h1 className="mt-1 text-xl font-semibold text-brand-navy">Expert Pay</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-neutral-500">
               Child support. The file stays on your machine and the payment stays manual.
             </p>
           </div>
@@ -114,7 +114,7 @@ export default function PayrollExpertPay() {
         </div>
 
         {error && (
-          <div className="rounded-lg bg-orange-50 p-4 text-sm text-orange-800 ring-1 ring-orange-600/25">
+          <div className="rounded-lg bg-bad-bg p-4 text-sm text-bad ring-1 ring-bad/30">
             {error}
           </div>
         )}
@@ -126,38 +126,38 @@ export default function PayrollExpertPay() {
               ["Withholding date", dates.withholdingDate, "the paycheck date itself"],
               ["Bank account", dates.bank, "not the operating account"],
             ].map(([k, v, sub]) => (
-              <div key={String(k)} className="rounded-lg bg-white px-4 py-3 shadow-sm ring-1 ring-border">
-                <div className="text-xs text-muted-foreground">{k}</div>
+              <div key={String(k)} className="surface rounded-card px-4 py-3 ring-1 ring-brand-line">
+                <div className="text-xs text-neutral-500">{k}</div>
                 <div className="fin-num mt-0.5 text-lg font-semibold text-brand-navy">{v}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>
+                <div className="mt-0.5 text-xs text-neutral-500">{sub}</div>
               </div>
             ))}
           </div>
         )}
 
         {dates && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-neutral-500">
             Zenople export note: <span className="fin-num font-medium text-foreground">{dates.exportNote}</span>
           </p>
         )}
 
-        <section className="rounded-lg bg-white shadow-sm ring-1 ring-border">
-          <h2 className="border-b border-border px-4 py-2.5 text-sm font-semibold text-brand-navy">
+        <section className="surface rounded-card ring-1 ring-brand-line">
+          <h2 className="border-b border-brand-line px-4 py-2.5 text-sm font-semibold text-brand-navy">
             Before uploading
           </h2>
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-brand-line">
             {FORMAT_STEPS.map(([key, text]) => (
               <li key={key} className="flex items-start gap-3 px-4 py-2.5">
                 <input type="checkbox" checked={format[key]}
                   onChange={(e) => setFormat((f) => ({ ...f, [key]: e.target.checked }))}
                   className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-[var(--brand-navy,#0f2740)]" />
-                <span className="text-sm text-muted-foreground">{text}</span>
+                <span className="text-sm text-neutral-500">{text}</span>
               </li>
             ))}
           </ul>
         </section>
 
-        <section className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-border">
+        <section className="surface rounded-card p-4 ring-1 ring-brand-line">
           <h2 className="text-sm font-semibold text-brand-navy">What you typed into Expert Pay</h2>
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {(
@@ -174,7 +174,7 @@ export default function PayrollExpertPay() {
                 type: "date" | "text" | "number";
               }>
             ).map((f) => (
-              <label key={f.label} className="block text-xs text-muted-foreground">
+              <label key={f.label} className="block text-xs text-neutral-500">
                 {f.label}
                 <input
                   type={f.type}

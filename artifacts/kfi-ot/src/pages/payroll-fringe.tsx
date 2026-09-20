@@ -40,13 +40,13 @@ function upcomingFriday(): string {
 
 function Pair({ title, p }: { title: string; p: Pairing }) {
   return (
-    <section className="rounded-lg bg-white shadow-sm ring-1 ring-border">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+    <section className="surface rounded-card ring-1 ring-brand-line">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-brand-line px-4 py-2.5">
         <h2 className="text-sm font-semibold text-brand-navy">{title}</h2>
         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
           p.balanced
-            ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
-            : "bg-orange-50 text-orange-700 ring-orange-600/25"
+            ? "bg-ok-bg text-ok ring-ok/20"
+            : "bg-bad-bg text-bad ring-bad/30"
         }`}>
           {p.balanced ? "balanced" : `off by ${p.variance}`}
         </span>
@@ -59,28 +59,28 @@ function Pair({ title, p }: { title: string; p: Pairing }) {
           ["Variance", p.variance, p.sign ?? "exact"],
         ].map(([k, v, sub]) => (
           <div key={String(k)} className="bg-white px-4 py-3">
-            <div className="text-xs text-muted-foreground">{k}</div>
+            <div className="text-xs text-neutral-500">{k}</div>
             <div className="fin-num mt-0.5 text-lg font-semibold text-brand-navy">{v}</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>
+            <div className="mt-0.5 text-xs text-neutral-500">{sub}</div>
           </div>
         ))}
       </div>
 
       {p.mismatches.length > 0 && (
         <>
-          <h3 className="border-t border-border px-4 py-2 text-xs font-medium text-muted-foreground">
+          <h3 className="border-t border-brand-line px-4 py-2 text-xs font-medium text-neutral-500">
             Who is off
           </h3>
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-brand-line">
             {p.mismatches.map((m) => (
               <li key={m.personId} className="flex items-baseline justify-between gap-3 px-4 py-2">
                 <div className="min-w-0">
                   <span className="text-sm text-foreground">{m.person}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">{m.hint}</span>
+                  <span className="ml-2 text-xs text-neutral-500">{m.hint}</span>
                 </div>
-                <span className="fin-num shrink-0 text-sm text-muted-foreground">
+                <span className="fin-num shrink-0 text-sm text-neutral-500">
                   {m.earning} vs {m.deduction}
-                  <span className="ml-2 font-medium text-orange-700">{m.variance}</span>
+                  <span className="ml-2 font-medium text-bad">{m.variance}</span>
                 </span>
               </li>
             ))}
@@ -138,11 +138,11 @@ export default function PayrollFringe() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <Link href="/payroll-process"
-              className="text-xs font-medium text-muted-foreground no-underline hover:text-brand-navy">
+              className="text-xs font-medium text-neutral-500 no-underline hover:text-brand-navy">
               ← Payroll Process
             </Link>
             <h1 className="mt-1 text-xl font-semibold text-brand-navy">Fringe</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-neutral-500">
               Housing Benefit Supplemental against its offsetting deduction. This one has to be
               exact to the cent.
             </p>
@@ -150,25 +150,25 @@ export default function PayrollFringe() {
           <div className="flex items-center gap-2">
             <PayDatePicker value={payDate} onChange={setPayDate} />
             <button type="button" disabled={busy} onClick={() => void load()}
-              className="rounded-md px-2 py-1 text-xs font-medium text-brand-navy ring-1 ring-border transition-colors hover:ring-brand-navy/30 disabled:opacity-50">
+              className="press rounded-control px-2 py-1 text-micro font-medium text-brand-navy ring-1 ring-brand-line hover:ring-brand-navy/30 disabled:opacity-50">
               {busy ? "Running…" : "Re-run"}
             </button>
           </div>
         </div>
 
         {error && (
-          <div className="rounded-lg bg-orange-50 p-4 text-sm text-orange-800 ring-1 ring-orange-600/25">
+          <div className="rounded-lg bg-bad-bg p-4 text-sm text-bad ring-1 ring-bad/30">
             {error}
           </div>
         )}
 
         {!data ? (
-          !error && <p className="text-sm text-muted-foreground">Loading…</p>
+          !error && <p className="text-sm text-neutral-500">Loading…</p>
         ) : (
           <>
             <Pair title="Housing fringe" p={data.current} />
             <Pair title="Retro housing fringe" p={data.retro} />
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-neutral-500">
               A positive variance means missing deductions; a negative one means missing earnings.
               Pro-rating the rent without pro-rating the fringe is the usual cause.
             </p>

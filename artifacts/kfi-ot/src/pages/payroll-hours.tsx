@@ -93,31 +93,31 @@ export default function PayrollHours() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <Link href="/payroll-process"
-              className="text-xs font-medium text-muted-foreground no-underline hover:text-brand-navy">
+              className="text-xs font-medium text-neutral-500 no-underline hover:text-brand-navy">
               ← Payroll Process
             </Link>
             <h1 className="mt-1 text-xl font-semibold text-brand-navy">Hours Intake</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-neutral-500">
               {data ? `Accounting period ${data.accountingPeriod}` : "Monday's per-customer board."}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <PayDatePicker value={payDate} onChange={setPayDate} />
             <button type="button" disabled={busy} onClick={() => void load()}
-              className="rounded-md px-2 py-1 text-xs font-medium text-brand-navy ring-1 ring-border transition-colors hover:ring-brand-navy/30 disabled:opacity-50">
+              className="press rounded-control px-2 py-1 text-micro font-medium text-brand-navy ring-1 ring-brand-line hover:ring-brand-navy/30 disabled:opacity-50">
               {busy ? "Loading…" : "Refresh"}
             </button>
           </div>
         </div>
 
         {error && (
-          <div className="rounded-lg bg-orange-50 p-4 text-sm text-orange-800 ring-1 ring-orange-600/25">
+          <div className="rounded-lg bg-bad-bg p-4 text-sm text-bad ring-1 ring-bad/30">
             {error}
           </div>
         )}
 
         {data && (
-          <div className="rounded-lg bg-amber-50 p-4 text-sm text-amber-900 ring-1 ring-amber-600/25">
+          <div className="surface rounded-card p-4 text-body text-warn ring-1 ring-warn/25">
             <span className="font-medium">
               Daily punches in Zenople for {data.coverage.customersWithZenopleDailyDetail} of{" "}
               {data.coverage.customersTotal} customers.
@@ -127,12 +127,12 @@ export default function PayrollHours() {
         )}
 
         {!data ? (
-          !error && <p className="text-sm text-muted-foreground">Loading…</p>
+          !error && <p className="text-sm text-neutral-500">Loading…</p>
         ) : (
-          <section className="overflow-x-auto rounded-lg bg-white shadow-sm ring-1 ring-border">
+          <section className="overflow-x-auto surface rounded-card ring-1 ring-brand-line">
             <table className="w-full min-w-[52rem] text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                <tr className="border-b border-brand-line text-left text-xs text-neutral-500">
                   <th className="px-3 py-2 font-medium">Customer</th>
                   <th className="px-3 py-2 text-right font-medium">People</th>
                   <th className="px-3 py-2 text-right font-medium">RT</th>
@@ -142,43 +142,43 @@ export default function PayrollHours() {
                   <th className="px-3 py-2 font-medium">Punch compare</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody className="divide-y divide-brand-line">
                 {data.customers.map((c) => (
                   <tr key={c.customer}>
                     <td className="px-3 py-2 align-top font-medium text-foreground">{c.customer}</td>
                     <td className="fin-num px-3 py-2 text-right align-top">{c.people}</td>
                     <td className="fin-num px-3 py-2 text-right align-top">{c.rtHours}</td>
                     <td className="fin-num px-3 py-2 text-right align-top">{c.otHours}</td>
-                    <td className="px-3 py-2 align-top text-xs text-muted-foreground">
+                    <td className="px-3 py-2 align-top text-xs text-neutral-500">
                       {c.timeSources.join(", ") || "—"}
                     </td>
-                    <td className="px-3 py-2 align-top text-xs text-muted-foreground">
+                    <td className="px-3 py-2 align-top text-xs text-neutral-500">
                       {c.batchesOpen > 0
-                        ? <span className="text-amber-800">{c.batchesOpen} open</span>
+                        ? <span className="text-warn">{c.batchesOpen} open</span>
                         : "all closed"}
                     </td>
                     <td className="px-3 py-2 align-top">
                       {c.hasDailyDetailInZenople ? (
                         c.longShifts.length ? (
                           <div>
-                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-600/25">
+                            <span className="rounded-full bg-warn-bg px-2 py-0.5 text-micro font-medium text-warn ring-1 ring-warn/25">
                               {c.longShifts.length} over 13h
                             </span>
                             <ul className="mt-1 space-y-0.5">
                               {c.longShifts.slice(0, 4).map((s) => (
-                                <li key={`${s.personId}-${s.workDate}`} className="fin-num text-xs text-muted-foreground">
+                                <li key={`${s.personId}-${s.workDate}`} className="fin-num text-xs text-neutral-500">
                                   {s.person} — {s.workDate}, {s.hours}h
                                 </li>
                               ))}
                             </ul>
                           </div>
                         ) : (
-                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-600/20">
+                          <span className="rounded-full bg-ok-bg px-2 py-0.5 text-micro font-medium text-ok ring-1 ring-ok/20">
                             clean · {c.dailyPersonDays} person-days
                           </span>
                         )
                       ) : (
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-xs text-neutral-500">
                           needs the customer&rsquo;s punch file
                         </span>
                       )}
@@ -187,7 +187,7 @@ export default function PayrollHours() {
                 ))}
               </tbody>
             </table>
-            <p className="border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
+            <p className="border-t border-brand-line px-4 py-2.5 text-xs text-neutral-500">
               A shift over 13 hours is almost always a missed clock-out recorded as 24, not a real
               shift. Trienda filters PREM from its punches before comparing; Penda does not.
             </p>

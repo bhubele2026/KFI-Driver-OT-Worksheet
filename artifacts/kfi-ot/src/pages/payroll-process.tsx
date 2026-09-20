@@ -58,12 +58,25 @@ function upcomingFriday(): string {
   return iso.toISOString().slice(0, 10);
 }
 
+/**
+ * ⚠️ FIVE STATUSES, THREE COLOURS — and the word carries the difference.
+ *
+ * Navy = good, grey = watch, deep orange = bad. That is the whole palette, so
+ * `done` and `in_progress` cannot each have their own hue; they are separated
+ * by FILL vs OUTLINE on the same navy, the way Housing separates its three-way
+ * states. `skipped` and `pending` are both grey, separated the same way,
+ * because a step nobody has reached and a step deliberately passed over are
+ * both "not a problem" — the label says which.
+ *
+ * This was emerald / orange / sky / zinc, a four-hue category palette the
+ * house style does not have.
+ */
 const STATUS_STYLE: Record<Step["status"], string> = {
-  done: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
-  blocked: "bg-orange-50 text-orange-700 ring-orange-600/25",
-  in_progress: "bg-sky-50 text-sky-700 ring-sky-600/20",
-  skipped: "bg-zinc-100 text-zinc-500 ring-zinc-400/25",
-  pending: "bg-white text-muted-foreground ring-border",
+  done: "bg-ok-bg text-ok ring-ok/20",
+  blocked: "bg-bad-bg text-bad ring-bad/30",
+  in_progress: "bg-transparent text-ok ring-ok/35",
+  skipped: "bg-warn-bg text-warn ring-warn/25",
+  pending: "bg-transparent text-neutral-500 ring-brand-line",
 };
 
 export default function PayrollProcess() {
@@ -166,7 +179,7 @@ export default function PayrollProcess() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold text-brand-navy">Payroll Process</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-neutral-500">
               {data?.period
                 ? `${data.period.label}${
                     data.period.weekStart
@@ -180,18 +193,18 @@ export default function PayrollProcess() {
         </div>
 
         {data && (
-          <div className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-border">
+          <div className="surface rounded-card p-4 ring-1 ring-brand-line">
             <div className="flex items-baseline justify-between">
               <span className="text-sm font-medium text-brand-navy">
                 {data.counts.done} of {data.counts.total} done
               </span>
               {data.counts.blocked > 0 && (
-                <span className="text-sm font-medium text-orange-700">
+                <span className="text-sm font-medium text-bad">
                   {data.counts.blocked} blocked
                 </span>
               )}
             </div>
-            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
+            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-brand-wash">
               <div
                 className="h-full rounded-full bg-brand-navy transition-[width] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
                 style={{ width: `${pct}%` }}
@@ -201,7 +214,7 @@ export default function PayrollProcess() {
         )}
 
         {error && (
-          <div className="rounded-lg bg-orange-50 p-4 text-sm text-orange-800 ring-1 ring-orange-600/25">
+          <div className="rounded-lg bg-bad-bg p-4 text-sm text-bad ring-1 ring-bad/30">
             {error}
           </div>
         )}
@@ -212,7 +225,7 @@ export default function PayrollProcess() {
               <Link
                 key={t.key}
                 href={t.href}
-                className="rounded-lg bg-white px-3 py-2.5 text-sm font-medium text-brand-navy no-underline shadow-sm ring-1 ring-border transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5 hover:shadow-md hover:ring-brand-navy/25"
+                className="press surface surface-lift card-bleed relative overflow-hidden rounded-card px-3 py-2.5 text-body font-medium text-brand-navy no-underline ring-1 ring-brand-line hover:-translate-y-0.5 hover:ring-brand-navy/25"
               >
                 {t.title}
               </Link>
@@ -223,15 +236,15 @@ export default function PayrollProcess() {
         <TieOutPanel payDate={payDate} />
 
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-neutral-500">Loading…</p>
         ) : !data ? null : (
           <div className="stagger space-y-5">
             {byDay.map(([day, steps]) => (
-              <section key={day} className="rounded-lg bg-white shadow-sm ring-1 ring-border">
-                <h2 className="border-b border-border px-4 py-2.5 text-sm font-semibold text-brand-navy">
+              <section key={day} className="surface rounded-card ring-1 ring-brand-line">
+                <h2 className="border-b border-brand-line px-4 py-2.5 text-sm font-semibold text-brand-navy">
                   {day}
                 </h2>
-                <ul className="divide-y divide-border">
+                <ul className="divide-y divide-brand-line">
                   {steps.map((s) => (
                     <li
                       key={s.key}
@@ -251,14 +264,14 @@ export default function PayrollProcess() {
                         <p
                           className={`text-sm ${
                             s.status === "done"
-                              ? "text-muted-foreground line-through"
+                              ? "text-neutral-500 line-through"
                               : "text-foreground"
                           }`}
                         >
                           {s.task}
                         </p>
                         {s.blockedOn && (
-                          <p className="mt-0.5 text-xs text-orange-700">
+                          <p className="mt-0.5 text-xs text-bad">
                             Waiting on {s.blockedOn}
                           </p>
                         )}
@@ -275,7 +288,7 @@ export default function PayrollProcess() {
                           type="button"
                           disabled={busy === s.key}
                           onClick={() => void move(s, "blocked")}
-                          className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border transition-colors hover:text-orange-700 hover:ring-orange-600/30"
+                          className="press shrink-0 rounded-control px-2 py-0.5 text-micro font-medium text-neutral-500 ring-1 ring-brand-line hover:text-bad hover:ring-bad/30"
                         >
                           Block
                         </button>

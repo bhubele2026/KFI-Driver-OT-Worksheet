@@ -42,26 +42,26 @@ export default function PayrollTaxes() {
   }, []);
 
   const d = status?.deadline;
-  const tone = d?.state === "past" ? "bg-orange-50 text-orange-800 ring-orange-600/25"
-    : d?.state === "soon" ? "bg-amber-50 text-amber-900 ring-amber-600/25"
-    : "bg-white text-brand-navy ring-border";
+  const tone = d?.state === "past" ? "bg-bad-bg text-bad ring-bad/30"
+    : d?.state === "soon" ? "bg-warn-bg text-warn ring-warn/25"
+    : "bg-transparent text-brand-navy ring-brand-line";
 
   return (
     <AppShell active="/payroll-process/taxes">
       <div className="rise-in space-y-5">
         <div>
           <Link href="/payroll-process"
-            className="text-xs font-medium text-muted-foreground no-underline hover:text-brand-navy">
+            className="text-xs font-medium text-neutral-500 no-underline hover:text-brand-navy">
             ← Payroll Process
           </Link>
           <h1 className="mt-1 text-xl font-semibold text-brand-navy">Taxes / APTM</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-neutral-500">
             The daily tax pivot tied to the register, and the upload clock.
           </p>
         </div>
 
         {error && (
-          <div className="rounded-lg bg-orange-50 p-4 text-sm text-orange-800 ring-1 ring-orange-600/25">
+          <div className="rounded-lg bg-bad-bg p-4 text-sm text-bad ring-1 ring-bad/30">
             {error}
           </div>
         )}
@@ -83,16 +83,16 @@ export default function PayrollTaxes() {
         <CheckPanel title="APTM" checks={status?.checks ?? null}
           footer="The pivot total is employer PLUS employee tax. Comparing against either half alone always fails." />
 
-        <section className="rounded-lg bg-white shadow-sm ring-1 ring-border">
-          <h2 className="border-b border-border px-4 py-2.5 text-sm font-semibold text-brand-navy">
+        <section className="surface rounded-card ring-1 ring-brand-line">
+          <h2 className="border-b border-brand-line px-4 py-2.5 text-sm font-semibold text-brand-navy">
             Before uploading
           </h2>
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-brand-line">
             {CSV_STEPS.map((s) => (
-              <li key={s} className="px-4 py-2.5 text-sm text-muted-foreground">{s}</li>
+              <li key={s} className="px-4 py-2.5 text-sm text-neutral-500">{s}</li>
             ))}
           </ul>
-          <p className="border-t border-border px-4 py-2.5 text-xs text-orange-800">
+          <p className="border-t border-brand-line px-4 py-2.5 text-xs text-bad">
             If you cannot review the import straight away, set the file status from Valid to
             Check. That stops APTM pulling funds until someone has looked at it.
           </p>

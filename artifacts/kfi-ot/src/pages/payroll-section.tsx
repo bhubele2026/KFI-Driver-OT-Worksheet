@@ -82,32 +82,32 @@ export function PayrollSection({ tileKey, href, title, intro, upcoming }: Payrol
         <div>
           <Link
             href="/payroll-process"
-            className="text-xs font-medium text-muted-foreground no-underline hover:text-brand-navy"
+            className="text-xs font-medium text-neutral-500 no-underline hover:text-brand-navy"
           >
             ← Payroll Process
           </Link>
           <h1 className="mt-1 text-xl font-semibold text-brand-navy">{title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{intro}</p>
+          <p className="mt-1 text-sm text-neutral-500">{intro}</p>
         </div>
 
         {error && (
-          <div className="rounded-lg bg-orange-50 p-4 text-sm text-orange-800 ring-1 ring-orange-600/25">
+          <div className="rounded-lg bg-bad-bg p-4 text-sm text-bad ring-1 ring-bad/30">
             {error}
           </div>
         )}
 
-        <section className="rounded-lg bg-white shadow-sm ring-1 ring-border">
-          <h2 className="border-b border-border px-4 py-2.5 text-sm font-semibold text-brand-navy">
+        <section className="surface rounded-card ring-1 ring-brand-line">
+          <h2 className="border-b border-brand-line px-4 py-2.5 text-sm font-semibold text-brand-navy">
             This tile&rsquo;s steps{label ? ` — ${label}` : ""}
           </h2>
           {steps === null ? (
-            <p className="px-4 py-3 text-sm text-muted-foreground">Loading…</p>
+            <p className="px-4 py-3 text-sm text-neutral-500">Loading…</p>
           ) : steps.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-muted-foreground">
+            <p className="px-4 py-3 text-sm text-neutral-500">
               No checklist steps belong to this tile.
             </p>
           ) : (
-            <ul className="divide-y divide-border">
+            <ul className="divide-y divide-brand-line">
               {steps.map((s) => (
                 <li key={s.key} className={`px-4 py-3 ${s.parentId ? "pl-10" : ""}`}>
                   <div className="flex items-start justify-between gap-3">
@@ -115,18 +115,18 @@ export function PayrollSection({ tileKey, href, title, intro, upcoming }: Payrol
                       <p
                         className={`text-sm ${
                           s.status === "done"
-                            ? "text-muted-foreground line-through"
+                            ? "text-neutral-500 line-through"
                             : "text-foreground"
                         }`}
                       >
                         {s.task}
                       </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{s.day}</p>
+                      <p className="mt-0.5 text-xs text-neutral-500">{s.day}</p>
                       {s.blockedOn && (
-                        <p className="mt-0.5 text-xs text-orange-700">Waiting on {s.blockedOn}</p>
+                        <p className="mt-0.5 text-xs text-bad">Waiting on {s.blockedOn}</p>
                       )}
                     </div>
-                    <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                    <span className="shrink-0 text-xs font-medium text-neutral-500">
                       {s.status.replace("_", " ")}
                     </span>
                   </div>
@@ -134,7 +134,7 @@ export function PayrollSection({ tileKey, href, title, intro, upcoming }: Payrol
               ))}
             </ul>
           )}
-          <p className="border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
+          <p className="border-t border-brand-line px-4 py-2.5 text-xs text-neutral-500">
             Tick steps on the{" "}
             <Link href="/payroll-process" className="text-brand-navy no-underline hover:underline">
               Payroll Process
@@ -143,12 +143,12 @@ export function PayrollSection({ tileKey, href, title, intro, upcoming }: Payrol
           </p>
         </section>
 
-        <section className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-border">
+        <section className="surface rounded-card p-4 ring-1 ring-brand-line">
           <h2 className="text-sm font-semibold text-brand-navy">Still to build here</h2>
           <ul className="mt-2 space-y-1.5">
             {upcoming.map((u) => (
-              <li key={u} className="flex gap-2 text-sm text-muted-foreground">
-                <span aria-hidden className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-zinc-300" />
+              <li key={u} className="flex gap-2 text-sm text-neutral-500">
+                <span aria-hidden className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-brand-line" />
                 <span>{u}</span>
               </li>
             ))}

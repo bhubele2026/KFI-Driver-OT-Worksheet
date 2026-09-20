@@ -210,17 +210,37 @@
 }
 
 /* ── Motion dials ──────────────────────────────────────────────────────
-   Four numbers govern every movement in the app (ported from the dashboard
+   Six numbers govern every movement in the app (ported from the dashboard
    design language via KFI-Housing). Turn one here and the whole thing moves
    together. The pace is deliberate — Brad: "keep the animation slowness, I
    love it" — never take it snappier. --dur-press stays 120ms: the CLICK is
-   acknowledged instantly even when what it sets in motion is slow. */
+   acknowledged instantly even when what it sets in motion is slow.
+
+   ⚠️ THESE WERE A STALE COPY, NOT A DECISION. This app was ported from
+   KFI-Housing at 460 / 45 / 780 — and Housing then went 1.5× SLOWER at its
+   v122 (460→690, 45→68, 780→1170) because Brad asked it to. The port never
+   followed, so the two apps drifted apart and this one ran visibly quicker
+   than Housing and the Financial Dashboard. Matched to Housing's current
+   dials on 2026-09-19. This is the same multiplier he already approved once;
+   it is not "snappier", it is the opposite.
+
+   ⚠️ TWO CURVES, NEVER A THIRD. --ease-out for ARRIVALS (a card lifting in, a
+   drawer opening — they should feel like they were already on their way), and
+   --ease-travel, which is SYMMETRIC, for anything you WATCH move (a bar
+   growing to its share). A hard ease-out puts most of the motion in the first
+   fraction of the time and reads as a snap followed by an invisible creep, so
+   a bar on the arrival curve looks broken no matter how long you make it.
+   ⚠️ Do NOT rename these toward the dashboard's --ease-enter / --ease-move:
+   nothing in this file defines those names, so every transition using them
+   would silently never run. Same two curves, this app's vocabulary. */
 :root {
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-travel: cubic-bezier(0.45, 0, 0.55, 1);
   --dur-press: 120ms;
-  --dur-in: 460ms;
-  --dur-page: 280ms;
-  --stagger: 45ms;
+  --dur-in: 690ms;
+  --dur-travel: 1170ms;
+  --dur-page: 220ms;
+  --stagger: 68ms;
 }
 
 /* html is the sole vertical scroller and the gutter is always reserved — a
@@ -404,9 +424,14 @@ html {
   from { transform: scaleX(0); }
   to   { transform: scaleX(1); }
 }
+/* A bar growing to its share is READ, not glanced at, so it rides the
+   symmetric travel curve and the longer travel dial. It used to hand-roll
+   1500ms on cubic-bezier(0.65, 0, 0.35, 1) — a third curve and a third
+   duration that no other motion in the app shared, and that nothing would
+   have moved if the pace were re-dialled. */
 .grow-bar {
   transform-origin: left center;
-  animation: growBar 1500ms cubic-bezier(0.65, 0, 0.35, 1) both;
+  animation: growBar var(--dur-travel) var(--ease-travel) both;
   animation-delay: 200ms;
 }
 
@@ -497,9 +522,13 @@ html {
 /* One switch for the whole system: someone who asked their machine for less
    motion gets a working app with none of it, not a half-animated one. */
 @media (prefers-reduced-motion: reduce) {
+  /* ⚠️ EVERY dial is zeroed, including --dur-travel. A dial that is added to
+     :root but forgotten here keeps moving for someone who asked the operating
+     system for no motion, and it does so silently. */
   :root {
     --dur-press: 0ms;
     --dur-in: 0ms;
+    --dur-travel: 0ms;
     --dur-page: 0ms;
     --stagger: 0ms;
   }

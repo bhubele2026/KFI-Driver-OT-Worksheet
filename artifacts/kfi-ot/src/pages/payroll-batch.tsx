@@ -67,11 +67,11 @@ export default function PayrollBatchPage() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <Link href="/payroll-process"
-              className="text-xs font-medium text-muted-foreground no-underline hover:text-brand-navy">
+              className="text-xs font-medium text-neutral-500 no-underline hover:text-brand-navy">
               ← Payroll Process
             </Link>
             <h1 className="mt-1 text-xl font-semibold text-brand-navy">Payroll Batch</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-neutral-500">
               The last checks with a human in front of them.
               {found !== null && found > 0 ? ` ${found} payments on the register.` : ""}
             </p>
@@ -79,14 +79,14 @@ export default function PayrollBatchPage() {
           <div className="flex items-center gap-2">
             <PayDatePicker value={payDate} onChange={setPayDate} />
             <button type="button" disabled={busy} onClick={() => void load()}
-              className="rounded-md px-2 py-1 text-xs font-medium text-brand-navy ring-1 ring-border transition-colors hover:ring-brand-navy/30 disabled:opacity-50">
+              className="press rounded-control px-2 py-1 text-micro font-medium text-brand-navy ring-1 ring-brand-line hover:ring-brand-navy/30 disabled:opacity-50">
               {busy ? "Running…" : "Re-run"}
             </button>
           </div>
         </div>
 
         {error && (
-          <div className="rounded-lg bg-orange-50 p-4 text-sm text-orange-800 ring-1 ring-orange-600/25">
+          <div className="rounded-lg bg-bad-bg p-4 text-sm text-bad ring-1 ring-bad/30">
             {error}
           </div>
         )}
