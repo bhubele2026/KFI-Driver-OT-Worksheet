@@ -26,6 +26,7 @@ import {
 } from "./lib/zenopleRates";
 import { hasRunThisDeploy, recordMutation } from "./lib/dataMutationAudit";
 import { autoAlignWeek } from "./lib/punchAutoAlign";
+import { startPayrollSweepNightly } from "./lib/payrollSweep/schedule.js";
 
 // Captured once at module load so the boot-summary log can scope its
 // audit query to "rows whose startedAt >= this boot's start" — see the
@@ -89,6 +90,9 @@ async function main() {
   startAiExtractSampleCleanup();
   startAiExtractChunkStageCleanup();
   startHiddenNotesDigest();
+  // Gated on PAYROLL_SWEEP_ENABLED=1 and its own credentials; a no-op
+  // otherwise, so importing this module never starts reading a mailbox.
+  startPayrollSweepNightly();
   startRealtimeHeartbeat();
 
   // Clean-slate import rebuild: the schema-cache lane (and its legacy-row
@@ -160,7 +164,14 @@ async function main() {
     {
       const fixClient = await pool.connect();
       const fixStartedAt = new Date();
-      const MARKER = "seed_tiana_three_imports_2026_09_09";
+      // v113: the v112 run pinned all 3 badges but cleared 0 ignores, so the
+      // stored keys are not the spellings I guessed. Two known reasons, both
+      // handled below: this customer wears at least two names in the DB
+      // ("Burnett Dairy - Grantsburg" vs the legacy "Burnett Dairy-Grantsburg"
+      // — see fix-identity-2026-08-13.cjs), and the picker stores whatever
+      // name-on-doc it saw at the time, which need not match today's census.
+      // New marker so the v112 marker doesn't skip the retry.
+      const MARKER = "seed_tiana_three_imports_2026_09_09_v2";
       try {
         await fixClient.query(`
           CREATE TABLE IF NOT EXISTS schema_fixup_markers (
@@ -185,25 +196,34 @@ async function main() {
           // customer_ignored_externals is keyed (lower(customer),
           // lower(external_id)) where external_id is a badge OR a
           // `name:<name-on-doc>` sentinel, so both shapes must go.
+          // Fold the customer (strip non-alphanumerics) rather than compare it
+          // literally, and match the name sentinels by surname rather than by
+          // a guessed full spelling. Still tightly bounded: Burnett only, and
+          // only a Medina or a Ceballos there — which is exactly these two.
           const cleared = await fixClient.query(
             `DELETE FROM customer_ignored_externals
-              WHERE lower(customer) = lower($1)
-                AND lower(external_id) = ANY($2::text[])`,
-            [
-              "Burnett Dairy - Grantsburg",
-              [
-                "10658",
-                "10542",
-                "name:anthony medina",
-                "name:medina, anthony",
-                "name:willie medina",
-                "name:medina jr, willie a",
-                "name:luis ceballos martinez",
-                "name:ceballos martinez, luis",
-                "name:ceballos martinez, luis e",
-              ],
-            ],
+              WHERE regexp_replace(lower(customer), '[^a-z0-9]', '', 'g') LIKE 'burnett%'
+                AND (
+                  lower(external_id) = ANY($1::text[])
+                  OR lower(external_id) LIKE 'name:%medina%'
+                  OR lower(external_id) LIKE 'name:%ceballos%'
+                )`,
+            [["10658", "10542"]],
           );
+          const clearedRows = await fixClient.query(
+            `SELECT customer, external_id FROM customer_ignored_externals
+              WHERE regexp_replace(lower(customer), '[^a-z0-9]', '', 'g') LIKE 'burnett%'
+                AND (
+                  lower(external_id) LIKE 'name:%medina%'
+                  OR lower(external_id) LIKE 'name:%ceballos%'
+                )`,
+          );
+          if (clearedRows.rowCount) {
+            logger.warn(
+              { remaining: clearedRows.rows },
+              "seedTianaThreeImports: ignore rules still present after the delete — key shape is different again",
+            );
+          }
           // driver_id_aliases.kfi_id has an FK to drivers.kfi_id, so a plain
           // INSERT would throw for anyone missing from the roster. Insert on
           // EXISTS instead and report the misses: no drivers row means the

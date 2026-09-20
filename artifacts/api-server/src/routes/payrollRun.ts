@@ -1,9 +1,9 @@
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "../lib/db.js";
 import { requireAuth } from "../lib/auth.js";
 import { requireTile, type AuthedRequest } from "../lib/entraAuth.js";
-import { PAYROLL_CHECKLIST, OFF_CYCLE_STEP_KEYS } from "../lib/payrollChecklist.js";
+import { PAYROLL_CHECKLIST, OFF_CYCLE_STEP_KEYS, boardForStage } from "../lib/payrollChecklist.js";
 import {
   isValidPayDate, parsePeriodLabel, payDateFor, payDates, periodDatesFor,
 } from "../lib/payrollPeriod.js";
@@ -22,6 +22,7 @@ import {
 } from "../lib/payrollOffCycle.js";
 import { zenopleConfigured } from "../lib/zenopleClient.js";
 import { ensurePayrollPeriod } from "../lib/payrollPeriodStore.js";
+import { queueSweep } from "../lib/payrollSweep/macQueue.js";
 
 export const payrollRunRouter: IRouter = Router();
 
@@ -194,7 +195,10 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/checklist", requireAuth,
         const st = byStep.get(s.id);
         return {
           id: s.id, key: s.key, ordinal: s.ordinal, day: s.day, task: s.task,
-          tile: s.tile, parentId: s.parentId,
+          // `tile` is the workbook's STAGE; `boardTile` is the board that shows
+          // it. The server owns the translation so no client has to learn two
+          // vocabularies — which is what broke four boards before.
+          tile: s.tile, boardTile: boardForStage(s.tile), parentId: s.parentId,
           status: st?.status ?? "pending",
           blockedOn: st?.blockedOn ?? null,
           note: st?.note ?? null,
@@ -372,9 +376,32 @@ payrollRunRouter.get("/payroll-run/periods/:payDate/tie-outs", requireAuth,
     const results = runTieOuts(pulled, nonBillable);
 
     const now = new Date();
+    /**
+     * ⚠️⚠️ DELETE ONLY THE TIE-OUTS THIS RUN RECOMPUTES.
+     *
+     * `runTieOuts` answers 1, 3, 4 and 5 from two Zenople pulls. Tie-outs 2
+     * (master vs batch) and 6 (tax pivot vs register vs APTM) are written by
+     * the boards that hold those artifacts, on their own schedule. An unscoped
+     * `delete where periodId` — which is what this was — threw both away every
+     * time anyone pressed "Run against Zenople", and the board then read PASS
+     * because the FAIL row had been deleted rather than because anything
+     * balanced. A tie-out that disappears is worse than one that fails.
+     *
+     * Derived from `results` rather than a hardcoded list so that a tie-out
+     * moving into `runTieOuts` later cannot leave a stale row behind.
+     *
+     * ⚠️ Do NOT turn this into an upsert on the unique index. It is declared
+     * `(periodId, tieOut, scope)` WITHOUT `nullsNotDistinct`, so Postgres
+     * treats the period-wide rows (`scope IS NULL`) as distinct from each
+     * other and `onConflictDoUpdate` would silently insert duplicates.
+     */
+    const recomputed = [...new Set(results.map((r) => r.tieOut))];
     await db.transaction(async (tx) => {
       await tx.delete(schema.payrollTieOutsTable)
-        .where(eq(schema.payrollTieOutsTable.periodId, period.id));
+        .where(and(
+          eq(schema.payrollTieOutsTable.periodId, period.id),
+          inArray(schema.payrollTieOutsTable.tieOut, recomputed),
+        ));
       await tx.insert(schema.payrollTieOutsTable).values(
         results.map((r) => ({
           periodId: period.id, tieOut: r.tieOut, status: r.status, scope: r.scope,
@@ -1003,6 +1030,15 @@ payrollRunRouter.get("/payroll-run/off-cycle", requireAuth, requireTile("payroll
  *
  * Registered on the payroll router only, so it cannot change how the rest of
  * the app reports errors.
+ *
+ * ⚠️⚠️ IT IS REGISTERED AT THE BOTTOM OF THIS FILE, AND IT MUST STAY THERE.
+ * Express only hands an error to error middleware registered AFTER the handler
+ * that threw. This block used to sit here, above the sweep routes, so those
+ * four routes reported a missing table as a bare 500 while every route above
+ * them got the sentence. `payroll-changes.tsx` calls `/changes/sweep/latest`
+ * on mount, so on a database without `payroll_sweep_*` the board three people
+ * use daily opened on an error. Any route added below the middleware is a
+ * route outside this guard.
  */
 const PG_UNDEFINED_TABLE = "42P01";
 
@@ -1012,6 +1048,139 @@ function pgCode(e: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
+/**
+ * Run the mailbox sweep now — the board's "Run sweep" button.
+ *
+ * ⚠️ RETURNS IMMEDIATELY AND DOES NOT AWAIT THE MODEL. A sweep reads mail and
+ * makes model calls; it takes minutes, not milliseconds. The board learned this
+ * lesson once already (its GET used to block 3.5s waiting for row labels and
+ * returned none anyway) — the rule that came out of it is: make the result
+ * arrive sooner, never make the page arrive later. The client polls
+ * `/changes/sweep/latest` for progress.
+ *
+ * Concurrency is handled inside the sweep: a second press, or the nightly run
+ * firing mid-press, takes the advisory lock, sees a live claim and stands down.
+ */
+payrollRunRouter.post("/payroll-run/changes/sweep", requireAuth,
+  requireTile("payroll_changes"), async (req: Request, res: Response) => {
+    const a = req as AuthedRequest;
+    const who = a.user?.email ?? a.authEmail ?? null;
+
+    // ⚠️ This does NOT read mail. It writes "a sweep is wanted" into the
+    // database and returns. The mailbox is reachable only from Brad's Mac, so
+    // the executor there drains this queue — within seconds if it is awake,
+    // and on waking if it is not. Pressing the button while that Mac sleeps
+    // therefore defers the sweep; it never loses it.
+    const q = await queueSweep("manual", who);
+
+    // ⚠️ NO payroll_step_audit ROW HERE, deliberately. That table's period_id
+    // is NOT NULL and a sweep belongs to no single period — it can stage rows
+    // onto three at once. An earlier draft cast a null through it behind a
+    // .catch(), which would have thrown on every press and silently never
+    // audited anything. The run itself IS the audit trail: payroll_sweep_runs
+    // records who pressed it, when, the window and the outcome.
+    res.json({ ok: true, ...q });
+  });
+
+/** The most recent run, plus how much is waiting for a human. */
+payrollRunRouter.get("/payroll-run/changes/sweep/latest", requireAuth,
+  requireTile("payroll_changes"), async (_req: Request, res: Response) => {
+    const runs = await db.select().from(schema.payrollSweepRunsTable)
+      .orderBy(desc(schema.payrollSweepRunsTable.claimedAt)).limit(1);
+    const pending = await db.select({ n: sql<number>`count(*)::int` })
+      .from(schema.payrollSweepProposalsTable)
+      .where(eq(schema.payrollSweepProposalsTable.state, "pending"));
+    res.json({
+      run: runs[0] ?? null,
+      pendingProposals: pending[0]?.n ?? 0,
+    });
+  });
+
+/**
+ * Rows the sweep would not post on its own authority.
+ *
+ * Two kinds land here and the distinction matters to the reviewer: a figure
+ * that could not be found in the source email, and a row that is fine but
+ * would move a number on something already ticked.
+ */
+payrollRunRouter.get("/payroll-run/changes/proposals", requireAuth,
+  requireTile("payroll_changes"), async (req: Request, res: Response) => {
+    const state = String(req.query.state ?? "pending");
+    const rows = await db.select().from(schema.payrollSweepProposalsTable)
+      .where(eq(schema.payrollSweepProposalsTable.state, state))
+      .orderBy(desc(schema.payrollSweepProposalsTable.createdAt)).limit(200);
+    res.json({ proposals: rows });
+  });
+
+/**
+ * Accept a proposal onto the board, or reject it.
+ *
+ * ⚠️ Accepting writes through the SAME merge every other path uses, so a row
+ * accepted here still cannot clobber a human's verification counts or notes.
+ */
+payrollRunRouter.post("/payroll-run/changes/proposals/:id/decide", requireAuth,
+  requireTile("payroll_changes"), async (req: Request, res: Response) => {
+    const a = req as AuthedRequest;
+    const id = Number(req.params.id);
+    const decision = String((req.body ?? {}).decision ?? "");
+    if (!Number.isInteger(id)) {
+      res.status(400).json({ error: "id must be an integer" });
+      return;
+    }
+    if (decision !== "accepted" && decision !== "rejected") {
+      res.status(400).json({ error: 'decision must be "accepted" or "rejected"' });
+      return;
+    }
+
+    const found = await db.select().from(schema.payrollSweepProposalsTable)
+      .where(eq(schema.payrollSweepProposalsTable.id, id)).limit(1);
+    const proposal = found[0];
+    if (!proposal) {
+      res.status(404).json({ error: "no such proposal" });
+      return;
+    }
+    if (proposal.state !== "pending") {
+      res.status(409).json({ error: `already ${proposal.state}` });
+      return;
+    }
+
+    const who = a.user?.email ?? a.authEmail ?? null;
+
+    if (decision === "accepted") {
+      const period = await ensurePayrollPeriod(proposal.payDate, false);
+      const row = proposal.row as Record<string, unknown>;
+      // A rejected-by-the-builder row was never a valid ledger row; it is kept
+      // for a human to read, not to be promoted onto the board unchanged.
+      if (String(row.rowKey ?? "").startsWith("rejected:")) {
+        res.status(409).json({
+          error: "this row was refused by the builder and cannot be accepted as-is — key it by hand",
+        });
+        return;
+      }
+      const { persistChanges } = await import("../lib/payrollSweep/persistSweep.js");
+      const result = await persistChanges(period.id, [row as never], { guardEmpty: false });
+      if ("refused" in result) {
+        res.status(409).json({ error: result.refused });
+        return;
+      }
+      await db.insert(schema.payrollStepAuditTable).values({
+        periodId: period.id, stepKey: `sweep-proposal:${proposal.rowKey}`,
+        status: "proposal-accepted", note: proposal.detail ?? null,
+        actorUserId: a.user?.id ?? null, actorEmail: who,
+      });
+    }
+
+    await db.update(schema.payrollSweepProposalsTable)
+      .set({ state: decision, decidedBy: who, decidedAt: new Date() })
+      .where(eq(schema.payrollSweepProposalsTable.id, id));
+
+    res.json({ ok: true, decision });
+  });
+
+/**
+ * ⚠️ LAST IN THE FILE ON PURPOSE — see the note on `PG_UNDEFINED_TABLE` above.
+ * Every route this guard covers has to be registered before it.
+ */
 payrollRunRouter.use((
   err: unknown,
   _req: Request,

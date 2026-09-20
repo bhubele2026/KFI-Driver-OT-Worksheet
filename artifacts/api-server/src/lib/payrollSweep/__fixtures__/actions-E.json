@@ -1,0 +1,14 @@
+[
+ {"ref":"e-briseno","payDate":"2026-09-18","customer":"AT Owatonna","employee":"Victor Briseno","changeType":"MN ESST","hours":10,"weekEnding":"2026-09-12","effectiveDate":"2026-09-10","requestedBy":"Ruby Lunar","approvedBy":"Kait Rogstad","src":"X01",
+  "action":"Enter 10.00 hrs MN-ESST for Thu 9/10 (out sick, Quanex Owatonna). Ruby asked 9/10; Kait approved 9/16 11:55 CT."},
+ {"ref":"e-cruz-sanchez","payDate":"2026-09-18","customer":"AT Owatonna","employee":"Cruz Sanchez","changeType":"MN ESST","hours":10,"weekEnding":"2026-09-12","effectiveDate":"2026-09-10","requestedBy":"Ruby Lunar","approvedBy":"Kait Rogstad","src":"B08",
+  "action":"Enter 10.00 hrs MN-ESST for Thu 9/10 (out sick, Quanex Owatonna). Ruby asked 9/10; Kait approved 9/16 11:57 CT."},
+ {"ref":"e-norris","payDate":"2026-09-18","customer":"Adient","employee":"Teddy Norris","changeType":"Retro Pay","hours":40,"weekEnding":"2026-09-05","isRetro":true,"requestedBy":"Stacey Napoleoni","src":"B13",
+  "action":"RETRO 40.00 hrs for w/e 9/05 — no hours were reported for him or Cennovia Roussel, so neither got a 9/11 check; Stacey confirmed 9/14 'they both had 40 hours for that week'. Bill Adient too (supplemental)."},
+ {"ref":"e-roussel","payDate":"2026-09-18","customer":"Adient","employee":"Cennovia Roussel","changeType":"Retro Pay","hours":40,"weekEnding":"2026-09-05","isRetro":true,"requestedBy":"Stacey Napoleoni","src":"B13",
+  "action":"RETRO 40.00 hrs for w/e 9/05 — no hours were reported, no 9/11 check; Stacey confirmed 9/14 'they both had 40 hours for that week'. (Tiana's tracker lists her as 'Roussell, Teddy' — the person is Cennovia Roussel.) Bill Adient too."},
+ {"ref":"e-molina-lead","payDate":"2026-09-25","customer":"Orgill","employee":"Jorge Molina","changeType":"Special Pay Rate","weekEnding":"2026-09-19","effectiveDate":"2026-09-14","requestedBy":"Dawn Whitmore","src":"A11",
+  "action":"Crew Lead pay: $21.00/hr pay, bill stays $20.00/hr (the $1.00 lead increase is NOT billed) — effective his return Mon 9/14. Same treatment as Reyna and Garza (eff 8/31)."},
+ {"ref":"e-sofa-shoes","payDate":"2026-09-25","customer":"Alamco","employee":"Pedro Sofa","changeType":"Expense Reimbursement","weekEnding":"2026-09-19","requestedBy":"Humberto Castellano","src":"A12",
+  "action":"Reimburse his safety shoes (paid out of pocket) on his FIRST paycheck — new Alamco hire (Humberto 9/15). Amount not stated: get the receipt/amount from Humberto before keying."}
+]

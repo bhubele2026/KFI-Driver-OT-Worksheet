@@ -1,0 +1,8 @@
+[
+ {"ref":"f-bonus-gongora","payDate":"2026-09-18","customer":"Trienda","employee":"Angel Gongora","changeType":"Bonus","amount":100,"weekEnding":"2026-09-12","requestedBy":"Julie Procknow","src":"A13",
+  "action":"$100.00 bonus — August safety award winner (Julie 9/13). Bill Trienda per contract."},
+ {"ref":"f-bonus-rios","payDate":"2026-09-18","customer":"Trienda","employee":"Francisco Rios Jr","changeType":"Bonus","amount":100,"weekEnding":"2026-09-12","requestedBy":"Julie Procknow","src":"A13",
+  "action":"$100.00 bonus — August safety award winner (Julie 9/13). Bill Trienda per contract."},
+ {"ref":"f-bonus-vega","payDate":"2026-09-18","customer":"Trienda","employee":"Luis Vega","changeType":"Bonus","amount":100,"weekEnding":"2026-09-12","requestedBy":"Julie Procknow","src":"A13",
+  "action":"$100.00 bonus — August safety award winner (Julie 9/13). Bill Trienda per contract."}
+]

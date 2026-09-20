@@ -16,7 +16,18 @@ type Step = {
   key: string;
   day: string;
   task: string;
+  /** The workbook's STAGE name — `master_import`, `rates_terms`, … */
   tile: string | null;
+  /**
+   * The board this step belongs on, translated server-side.
+   *
+   * ⚠️ FILTER ON THIS, NEVER ON `tile`. The two are different vocabularies:
+   * the seeds say `master_import` and this board's key is `payroll_master`.
+   * Comparing them matched nothing, so Templates, Master Import, Rates and
+   * Holiday each rendered "No checklist steps belong to this tile" from the
+   * day they shipped. Optional because a cached bundle may predate the field.
+   */
+  boardTile?: string | null;
   parentId: number | null;
   status: "pending" | "in_progress" | "done" | "blocked" | "skipped";
   blockedOn: string | null;
@@ -57,7 +68,7 @@ export function PayrollSection({ tileKey, href, title, intro, upcoming }: Payrol
       if (!r.ok) throw new Error(`checklist ${r.status}`);
       const d = (await r.json()) as Payload;
       setLabel(d.period.label);
-      setSteps(d.steps.filter((s) => s.tile === tileKey));
+      setSteps(d.steps.filter((s) => (s.boardTile ?? s.tile) === tileKey));
     } catch (e) {
       setError(e instanceof Error ? e.message : "could not load this tile's steps");
     }

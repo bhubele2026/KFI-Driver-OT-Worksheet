@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The mailbox-sweep executor daemon — always on, wakes on the button.
+
+  ⚠️ THIS RUNS ON BRAD'S MAC because payroll@kfistaffing.com is reachable only
+  from here. Reading it server-side would need an administrator to approve
+  app-only Graph access, and Brad holds no directory role — so the delegated
+  access he already has as a person does the fetching. Same arrangement as
+  com.kfi.payroll-pdf, whose keychain item this reuses.
+
+  The script holds a long-poll (kind "sweep-wait"); pressing "Run sweep" on the
+  Changes & Deductions board, or the app's own 5am tick, releases it within
+  seconds. A Claude session running ~/.claude/skills/payroll-sweep then reads
+  the mail and pushes it back. Idle cost is one held HTTPS request re-armed
+  every ~4 minutes.
+
+  ⭐ If this Mac is asleep the sweep is NOT lost: the queue is a table in Azure,
+  and the poll picks it up on waking. Several missed nights collapse into one
+  sweep covering the whole gap.
+
+  Install:
+    cp deploy/com.kfi.payroll-sweep.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.kfi.payroll-sweep.plist
+  Remove:
+    launchctl unload ~/Library/LaunchAgents/com.kfi.payroll-sweep.plist
+  Watch it:
+    tail -f ~/Library/Logs/kfi-payroll-sweep.log
+  Run one by hand (no daemon):
+    PAYROLL_API=https://kfi-ot-worksheet.livelybeach-7684c741.eastus2.azurecontainerapps.io \
+    PAYROLL_BRIDGE_KEY=$(security find-generic-password -a "$USER" -s kfi-payroll-bridge-key -w) \
+    pnpm --filter @workspace/scripts exec tsx src/payroll-sweep-poll.ts
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.kfi.payroll-sweep</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <!-- ⚠️ launchd gets no login-shell PATH; node lives under ~/.local/node and
+         the claude CLI under ~/.local/bin on this machine, so both are exported
+         here or the job dies with "command not found" and nothing else. -->
+    <string>export PATH="$HOME/.local/node/bin:$HOME/.local/bin:$PATH"; export PAYROLL_BRIDGE_KEY=$(security find-generic-password -a "$USER" -s kfi-payroll-bridge-key -w) || exit 1; cd "$HOME/projects/KFI-Driver-OT-Worksheet" &amp;&amp; exec pnpm --filter @workspace/scripts exec tsx src/payroll-sweep-poll.ts --wait</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PAYROLL_API</key><string>https://kfi-ot-worksheet.livelybeach-7684c741.eastus2.azurecontainerapps.io</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>ExitTimeOut</key><integer>30</integer>
+  <key>StandardOutPath</key><string>/Users/bhubele/Library/Logs/kfi-payroll-sweep.log</string>
+  <key>StandardErrorPath</key><string>/Users/bhubele/Library/Logs/kfi-payroll-sweep.log</string>
+</dict>
+</plist>

@@ -29,13 +29,22 @@ export RG=…  ACR=…  ENVIRONMENT=…   # discover with the NOTES in azure-dep
 bash deploy/azure-deploy.sh v1
 ```
 The script builds the image in ACR, creates/updates the Container App (external
-ingress, target port 8080, **min=max=1 replica**), wires secrets as `secretref`
-env vars, then sets `APP_BASE_URL` to the assigned FQDN.
+ingress, target port 8080), wires secrets as `secretref` env vars, then sets
+`APP_BASE_URL` to the assigned FQDN.
 
-### Why single replica
-Postgres `LISTEN/NOTIFY` realtime + in-process interval jobs (digest, cleanups,
-heartbeat) and the rate limiter assume one instance. Do not scale out without
-refactoring those.
+### Replicas — read this before adding a background job
+⚠️ **This document used to say min=max=1. Production runs min=2/max=2.** The
+claim was stale and it is load-bearing, so do not trust it again without
+checking: `az containerapp show -n kfi-ot-worksheet -g kfi-dashboard
+--query properties.template.scale`.
+
+Postgres `LISTEN/NOTIFY` realtime, the in-process interval jobs (digest,
+cleanups, heartbeat) and the rate limiter were all written assuming ONE
+instance, and they are still running on two. Anything new that must happen
+exactly once per period has to claim the right to run rather than assume it:
+see `lib/payrollSweep/runSweep.ts`, which takes a `pg_try_advisory_xact_lock`
+and — the part that actually matters — records its claim INSIDE that
+transaction, because the lock is released the moment the transaction commits.
 
 ## Environment variables
 | Var | Source | Notes |

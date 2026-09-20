@@ -1,0 +1,6 @@
+[
+ {"ref":"g-galvan-0914","payDate":"2026-09-25","customer":"AT Owatonna","employee":"Benjamin Galvan","changeType":"MN ESST","hours":10,"weekEnding":"2026-09-19","effectiveDate":"2026-09-14","requestedBy":"Ruby Lunar","src":"A15","needsDecision":true,
+  "decisionQuestion":"Ruby (9/14): Benjamin out sick Mon 9/14, asks to use 10 hrs MN-ESST. No 'Approved' from Kait in payroll@ as of 9/16 — the other recent requests (Briseno, Sanchez) were approved 9/16. Approve for the 9/25 check?",
+  "decisionOwner":"Kait Rogstad",
+  "action":"DECISION — 10.00 hrs MN-ESST for Mon 9/14 pending Kait's approval; enter on the 09.25 run once approved."}
+]

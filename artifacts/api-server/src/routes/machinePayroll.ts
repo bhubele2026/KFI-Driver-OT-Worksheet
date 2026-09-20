@@ -14,20 +14,32 @@ import {
   normalizeChangeType, routeForChangeType, seedFromCategory,
 } from "../lib/payrollChangeTypes.js";
 import {
-  mergeSweep, sweepIsSafeToApply, rowKeyFor,
+  rowKeyFor,
   type SweptRow, type StoredRow,
 } from "../lib/payrollChangeMerge.js";
 import { ensurePayrollPeriod } from "../lib/payrollPeriodStore.js";
+import { persistChanges, persistSources } from "../lib/payrollSweep/persistSweep.js";
+import {
+  claimSweep, decideBodies, finishSweep, ingestBodies, pendingSweeps,
+} from "../lib/payrollSweep/macQueue.js";
 import { isValidPayDate } from "../lib/payrollPeriod.js";
 
 /**
  * The local bridge's way in.
  *
- * ⭐ WHY A BRIDGE AT ALL. The app cannot read payroll@kfistaffing.com and cannot
- * see the SharePoint folder: the mailbox needs delegated Graph permission this
- * tenant will not grant a daemon, and the PD folder lives in OneDrive on a Mac.
- * So the extraction runs THERE and pushes here. The app is the surface, not the
- * scraper.
+ * ⭐ WHY A BRIDGE AT ALL — and what has CHANGED. The PD folder lives in
+ * OneDrive on a Mac, so the Create-PDF executor still runs there and pushes its
+ * verdicts here. That part is unchanged.
+ *
+ * ⚠️ The mailbox half of this comment used to say the tenant "will not grant a
+ * daemon" delegated Graph permission, and that was the stated reason the app
+ * never read payroll@ itself. It is no longer true, and it was load-bearing
+ * enough to send a later reader down the wrong path: the app registration
+ * `Outlook-Email-Sandbox` holds ADMIN-CONSENTED APPLICATION Mail.Read in this
+ * tenant. The in-server sweep in `lib/payrollSweep/` reads the mailbox
+ * directly on that credential. Both paths write through the SAME merge
+ * (`lib/payrollSweep/persistSweep.ts`), so the bridge and the nightly sweep
+ * cannot drift apart.
  *
  * ⚠️ ONE PATH ON PURPOSE. Easy Auth is configured with `/api/machine/payroll`
  * in `excludedPaths`, and a path it does not name gets a login redirect that a
@@ -44,8 +56,16 @@ export const machinePayrollRouter: IRouter = Router();
 type Body = {
   payDate?: string;
   isOffCycle?: boolean;
-  kind?: "changes" | "artifacts" | "ping" | "pdf-claim" | "pdf-result" | "pdf-wait"
-    | "housing-notes";
+  kind?: "changes"|"artifacts"|"ping"|"pdf-claim"|"pdf-result"|"pdf-wait"|"housing-notes"|"sweep-wait"|"sweep-claim"|"sweep-headers"|"sweep-bodies"|"sweep-done";
+  /** sweep-* only: which run the Mac is working on. */
+  runId?: number;
+  /** sweep-headers: every header the Mac saw in the window. */
+  headers?: unknown[];
+  /** sweep-bodies: full messages for the ids we asked for. */
+  messages?: unknown[];
+  /** sweep-done: how it ended. */
+  ok?: boolean;
+  error?: string;
   /**
    * housing-notes: the SATURDAY the pay week ends, which is how the Housing app
    * keys a week. This endpoint converts it to our Friday pay date — see
@@ -128,6 +148,71 @@ machinePayrollRouter.post("/machine/payroll", machinePayrollAuth,
     // the requests here, files each email as a PDF, and reports back. These
     // two kinds span periods, so they carry no payDate — and they ride this
     // same endpoint because of the one-excluded-path rule above.
+    // ── the mailbox sweep, executed on Brad's Mac ────────────────────────
+    // The app cannot read payroll@ on its own credential: app-only Graph
+    // access needs an admin's consent and Brad holds no directory role
+    // (checked 2026-09-16, not assumed). So the server owns the queue and all
+    // the judgment, and the Mac owns nothing but fetching. Same shape as the
+    // Create-PDF flow above, and on this same endpoint for the same reason.
+    if (body.kind === "sweep-wait") {
+      // Long-poll so a press of "Run sweep" reaches a waking Mac in seconds.
+      // ⭐ The queue lives HERE, in Azure, which never sleeps — that is what
+      // makes a sleeping laptop defer a sweep instead of losing one.
+      const deadline = Date.now() + clampWaitMs(body.timeoutSeconds);
+      for (;;) {
+        const n = await pendingSweeps();
+        if (n > 0 || Date.now() >= deadline) {
+          res.json({ ok: true, pending: n });
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 3_000));
+        if (res.destroyed || res.writableEnded) return;
+      }
+    }
+
+    if (body.kind === "sweep-claim") {
+      const claim = await claimSweep();
+      if (!claim) {
+        res.json({ ok: true, pending: 0, run: null });
+        return;
+      }
+      res.json({ ok: true, pending: 1, run: claim });
+      return;
+    }
+
+    if (body.kind === "sweep-headers") {
+      if (typeof body.runId !== "number" || !Array.isArray(body.headers)) {
+        res.status(400).json({ error: "sweep-headers needs runId and headers[]" });
+        return;
+      }
+      const out = await decideBodies(body.runId, body.headers as never);
+      res.json({ ok: true, ...out });
+      return;
+    }
+
+    if (body.kind === "sweep-bodies") {
+      if (typeof body.runId !== "number" || !Array.isArray(body.messages)) {
+        res.status(400).json({ error: "sweep-bodies needs runId and messages[]" });
+        return;
+      }
+      const out = await ingestBodies(body.runId, body.messages as never);
+      res.json({ ok: true, ...out });
+      return;
+    }
+
+    if (body.kind === "sweep-done") {
+      if (typeof body.runId !== "number") {
+        res.status(400).json({ error: "sweep-done needs runId" });
+        return;
+      }
+      await finishSweep(body.runId, {
+        ok: body.ok !== false,
+        error: body.error,
+      });
+      res.json({ ok: true });
+      return;
+    }
+
     if (body.kind === "pdf-wait") {
       // Long-poll: hold the response until a Create-PDF press appears, so the
       // Mac-side daemon starts filing within seconds of the button instead of
@@ -419,124 +504,29 @@ machinePayrollRouter.post("/machine/payroll", machinePayrollAuth,
         } as SweptRow;
       });
 
-      const existing = await db.select().from(schema.payrollChangesTable)
-        .where(eq(schema.payrollChangesTable.periodId, period.id));
-
-      // ⚠️ Skip the guard mid-chunk: a chunked push legitimately sends a small
-      // or empty batch, and refusing it would break the very thing the guard
+      // ⚠️ ONE WRITER. The merge + upsert used to live inline here and is now
+      // shared with the in-server nightly sweep. Two writers of a payroll
+      // ledger with subtly different SET blocks is exactly how a processor's
+      // check-offs get preserved on one path and clobbered on the other.
+      //
+      // `guardEmpty` is skipped mid-chunk: a chunked push legitimately sends a
+      // small batch, and refusing it would break the very thing the guard
       // exists to protect.
-      if (body.more !== true) {
-        const safe = sweepIsSafeToApply(swept.length, existing.length);
-        if (!safe.ok) {
-          res.status(409).json({ error: safe.reason, applied: false });
-          return;
-        }
-      }
-
-      const stored: StoredRow[] = existing.map((r) => ({
-        rowKey: r.rowKey, customer: r.customer, employee: r.employee,
-        peopleCount: r.peopleCount, route: r.route,
-        changeType: r.changeType as SweptRow["changeType"],
-        changeTypeRaw: r.changeTypeRaw,
-        amount: r.amount == null ? null : Number(r.amount),
-        hours: r.hours == null ? null : Number(r.hours),
-        weekEnding: r.weekEnding, effectiveDate: r.effectiveDate,
-        isRetro: r.isRetro, action: r.action, supersedes: r.supersedes,
-        pairedWithRowKey: r.pairedWithRowKey, requestedBy: r.requestedBy,
-        approvedBy: r.approvedBy, category: r.category,
-        conversationId: r.conversationId, sourceMessageId: r.sourceMessageId,
-        sourceRef: r.sourceRef, sourceReceivedAt: r.sourceReceivedAt,
-        needsDecision: r.needsDecision, decisionQuestion: r.decisionQuestion,
-        decisionOwner: r.decisionOwner,
-        enteredZenople: r.enteredZenople, verifiedTs: r.verifiedTs,
-        verifiedPas: r.verifiedPas, documentationSaved: r.documentationSaved,
-        notes: r.notes,
-      }));
-
-      const merged = mergeSweep(swept, stored);
-      const now = new Date();
-      for (const row of merged.rows) {
-        await db.insert(schema.payrollChangesTable).values({
-          periodId: period.id, rowKey: row.rowKey,
-          customer: row.customer ?? null, employee: row.employee ?? null,
-          peopleCount: row.peopleCount ?? 1, route: row.route ?? null,
-          changeType: row.changeType, changeTypeRaw: row.changeTypeRaw ?? null,
-          amount: row.amount == null ? null : String(row.amount),
-          hours: row.hours == null ? null : String(row.hours),
-          weekEnding: row.weekEnding ?? null, effectiveDate: row.effectiveDate ?? null,
-          isRetro: row.isRetro ?? false, action: row.action,
-          supersedes: row.supersedes ?? null,
-          pairedWithRowKey: row.pairedWithRowKey ?? null,
-          requestedBy: row.requestedBy ?? null, approvedBy: row.approvedBy ?? null,
-          category: row.category ?? null, conversationId: row.conversationId ?? null,
-          sourceMessageId: row.sourceMessageId ?? null,
-          sourceRef: row.sourceRef ?? null,
-          sourceReceivedAt: row.sourceReceivedAt ?? null,
-          needsDecision: row.needsDecision ?? false,
-          decisionQuestion: row.decisionQuestion ?? null,
-          decisionOwner: row.decisionOwner ?? null,
-          enteredZenople: row.enteredZenople, verifiedTs: row.verifiedTs,
-          verifiedPas: row.verifiedPas, documentationSaved: row.documentationSaved,
-          notes: row.notes ?? null,
-          sweepState: row.sweepState ?? "unchanged", lastSweptAt: now,
-        }).onConflictDoUpdate({
-          target: [schema.payrollChangesTable.periodId, schema.payrollChangesTable.rowKey],
-          set: {
-            // Facts only. The four counts and notes are deliberately ABSENT —
-            // the merge already carried them, and listing them here would let a
-            // future edit re-introduce the clobber this design exists to stop.
-            customer: row.customer ?? null, employee: row.employee ?? null,
-            peopleCount: row.peopleCount ?? 1, route: row.route ?? null,
-            changeType: row.changeType, changeTypeRaw: row.changeTypeRaw ?? null,
-            amount: row.amount == null ? null : String(row.amount),
-            hours: row.hours == null ? null : String(row.hours),
-            weekEnding: row.weekEnding ?? null,
-            effectiveDate: row.effectiveDate ?? null,
-            isRetro: row.isRetro ?? false, action: row.action,
-            supersedes: row.supersedes ?? null,
-            pairedWithRowKey: row.pairedWithRowKey ?? null,
-            requestedBy: row.requestedBy ?? null, approvedBy: row.approvedBy ?? null,
-            category: row.category ?? null,
-            // Provenance is a fact too. These were insert-only once, which
-            // meant a re-sweep could never backfill the email link onto a row
-            // that predates it — and the Create-PDF flow lives on that link.
-            // (The merge carried the stored values when a sweep omits them,
-            // so writing the merged row here cannot blank anything.)
-            conversationId: row.conversationId ?? null,
-            sourceMessageId: row.sourceMessageId ?? null,
-            sourceRef: row.sourceRef ?? null,
-            sourceReceivedAt: row.sourceReceivedAt ?? null,
-            needsDecision: row.needsDecision ?? false,
-            decisionQuestion: row.decisionQuestion ?? null,
-            decisionOwner: row.decisionOwner ?? null,
-            sweepState: row.sweepState ?? "unchanged",
-            lastSweptAt: now, updatedAt: now,
-          },
-        });
+      const result = await persistChanges(period.id, swept, {
+        guardEmpty: body.more !== true,
+      });
+      if ("refused" in result) {
+        res.status(409).json({ error: result.refused, applied: false });
+        return;
       }
       out["changes"] = {
-        created: merged.created, changed: merged.changed,
-        carried: merged.carried, report: merged.report.slice(0, 50),
+        created: result.created, changed: result.changed,
+        carried: result.carried, report: result.report.slice(0, 50),
       };
     }
 
     if (body.sources?.length) {
-      for (const s of body.sources) {
-        await db.insert(schema.payrollChangeSourcesTable).values({
-          periodId: period.id, messageId: s.messageId,
-          conversationId: s.conversationId ?? null, subject: s.subject ?? null,
-          sender: s.sender ?? null,
-          receivedAt: s.receivedAt ? new Date(s.receivedAt) : null,
-          categories: s.categories ?? null,
-          attachmentNames: s.attachmentNames ?? null,
-          drivesRowKeys: s.drivesRowKeys ?? null,
-        }).onConflictDoUpdate({
-          target: [schema.payrollChangeSourcesTable.periodId,
-                   schema.payrollChangeSourcesTable.messageId],
-          set: { drivesRowKeys: s.drivesRowKeys ?? null, seenAt: new Date() },
-        });
-      }
-      out["sources"] = body.sources.length;
+      out["sources"] = await persistSources(period.id, body.sources);
     }
 
     res.json({ ok: true, ...out });

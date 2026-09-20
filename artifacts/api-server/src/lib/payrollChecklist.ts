@@ -192,9 +192,87 @@ export const OFF_CYCLE_STEP_KEYS: ReadonlySet<string> = new Set([
   "all_documentation_saved",
 ]);
 
-export const PAYROLL_TILE_KEYS = [
+/**
+ * The STAGES of the payroll week, in the workbook's own vocabulary.
+ *
+ * ⚠️ THESE ARE NOT TILE KEYS, AND THEY ARE NOT THE REGISTRY'S. The board
+ * registry in `tiles.ts` also exports a `PAYROLL_TILE_KEYS`; that one is the
+ * set of grantable boards (`payroll_master`, `payroll_hours`, …). This one is
+ * the set of stages a checklist step belongs to. Two different things under
+ * one name is exactly how the bug below shipped, so this is named for what it
+ * is. Translate with `STAGE_TO_BOARD` — never compare a stage to a tile key.
+ */
+export const PAYROLL_STAGE_KEYS = [
   "payroll_run", "templates", "hours_intake", "master_import", "driver_ot",
   "batches", "fringe", "payroll_batch", "taxes_aptm", "expert_pay",
   "rates_terms", "changes",
 ] as const;
-export type PayrollTileKey = (typeof PAYROLL_TILE_KEYS)[number];
+export type PayrollStageKey = (typeof PAYROLL_STAGE_KEYS)[number];
+
+/**
+ * Which board shows a stage's steps.
+ *
+ * ⚠️⚠️ THE BUG THIS EXISTS TO KILL. The four `<PayrollSection>` boards
+ * (Templates, Master Import, Rates & Terms, Holiday) filtered the checklist
+ * with `step.tile === "payroll_master"` while the seeds said `master_import`.
+ * Nothing matched, so all four boards rendered "No checklist steps belong to
+ * this tile" from the day they shipped — which is most of what "the level of
+ * detail is not done" looked like on screen. The two vocabularies were never
+ * connected and nothing tested the join; `payrollChecklistTiles.test.ts` does
+ * now.
+ *
+ * The mapping is deliberately many-to-one. The workbook names more stages than
+ * there are boards, and that is correct — the workbook is the richer document.
+ *
+ *  - `batches` (transaction batches, Tuesday) → Hours Intake, which is where
+ *    the per-customer open/closed batch counts already are.
+ *  - `driver_ot` → `timesheets`, the driver worksheet. Driver calculations and
+ *    the driver file happen there, not on a payroll board, and `driver_ot` was
+ *    never a tile in the registry at all.
+ *  - `payroll_run` → the Payroll Process spine.
+ */
+export const STAGE_TO_BOARD: Readonly<Record<PayrollStageKey, string>> = {
+  payroll_run: "payroll_process",
+  templates: "payroll_templates",
+  hours_intake: "payroll_hours",
+  master_import: "payroll_master",
+  driver_ot: "timesheets",
+  batches: "payroll_hours",
+  fringe: "payroll_fringe",
+  payroll_batch: "payroll_batch",
+  taxes_aptm: "payroll_taxes",
+  expert_pay: "payroll_expert_pay",
+  rates_terms: "payroll_rates",
+  changes: "payroll_changes",
+};
+
+/**
+ * The spine. It shows EVERY step, not one stage's worth, so it is never
+ * filtered by `boardTile` and never expects steps to be routed to it.
+ * `payroll_run` exists as a stage for completeness; no seed uses it today.
+ */
+export const SPINE_BOARD = "payroll_process";
+
+/**
+ * Boards that legitimately own no checklist step.
+ *
+ * Holiday pay is driven by a holiday date, not by the weekly run; off-cycle is
+ * a different entity entirely; housing notes arrive from the Housing app. They
+ * are listed so the test can tell "has no steps on purpose" from "its steps
+ * stopped matching", which is the failure that went unseen before.
+ */
+export const BOARDS_WITHOUT_STEPS: ReadonlySet<string> = new Set([
+  "payroll_holiday", "payroll_off_cycle", "payroll_housing_notes",
+]);
+
+/**
+ * The board a step belongs on, or null if its stage is unknown or absent.
+ *
+ * Takes `string | null` because `payroll_steps.tile` is a nullable column: a
+ * row seeded before a stage existed, or one deactivated after a rename, must
+ * answer "no board" rather than throw on the checklist's hottest path.
+ */
+export function boardForStage(stage: string | null | undefined): string | null {
+  if (!stage) return null;
+  return STAGE_TO_BOARD[stage as PayrollStageKey] ?? null;
+}

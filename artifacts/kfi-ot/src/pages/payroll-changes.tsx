@@ -67,6 +67,30 @@ type Payload = {
   };
 };
 
+type SweepRun = {
+  id: number;
+  status: "queued" | "running" | "ok" | "failed" | "skipped";
+  trigger: "nightly" | "manual";
+  triggeredBy: string | null;
+  claimedAt: string;
+  finishedAt: string | null;
+  skippedReason: string | null;
+  errMsg: string | null;
+  counts: { posted?: number; queued?: number; classified?: number };
+};
+
+type SweepLatest = { run: SweepRun | null; pendingProposals: number };
+
+type Proposal = {
+  id: number;
+  payDate: string;
+  employee: string | null;
+  customer: string | null;
+  action: string | null;
+  reason: string;
+  detail: string | null;
+};
+
 const base = import.meta.env.BASE_URL;
 
 const FIELDS = [
@@ -187,6 +211,8 @@ export default function PayrollChanges() {
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [sweep, setSweep] = useState<SweepLatest | null>(null);
+  const [proposals, setProposals] = useState<Proposal[] | null>(null);
   // Rows whose detail drawer is open. The board leads with the terse label;
   // the full instruction, supersedes, pairing and provenance live one press
   // away — fewer words on the face, nothing lost.
@@ -230,6 +256,75 @@ export default function PayrollChanges() {
       loading.current = false;
     }
   }, [payDate]);
+
+  /** Sweep status is decoration: the board must render fine without it. */
+  const loadSweep = useCallback(async () => {
+    try {
+      const r = await guardedFetch(`${base}api/payroll-run/changes/sweep/latest`);
+      if (!r.ok) return;
+      setSweep((await r.json()) as SweepLatest);
+    } catch {
+      /* ignored on purpose — a missing status must never blank the board */
+    }
+  }, []);
+
+  const loadProposals = useCallback(async () => {
+    try {
+      const r = await guardedFetch(`${base}api/payroll-run/changes/proposals`);
+      if (!r.ok) throw new Error(`proposals ${r.status}`);
+      setProposals(((await r.json()) as { proposals: Proposal[] }).proposals);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not load the review list");
+    }
+  }, []);
+
+  /**
+   * Start a sweep. Returns as soon as the server has taken the job — it reads
+   * a mailbox and calls a model, which takes minutes. Progress arrives through
+   * the status poll, never by holding this request open.
+   */
+  const startSweep = useCallback(async () => {
+    setBusy("sweep");
+    setError(null);
+    try {
+      const r = await guardedFetch(`${base}api/payroll-run/changes/sweep`, { method: "POST" });
+      if (!r.ok) throw new Error(`sweep ${r.status}`);
+      await loadSweep();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not start the sweep");
+    } finally {
+      setBusy(null);
+    }
+  }, [loadSweep]);
+
+  const decide = useCallback(async (id: number, decision: "accepted" | "rejected") => {
+    setBusy(`proposal${id}`);
+    try {
+      const r = await guardedFetch(`${base}api/payroll-run/changes/proposals/${id}/decide`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `decide ${r.status}`);
+      setProposals((prev) => prev?.filter((x) => x.id !== id) ?? null);
+      await Promise.all([loadSweep(), load()]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not record that decision");
+    } finally {
+      setBusy(null);
+    }
+  }, [loadSweep, load]);
+
+  useEffect(() => { void loadSweep(); }, [loadSweep]);
+
+  // While a sweep is running, follow it — and refresh the board itself, since
+  // rows land as it goes. Stops on its own when the run reaches a verdict.
+  useEffect(() => {
+    const live = sweep?.run?.status;
+    if (live !== "running" && live !== "queued") return;
+    const t = setInterval(() => { void loadSweep(); void load(); }, 10_000);
+    return () => clearInterval(t);
+  }, [sweep?.run?.status, loadSweep, load]);
 
   useEffect(() => {
     summaryTries.current = 0; // a new period starts its own backoff
@@ -395,6 +490,16 @@ export default function PayrollChanges() {
             </p>
           </div>
           <div className="flex items-end gap-2">
+            <button type="button"
+              disabled={busy === "sweep"
+                || sweep?.run?.status === "queued" || sweep?.run?.status === "running"}
+              onClick={() => void startSweep()}
+              title="Read the payroll mailbox since the last sweep and stage what it finds. Runs on its own every night."
+              className="press h-9 rounded border border-brand-navy/25 bg-white px-3 text-label font-semibold text-brand-navy shadow-rest disabled:opacity-50">
+              {sweep?.run?.status === "running" ? "Sweeping…"
+                : sweep?.run?.status === "queued" ? "Queued…"
+                : "Run sweep"}
+            </button>
             <button type="button" disabled={busy === "pdfrun" || selectedCount === 0}
               onClick={() => void runPdfs()}
               title={selectedCount === 0
@@ -430,6 +535,71 @@ export default function PayrollChanges() {
             <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-brand-navy align-middle" aria-hidden />
             Updated by the latest sweep — {c.newSinceLastSweep} new, {c.changedSinceLastSweep} revised.
           </p>
+        )}
+
+        {sweep?.run && (
+          <p className="text-label text-neutral-500">
+            {sweep.run.status === "queued"
+              && "Queued — waiting for the mail reader. It starts as soon as that machine is awake, and nothing is lost in the meantime."}
+            {sweep.run.status === "running" && "Reading the payroll mailbox…"}
+            {sweep.run.status === "ok" && (
+              <>
+                Last swept {new Date(sweep.run.finishedAt ?? sweep.run.claimedAt).toLocaleString()}
+                {sweep.run.trigger === "nightly" ? " (overnight)" : ""} —{" "}
+                {sweep.run.counts?.posted ?? 0} staged.
+              </>
+            )}
+            {sweep.run.status === "skipped" && `Sweep stood down — ${sweep.run.skippedReason ?? "already running"}.`}
+            {sweep.run.status === "failed" && (
+              <span className="text-bad">
+                The last sweep failed — {sweep.run.errMsg ?? "no reason recorded"}. The board is unchanged.
+              </span>
+            )}
+          </p>
+        )}
+
+        {(sweep?.pendingProposals ?? 0) > 0 && (
+          <div className="rounded-card bg-white p-4 shadow-rest ring-1 ring-brand-orange/25">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-body font-semibold text-brand-navy">
+                {sweep!.pendingProposals} row{sweep!.pendingProposals === 1 ? "" : "s"} the sweep would not post on its own
+              </p>
+              <button type="button"
+                onClick={() => (proposals ? setProposals(null) : void loadProposals())}
+                className="press text-label font-semibold text-brand-navy underline-offset-2 hover:underline">
+                {proposals ? "Hide" : "Review"}
+              </button>
+            </div>
+            <p className="mt-1 text-label text-neutral-500">
+              Either a figure could not be found in the source email, or posting it would change a row
+              somebody has already verified.
+            </p>
+            {proposals && (
+              <ul className="mt-3 space-y-2">
+                {proposals.map((p) => (
+                  <li key={p.id} className="rounded border border-neutral-200 p-3">
+                    <p className="text-label font-semibold text-brand-navy">
+                      {p.employee ?? "—"}{p.customer ? ` · ${p.customer}` : ""} · PD {p.payDate}
+                    </p>
+                    <p className="mt-0.5 text-body text-neutral-700">{p.action ?? "(no instruction)"}</p>
+                    <p className="mt-0.5 text-label text-brand-orange">{p.detail ?? p.reason}</p>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" disabled={busy === `proposal${p.id}`}
+                        onClick={() => void decide(p.id, "accepted")}
+                        className="press h-8 rounded bg-brand-navy px-3 text-label font-semibold text-white disabled:opacity-50">
+                        Put on the board
+                      </button>
+                      <button type="button" disabled={busy === `proposal${p.id}`}
+                        onClick={() => void decide(p.id, "rejected")}
+                        className="press h-8 rounded border border-neutral-300 px-3 text-label font-semibold text-neutral-600 disabled:opacity-50">
+                        Dismiss
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
 
         {!data ? (

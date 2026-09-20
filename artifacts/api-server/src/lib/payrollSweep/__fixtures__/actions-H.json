@@ -1,0 +1,6 @@
+[
+ {"ref":"h-arroyo-0915","payDate":"2026-09-25","customer":"AT Owatonna","employee":"David Arroyo","changeType":"MN ESST","hours":10,"weekEnding":"2026-09-19","effectiveDate":"2026-09-15","requestedBy":"Ruby Lunar","src":"A16","needsDecision":true,
+  "decisionQuestion":"Ruby (9/15 evening): David out sick Tue 9/15, asks to use 10 hrs MN-ESST. No 'Approved' from Kait in payroll@ as of 9/16. Approve for the 9/25 check?",
+  "decisionOwner":"Kait Rogstad",
+  "action":"DECISION — 10.00 hrs MN-ESST for Tue 9/15 pending Kait's approval; enter on the 09.25 run once approved."}
+]

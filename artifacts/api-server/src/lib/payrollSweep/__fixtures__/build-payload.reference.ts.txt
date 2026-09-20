@@ -1,0 +1,166 @@
+/**
+ * build-payload.ts — turn my classified actions (actions.json + sources.json) into
+ * chunked machine-bridge payloads, one set per payDate, using the APP'S OWN helpers so
+ * re-sweeps merge instead of duplicating.
+ *
+ *   npx tsx payroll/build-payload.ts <dir>      (run from the repo root)
+ *
+ * Reads  <dir>/actions.json, <dir>/sources.json
+ * Writes <dir>/payload-<payDate>-<n>.json  (+ summary to stdout)
+ */
+import { readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { rowKeyFor } from "/Users/bhubele/projects/KFI-Driver-OT-Worksheet/artifacts/api-server/src/lib/payrollChangeMerge.ts";
+import {
+  CHANGE_TYPES, CHANGE_ROUTES, normalizeChangeType, routeForChangeType, seedFromCategory,
+} from "/Users/bhubele/projects/KFI-Driver-OT-Worksheet/artifacts/api-server/src/lib/payrollChangeTypes.ts";
+import { isValidPayDate, periodDatesFor } from "/Users/bhubele/projects/KFI-Driver-OT-Worksheet/artifacts/api-server/src/lib/payrollPeriod.ts";
+
+type Action = {
+  ref: string; payDate: string;
+  customer?: string | null; employee?: string | null; peopleCount?: number;
+  changeType: string; route?: string | null;
+  amount?: number | null; hours?: number | null;
+  weekEnding?: string | null; effectiveDate?: string | null; isRetro?: boolean;
+  action: string; supersedes?: string | null; pairedWith?: string | null;
+  requestedBy?: string | null; approvedBy?: string | null; category?: string | null;
+  conversationId?: string | null; sourceMessageId?: string | null; sourceRef?: string | null;
+  sourceReceivedAt?: string | null;
+  needsDecision?: boolean; decisionQuestion?: string | null; decisionOwner?: string | null;
+  keySuffix?: string | null; allowOther?: boolean;
+  /** thread key (threads/<src>.md) — provenance is filled from its header */
+  src?: string | null; sourcePeriod?: string | null;
+};
+type Source = {
+  messageId: string; conversationId?: string; subject?: string; sender?: string;
+  receivedAt?: string; categories?: string[]; attachmentNames?: string[]; drivesRefs?: string[];
+};
+
+const dir = process.argv[2];
+if (!dir) { console.error("usage: build-payload.ts <dir>"); process.exit(2); }
+const actions: Action[] = JSON.parse(readFileSync(`${dir}/actions.json`, "utf8"));
+const sources: Source[] = JSON.parse(readFileSync(`${dir}/sources.json`, "utf8"));
+const CHUNK = 50;
+// ---- provenance from saved thread headers (threads/<key>.md) ----
+import { existsSync } from "node:fs";
+const THREADS = process.env.THREADS ?? "/private/tmp/claude-501/-Users-bhubele/1331c7c1-d0ea-4772-b76b-5950ee673607/scratchpad/threads";
+type Hdr = Record<string, string>;
+const hdrCache = new Map<string, Hdr>();
+function header(key: string): Hdr {
+  if (hdrCache.has(key)) return hdrCache.get(key)!;
+  const f = `${THREADS}/${key}.md`;
+  if (!existsSync(f)) throw new Error(`thread ${key} not on disk (${f})`);
+  const h: Hdr = {};
+  for (const line of readFileSync(f, "utf8").split("\n")) {
+    if (line === "---") break;
+    const m = /^([A-Za-z]+): ?(.*)$/.exec(line); if (m) h[m[1]] = m[2];
+  }
+  if (!h.messageId || !h.conversationId) throw new Error(`thread ${key}: header missing ids`);
+  hdrCache.set(key, h); return h;
+}
+const autoSources = new Map<string, Source>();
+for (const a of actions) {
+  if (!a.src) continue;
+  const h = header(a.src);
+  a.conversationId ??= h.conversationId; a.sourceMessageId ??= h.messageId;
+  a.sourceReceivedAt ??= h.received; a.sourceRef ??= h.subject;
+  if (a.category === undefined) { const c = (h.categories ?? "").split(";").map((x) => x.trim()).filter(Boolean); a.category = c[0] ?? null; }
+  const srcRow = autoSources.get(h.messageId) ?? {
+    messageId: h.messageId, conversationId: h.conversationId, subject: h.subject, sender: (h.from ?? "").replace(/^.*<([^>]+)>.*$/, "$1") || h.from,
+    receivedAt: h.received, categories: (h.categories ?? "").split(";").map((x) => x.trim()).filter(Boolean),
+    attachmentNames: (h.attachments ?? "").split(";").map((x) => x.trim()).filter((x) => x && x !== "none"), drivesRefs: [],
+  };
+  srcRow.drivesRefs!.push(a.ref); autoSources.set(h.messageId, srcRow);
+}
+for (const s of autoSources.values()) sources.push(s);
+const problems: string[] = [];
+const refs = new Set<string>();
+for (const a of actions) {
+  if (refs.has(a.ref)) problems.push(`duplicate ref ${a.ref}`);
+  refs.add(a.ref);
+}
+
+const rowKeyOf = (a: Action, ct: string) => {
+  const we = a.keySuffix ? `${a.weekEnding ?? ""}#${a.keySuffix}` : (a.weekEnding ?? null);
+  return rowKeyFor({ conversationId: a.conversationId ?? null, employee: a.employee ?? null, changeType: ct as any, weekEnding: we });
+};
+
+// pass 1: canonicalise + keys (so pairing can resolve)
+const built = actions.map((a) => {
+  const ct = normalizeChangeType(a.changeType);
+  if (ct === "Other" && !a.allowOther) problems.push(`${a.ref}: changeType "${a.changeType}" → Other`);
+  const route = a.route ?? routeForChangeType(ct) ?? seedFromCategory(a.category)?.route ?? null;
+  if (route && !(CHANGE_ROUTES as readonly string[]).includes(route)) problems.push(`${a.ref}: bad route ${route}`);
+  if (!route) problems.push(`${a.ref}: NO ROUTE (${ct})`);
+  if (!a.action?.trim()) problems.push(`${a.ref}: empty action`);
+  if (!isValidPayDate(a.payDate)) problems.push(`${a.ref}: invalid payDate ${a.payDate}`);
+  if (a.amount != null && (typeof a.amount !== "number" || !Number.isFinite(a.amount))) problems.push(`${a.ref}: amount not numeric`);
+  if (a.amount != null && a.amount > 0 && a.amount < 40 && /rate/i.test(ct)) problems.push(`${a.ref}: amount ${a.amount} looks like a RATE on a rate change`);
+  if (a.hours != null && typeof a.hours !== "number") problems.push(`${a.ref}: hours not numeric`);
+  if (a.sourceReceivedAt && Number.isNaN(Date.parse(a.sourceReceivedAt))) problems.push(`${a.ref}: sourceReceivedAt not ISO`);
+  if (!a.sourceMessageId) problems.push(`${a.ref}: no sourceMessageId`);
+  if (!a.conversationId) problems.push(`${a.ref}: no conversationId`);
+  if (a.weekEnding && !/^\d{4}-\d{2}-\d{2}$/.test(a.weekEnding)) problems.push(`${a.ref}: weekEnding not YYYY-MM-DD`);
+  const ppe = periodDatesFor(a.payDate).ppeDate;
+  const isRetro = a.isRetro ?? (a.weekEnding ? a.weekEnding < ppe : false);
+  if (a.needsDecision && !a.decisionQuestion) problems.push(`${a.ref}: decision without question`);
+  return { a, ct, route, isRetro, rowKey: rowKeyOf(a, ct) };
+});
+const keyByRef = new Map(built.map((b) => [b.a.ref, b.rowKey]));
+// duplicate rowKeys inside a period collapse on the server — refuse
+const seen = new Map<string, string>();
+for (const b of built) {
+  const k = `${b.a.payDate}|${b.rowKey}`;
+  if (seen.has(k)) problems.push(`rowKey collision in ${b.a.payDate}: ${b.a.ref} vs ${seen.get(k)} (add keySuffix)`);
+  seen.set(k, b.a.ref);
+}
+for (const b of built) if (b.a.pairedWith && !keyByRef.has(b.a.pairedWith)) problems.push(`${b.a.ref}: pairedWith ${b.a.pairedWith} unknown`);
+for (const s of sources) for (const r of s.drivesRefs ?? []) if (!keyByRef.has(r)) problems.push(`source ${s.messageId.slice(-12)} drives unknown ref ${r}`);
+
+if (problems.length) { console.error("PROBLEMS:\n - " + problems.join("\n - ")); process.exit(1); }
+
+const byDate = new Map<string, typeof built>();
+for (const b of built) (byDate.get(b.a.payDate) ?? byDate.set(b.a.payDate, []).get(b.a.payDate)!).push(b);
+
+const summary: string[] = [];
+for (const [payDate, rows] of [...byDate.entries()].sort()) {
+  const changes = rows.map(({ a, ct, route, isRetro, rowKey }) => {
+    const row: Record<string, unknown> = {
+      rowKey, customer: a.customer ?? null, employee: a.employee ?? null,
+      peopleCount: a.peopleCount ?? 1, route, changeType: ct, changeTypeRaw: a.changeType,
+      amount: a.amount ?? null, hours: a.hours ?? null,
+      weekEnding: a.weekEnding ?? null, effectiveDate: a.effectiveDate ?? null, isRetro,
+      action: a.action, supersedes: a.supersedes ?? null,
+      pairedWithRowKey: a.pairedWith ? keyByRef.get(a.pairedWith) : null,
+      requestedBy: a.requestedBy ?? null, approvedBy: a.approvedBy ?? null,
+      category: a.category ?? null, conversationId: a.conversationId ?? null,
+      sourceMessageId: a.sourceMessageId ?? null, sourceRef: a.sourceRef ?? null,
+      sourceReceivedAt: a.sourceReceivedAt ?? null,
+    };
+    // needsDecision: only send the key when we mean it (server re-push semantics)
+    if (a.needsDecision) Object.assign(row, { needsDecision: true, decisionQuestion: a.decisionQuestion ?? null, decisionOwner: a.decisionOwner ?? null });
+    return row;
+  });
+  const refSet = new Set(rows.map((r) => r.a.ref));
+  const periodSources = sources
+    .filter((s) => (s.drivesRefs ?? []).some((r) => refSet.has(r)))
+    .map((s) => ({
+      messageId: s.messageId, conversationId: s.conversationId, subject: s.subject, sender: s.sender,
+      receivedAt: s.receivedAt, categories: s.categories ?? [], attachmentNames: s.attachmentNames ?? [],
+      drivesRowKeys: (s.drivesRefs ?? []).filter((r) => refSet.has(r)).map((r) => keyByRef.get(r)!),
+    }));
+  const chunks: unknown[][] = [];
+  for (let i = 0; i < changes.length; i += CHUNK) chunks.push(changes.slice(i, i + CHUNK));
+  chunks.forEach((chunk, i) => {
+    const last = i === chunks.length - 1;
+    const body: Record<string, unknown> = { payDate, kind: "changes", changes: chunk };
+    if (!last) body.more = true; else body.sources = periodSources;
+    writeFileSync(`${dir}/payload-${payDate}-${i + 1}.json`, JSON.stringify(body, null, 1));
+  });
+  const routes: Record<string, number> = {};
+  let decisions = 0, retro = 0;
+  for (const r of rows) { routes[r.route ?? "none"] = (routes[r.route ?? "none"] ?? 0) + 1; if (r.a.needsDecision) decisions++; if (r.isRetro) retro++; }
+  summary.push(`${payDate}: ${rows.length} rows in ${chunks.length} chunk(s) — ${JSON.stringify(routes)} decisions=${decisions} retro=${retro} sources=${periodSources.length}`);
+}
+console.log(summary.join("\n"));
+console.log(`taxonomy: ${CHANGE_TYPES.length} types`);
