@@ -22,6 +22,9 @@ import {
 } from "../lib/payrollOffCycle.js";
 import { zenopleConfigured } from "../lib/zenopleClient.js";
 import { ensurePayrollPeriod } from "../lib/payrollPeriodStore.js";
+import {
+  extractNoHours, noHoursEmailList, planDriverRemoval, type MasterRow,
+} from "../lib/payrollMasterImport.js";
 import { queueSweep } from "../lib/payrollSweep/macQueue.js";
 
 export const payrollRunRouter: IRouter = Router();
@@ -972,6 +975,90 @@ payrollRunRouter.post("/payroll-run/periods/:payDate/expert-pay/verify", require
   });
 
 /** Off-cycle runs recorded for a date, with their artifact checks. */
+/**
+ * Monday's master-import board.
+ *
+ * Two jobs that are done today by filtering a spreadsheet and deleting rows by
+ * hand: pulling out everyone who reported no hours, and planning the driver
+ * pay-unit removal. Both rules already lived in `payrollMasterImport.ts`,
+ * tested, with nothing calling them.
+ *
+ * ⚠️ THIS IS NOT TIE-OUT 2, AND IT MUST NOT PRETEND TO BE. What it reads is
+ * Zenople's own transaction rows, so comparing them BACK to Zenople would be
+ * tautological — it would print a green check that means nothing. Tie-out 2
+ * compares the file Tiana actually assembles against what Zenople holds, and
+ * that file reaches the app only when the bridge pushes it. Until then this
+ * board shows the work, not a verdict on it.
+ *
+ * ⚠️ NO EXTRA VENDOR CALL. It reuses `pullPeriod`, the same two pulls the
+ * tie-outs and the fringe board make, because the token allows a small number
+ * of requests an hour and three boards each opening their own would spend them
+ * on nothing.
+ */
+payrollRunRouter.get("/payroll-run/periods/:payDate/master-import", requireAuth,
+  requireTile("payroll_master"), async (req: Request, res: Response) => {
+    const payDate = String(req.params.payDate);
+    if (badPayDate(payDate, false, res)) return;
+    if (!zenopleConfigured()) {
+      res.status(503).json({ error: "not connected yet" });
+      return;
+    }
+
+    const pulled = await pullPeriod(payDate);
+
+    /*
+     * ⚠️ BLANK AND ZERO BOTH MEAN "NO HOURS" and the engine treats them alike,
+     * so `PayUnit` is passed through as-is rather than coerced to 0 here.
+     */
+    const master: MasterRow[] = pulled.items.map((i) => ({
+      customer: i.Organization ?? "(unknown)",
+      person: i.Person ?? String(i.PersonId ?? ""),
+      personId: i.PersonId ?? 0,
+      transactionCode: i.TransactionCode ?? "",
+      payUnit: i.PayUnit ?? null,
+      billUnit: i.BillUnit ?? null,
+      assignmentId: i.AssignmentId ?? null,
+    }));
+
+    const noHours = extractNoHours(master);
+    const askOperations = noHoursEmailList(noHours);
+
+    // The driver roster is Connecteam's, mirrored into `drivers`. A numeric
+    // kfi_id is the PersonId; anything else is not a Zenople person.
+    const driverRows = await db
+      .select({ kfiId: schema.driversTable.kfiId, name: schema.driversTable.name })
+      .from(schema.driversTable);
+    const driverIds = driverRows
+      .map((d) => Number(d.kfiId))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const nameById = new Map(driverRows.map((d) => [Number(d.kfiId), d.name]));
+
+    const removal = planDriverRemoval(master, driverIds);
+
+    res.json({
+      period: { payDate, accountingPeriod: pulled.accountingPeriod },
+      counts: {
+        rows: master.length,
+        people: new Set(master.map((r) => r.personId)).size,
+        noHours: noHours.length,
+        askOperations: askOperations.length,
+        drivers: driverIds.length,
+      },
+      noHours,
+      askOperations,
+      removal: {
+        ...removal,
+        // Names, not bare ids. "2004462" is not a person anyone recognises.
+        expectedUnmatched: removal.expectedUnmatched.map((e) => ({
+          ...e, name: nameById.get(e.personId) ?? null,
+        })),
+        unexpectedUnmatched: removal.unexpectedUnmatched.map((id) => ({
+          personId: id, name: nameById.get(id) ?? null,
+        })),
+      },
+    });
+  });
+
 payrollRunRouter.get("/payroll-run/off-cycle", requireAuth, requireTile("payroll_off_cycle"),
   async (_req: Request, res: Response) => {
     const rows = await db.select().from(schema.payrollPeriodsTable)
