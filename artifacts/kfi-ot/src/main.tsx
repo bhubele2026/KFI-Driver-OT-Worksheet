@@ -4,10 +4,17 @@ import App from "./App";
 import "./index.css";
 import "./i18n";
 import { startClickLog } from "./lib/click-log";
+import { setFetchImpl } from "@workspace/api-client-react";
+import { guardedFetch } from "./lib/session";
 
 // The owner's Activity view shows EVERY CLICK — one capture-phase listener,
 // batched, started before anything renders so no press is missed.
 startClickLog();
+
+// Every generated API hook goes through the same expired-session handling as
+// the hand-written fetches: an Easy Auth redirect drives the login once instead
+// of surfacing "Failed to fetch" on whichever board or dropdown was touched.
+setFetchImpl(guardedFetch);
 
 // Error tracking — prod bundles only, and only when a DSN was baked in at
 // build time (az acr build --build-arg VITE_SENTRY_DSN=...). Local dev and any

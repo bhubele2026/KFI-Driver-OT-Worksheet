@@ -283,6 +283,13 @@ export async function attachUserAndTiles(
       if (user) {
         a.user = user;
         a.tiles = await tilesForUser(user, a.isOwner === true);
+        // Password login used to stamp this on sign-in. Easy Auth identity
+        // must too, or every createdBy / updatedBy / lockedBy / audit actor
+        // the routes write from `req.session.userId` lands null — which is
+        // exactly what happened from the Entra swap (v89) until v115.
+        if (req.session && req.session.userId !== user.id) {
+          req.session.userId = user.id;
+        }
       }
     }
   } catch (err) {

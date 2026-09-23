@@ -17,6 +17,17 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _fetchImpl: typeof fetch | null = null;
+
+/**
+ * Route every generated call through a custom fetch (for example one that
+ * handles an expired sign-in by driving the login redirect instead of
+ * surfacing "Failed to fetch"). The function receives exactly what the
+ * global `fetch` would. Pass `null` to restore the global `fetch`.
+ */
+export function setFetchImpl(impl: typeof fetch | null): void {
+  _fetchImpl = impl;
+}
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -360,7 +371,8 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  const doFetch = _fetchImpl ?? fetch;
+  const response = await doFetch(input, { ...init, method, headers });
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);
