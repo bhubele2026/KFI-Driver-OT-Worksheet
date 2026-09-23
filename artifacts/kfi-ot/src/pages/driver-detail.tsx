@@ -287,6 +287,10 @@ export default function DriverDetail() {
   });
   const meRole = (me as { role?: string } | undefined)?.role;
   const canLock = !!me?.isAdmin || meRole === "supervisor";
+  // The payroll profile card (SSN, Zenople ids, pay/bill rates) opens to the
+  // same people who may lock, deactivate, tag and re-shift a driver. Admin is
+  // for user management and the system pages, not for a driver's record (v116).
+  const canEditProfile = canLock;
   const lockMutation = useLockDriverWeek();
   const unlockMutation = useUnlockDriverWeek();
   const resetDriverCustomerMut = useResetDriverCustomerPunches();
@@ -2985,10 +2989,10 @@ export default function DriverDetail() {
           </div>
         </div>
 
-        {/* Zenople pay & bill rates (admin-edit) */}
+        {/* Zenople pay & bill rates (supervisor-or-admin edit) */}
         <PayrollProfileCard
           kfiId={kfiId}
-          canEdit={!!me?.isAdmin}
+          canEdit={canEditProfile}
           weekStart={weekStart}
         />
         </main>

@@ -6,7 +6,7 @@ import {
   GetZenopleReadinessResponse,
 } from "@workspace/api-zod";
 import { db, schema } from "../lib/db.js";
-import { requireAuth, requireAdmin } from "../lib/auth.js";
+import { requireAuth, requireAdmin, requireSupervisorOrAdmin } from "../lib/auth.js";
 import { requireTile } from "../lib/entraAuth.js";
 import { sundayOf, weekEndOf } from "../lib/time.js";
 import { computeDriverTotals } from "../lib/hoursEngine.js";
@@ -171,7 +171,9 @@ router.get("/drivers/:kfiId/payroll-profile", requireAuth, async (req, res) => {
 
 router.patch(
   "/drivers/:kfiId/payroll-profile",
-  requireAdmin,
+  // Supervisors already create, deactivate, tag, re-shift and lock a driver;
+  // the payroll profile is part of that record, not a system setting (v116).
+  requireSupervisorOrAdmin,
   async (req, res) => {
     const kfiId = String(req.params.kfiId);
     const driver = await db.query.driversTable.findFirst({

@@ -638,7 +638,7 @@ paths:
     patch:
       operationId: updateDriverPayrollProfile
       tags: [drivers]
-      summary: Partially update the Zenople payroll profile for a driver (admin) — omitted fields are left untouched, explicit null clears
+      summary: Partially update the Zenople payroll profile for a driver (supervisor or admin) — omitted fields are left untouched, explicit null clears
       parameters:
         - $ref: "#/components/parameters/KfiId"
       requestBody:
@@ -653,7 +653,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/DriverPayrollProfile" }
         "400": { description: Invalid input }
-        "403": { description: Admin only }
+        "403": { description: Supervisor or admin only }
         "404": { description: Driver not found }
 
   /weeks/{weekStart}/zenople-readiness:
